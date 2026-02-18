@@ -68,19 +68,17 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 1 {
-		t.Errorf("SchemaVersion = %d, want 1", v)
+	if v != 2 {
+		t.Errorf("SchemaVersion = %d, want 2", v)
 	}
 
 	// Verify tables exist
-	var name string
-	err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='state'").Scan(&name)
-	if err != nil {
-		t.Fatal("state table not found:", err)
-	}
-	err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='sentinels'").Scan(&name)
-	if err != nil {
-		t.Fatal("sentinels table not found:", err)
+	for _, table := range []string{"state", "sentinels", "dispatches"} {
+		var name string
+		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
+		if err != nil {
+			t.Fatalf("%s table not found: %v", table, err)
+		}
 	}
 }
 
@@ -139,8 +137,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 1 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 1", v)
+	if v != 2 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 2", v)
 	}
 }
 
@@ -198,6 +196,66 @@ func TestHealth(t *testing.T) {
 	}
 	if err := d.Health(ctx); err != nil {
 		t.Errorf("Health after migration: %v", err)
+	}
+}
+
+func TestMigrate_V1ToV2(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Simulate a v1 database: apply only v1 DDL and set user_version=1
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (
+			key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL,
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER,
+			PRIMARY KEY (key, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS sentinels (
+			name TEXT NOT NULL, scope_id TEXT NOT NULL,
+			last_fired INTEGER NOT NULL DEFAULT (unixepoch()),
+			PRIMARY KEY (name, scope_id)
+		);
+		PRAGMA user_version = 1;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert some v1 data to verify preservation
+	_, err = d.db.Exec("INSERT INTO state (key, scope_id, payload) VALUES ('test', 's1', '{}')")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Migrate should upgrade to v2
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate v1→v2: %v", err)
+	}
+
+	// Verify version
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 2 {
+		t.Errorf("SchemaVersion = %d after v1→v2 migrate, want 2", v)
+	}
+
+	// Verify dispatches table exists
+	var name string
+	err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='dispatches'").Scan(&name)
+	if err != nil {
+		t.Fatal("dispatches table not created by v1→v2 migration:", err)
+	}
+
+	// Verify v1 data preserved
+	var payload string
+	err = d.db.QueryRow("SELECT payload FROM state WHERE key='test' AND scope_id='s1'").Scan(&payload)
+	if err != nil {
+		t.Fatal("v1 data lost during migration:", err)
+	}
+	if payload != "{}" {
+		t.Errorf("v1 payload = %q, want %q", payload, "{}")
 	}
 }
 

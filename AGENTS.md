@@ -2,7 +2,7 @@
 
 ## Overview
 
-intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provides atomic state operations and throttle guards callable from bash hooks. It replaces ~15 scattered temp files in `/tmp/` used by the Clavain hook infrastructure.
+intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provides atomic state operations, throttle guards, and agent dispatch tracking callable from bash hooks. It replaces ~15 scattered temp files in `/tmp/` used by the Clavain hook infrastructure.
 
 **Location:** `infra/intercore/` (infrastructure, not a plugin — hooks depend on it)
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
@@ -12,12 +12,16 @@ intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provide
 ```
 cmd/ic/main.go          CLI entry point, argument parsing, subcommand dispatch
 internal/db/db.go       SQLite connection, migration, health check
-internal/db/schema.sql  Embedded DDL (two tables: state, sentinels)
+internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches)
 internal/db/disk.go     Disk space check (Linux syscall)
 internal/state/         State CRUD with JSON validation and TTL
-internal/sentinel/      Atomic throttle guards with CTE+RETURNING
-lib-intercore.sh        Bash wrappers for hooks
-test-integration.sh     End-to-end integration test
+internal/sentinel/      Atomic throttle guards with UPDATE+RETURNING
+internal/dispatch/      Agent dispatch lifecycle: spawn, poll, collect, wait
+  dispatch.go           Store (CRUD), Dispatch struct, ID generation
+  spawn.go              Process spawning, dispatch.sh resolution, prompt hashing
+  collect.go            Liveness polling, verdict/summary parsing, wait loop
+lib-intercore.sh        Bash wrappers for hooks (v0.2.0)
+test-integration.sh     End-to-end integration test (~33 tests)
 ```
 
 ## CLI Commands
@@ -35,6 +39,13 @@ ic state get <key> <scope>                 Read JSON (exit 0=found, 1=not found)
 ic state delete <key> <scope>              Remove a state entry
 ic state list <key>                        List scope_ids for a key
 ic state prune                             Remove expired state entries
+ic dispatch spawn [flags]                  Spawn an agent dispatch (prints ID)
+ic dispatch status <id>                    Show dispatch details
+ic dispatch list [--active] [--scope=<s>]  List dispatches
+ic dispatch poll <id>                      Check liveness, update stats
+ic dispatch wait <id> [--timeout=<dur>]    Block until terminal or timeout
+ic dispatch kill <id>                      SIGTERM → SIGKILL a dispatch
+ic dispatch prune --older-than=<dur>       Remove old terminal dispatches
 ic compat status                           Show legacy temp file vs DB coverage
 ic compat check <key>                      Check if key has data in DB
 ```
@@ -54,6 +65,65 @@ ic compat check <key>                      Check if key has data in DB
 - `--timeout=<dur>` — SQLite busy timeout (default: 100ms)
 - `--verbose` — Verbose output
 - `--json` — JSON output
+
+## Dispatch Module
+
+The dispatch module tracks Codex agent lifecycle in the SQLite DB. Go owns the lifecycle tracking; `dispatch.sh` remains the execution engine.
+
+### Lifecycle
+
+```
+ic dispatch spawn  → INSERT (status=spawned) → fork dispatch.sh → UPDATE (status=running, pid)
+ic dispatch poll   → kill(pid,0) liveness → read state file → UPDATE stats
+ic dispatch wait   → poll loop → on timeout: SIGTERM/SIGKILL → status=timeout
+ic dispatch collect → read .verdict + .summary sidecars → UPDATE final results
+```
+
+### State Flow
+
+```
+spawned → running → completed | failed | timeout | cancelled
+```
+
+### dispatch.sh Resolution (spawn)
+
+1. `--dispatch-sh=<path>` flag
+2. `CLAVAIN_DISPATCH_SH` env var
+3. Walk up from CWD for `hub/clavain/scripts/dispatch.sh`
+4. Fallback: bare `codex exec` (no JSONL, no verdict)
+
+### Spawn Flags
+
+```
+--type=codex          Agent type (default: codex)
+--prompt-file=<path>  Required: prompt file path
+--project=<dir>       Required: working directory (default: CWD)
+--output=<path>       Output file path (auto-generated if omitted)
+--name=<label>        Human-readable label
+--model=<model>       Codex model
+--sandbox=<mode>      Sandbox mode (default: workspace-write)
+--timeout=<dur>       Agent timeout
+--scope-id=<id>       Grouping scope
+--parent-id=<id>      Parent dispatch ID (fan-out tracking)
+--dispatch-sh=<path>  Explicit dispatch.sh path
+```
+
+### Reparented Process Handling
+
+When `ic dispatch spawn` exits after forking, dispatch.sh gets reparented to init. Later `ic dispatch poll` can't `waitpid()` it, so liveness uses three convergent signals:
+- `kill(pid, 0)` returning ESRCH (process gone)
+- State file (`/tmp/clavain-dispatch-{pid}.json`) disappearing
+- `.verdict` and `.summary` sidecars appearing
+
+### Bash Wrappers (lib-intercore.sh)
+
+```bash
+intercore_dispatch_spawn <type> <project> <prompt_file> [output] [name]
+intercore_dispatch_status <id>
+intercore_dispatch_wait <id> [timeout]
+intercore_dispatch_list_active
+intercore_dispatch_kill <id>
+```
 
 ## Security
 
@@ -90,6 +160,8 @@ All payloads are validated before storage:
 | state set | Transaction (default) | Write with REPLACE |
 | state get | No transaction | Read-only |
 | sentinel check | Transaction (default) | Atomic claim + auto-prune |
+| dispatch create | No transaction | Single INSERT |
+| dispatch update | No transaction | Single UPDATE |
 | migrate | Transaction (default) | Schema DDL + version update |
 
 ### Migration Safety
@@ -100,9 +172,9 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (including concurrency + race detection)
+go test ./...                    # Unit tests (~35 tests across 4 packages)
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (19 tests)
+bash test-integration.sh         # Full CLI integration test (~33 tests)
 ```
 
 ## Recovery Procedures

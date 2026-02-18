@@ -12,6 +12,23 @@ go test -race ./...         # Run tests with race detector
 bash test-integration.sh    # Run integration tests (builds ic, creates temp DB)
 ```
 
+## Dispatch Quick Reference
+
+```bash
+# Spawn a codex agent
+ic dispatch spawn --prompt-file=<f> --project=<dir> --name=<label> --output=<path>
+
+# Check status / poll liveness / wait for completion
+ic dispatch status <id> --json
+ic dispatch poll <id>
+ic dispatch wait <id> --timeout=5m
+
+# List / kill / prune
+ic dispatch list --active
+ic dispatch kill <id>
+ic dispatch prune --older-than=24h
+```
+
 ## Claude-Specific Settings
 
 - Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)

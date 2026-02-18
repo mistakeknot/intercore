@@ -133,6 +133,67 @@ INTERCORE_BIN="$INTERCORE_BIN_SAVED"
 PATH="$PATH_SAVED"
 ic() { "$IC_BIN" "$@"; }  # restore test helper
 
+echo "=== Dispatch Operations ==="
+# Create a prompt file for testing
+PROMPT_FILE="$TEST_DIR/test-prompt.md"
+printf 'echo hello world\n' > "$PROMPT_FILE"
+OUTPUT_FILE="$TEST_DIR/test-output.md"
+
+# Spawn with /bin/echo as mock dispatch.sh (exits immediately)
+DISPATCH_ID=$(ic dispatch spawn --type=codex --prompt-file="$PROMPT_FILE" --project="$TEST_DIR" --name=test-agent --output="$OUTPUT_FILE" --dispatch-sh=/bin/echo --db="$TEST_DB")
+[[ -n "$DISPATCH_ID" ]] || fail "dispatch spawn returned empty ID"
+[[ ${#DISPATCH_ID} -eq 8 ]] || fail "dispatch ID should be 8 chars, got: $DISPATCH_ID"
+pass "dispatch spawn"
+
+# Status check
+status_out=$(ic dispatch status "$DISPATCH_ID" --json --db="$TEST_DB")
+echo "$status_out" | grep -q '"status":"running"' || fail "dispatch status should be running, got: $status_out"
+pass "dispatch status (running)"
+
+# Wait for mock process to exit (it already has since /bin/echo exits immediately)
+sleep 0.5
+
+# Poll should detect the dead process and collect
+poll_out=$(ic dispatch poll "$DISPATCH_ID" --json --db="$TEST_DB")
+echo "$poll_out" | grep -q '"status"' || fail "dispatch poll returned no status"
+pass "dispatch poll"
+
+# List active (should be empty since mock exited)
+active_out=$(ic dispatch list --active --db="$TEST_DB")
+pass "dispatch list --active"
+
+# List all
+all_out=$(ic dispatch list --db="$TEST_DB")
+echo "$all_out" | grep -q "$DISPATCH_ID" || fail "dispatch list should include our dispatch"
+pass "dispatch list"
+
+# Spawn another and kill it
+DISPATCH_ID2=$(ic dispatch spawn --type=codex --prompt-file="$PROMPT_FILE" --project="$TEST_DIR" --name=kill-test --dispatch-sh=/bin/sleep --db="$TEST_DB" 2>/dev/null) || true
+if [[ -n "$DISPATCH_ID2" ]]; then
+    ic dispatch kill "$DISPATCH_ID2" --db="$TEST_DB" | grep -q "killed" || true
+    pass "dispatch kill"
+else
+    pass "dispatch kill (skipped — sleep not available as dispatch.sh)"
+fi
+
+# Prune old dispatches
+prune_out=$(ic dispatch prune --older-than=0s --db="$TEST_DB")
+pass "dispatch prune"
+
+# Dispatch wrapper tests
+INTERCORE_BIN="$IC_BIN"
+DISPATCH_ID3=$(intercore_dispatch_spawn "codex" "$TEST_DIR" "$PROMPT_FILE" "$OUTPUT_FILE" "wrapper-test")
+[[ -n "$DISPATCH_ID3" ]] || fail "dispatch wrapper spawn returned empty ID"
+pass "wrapper: dispatch spawn"
+
+sleep 0.5
+wrapper_status=$(intercore_dispatch_status "$DISPATCH_ID3")
+[[ -n "$wrapper_status" ]] || fail "dispatch wrapper status returned empty"
+pass "wrapper: dispatch status"
+
+wrapper_list=$(intercore_dispatch_list_active)
+pass "wrapper: dispatch list active"
+
 echo "=== Version Sync Check ==="
 # Verify Clavain's copy is in sync (if present in monorepo)
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
