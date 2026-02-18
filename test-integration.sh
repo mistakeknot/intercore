@@ -93,5 +93,58 @@ echo "$output"
 echo "$output" | grep -q "dispatch" || fail "compat status missing dispatch"
 pass "compat status"
 
+echo "=== lib-intercore.sh Wrapper ==="
+# Source the library and test the wrapper with a real ic binary
+export INTERCORE_BIN="$IC_BIN"
+source "$SCRIPT_DIR/lib-intercore.sh"
+INTERCORE_BIN="$IC_BIN"  # force available
+
+# Test sentinel_check_or_legacy with ic available
+intercore_sentinel_check_or_legacy "wrapper_test" "test-session" 0 "/tmp/clavain-wrapper-test" && pass "wrapper: first check allowed" || fail "wrapper: first check should be allowed"
+intercore_sentinel_check_or_legacy "wrapper_test" "test-session" 0 "/tmp/clavain-wrapper-test" && fail "wrapper: second check should be throttled" || pass "wrapper: second check throttled"
+
+# Test reset
+intercore_sentinel_reset_or_legacy "wrapper_test" "test-session" "/tmp/clavain-wrapper-test"
+pass "wrapper: reset"
+
+# Verify sentinel was reset (next check should be allowed)
+intercore_sentinel_check_or_legacy "wrapper_test" "test-session" 0 "/tmp/clavain-wrapper-test" && pass "wrapper: check after reset allowed" || fail "wrapper: check after reset should be allowed"
+
+# Test cleanup
+intercore_cleanup_stale
+pass "wrapper: cleanup"
+
+echo "=== Legacy Fallback Path ==="
+# Test with ic unavailable (forces legacy temp-file path)
+# Must clear INTERCORE_BIN AND hide ic from PATH/functions so intercore_available returns 1
+INTERCORE_BIN_SAVED="$INTERCORE_BIN"
+PATH_SAVED="$PATH"
+INTERCORE_BIN=""
+PATH="/usr/bin:/bin"  # strip any dir containing ic
+unset -f ic 2>/dev/null || true  # remove test helper function so command -v ic fails
+rm -f /tmp/clavain-legacy-test
+
+intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "legacy: first check allowed" || fail "legacy: first check should be allowed"
+[[ -f "/tmp/clavain-legacy-test" ]] && pass "legacy: sentinel file created" || fail "legacy: sentinel file missing"
+intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && fail "legacy: second check should be throttled" || pass "legacy: second check throttled"
+
+rm -f /tmp/clavain-legacy-test
+INTERCORE_BIN="$INTERCORE_BIN_SAVED"
+PATH="$PATH_SAVED"
+ic() { "$IC_BIN" "$@"; }  # restore test helper
+
+echo "=== Version Sync Check ==="
+# Verify Clavain's copy is in sync (if present in monorepo)
+CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
+if [[ -f "$CLAVAIN_LIB" ]]; then
+    CLAVAIN_VER=$(grep '^INTERCORE_WRAPPER_VERSION=' "$CLAVAIN_LIB" | cut -d'"' -f2)
+    SOURCE_VER=$(grep '^INTERCORE_WRAPPER_VERSION=' "$SCRIPT_DIR/lib-intercore.sh" | cut -d'"' -f2)
+    if [[ "$CLAVAIN_VER" = "$SOURCE_VER" ]]; then
+        pass "version sync: source=$SOURCE_VER clavain=$CLAVAIN_VER"
+    else
+        fail "version sync: source=$SOURCE_VER != clavain=$CLAVAIN_VER (re-copy lib-intercore.sh)"
+    fi
+fi
+
 echo ""
 echo "All integration tests passed."
