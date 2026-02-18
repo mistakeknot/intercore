@@ -2,7 +2,7 @@
 
 ## Overview
 
-intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provides atomic state operations, throttle guards, and agent dispatch tracking callable from bash hooks. It replaces ~15 scattered temp files in `/tmp/` used by the Clavain hook infrastructure.
+intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provides atomic state operations, throttle guards, agent dispatch tracking, and phase lifecycle management callable from bash hooks. It replaces ~15 scattered temp files in `/tmp/` used by the Clavain hook infrastructure.
 
 **Location:** `infra/intercore/` (infrastructure, not a plugin — hooks depend on it)
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
@@ -12,7 +12,7 @@ intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provide
 ```
 cmd/ic/main.go          CLI entry point, argument parsing, subcommand dispatch
 internal/db/db.go       SQLite connection, migration, health check
-internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches)
+internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events)
 internal/db/disk.go     Disk space check (Linux syscall)
 internal/state/         State CRUD with JSON validation and TTL
 internal/sentinel/      Atomic throttle guards with UPDATE+RETURNING
@@ -20,8 +20,13 @@ internal/dispatch/      Agent dispatch lifecycle: spawn, poll, collect, wait
   dispatch.go           Store (CRUD), Dispatch struct, ID generation
   spawn.go              Process spawning, dispatch.sh resolution, prompt hashing
   collect.go            Liveness polling, verdict/summary parsing, wait loop
+internal/phase/         Phase state machine: run lifecycle with complexity-based skip
+  phase.go              Types, constants, transition table, skip logic
+  store.go              Run + PhaseEvent CRUD with optimistic concurrency
+  machine.go            Advance() with gate evaluation, auto_advance pause
+  errors.go             Error sentinels
 lib-intercore.sh        Bash wrappers for hooks (v0.2.0)
-test-integration.sh     End-to-end integration test (~33 tests)
+test-integration.sh     End-to-end integration test (~52 tests)
 ```
 
 ## CLI Commands
@@ -46,6 +51,14 @@ ic dispatch poll <id>                      Check liveness, update stats
 ic dispatch wait <id> [--timeout=<dur>]    Block until terminal or timeout
 ic dispatch kill <id>                      SIGTERM → SIGKILL a dispatch
 ic dispatch prune --older-than=<dur>       Remove old terminal dispatches
+ic run create --project=<dir> --goal=<text> [--complexity=N] [--scope-id=S]
+ic run status <id>                         Show run details
+ic run advance <id> [--priority=N] [--disable-gates] [--skip-reason=S]
+ic run phase <id>                          Print current phase (scripting)
+ic run list [--active] [--scope=S]         List runs
+ic run events <id>                         Phase event audit trail
+ic run cancel <id>                         Cancel a run
+ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool]
 ic compat status                           Show legacy temp file vs DB coverage
 ic compat check <key>                      Check if key has data in DB
 ```
@@ -125,6 +138,50 @@ intercore_dispatch_list_active
 intercore_dispatch_kill <id>
 ```
 
+## Phase Module
+
+The phase module implements a run lifecycle state machine ported from `lib-sprint.sh` + `lib-gates.sh`. intercore owns phase transitions instead of relying on LLM prompt instructions.
+
+### Phase Chain
+
+```
+brainstorm → brainstorm-reviewed → strategized → planned → executing → review → polish → done
+```
+
+### Complexity-Based Skip
+
+| Complexity | Phases | Skipped |
+|-----------|--------|---------|
+| 1 (trivial) | brainstorm → planned → executing → done | brainstorm-reviewed, strategized, review, polish |
+| 2 (small) | brainstorm → brainstorm-reviewed → planned → executing → done | strategized, review, polish |
+| 3-5 (full) | All 8 phases | None |
+
+`--force-full` overrides complexity and walks every phase.
+
+### Gate Tiers
+
+| Priority | Tier | Behavior |
+|----------|------|----------|
+| 0-1 | Hard | Block advance if gate fails |
+| 2-3 | Soft | Warn but allow advance |
+| 4+ | None | Skip gate evaluation |
+
+Gates always pass in v1 (stub). Real gate logic (artifact presence, review checks) is deferred to Phase 2 (iv-qfg8).
+
+### Optimistic Concurrency
+
+`UpdatePhase` uses `WHERE phase = ?` with the expected current phase. If another process already advanced the run, 0 rows are affected → `ErrStalePhase`. This prevents two concurrent `ic run advance` invocations from double-advancing.
+
+### Deployment: Schema Upgrade
+
+When rebuilding after schema changes, follow the 3-step sequence:
+```bash
+go build -o /home/mk/go/bin/ic ./cmd/ic   # Rebuild (schema is //go:embed'd)
+ic init                                     # Migrate live DB (creates backup)
+ic version                                  # Verify schema version
+```
+See `docs/solutions/patterns/intercore-schema-upgrade-deployment-20260218.md` for details.
+
 ## Security
 
 ### Path Traversal Protection
@@ -172,9 +229,9 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~35 tests across 4 packages)
+go test ./...                    # Unit tests (~75 tests across 5 packages)
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (~33 tests)
+bash test-integration.sh         # Full CLI integration test (~52 tests)
 ```
 
 ## Recovery Procedures

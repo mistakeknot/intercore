@@ -29,6 +29,22 @@ ic dispatch kill <id>
 ic dispatch prune --older-than=24h
 ```
 
+## Run Quick Reference
+
+```bash
+# Create and advance a run
+ic run create --project=. --goal="Implement feature X" --complexity=3
+ic run advance <id>              # Advance to next phase
+ic run phase <id>                # Print current phase
+
+# Manage runs
+ic run status <id> --json        # Full details
+ic run list --active             # Active runs
+ic run events <id>               # Audit trail
+ic run cancel <id>               # Cancel
+ic run set <id> --complexity=1   # Adjust settings
+```
+
 ## Claude-Specific Settings
 
 - Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)
