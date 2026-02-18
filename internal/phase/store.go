@@ -253,6 +253,44 @@ func (s *Store) Events(ctx context.Context, runID string) ([]*PhaseEvent, error)
 	return events, rows.Err()
 }
 
+// Current returns the most recent active run for a project directory.
+// Multiple active runs per project are allowed; this returns the newest.
+// Returns ErrNotFound if no active run exists.
+func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
+	r := &Run{}
+	var (
+		completedAt sql.NullInt64
+		scopeID     sql.NullString
+		metadata    sql.NullString
+		forceFull   int
+		autoAdvance int
+	)
+
+	err := s.db.QueryRowContext(ctx, `
+		SELECT `+runCols+` FROM runs
+		WHERE status = 'active' AND project_dir = ?
+		ORDER BY created_at DESC, rowid DESC LIMIT 1`, projectDir).Scan(
+		&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
+		&r.Complexity, &forceFull, &autoAdvance,
+		&r.CreatedAt, &r.UpdatedAt,
+		&completedAt, &scopeID, &metadata,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("run current: %w", err)
+	}
+
+	r.ForceFull = forceFull != 0
+	r.AutoAdvance = autoAdvance != 0
+	r.CompletedAt = nullInt64(completedAt)
+	r.ScopeID = nullStr(scopeID)
+	r.Metadata = nullStr(metadata)
+
+	return r, nil
+}
+
 // --- helpers ---
 
 const runCols = `id, project_dir, goal, status, phase, complexity,

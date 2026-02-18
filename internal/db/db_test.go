@@ -68,12 +68,12 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 3 {
-		t.Errorf("SchemaVersion = %d, want 3", v)
+	if v != 4 {
+		t.Errorf("SchemaVersion = %d, want 4", v)
 	}
 
 	// Verify tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -137,8 +137,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 3 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 3", v)
+	if v != 4 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 4", v)
 	}
 }
 
@@ -227,9 +227,9 @@ func TestMigrate_V1ToV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Migrate should upgrade to v3
+	// Migrate should upgrade to v4
 	if err := d.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate v1→v3: %v", err)
+		t.Fatalf("Migrate v1→v4: %v", err)
 	}
 
 	// Verify version
@@ -237,8 +237,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 3 {
-		t.Errorf("SchemaVersion = %d after v1→v3 migrate, want 3", v)
+	if v != 4 {
+		t.Errorf("SchemaVersion = %d after v1→v4 migrate, want 4", v)
 	}
 
 	// Verify dispatches table exists
@@ -306,9 +306,9 @@ func TestMigrate_V2ToV3(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Migrate should upgrade to v3
+	// Migrate should upgrade to v4
 	if err := d.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate v2→v3: %v", err)
+		t.Fatalf("Migrate v2→v4: %v", err)
 	}
 
 	// Verify version
@@ -316,16 +316,16 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 3 {
-		t.Errorf("SchemaVersion = %d after v2→v3 migrate, want 3", v)
+	if v != 4 {
+		t.Errorf("SchemaVersion = %d after v2→v4 migrate, want 4", v)
 	}
 
-	// Verify runs + phase_events tables exist
-	for _, table := range []string{"runs", "phase_events"} {
+	// Verify runs + phase_events + v4 tables exist
+	for _, table := range []string{"runs", "phase_events", "run_agents", "run_artifacts"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
-			t.Fatalf("%s table not created by v2→v3 migration: %v", table, err)
+			t.Fatalf("%s table not created by v2→v4 migration: %v", table, err)
 		}
 	}
 
@@ -337,6 +337,119 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	}
 	if agentType != "codex" {
 		t.Errorf("v2 agent_type = %q, want %q", agentType, "codex")
+	}
+}
+
+func TestMigrate_V3ToV4(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Simulate a v3 database: apply v1+v2+v3 DDL and set user_version=3
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (
+			key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL,
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER,
+			PRIMARY KEY (key, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS sentinels (
+			name TEXT NOT NULL, scope_id TEXT NOT NULL,
+			last_fired INTEGER NOT NULL DEFAULT (unixepoch()),
+			PRIMARY KEY (name, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS dispatches (
+			id TEXT NOT NULL PRIMARY KEY, agent_type TEXT NOT NULL DEFAULT 'codex',
+			status TEXT NOT NULL DEFAULT 'spawned', project_dir TEXT NOT NULL,
+			prompt_file TEXT, prompt_hash TEXT, output_file TEXT, verdict_file TEXT,
+			pid INTEGER, exit_code INTEGER, name TEXT, model TEXT,
+			sandbox TEXT DEFAULT 'workspace-write', timeout_sec INTEGER,
+			turns INTEGER DEFAULT 0, commands INTEGER DEFAULT 0, messages INTEGER DEFAULT 0,
+			input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			started_at INTEGER, completed_at INTEGER,
+			verdict_status TEXT, verdict_summary TEXT, error_message TEXT,
+			scope_id TEXT, parent_id TEXT
+		);
+		CREATE TABLE IF NOT EXISTS runs (
+			id TEXT NOT NULL PRIMARY KEY, project_dir TEXT NOT NULL,
+			goal TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+			phase TEXT NOT NULL DEFAULT 'brainstorm', complexity INTEGER NOT NULL DEFAULT 3,
+			force_full INTEGER NOT NULL DEFAULT 0, auto_advance INTEGER NOT NULL DEFAULT 1,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			completed_at INTEGER, scope_id TEXT, metadata TEXT
+		);
+		CREATE TABLE IF NOT EXISTS phase_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id TEXT NOT NULL REFERENCES runs(id),
+			from_phase TEXT NOT NULL, to_phase TEXT NOT NULL,
+			event_type TEXT NOT NULL DEFAULT 'advance',
+			gate_result TEXT, gate_tier TEXT, reason TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		PRAGMA user_version = 3;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert v3 data to verify preservation
+	_, err = d.db.Exec("INSERT INTO runs (id, project_dir, goal) VALUES ('testrun1', '/tmp/proj', 'Test goal')")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Migrate should upgrade to v4
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate v3→v4: %v", err)
+	}
+
+	// Verify version
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 4 {
+		t.Errorf("SchemaVersion = %d after v3→v4 migrate, want 4", v)
+	}
+
+	// Verify new tables exist
+	for _, table := range []string{"run_agents", "run_artifacts"} {
+		var name string
+		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
+		if err != nil {
+			t.Fatalf("%s table not created by v3→v4 migration: %v", table, err)
+		}
+	}
+
+	// Verify new tables are usable (can insert)
+	_, err = d.db.Exec("SELECT 1 FROM run_agents LIMIT 0")
+	if err != nil {
+		t.Fatalf("run_agents not queryable: %v", err)
+	}
+	_, err = d.db.Exec("SELECT 1 FROM run_artifacts LIMIT 0")
+	if err != nil {
+		t.Fatalf("run_artifacts not queryable: %v", err)
+	}
+
+	// Verify v3 data preserved
+	var goal string
+	err = d.db.QueryRow("SELECT goal FROM runs WHERE id='testrun1'").Scan(&goal)
+	if err != nil {
+		t.Fatal("v3 run data lost during migration:", err)
+	}
+	if goal != "Test goal" {
+		t.Errorf("v3 goal = %q, want %q", goal, "Test goal")
+	}
+}
+
+func TestOpen_ForeignKeysEnabled(t *testing.T) {
+	d, _ := tempDB(t)
+	var fk int
+	if err := d.db.QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatal(err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys = %d, want 1", fk)
 	}
 }
 

@@ -36,6 +36,7 @@ ic dispatch prune --older-than=24h
 ic run create --project=. --goal="Implement feature X" --complexity=3
 ic run advance <id>              # Advance to next phase
 ic run phase <id>                # Print current phase
+ic run current --project=.       # Print active run ID for project
 
 # Manage runs
 ic run status <id> --json        # Full details
@@ -43,6 +44,13 @@ ic run list --active             # Active runs
 ic run events <id>               # Audit trail
 ic run cancel <id>               # Cancel
 ic run set <id> --complexity=1   # Adjust settings
+
+# Track agents and artifacts within a run
+ic run agent add <run> --type=claude --name=brainstorm-agent
+ic run agent list <run>
+ic run agent update <id> --status=completed
+ic run artifact add <run> --phase=brainstorm --path=docs/brainstorms/x.md
+ic run artifact list <run> --phase=brainstorm
 ```
 
 ## Claude-Specific Settings

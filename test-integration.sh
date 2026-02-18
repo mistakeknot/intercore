@@ -274,6 +274,127 @@ pass "run advance cancelled run rejected"
 ic run cancel "$CANCEL_RUN" --db="$TEST_DB" 2>/dev/null && fail "cancel cancelled should fail" || true
 pass "run cancel already cancelled rejected"
 
+echo "=== Run Current ==="
+# ic run current should find the active run (RUN_ID is still active from above)
+current_id=$(ic run current --project="$TEST_DIR" --db="$TEST_DB")
+[[ "$current_id" == "$RUN_ID" ]] || fail "run current should return $RUN_ID, got: $current_id"
+pass "run current (found active run)"
+
+# JSON mode
+current_json=$(ic run current --project="$TEST_DIR" --json --db="$TEST_DB")
+echo "$current_json" | grep -q '"found":true' || fail "run current --json should have found=true"
+echo "$current_json" | grep -q "\"id\":\"$RUN_ID\"" || fail "run current --json should have correct id"
+pass "run current --json"
+
+# No active run for a different project
+ic run current --project="/tmp/no-such-project" --db="$TEST_DB" 2>/dev/null && fail "run current should fail for unknown project" || true
+pass "run current (no active run)"
+
+# JSON mode for not-found
+notfound_json=$(ic run current --project="/tmp/no-such-project" --json --db="$TEST_DB" 2>/dev/null) || true
+echo "$notfound_json" | grep -q '"found":false' || fail "run current --json not-found should have found=false"
+pass "run current --json (not found)"
+
+# Wrapper test
+current_wrapper=$(intercore_run_current "$TEST_DIR")
+[[ "$current_wrapper" == "$RUN_ID" ]] || fail "wrapper run current should return $RUN_ID, got: $current_wrapper"
+pass "wrapper: run current"
+
+# Wrapper phase test
+phase_wrapper=$(intercore_run_phase "$RUN_ID")
+[[ "$phase_wrapper" == "strategized" ]] || fail "wrapper run phase should return strategized, got: $phase_wrapper"
+pass "wrapper: run phase"
+
+echo "=== Run Agents ==="
+# Add an agent to the active run
+AGENT_ID=$(ic run agent add "$RUN_ID" --type=claude --name=brainstorm-agent --db="$TEST_DB")
+[[ -n "$AGENT_ID" ]] || fail "run agent add returned empty ID"
+[[ ${#AGENT_ID} -eq 8 ]] || fail "agent ID should be 8 chars, got: $AGENT_ID"
+pass "run agent add"
+
+# Add a second agent with dispatch-id
+AGENT_ID2=$(ic run agent add "$RUN_ID" --type=codex --name=review-agent --dispatch-id=disp123 --db="$TEST_DB")
+[[ -n "$AGENT_ID2" ]] || fail "run agent add (with dispatch-id) returned empty ID"
+pass "run agent add (with dispatch-id)"
+
+# List agents
+agent_list=$(ic run agent list "$RUN_ID" --db="$TEST_DB")
+echo "$agent_list" | grep -q "$AGENT_ID" || fail "agent list should include first agent"
+echo "$agent_list" | grep -q "$AGENT_ID2" || fail "agent list should include second agent"
+agent_count=$(echo "$agent_list" | wc -l)
+[[ $agent_count -eq 2 ]] || fail "agent list should have 2 agents, got: $agent_count"
+pass "run agent list"
+
+# JSON list
+agent_json=$(ic run agent list "$RUN_ID" --json --db="$TEST_DB")
+echo "$agent_json" | grep -q '"agent_type":"claude"' || fail "agent list JSON should include claude agent"
+echo "$agent_json" | grep -q '"agent_type":"codex"' || fail "agent list JSON should include codex agent"
+pass "run agent list --json"
+
+# Update agent status
+ic run agent update "$AGENT_ID" --status=completed --db="$TEST_DB" | grep -q "updated" || fail "run agent update"
+pass "run agent update"
+
+# Verify update via JSON list
+updated_json=$(ic run agent list "$RUN_ID" --json --db="$TEST_DB")
+echo "$updated_json" | grep -q '"status":"completed"' || fail "updated agent should have status=completed"
+pass "run agent update verified"
+
+# Invalid status should fail
+ic run agent update "$AGENT_ID" --status=bogus --db="$TEST_DB" 2>/dev/null && fail "invalid status should fail" || true
+pass "run agent update (invalid status rejected)"
+
+# Add agent to non-existent run should fail (FK enforcement)
+ic run agent add "nonexist" --type=claude --db="$TEST_DB" 2>/dev/null && fail "agent add to non-existent run should fail" || true
+pass "run agent add (FK violation rejected)"
+
+# Wrapper test
+AGENT_ID3=$(intercore_run_agent_add "$RUN_ID" "claude" "wrapper-agent" "")
+[[ -n "$AGENT_ID3" ]] || fail "wrapper run agent add returned empty ID"
+pass "wrapper: run agent add"
+
+echo "=== Run Artifacts ==="
+# Add an artifact
+ARTIFACT_ID=$(ic run artifact add "$RUN_ID" --phase=brainstorm --path=docs/brainstorms/test.md --db="$TEST_DB")
+[[ -n "$ARTIFACT_ID" ]] || fail "run artifact add returned empty ID"
+[[ ${#ARTIFACT_ID} -eq 8 ]] || fail "artifact ID should be 8 chars, got: $ARTIFACT_ID"
+pass "run artifact add"
+
+# Add a second artifact in a different phase
+ARTIFACT_ID2=$(ic run artifact add "$RUN_ID" --phase=planned --path=docs/plans/test-plan.md --type=plan --db="$TEST_DB")
+[[ -n "$ARTIFACT_ID2" ]] || fail "run artifact add (planned) returned empty ID"
+pass "run artifact add (different phase)"
+
+# List all artifacts
+artifact_list=$(ic run artifact list "$RUN_ID" --db="$TEST_DB")
+echo "$artifact_list" | grep -q "$ARTIFACT_ID" || fail "artifact list should include first artifact"
+echo "$artifact_list" | grep -q "$ARTIFACT_ID2" || fail "artifact list should include second artifact"
+artifact_count=$(echo "$artifact_list" | wc -l)
+[[ $artifact_count -eq 2 ]] || fail "artifact list should have 2 artifacts, got: $artifact_count"
+pass "run artifact list"
+
+# Filter by phase
+planned_list=$(ic run artifact list "$RUN_ID" --phase=planned --db="$TEST_DB")
+planned_count=$(echo "$planned_list" | wc -l)
+[[ $planned_count -eq 1 ]] || fail "artifact list --phase=planned should have 1, got: $planned_count"
+echo "$planned_list" | grep -q "test-plan.md" || fail "planned artifact should be test-plan.md"
+pass "run artifact list --phase"
+
+# JSON list
+artifact_json=$(ic run artifact list "$RUN_ID" --json --db="$TEST_DB")
+echo "$artifact_json" | grep -q '"phase":"brainstorm"' || fail "artifact list JSON should include brainstorm artifact"
+echo "$artifact_json" | grep -q '"phase":"planned"' || fail "artifact list JSON should include planned artifact"
+pass "run artifact list --json"
+
+# Add artifact to non-existent run should fail (FK enforcement)
+ic run artifact add "nonexist" --phase=brainstorm --path=x.md --db="$TEST_DB" 2>/dev/null && fail "artifact add to non-existent run should fail" || true
+pass "run artifact add (FK violation rejected)"
+
+# Wrapper test
+ARTIFACT_ID3=$(intercore_run_artifact_add "$RUN_ID" "strategized" "docs/prds/test.md" "file")
+[[ -n "$ARTIFACT_ID3" ]] || fail "wrapper run artifact add returned empty ID"
+pass "wrapper: run artifact add"
+
 echo "=== Version Sync Check ==="
 # Verify Clavain's copy is in sync (if present in monorepo)
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"

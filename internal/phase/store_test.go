@@ -348,6 +348,95 @@ func TestStore_Events_Empty(t *testing.T) {
 	}
 }
 
+func TestStore_Current(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/myproject", Goal: "test goal", Complexity: 3, AutoAdvance: true,
+	})
+
+	got, err := store.Current(ctx, "/tmp/myproject")
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	if got.ID != id {
+		t.Errorf("Current ID = %q, want %q", got.ID, id)
+	}
+	if got.Goal != "test goal" {
+		t.Errorf("Goal = %q, want %q", got.Goal, "test goal")
+	}
+}
+
+func TestStore_Current_NoActiveRun(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	_, err := store.Current(ctx, "/tmp/noproject")
+	if err != ErrNotFound {
+		t.Errorf("Current(noproject) error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestStore_Current_MostRecent(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	// Create two active runs for the same project.
+	// Insert directly with explicit timestamps to guarantee ordering,
+	// since Create() uses time.Now().Unix() which has second resolution.
+	db := store.db
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO runs (id, project_dir, goal, status, phase, complexity,
+			force_full, auto_advance, created_at, updated_at)
+		VALUES ('run_old', '/tmp/multi', 'first', 'active', 'brainstorm', 3, 0, 1, 1000, 1000)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO runs (id, project_dir, goal, status, phase, complexity,
+			force_full, auto_advance, created_at, updated_at)
+		VALUES ('run_new', '/tmp/multi', 'second', 'active', 'brainstorm', 3, 0, 1, 2000, 2000)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Current(ctx, "/tmp/multi")
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	// Should return the most recent (run_new has created_at=2000)
+	if got.ID != "run_new" {
+		t.Errorf("Current ID = %q, want %q (most recent)", got.ID, "run_new")
+	}
+	if got.Goal != "second" {
+		t.Errorf("Goal = %q, want %q", got.Goal, "second")
+	}
+}
+
+func TestStore_Current_IgnoresCancelled(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id1, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/cancelled", Goal: "first", Complexity: 3, AutoAdvance: true,
+	})
+	id2, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/cancelled", Goal: "second", Complexity: 3, AutoAdvance: true,
+	})
+	// Cancel the newest one
+	store.UpdateStatus(ctx, id2, StatusCancelled)
+
+	got, err := store.Current(ctx, "/tmp/cancelled")
+	if err != nil {
+		t.Fatalf("Current: %v", err)
+	}
+	// Should return the first (only active one)
+	if got.ID != id1 {
+		t.Errorf("Current ID = %q, want %q (only active)", got.ID, id1)
+	}
+}
+
 // Ensure the internal helpers work correctly with the underlying SQL types.
 func TestNullHelpers(t *testing.T) {
 	if got := nullStr(sql.NullString{Valid: false}); got != nil {

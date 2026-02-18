@@ -18,8 +18,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 3
-	maxSchemaVersion     = 3
+	currentSchemaVersion = 4
+	maxSchemaVersion     = 4
 )
 
 var (
@@ -63,6 +63,10 @@ func Open(path string, busyTimeout time.Duration) (*DB, error) {
 	if _, err := sqlDB.Exec("PRAGMA journal_mode = WAL"); err != nil {
 		sqlDB.Close()
 		return nil, fmt.Errorf("open: set WAL: %w", err)
+	}
+	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		sqlDB.Close()
+		return nil, fmt.Errorf("open: set foreign_keys: %w", err)
 	}
 
 	// Centralized schema version check on every Open

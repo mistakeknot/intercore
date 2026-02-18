@@ -83,3 +83,28 @@ CREATE TABLE IF NOT EXISTS phase_events (
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_phase_events_run ON phase_events(run_id);
+
+-- v4: run tracking (agents + artifacts)
+CREATE TABLE IF NOT EXISTS run_agents (
+    id          TEXT NOT NULL PRIMARY KEY,
+    run_id      TEXT NOT NULL REFERENCES runs(id),
+    agent_type  TEXT NOT NULL DEFAULT 'claude',
+    name        TEXT,
+    status      TEXT NOT NULL DEFAULT 'active',
+    dispatch_id TEXT,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_run_agents_run ON run_agents(run_id);
+CREATE INDEX IF NOT EXISTS idx_run_agents_status ON run_agents(status) WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS run_artifacts (
+    id          TEXT NOT NULL PRIMARY KEY,
+    run_id      TEXT NOT NULL REFERENCES runs(id),
+    phase       TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    type        TEXT NOT NULL DEFAULT 'file',
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);
+CREATE INDEX IF NOT EXISTS idx_run_artifacts_phase ON run_artifacts(run_id, phase);

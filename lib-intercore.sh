@@ -6,7 +6,7 @@
 # Source in hooks: source "$(dirname "$0")/lib-intercore.sh"
 # shellcheck shell=bash
 
-INTERCORE_WRAPPER_VERSION="0.2.0"
+INTERCORE_WRAPPER_VERSION="0.3.0"
 
 # Shared sentinel for Stop hook anti-cascade protocol.
 # All Stop hooks MUST check this sentinel before doing work to prevent
@@ -223,4 +223,53 @@ intercore_dispatch_kill() {
     local id="$1"
     if ! intercore_available; then return 0; fi
     "$INTERCORE_BIN" dispatch kill "$id" >/dev/null 2>&1 || true
+}
+
+# --- Run wrappers ---
+
+# intercore_run_current — Get the active run ID for a project.
+# Args: $1=project_dir (optional, defaults to CWD)
+# Prints: run ID to stdout
+# Returns: 0 if found, 1 if no active run or ic unavailable
+intercore_run_current() {
+    local project="${1:-$(pwd)}"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" run current --project="$project" 2>/dev/null
+}
+
+# intercore_run_phase — Get the current phase of a run.
+# Args: $1=run_id
+# Prints: phase name to stdout
+# Returns: 0 on success, 1 on failure
+intercore_run_phase() {
+    local id="$1"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" run phase "$id" 2>/dev/null
+}
+
+# intercore_run_agent_add — Add an agent to a run.
+# Args: $1=run_id, $2=agent_type, $3=name (optional), $4=dispatch_id (optional)
+# Prints: agent ID to stdout
+# Returns: 0 on success, 1 on failure
+intercore_run_agent_add() {
+    local run_id="$1" agent_type="$2" name="${3:-}" dispatch_id="${4:-}"
+    if ! intercore_available; then return 1; fi
+    local args=(run agent add "$run_id" --type="$agent_type")
+    if [[ -n "$name" ]]; then
+        args+=(--name="$name")
+    fi
+    if [[ -n "$dispatch_id" ]]; then
+        args+=(--dispatch-id="$dispatch_id")
+    fi
+    "$INTERCORE_BIN" "${args[@]}" 2>/dev/null
+}
+
+# intercore_run_artifact_add — Add an artifact to a run.
+# Args: $1=run_id, $2=phase, $3=path, $4=type (optional, defaults to 'file')
+# Prints: artifact ID to stdout
+# Returns: 0 on success, 1 on failure
+intercore_run_artifact_add() {
+    local run_id="$1" artifact_phase="$2" artifact_path="$3" artifact_type="${4:-file}"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" run artifact add "$run_id" --phase="$artifact_phase" --path="$artifact_path" --type="$artifact_type" 2>/dev/null
 }

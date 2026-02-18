@@ -10,9 +10,11 @@ intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provide
 ## Architecture
 
 ```
-cmd/ic/main.go          CLI entry point, argument parsing, subcommand dispatch
+cmd/ic/main.go          CLI entry point, argument parsing, shared helpers
+cmd/ic/dispatch.go      Dispatch subcommands (spawn, status, list, poll, wait, kill, prune)
+cmd/ic/run.go           Run subcommands (create, status, advance, phase, current, agent, artifact)
 internal/db/db.go       SQLite connection, migration, health check
-internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events)
+internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, run_agents, run_artifacts)
 internal/db/disk.go     Disk space check (Linux syscall)
 internal/state/         State CRUD with JSON validation and TTL
 internal/sentinel/      Atomic throttle guards with UPDATE+RETURNING
@@ -22,11 +24,15 @@ internal/dispatch/      Agent dispatch lifecycle: spawn, poll, collect, wait
   collect.go            Liveness polling, verdict/summary parsing, wait loop
 internal/phase/         Phase state machine: run lifecycle with complexity-based skip
   phase.go              Types, constants, transition table, skip logic
-  store.go              Run + PhaseEvent CRUD with optimistic concurrency
+  store.go              Run + PhaseEvent CRUD with optimistic concurrency, Current()
   machine.go            Advance() with gate evaluation, auto_advance pause
   errors.go             Error sentinels
-lib-intercore.sh        Bash wrappers for hooks (v0.2.0)
-test-integration.sh     End-to-end integration test (~52 tests)
+internal/runtrack/      Agent and artifact tracking within runs
+  runtrack.go           Agent/Artifact types, status constants
+  store.go              CRUD for run_agents and run_artifacts
+  errors.go             Error sentinels (ErrAgentNotFound, ErrArtifactNotFound)
+lib-intercore.sh        Bash wrappers for hooks (v0.3.0)
+test-integration.sh     End-to-end integration test (~70 tests)
 ```
 
 ## CLI Commands
@@ -58,7 +64,13 @@ ic run phase <id>                          Print current phase (scripting)
 ic run list [--active] [--scope=S]         List runs
 ic run events <id>                         Phase event audit trail
 ic run cancel <id>                         Cancel a run
+ic run current [--project=<dir>]            Print active run ID for project (exit 0=found, 1=none)
 ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool]
+ic run agent add <run> --type=<t> [--name=<n>] [--dispatch-id=<id>]
+ic run agent list <run>                    List agents for a run
+ic run agent update <id> --status=<s>      Update agent status (active|completed|failed)
+ic run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
+ic run artifact list <run> [--phase=<p>]   List artifacts for a run
 ic compat status                           Show legacy temp file vs DB coverage
 ic compat check <key>                      Check if key has data in DB
 ```
@@ -136,6 +148,36 @@ intercore_dispatch_status <id>
 intercore_dispatch_wait <id> [timeout]
 intercore_dispatch_list_active
 intercore_dispatch_kill <id>
+```
+
+## Run Tracking Module
+
+The run tracking module (schema v4) adds agent and artifact tracking within runs. Agents represent individual AI agents working on a run phase; artifacts represent files produced during a run.
+
+### Tables
+
+- `run_agents` — tracks agents within a run (FK: `run_id → runs.id`)
+- `run_artifacts` — tracks files produced during a run (FK: `run_id → runs.id`)
+
+Foreign keys are enforced (`PRAGMA foreign_keys = ON` set in `db.Open()`).
+
+### Agent Status Flow
+
+```
+active → completed | failed
+```
+
+### ic run current
+
+Returns the most recent active run for a project directory. If multiple active runs exist for the same project, returns the one with the latest `created_at`. JSON mode returns `{"found": true/false, ...}`.
+
+### Bash Wrappers (lib-intercore.sh)
+
+```bash
+intercore_run_current [project_dir]                        # Print active run ID (exit 0=found, 1=none)
+intercore_run_phase <run_id>                               # Print current phase
+intercore_run_agent_add <run_id> <type> [name] [dispatch_id]  # Add agent, print ID
+intercore_run_artifact_add <run_id> <phase> <path> [type]  # Add artifact, print ID
 ```
 
 ## Phase Module
@@ -229,9 +271,9 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~75 tests across 5 packages)
+go test ./...                    # Unit tests (~90 tests across 6 packages)
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (~52 tests)
+bash test-integration.sh         # Full CLI integration test (~70 tests)
 ```
 
 ## Recovery Procedures
