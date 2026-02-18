@@ -68,12 +68,12 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 2 {
-		t.Errorf("SchemaVersion = %d, want 2", v)
+	if v != 3 {
+		t.Errorf("SchemaVersion = %d, want 3", v)
 	}
 
 	// Verify tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -137,8 +137,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 2 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 2", v)
+	if v != 3 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 3", v)
 	}
 }
 
@@ -227,9 +227,9 @@ func TestMigrate_V1ToV2(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Migrate should upgrade to v2
+	// Migrate should upgrade to v3
 	if err := d.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate v1→v2: %v", err)
+		t.Fatalf("Migrate v1→v3: %v", err)
 	}
 
 	// Verify version
@@ -237,15 +237,21 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 2 {
-		t.Errorf("SchemaVersion = %d after v1→v2 migrate, want 2", v)
+	if v != 3 {
+		t.Errorf("SchemaVersion = %d after v1→v3 migrate, want 3", v)
 	}
 
 	// Verify dispatches table exists
 	var name string
 	err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='dispatches'").Scan(&name)
 	if err != nil {
-		t.Fatal("dispatches table not created by v1→v2 migration:", err)
+		t.Fatal("dispatches table not created by migration:", err)
+	}
+
+	// Verify runs table exists
+	err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name='runs'").Scan(&name)
+	if err != nil {
+		t.Fatal("runs table not created by migration:", err)
 	}
 
 	// Verify v1 data preserved
@@ -256,6 +262,81 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	}
 	if payload != "{}" {
 		t.Errorf("v1 payload = %q, want %q", payload, "{}")
+	}
+}
+
+func TestMigrate_V2ToV3(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Simulate a v2 database: apply v1+v2 DDL and set user_version=2
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (
+			key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL,
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER,
+			PRIMARY KEY (key, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS sentinels (
+			name TEXT NOT NULL, scope_id TEXT NOT NULL,
+			last_fired INTEGER NOT NULL DEFAULT (unixepoch()),
+			PRIMARY KEY (name, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS dispatches (
+			id TEXT NOT NULL PRIMARY KEY, agent_type TEXT NOT NULL DEFAULT 'codex',
+			status TEXT NOT NULL DEFAULT 'spawned', project_dir TEXT NOT NULL,
+			prompt_file TEXT, prompt_hash TEXT, output_file TEXT, verdict_file TEXT,
+			pid INTEGER, exit_code INTEGER, name TEXT, model TEXT,
+			sandbox TEXT DEFAULT 'workspace-write', timeout_sec INTEGER,
+			turns INTEGER DEFAULT 0, commands INTEGER DEFAULT 0, messages INTEGER DEFAULT 0,
+			input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			started_at INTEGER, completed_at INTEGER,
+			verdict_status TEXT, verdict_summary TEXT, error_message TEXT,
+			scope_id TEXT, parent_id TEXT
+		);
+		PRAGMA user_version = 2;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert v2 data to verify preservation
+	_, err = d.db.Exec("INSERT INTO dispatches (id, agent_type, project_dir) VALUES ('test123', 'codex', '/tmp')")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Migrate should upgrade to v3
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate v2→v3: %v", err)
+	}
+
+	// Verify version
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 3 {
+		t.Errorf("SchemaVersion = %d after v2→v3 migrate, want 3", v)
+	}
+
+	// Verify runs + phase_events tables exist
+	for _, table := range []string{"runs", "phase_events"} {
+		var name string
+		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
+		if err != nil {
+			t.Fatalf("%s table not created by v2→v3 migration: %v", table, err)
+		}
+	}
+
+	// Verify v2 data preserved
+	var agentType string
+	err = d.db.QueryRow("SELECT agent_type FROM dispatches WHERE id='test123'").Scan(&agentType)
+	if err != nil {
+		t.Fatal("v2 dispatch data lost during migration:", err)
+	}
+	if agentType != "codex" {
+		t.Errorf("v2 agent_type = %q, want %q", agentType, "codex")
 	}
 }
 

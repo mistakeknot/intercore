@@ -194,6 +194,86 @@ pass "wrapper: dispatch status"
 wrapper_list=$(intercore_dispatch_list_active)
 pass "wrapper: dispatch list active"
 
+echo "=== Run Operations ==="
+# Create a run
+RUN_ID=$(ic run create --project="$TEST_DIR" --goal="Integration test run" --complexity=3 --db="$TEST_DB")
+[[ -n "$RUN_ID" ]] || fail "run create returned empty ID"
+[[ ${#RUN_ID} -eq 8 ]] || fail "run ID should be 8 chars, got: $RUN_ID"
+pass "run create"
+
+# Check phase (should be brainstorm)
+run_phase=$(ic run phase "$RUN_ID" --db="$TEST_DB")
+[[ "$run_phase" == "brainstorm" ]] || fail "initial phase should be brainstorm, got: $run_phase"
+pass "run phase (brainstorm)"
+
+# Status check
+status_out=$(ic run status "$RUN_ID" --db="$TEST_DB")
+echo "$status_out" | grep -q "brainstorm" || fail "run status should show brainstorm"
+pass "run status"
+
+# Advance: brainstorm → brainstorm-reviewed
+advance_out=$(ic run advance "$RUN_ID" --db="$TEST_DB")
+echo "$advance_out" | grep -q "brainstorm-reviewed" || fail "advance should go to brainstorm-reviewed, got: $advance_out"
+pass "run advance (brainstorm → brainstorm-reviewed)"
+
+# Advance: brainstorm-reviewed → strategized
+advance_out=$(ic run advance "$RUN_ID" --db="$TEST_DB")
+echo "$advance_out" | grep -q "strategized" || fail "advance should go to strategized, got: $advance_out"
+pass "run advance (brainstorm-reviewed → strategized)"
+
+# Events audit trail
+events_out=$(ic run events "$RUN_ID" --db="$TEST_DB")
+event_count=$(echo "$events_out" | wc -l)
+[[ $event_count -ge 2 ]] || fail "should have at least 2 events, got: $event_count"
+pass "run events"
+
+# List runs
+list_out=$(ic run list --db="$TEST_DB")
+echo "$list_out" | grep -q "$RUN_ID" || fail "run list should include our run"
+pass "run list"
+
+# List active runs
+list_active=$(ic run list --active --db="$TEST_DB")
+echo "$list_active" | grep -q "$RUN_ID" || fail "run list --active should include our run"
+pass "run list --active"
+
+# Set complexity
+ic run set "$RUN_ID" --complexity=1 --db="$TEST_DB" | grep -q "updated" || fail "run set"
+pass "run set"
+
+# JSON output
+json_out=$(ic run status "$RUN_ID" --json --db="$TEST_DB")
+echo "$json_out" | grep -q '"complexity":1' || fail "JSON should show complexity=1, got: $json_out"
+pass "run status --json"
+
+# Create a complexity-1 run and advance through full lifecycle
+FAST_RUN=$(ic run create --project="$TEST_DIR" --goal="Fast run" --complexity=1 --db="$TEST_DB")
+ic run advance "$FAST_RUN" --db="$TEST_DB" >/dev/null  # brainstorm → planned
+ic run advance "$FAST_RUN" --db="$TEST_DB" >/dev/null  # planned → executing
+ic run advance "$FAST_RUN" --db="$TEST_DB" >/dev/null  # executing → done
+fast_phase=$(ic run phase "$FAST_RUN" --db="$TEST_DB")
+[[ "$fast_phase" == "done" ]] || fail "complexity-1 run should reach done, got: $fast_phase"
+fast_status=$(ic run status "$FAST_RUN" --json --db="$TEST_DB")
+echo "$fast_status" | grep -q '"status":"completed"' || fail "completed run should have status=completed"
+pass "run full lifecycle (complexity 1)"
+
+# Advance past done should fail
+ic run advance "$FAST_RUN" --db="$TEST_DB" 2>/dev/null && fail "advance past done should fail" || true
+pass "run advance past done rejected"
+
+# Cancel a run
+CANCEL_RUN=$(ic run create --project="$TEST_DIR" --goal="Cancel test" --db="$TEST_DB")
+ic run cancel "$CANCEL_RUN" --db="$TEST_DB" | grep -q "cancelled" || fail "run cancel"
+pass "run cancel"
+
+# Advance cancelled run should fail
+ic run advance "$CANCEL_RUN" --db="$TEST_DB" 2>/dev/null && fail "advance cancelled run should fail" || true
+pass "run advance cancelled run rejected"
+
+# Cancel already cancelled should fail
+ic run cancel "$CANCEL_RUN" --db="$TEST_DB" 2>/dev/null && fail "cancel cancelled should fail" || true
+pass "run cancel already cancelled rejected"
+
 echo "=== Version Sync Check ==="
 # Verify Clavain's copy is in sync (if present in monorepo)
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"

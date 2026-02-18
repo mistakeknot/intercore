@@ -52,3 +52,34 @@ CREATE TABLE IF NOT EXISTS dispatches (
 );
 CREATE INDEX IF NOT EXISTS idx_dispatches_status ON dispatches(status) WHERE status IN ('spawned', 'running');
 CREATE INDEX IF NOT EXISTS idx_dispatches_scope ON dispatches(scope_id) WHERE scope_id IS NOT NULL;
+
+-- v3: phase state machine (runs + events)
+CREATE TABLE IF NOT EXISTS runs (
+    id              TEXT NOT NULL PRIMARY KEY,
+    project_dir     TEXT NOT NULL,
+    goal            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'active',
+    phase           TEXT NOT NULL DEFAULT 'brainstorm',
+    complexity      INTEGER NOT NULL DEFAULT 3,
+    force_full      INTEGER NOT NULL DEFAULT 0,
+    auto_advance    INTEGER NOT NULL DEFAULT 1,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+    completed_at    INTEGER,
+    scope_id        TEXT,
+    metadata        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status) WHERE status = 'active';
+
+CREATE TABLE IF NOT EXISTS phase_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT NOT NULL REFERENCES runs(id),
+    from_phase      TEXT NOT NULL,
+    to_phase        TEXT NOT NULL,
+    event_type      TEXT NOT NULL DEFAULT 'advance',
+    gate_result     TEXT,
+    gate_tier       TEXT,
+    reason          TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_phase_events_run ON phase_events(run_id);
