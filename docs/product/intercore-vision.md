@@ -58,6 +58,14 @@ Interject (Research Engine)
 ├── Consumes kernel events as targeted scan triggers
 └── Backlog refinement: dedup, priority, dependencies, decay
 
+Autarch (Apps / TUI Layer)
+├── Bigend: multi-project mission control (agent monitoring, run dashboards)
+├── Gurgeh: PRD generation with confidence scoring and spec evolution
+├── Coldwine: task orchestration with agent coordination
+├── Pollard: research intelligence with multi-domain hunters
+├── pkg/tui: shared Bubble Tea components (ShellLayout, ChatPanel, Tokyo Night)
+└── Each app migrating from own backend → intercore kernel as shared state
+
 Companion Plugins (Drivers)
 ├── interflux: multi-agent review dispatch
 ├── interlock: file-level coordination
@@ -532,6 +540,96 @@ Interspect currently operates with its own SQLite database and hook-based eviden
 
 **Phase 3:** Retire Interspect's own SQLite database. Interspect's state becomes a materialized view derived entirely from kernel events. Single source of truth.
 
+## Apps and TUI Layer (Autarch)
+
+Autarch is merging into the Interverse monorepo as the apps/TUI layer — the visual, interactive surface for intercore's kernel state. Where Clavain provides the developer experience via CLI skills and hooks, Autarch provides the developer experience via rich terminal UIs.
+
+### The Four Tools
+
+**Bigend** — Multi-project mission control. A read-only aggregator that monitors agent activity, displays run progress, and provides a dashboard view across projects. Currently discovers projects via filesystem scanning and monitors agents via tmux session heuristics. Has both a web interface (htmx + Tailwind) and an in-progress TUI.
+
+**Gurgeh** — PRD generation and validation. The most mature tool. Drives an 8-phase spec sprint with per-phase AI generation, confidence scoring (0.0–1.0 across completeness, consistency, specificity, and research axes), cross-section consistency checking, assumption confidence decay, and spec evolution versioning. Specs persist as YAML.
+
+**Coldwine** — Task orchestration. Reads Gurgeh PRDs, generates epics/stories/tasks, manages git worktrees, coordinates agent execution, and integrates with Intermute for messaging. Has a full Bubble Tea TUI (the largest single view at 2200+ lines).
+
+**Pollard** — Research intelligence. Multi-domain hunters (tech, academic, medical, legal, GitHub), continuous watch mode, and insight synthesis. CLI-first with integration into Gurgeh and Coldwine.
+
+### Shared Component Library: `pkg/tui`
+
+Autarch's shared TUI component library is fully portable and immediately reusable:
+
+- `ShellLayout` — split-pane layout with resizable panels
+- `ChatPanel` — streaming chat interface with message history
+- `Composer` — text input with command completion
+- `CommandPicker` — fuzzy-searchable command palette
+- `AgentSelector` — agent selection with status indicators
+- `View` interface — clean abstraction for pluggable view implementations
+- Tokyo Night color scheme — consistent theming across all views
+
+These components depend only on Bubble Tea and lipgloss. They have no Autarch domain coupling.
+
+### Migration to Intercore Backend
+
+Each tool migrates from its own storage backend (YAML files, tool-specific SQLite) to intercore's kernel as the shared state layer. The migration follows coupling depth — least coupled tools migrate first:
+
+**1. Bigend (read-only — migrate first).** Bigend is a pure observer. Today it discovers projects via filesystem scanning and monitors agents by scraping tmux panes. Migration swaps these data sources:
+- Project discovery → `ic run list` across project databases
+- Agent monitoring → `ic dispatch list --active`
+- Run progress → `ic events tail --all --consumer=bigend`
+- Dashboard metrics → kernel aggregates (runs per state, dispatches per status, token totals)
+
+Bigend never writes to the kernel — it only reads. This makes it the lowest-risk migration and the first validation that the kernel provides sufficient observability data.
+
+**2. Pollard (research → discovery pipeline).** Pollard's multi-domain hunters map directly to intercore's discovery subsystem. Migration connects Pollard's research output to the kernel:
+- Hunter results → `ic discovery` events through the kernel event bus
+- Insight scoring → kernel confidence scoring with Pollard's domain-specific weights
+- Research queries → `ic discovery search` for semantic retrieval
+- Watch mode → kernel event consumer that triggers targeted scans
+
+Pollard becomes the scanner component that feeds the discovery → backlog pipeline described in the Autonomous Research section. Its hunters become intercore source adapters.
+
+**3. Gurgeh (PRD generation → run lifecycle).** Gurgeh's 8-phase spec sprint maps to intercore's run lifecycle with a custom phase chain. Migration creates runs for PRD generation:
+- Spec sprint → `ic run create --phases='["vision","problem","users","features","cujs","requirements","scope","acceptance"]'`
+- Phase confidence scores → kernel gate evidence (Gurgeh's confidence thresholds become gate rules)
+- Spec artifacts → `ic run artifact add` for each generated section
+- Spec evolution → run versioning (new run per spec revision, linked via portfolio)
+
+Gurgeh's arbiter (the sprint orchestration engine) remains as tool-specific logic — it drives the LLM conversation that generates each spec section. The kernel tracks the lifecycle; Gurgeh provides the intelligence.
+
+**4. Coldwine (task orchestration — migrate last).** Coldwine has the deepest coupling to Autarch's domain model (`Initiative → Epic → Story → Task`). Its migration is the most complex:
+- Task hierarchy → beads (Coldwine's planning hierarchy maps to bead types and dependencies)
+- Agent coordination → `ic dispatch` for agent lifecycle
+- Git worktree management → remains in Coldwine (kernel doesn't manage git)
+- Intermute integration → remains in Coldwine (kernel doesn't manage messaging)
+
+Coldwine's migration overlaps with Clavain's sprint skill — both orchestrate task execution with agent dispatch. The resolution is that Coldwine provides TUI-driven orchestration while Clavain provides CLI-driven orchestration, both calling the same kernel primitives.
+
+### Relationship to the Three-Layer Architecture
+
+Autarch sits alongside Clavain at Layer 2 (OS), providing an alternative interaction surface:
+
+```
+User Interaction
+├── Clavain (CLI: slash commands, hooks, skills) → calls ic
+├── Autarch (TUI: Bigend, Gurgeh, Coldwine, Pollard) → calls ic
+└── Direct CLI (ic run, ic dispatch, ic events) → for power users and scripts
+
+All three surfaces share the same kernel state. A run created via Clavain's /sprint
+is visible in Bigend's dashboard. A discovery from Pollard's hunters triggers the same
+kernel events that Clavain's hooks consume. The kernel is the single source of truth.
+```
+
+### What `pkg/tui` Enables
+
+Beyond the four Autarch tools, the shared component library enables a lightweight `ic tui` subcommand — a kernel-native TUI that provides basic observability without requiring the full Autarch tool suite:
+
+- Run list with phase progress bars
+- Event stream tail (live-updating)
+- Dispatch status dashboard
+- Discovery inbox for confidence-tiered review
+
+This minimal TUI would be built on `pkg/tui` components and call `ic` directly. It's the kernel's own status display — simpler than Bigend but always available wherever `ic` is installed.
+
 ## Autonomous Research and Backlog Intelligence
 
 The kernel's first three levels — Record, Enforce, React — focus on work that's already been defined. A human creates a run, the kernel tracks it. But where does the work come from? How does the system discover that a new arXiv paper invalidates an assumption, that an upstream dependency shipped a breaking change, or that three separate session transcripts reveal the same untracked pain point?
@@ -691,7 +789,7 @@ Existing agent orchestration systems address parts of this problem. Understandin
 
 **Durable execution engines** (Temporal, Restate) provide crash-proof workflows with state captured at each step, retry policies, and saga patterns. Temporal is the closest conceptual relative to Intercore's durability story. The key differences are deployment model and domain specialization (see "Why not Temporal?" below).
 
-**Autarch** (sibling project) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Where Autarch is tool-first (TUI apps that happen to need shared state), Intercore is infrastructure-first (a kernel that tools call). They complement rather than compete — Autarch tools could become Intercore OS-layer consumers, using the kernel as their shared state backend instead of the current file-first YAML approach.
+**Autarch** (merging into Interverse) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Autarch is merging into the Interverse monorepo as the apps/TUI layer, with its tools progressively migrating from their own YAML/SQLite backends to intercore's kernel as the shared state backend (see Apps and TUI Layer below).
 
 ### Where Intercore Contributes
 
@@ -780,10 +878,10 @@ The kernel doesn't know what "brainstorm" means. It knows that phase 0 requires 
 | Horizon | Timeframe | What Success Looks Like |
 |---|---|---|
 | v1 | Current | Gates enforce real conditions. Events flow. Dispatches are tracked. The kernel is the system of record. |
-| v1.5 | 1-2 months | Big-bang hook cutover — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode (calls `ic run` alongside existing logic). Fully custom phase chains with sprint as default preset. API stability contract established for open-source readiness. |
-| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. |
-| v3 | 4-8 months | Interspect Phase 2-3 (correction events, retire own DB). Sandboxing Tier 1 (tool allowlists, multi-agent isolation). TUI control room reads kernel state. Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement runs as an event consumer. Code and backlog rollback. Cross-project event relay. Installation guide and quickstart for community adopters. |
-| v4 | 8-14 months | Portfolio-level runs across multiple projects. Dependency graph awareness with auto-verification. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization. The kernel orchestrates a fleet and knows what it should be working on next. |
+| v1.5 | 1-2 months | Big-bang hook cutover — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode (calls `ic run` alongside existing logic). Fully custom phase chains with sprint as default preset. API stability contract established for open-source readiness. Autarch merged into Interverse monorepo. |
+| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. Bigend migrated to kernel backend (read-only dashboard over `ic` state). Minimal `ic tui` subcommand using `pkg/tui` components. |
+| v3 | 4-8 months | Interspect Phase 2-3 (correction events, retire own DB). Sandboxing Tier 1 (tool allowlists, multi-agent isolation). Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement runs as an event consumer. Code and backlog rollback. Cross-project event relay. Pollard migrated to kernel discovery pipeline. Gurgeh PRD generation backed by kernel runs. Installation guide and quickstart for community adopters. |
+| v4 | 8-14 months | Portfolio-level runs across multiple projects. Dependency graph awareness with auto-verification. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization. Coldwine task orchestration backed by kernel dispatches. Full Autarch TUI suite reads kernel state as single source of truth. The kernel orchestrates a fleet and knows what it should be working on next. |
 
 ## What This Is Not
 
