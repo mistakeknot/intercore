@@ -1,7 +1,7 @@
 # Intercore — Vision Document
 
-**Version:** 1.3
-**Date:** 2026-02-18
+**Version:** 1.4
+**Date:** 2026-02-19
 **Status:** Draft
 
 ---
@@ -37,6 +37,7 @@ Intercore (Kernel)
 ├── Lifecycle: runs phases through configurable chains with gate enforcement
 ├── Dispatch: spawns agents, tracks liveness, collects results
 ├── Events: typed event bus for state changes
+├── Discovery: scored discoveries with confidence-tiered autonomy gates
 ├── State: scoped key-value store for kernel coordination
 ├── Coordination: locks, sentinels, lane-based scheduling
 ├── Sandbox specs: stores requested/effective isolation contracts (enforcement by drivers)
@@ -47,6 +48,13 @@ Interspect (Profiler)
 ├── Correlates with human corrections
 ├── Proposes changes to OS configuration (routing rules, agent prompts)
 └── Never modifies the kernel — only the OS layer
+
+Interject (Research Engine)
+├── Source adapters: arXiv, HN, GitHub, Exa, RSS, Anthropic docs
+├── Embedding-based scoring against learned interest profile
+├── Emits discovery events through kernel event bus
+├── Consumes kernel events as targeted scan triggers
+└── Backlog refinement: dedup, priority, dependencies, decay
 
 Companion Plugins (Drivers)
 ├── interflux: multi-agent review dispatch
@@ -66,6 +74,7 @@ The kernel provides **mechanism, not policy**. It says "a gate can block a trans
 | **Gates** | Conditions at transitions | Pluggable checks evaluated before phase advancement |
 | **Dispatch** | Agent processes | Spawn, liveness, collection, timeout, fan-out |
 | **Events** | Typed event bus | Append-only log with consumer cursors |
+| **Discovery** | Scored discoveries | Confidence-tiered autonomy gates for research intake and backlog generation |
 | **State** | Scoped key-value | TTL-based storage for coordination data |
 | **Coordination** | Locks + Sentinels | Mutual exclusion and time-based throttling |
 | **Run Tracking** | Agents + Artifacts | What agents are active, what files were produced |
@@ -228,6 +237,8 @@ Event sources:
 - Phase transitions (advance, skip, block, pause)
 - Gate evaluations (pass, fail, override)
 - Dispatch status changes (spawned, running, completed, failed, timeout)
+- Discovery lifecycle (scanned, scored, promoted, proposed, dismissed)
+- Backlog changes (refined, merged, submitted, prioritized)
 
 **Idempotency:** Events carry a deduplication key (`source_type:source_id:action` — e.g., `dispatch:42:completed`). Producers that retry after a crash can re-emit the same event; the kernel ignores duplicates by dedup key. This makes at-least-once production safe without requiring exactly-once semantics in producers.
 
@@ -292,6 +303,8 @@ Phase transitions use optimistic concurrency (`WHERE phase = ?`) to prevent doub
 | Coordination locks | Mutual exclusion via filesystem | Lock acquire/release/break events |
 | Token usage | — | Reported counts per dispatch (self-reported by agents) |
 | Sandbox contracts | — | Requested vs effective policy per dispatch |
+| Discovery autonomy | Confidence tier gates (auto/propose/log/discard) | All discoveries with scores, sources, feedback signals |
+| Backlog changes | Dedup threshold (blocks duplicate bead creation) | All refinements with evidence (merge, priority shift, decay) |
 
 The kernel enforces **structural invariants** (can't skip a nonexistent phase, can't exceed spawn limits, can't advance without gate passage). It records **operational metadata** (token usage, sandbox compliance) without enforcing it — enforcement of operational concerns is the OS's responsibility.
 
@@ -360,6 +373,151 @@ Hard limits on agent proliferation:
 - Maximum total agents per run
 
 These are kernel-enforced invariants, not suggestions. An agent cannot bypass them regardless of what the LLM requests.
+
+## Autonomous Research and Backlog Intelligence
+
+The kernel's first three levels — Record, Enforce, React — focus on work that's already been defined. A human creates a run, the kernel tracks it. But where does the work come from? How does the system discover that a new arXiv paper invalidates an assumption, that an upstream dependency shipped a breaking change, or that three separate session transcripts reveal the same untracked pain point?
+
+Autonomous research and backlog intelligence close the loop between **what the world knows** and **what the system is working on**. This is where the autonomy ladder extends beyond execution into discovery.
+
+### The Discovery → Backlog Pipeline
+
+```
+Sources                     Scoring & Triage           Backlog Actions
+─────────────────          ──────────────────         ──────────────────
+arXiv (Atom feeds)    ┐
+Hacker News (API)     │     Embedding-based           High confidence:
+GitHub (releases,     │     relevance scoring    ──→    auto-create bead
+  issues, READMEs)    ├──→  against learned             + briefing doc
+Exa (semantic web     │     interest profile
+  search)             │                               Medium confidence:
+Anthropic docs        │     Confidence tiers:    ──→    propose to human
+  (change detection)  │     high / medium /              (inbox review)
+RSS/Atom feeds        │     low / discard
+  (general)           │                               Low confidence:
+User submissions      ┘     Adaptive thresholds  ──→    log only
+                            (shift with feedback)
+
+Internal signals                                      Backlog refinement:
+─────────────────                                     ──────────────────
+Beads history              Feedback loop:              merge duplicates
+Solution docs        ──→   promotions strengthen ──→   update priorities
+Error patterns             dismissals weaken           suggest dependencies
+Session telemetry          source trust adapts          decay stale items
+Kernel events              thresholds shift             link related work
+```
+
+### Kernel vs OS Responsibilities
+
+This subsystem follows the same mechanism/policy separation as the rest of the kernel. The kernel provides primitives for tracking discoveries, scoring confidence, and emitting events. The OS decides what sources to scan, what confidence thresholds to use, and how aggressively to act on discoveries.
+
+**What the kernel provides (mechanism):**
+
+| Primitive | What It Does |
+|---|---|
+| **Discovery records** | Durable storage for scored discoveries with embedding vectors, source metadata, and lifecycle state |
+| **Confidence scoring** | Embedding-based similarity against a learned profile vector, with configurable weight multipliers for source trust, keyword matches, recency, and capability gaps |
+| **Confidence-tiered action gates** | Kernel-enforced thresholds that control which autonomy tier a discovery reaches — auto-execute, propose-to-human, log-only, or discard |
+| **Discovery events** | Typed events (`discovery.scanned`, `discovery.scored`, `discovery.promoted`, `discovery.proposed`, `discovery.dismissed`) that flow through the same event bus as phase and dispatch events |
+| **Backlog events** | Typed events (`backlog.refined`, `backlog.merged`, `backlog.submitted`, `backlog.prioritized`) for tracking how the backlog evolves from research signals |
+| **Feedback ingestion** | Structured recording of human actions (promote, dismiss, adjust priority) that update the interest profile and source trust weights |
+
+**What the OS provides (policy):**
+
+- **Source configuration** — which RSS feeds, arXiv categories, GitHub repos, and search queries to monitor
+- **Scan scheduling** — how often to scan (4x daily via systemd timer, event-driven after run completion, user-initiated via slash command)
+- **Confidence thresholds** — what scores map to high/medium/low/discard tiers
+- **Autonomy policy** — what the system does at each tier (create bead? write briefing? propose only?)
+- **Backlog refinement rules** — dedup similarity threshold, staleness decay rate, priority escalation criteria
+- **Interest profile management** — topic weights, keyword lists, source trust overrides
+
+### Three Trigger Modes
+
+The discovery pipeline can be triggered three ways, all producing the same event stream:
+
+**Scheduled (background).** A systemd timer runs the scanner at configurable intervals (default: 4x daily with randomized jitter). Each scan queries all configured sources, scores discoveries against the interest profile, routes through the confidence gate, and emits kernel events. This is the "always watching" mode — the system continuously monitors the landscape without human initiation.
+
+**Event-driven (reactive).** The scanner registers as an intercore event bus consumer. When specific kernel events occur, the scanner runs a targeted search:
+
+- `run.completed` → search for literature related to the run's goal (did someone else solve this differently?)
+- `bead.created` with `source: user` → check for existing research on the topic
+- `dispatch.completed` with verdict containing novel technique → search for prior art
+- `discovery.promoted` → search for related discoveries that strengthen or contradict the promoted one
+
+This is not redundant with scheduled scans. Scheduled scans cast a wide net. Event-driven scans are targeted — they use the specific context of the triggering event to formulate precise queries. A scheduled scan might find "new MCP frameworks" generally; an event-driven scan after a dispatch timeout might find "MCP connection pooling best practices" specifically.
+
+**User-initiated (on-demand).** Three entry points:
+
+- `ic discovery scan` — trigger a full scan now (CLI equivalent of the scheduled timer)
+- `ic discovery submit --text="..." --source=user` — submit a topic, URL, or idea for triage through the same scoring pipeline
+- `ic discovery search --query="..."` — semantic search across stored discoveries using embedding similarity
+
+User submissions flow through the same confidence scoring as automated discoveries, with one key difference: user-submitted items receive a source trust bonus (configurable, default 0.2) that reflects the signal value of a human choosing to submit something. A user submission that also scores high against the interest profile is very likely to be actionable.
+
+### Confidence-Tiered Autonomy
+
+The kernel enforces a confidence-gated autonomy model. Each discovery is scored and assigned to a tier. The tier determines what the system can do without human approval.
+
+| Tier | Score Range | Autonomous Action | Human Action Required |
+|---|---|---|---|
+| **High** | ≥ 0.8 | Create bead (P3 default), write briefing doc, emit `discovery.promoted` | Notification in session inbox; human can adjust priority or dismiss |
+| **Medium** | 0.5 – 0.8 | Write briefing draft, emit `discovery.proposed` | Appears in inbox; human promotes, dismisses, or adjusts |
+| **Low** | 0.3 – 0.5 | Record in discoveries database, emit `discovery.scored` | Searchable via `ic discovery search`; not actively surfaced |
+| **Discard** | < 0.3 | Record with `discarded` status | Not surfaced; contributes to negative signal for profile tuning |
+
+This is a **kernel-enforced gate**, not a prompt suggestion. The scoring model produces a number; the tier boundaries are configuration; the action constraints at each tier are invariants. An OS-layer component cannot auto-create a bead for a discovery scored at 0.4 — the kernel will reject the promotion. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal that adjusts the profile.
+
+**Adaptive thresholds:** Tier boundaries shift based on the promotion-to-discovery ratio. If humans consistently promote items the system scored as Medium (>30% promotion rate), the High threshold lowers by 0.02 per feedback cycle. If humans consistently dismiss items scored as High (<10% promotion rate), the threshold rises. The thresholds converge toward the human's actual decision boundary over time. The kernel records the threshold history — Interspect can analyze whether the thresholds are converging, oscillating, or drifting.
+
+### Backlog Refinement
+
+Raw discovery is necessary but not sufficient. A stream of unprocessed research findings creates its own kind of noise. The backlog refinement subsystem transforms raw discoveries into actionable, well-connected work items.
+
+**Deduplication.** When a new discovery arrives, its embedding is compared against all open beads (cosine similarity). If similarity exceeds 0.85, the discovery is linked as additional evidence to the existing bead rather than creating a new one. This prevents the "100 beads about the same MCP framework" failure mode. The dedup threshold is configurable and its effectiveness is tracked — if the dedup rate is very high, the scanner may be over-covering a topic.
+
+**Priority refinement.** When multiple independent sources converge on the same topic — an arXiv paper, a Hacker News discussion, and a GitHub release all about the same capability — the kernel bumps the associated bead's priority. The escalation rule is configurable: default requires 3+ independent sources within 7 days. This is evidence-based prioritization — not "this seems important" but "three independent signals confirm this matters."
+
+**Dependency suggestion.** If a discovery about capability A references capability B, and B is tracked as a separate bead, the refinement engine suggests a dependency link. These suggestions are proposed, not auto-applied — dependency structure affects execution order and should have human review.
+
+**Staleness decay.** Beads created from discoveries that are never promoted, never worked on, and receive no additional evidence decay in priority over time (configurable rate, default: one priority level per 30 days without activity). A P2 research bead that sits untouched for 60 days becomes P4. This prevents the backlog from growing without bound. Decayed beads that receive new evidence are re-evaluated — fresh signal reverses decay.
+
+**Weekly digest.** A periodic rollup of research activity: what was discovered, what was promoted, what's trending across sources, what decayed, and what the interest profile learned. This is the human's checkpoint — a summary that lets them validate the system's autonomous decisions and course-correct the profile.
+
+### The Feedback Loop
+
+The discovery → backlog pipeline is not a one-way funnel. Human actions on discoveries feed back into the scoring model:
+
+```
+Discovery scored → Human promotes → Profile vector shifts toward discovery embedding
+                                     Source trust for that source increases
+                                     Adaptive threshold adjusts
+
+Discovery scored → Human dismisses → Profile vector shifts away from discovery embedding
+                                      Source trust for that source decreases
+                                      If pattern: source deprioritized
+
+Bead shipped     → Feedback signal → Discovery that created the bead marked "validated"
+                                      Source that produced it gets trust bonus
+                                      Similar future discoveries score higher
+```
+
+This is the same evidence-based improvement pattern that Interspect uses for agent routing — but applied to research intake. Over time, the system learns what the developer cares about, which sources produce actionable discoveries, and what confidence thresholds align with human judgment.
+
+### Relationship to the Autonomy Ladder
+
+Autonomous research extends the autonomy ladder with a capability that precedes Level 0:
+
+**Level -1: Discover.** Before the system can record, enforce, or react to work, it must know what work exists. Autonomous research is the input funnel — the system scans the landscape, identifies relevant signals, and proposes them as work items. This is the difference between "the system executes what you tell it" and "the system finds things worth doing."
+
+At Level 2 (React), the discovery pipeline becomes event-driven — kernel events trigger targeted research. At Level 3 (Adapt), the profile evolves from feedback. At Level 4 (Orchestrate), the discovery pipeline feeds the portfolio manager — competing research signals are weighed against resource constraints and strategic priorities across multiple projects.
+
+### What Already Exists
+
+The interject plugin already implements the core discovery engine: source adapters (arXiv, Hacker News, GitHub, Anthropic docs, Exa semantic search), embedding-based scoring (all-MiniLM-L6-v2, 384 dims), adaptive thresholds, and an output pipeline that creates beads and writes briefing docs. The intersearch library provides shared embedding and Exa search infrastructure. Systemd timer configs exist but are not installed.
+
+What's missing is the kernel integration. Today, interject operates as a standalone silo with its own SQLite database, its own scheduling (not running), and no connection to the event bus. Discoveries don't produce kernel events. The scanner can't react to kernel events. The confidence gate auto-creates beads at medium tier without human review. There's no backlog refinement — no dedup, no priority updating, no dependency suggestion, no staleness decay.
+
+The path forward is connecting interject to intercore: emit discovery events through the kernel event bus, consume kernel events as scan triggers, enforce confidence tiers as kernel gates, and add the backlog refinement engine as an event consumer that reads both discovery events and bead lifecycle events.
 
 ## What Makes This Different
 
@@ -458,9 +616,9 @@ The kernel doesn't know what "brainstorm" means. It knows that phase 0 requires 
 | Horizon | Timeframe | What Success Looks Like |
 |---|---|---|
 | v1 | Current | Gates enforce real conditions. Events flow. Dispatches are tracked. The kernel is the system of record. |
-| v2 | 1-3 months | Configurable phase chains. Lane-based scheduling. Token tracking per dispatch. The OS configures the kernel, not the other way around. |
-| v3 | 3-6 months | Interspect reads kernel events and proposes improvements. Sandboxing Tier 1 (tool allowlists). TUI control room reads kernel state. |
-| v4 | 6-12 months | Multi-run portfolio management. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). The kernel orchestrates a fleet. |
+| v2 | 1-3 months | Configurable phase chains. Lane-based scheduling. Token tracking per dispatch. The OS configures the kernel, not the other way around. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. |
+| v3 | 3-6 months | Interspect reads kernel events and proposes improvements. Sandboxing Tier 1 (tool allowlists). TUI control room reads kernel state. Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement (dedup, priority, decay) runs as an event consumer. Interest profile converges from feedback. |
+| v4 | 6-12 months | Multi-run portfolio management. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization across projects. The kernel orchestrates a fleet and knows what it should be working on next. |
 
 ## What This Is Not
 
