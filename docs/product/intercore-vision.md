@@ -1,6 +1,6 @@
 # Intercore — Vision Document
 
-**Version:** 1.4
+**Version:** 1.5
 **Date:** 2026-02-19
 **Status:** Draft
 
@@ -40,8 +40,10 @@ Intercore (Kernel)
 ├── Discovery: scored discoveries with confidence-tiered autonomy gates
 ├── State: scoped key-value store for kernel coordination
 ├── Coordination: locks, sentinels, lane-based scheduling
+├── Rollback: phase rewind, dispatch cancellation, discovery revert with full audit trail
+├── Portfolio: cross-project runs, dependency graph, composite gate evaluation
 ├── Sandbox specs: stores requested/effective isolation contracts (enforcement by drivers)
-└── Resource management: concurrency limits, token tracking, agent caps
+└── Resource management: concurrency limits, token tracking, cost reconciliation, agent caps
 
 Interspect (Profiler)
 ├── Reads kernel events (phase results, gate evidence, dispatch outcomes)
@@ -64,6 +66,34 @@ Companion Plugins (Drivers)
 └── ... each extends the OS, all route through kernel primitives
 ```
 
+### Three-Layer Architecture
+
+The ecosystem has three distinct layers, each with clear ownership:
+
+```
+Layer 3: Drivers (Plugins)
+├── Each plugin wraps one capability (review dispatch, file coordination, code mapping)
+├── Plugins call `ic` directly for shared state — no Clavain bottleneck
+├── Plugins are Claude Code-native but the capabilities they wrap are not
+└── Examples: interflux (review), interlock (coordination), intermux (visibility)
+
+Layer 2: OS (Clavain)
+├── The opinionated workflow — sprint phases, quality gates, brainstorm→plan→ship
+├── Skills orchestrate by calling both `ic` (state/gates/events) and plugins (capabilities)
+├── Clavain is the developer experience: slash commands, session hooks, routing tables
+└── If the host platform changes, Clavain's opinions survive; the UX wrappers are rewritten
+
+Layer 1: Kernel (Intercore)
+├── Host-agnostic Go CLI + SQLite — works from Claude Code, Codex, bare shell, or any future platform
+├── State, gates, events, dispatch, discovery — the durable system of record
+├── If Claude Code disappears, the kernel and all its data survive untouched
+└── The "real magic" lives here: everything that matters is in `ic`
+```
+
+**The guiding principle:** Plugins work in Claude Code, but the real magic is in Clavain + Intercore. If the host platform changes, you lose UX convenience (slash commands, hooks) but not capability (state, gates, events, evidence, workflow logic). Drivers are swappable. The OS is portable. The kernel is permanent.
+
+**What this means for plugin design:** Every plugin currently doing state management through temp files, bead metadata, or its own SQLite database should instead call `ic`. The big-bang hook cutover (see Migration Strategy below) is the forcing function — when Clavain hooks switch from temp files to `ic`, plugins that share state with those hooks must follow.
+
 ### What the Kernel Owns
 
 The kernel provides **mechanism, not policy**. It says "a gate can block a transition" — it doesn't say "brainstorm requires an artifact." That's policy, which lives in the OS layer.
@@ -78,6 +108,8 @@ The kernel provides **mechanism, not policy**. It says "a gate can block a trans
 | **State** | Scoped key-value | TTL-based storage for coordination data |
 | **Coordination** | Locks + Sentinels | Mutual exclusion and time-based throttling |
 | **Run Tracking** | Agents + Artifacts | What agents are active, what files were produced |
+| **Rollback** | State reset + audit trail | Phase rewind, dispatch cancellation, discovery revert — preserving history |
+| **Portfolio** | Cross-project runs | Multi-project run grouping with composite gate evaluation |
 
 ### What the Kernel Does Not Own
 
@@ -178,9 +210,9 @@ The profiler proposes changes. The OS applies them as overlays. The kernel enfor
 
 The kernel manages a portfolio of concurrent runs across multiple projects. Resource scheduling allocates agents, tokens, and compute across competing priorities. The OS defines priority rules. The kernel enforces them.
 
-An urgent hotfix preempts a routine refactor. A high-complexity feature gets more review agents than a documentation update. Token budgets prevent runaway costs.
+An urgent hotfix preempts a routine refactor. A high-complexity feature gets more review agents than a documentation update. Token budgets prevent runaway costs. A change in one project automatically triggers verification in downstream dependents.
 
-*This is fleet management — the system balances competing demands.*
+*This is fleet management — the system balances competing demands across projects.*
 
 ## Kernel Subsystems
 
@@ -239,6 +271,9 @@ Event sources:
 - Dispatch status changes (spawned, running, completed, failed, timeout)
 - Discovery lifecycle (scanned, scored, promoted, proposed, dismissed)
 - Backlog changes (refined, merged, submitted, prioritized)
+- Rollback operations (run.rolled_back, phase.rolled_back, discovery.rolled_back, backlog.rolled_back)
+- Cross-project signals (dependency.upstream_changed, portfolio.child_completed, portfolio.gate_evaluated)
+- Cost/billing (budget.warning, budget.exceeded, cost.reconciliation_discrepancy)
 
 **Idempotency:** Events carry a deduplication key (`source_type:source_id:action` — e.g., `dispatch:42:completed`). Producers that retry after a crash can re-emit the same event; the kernel ignores duplicates by dedup key. This makes at-least-once production safe without requiring exactly-once semantics in producers.
 
@@ -305,6 +340,9 @@ Phase transitions use optimistic concurrency (`WHERE phase = ?`) to prevent doub
 | Sandbox contracts | — | Requested vs effective policy per dispatch |
 | Discovery autonomy | Confidence tier gates (auto/propose/log/discard) | All discoveries with scores, sources, feedback signals |
 | Backlog changes | Dedup threshold (blocks duplicate bead creation) | All refinements with evidence (merge, priority shift, decay) |
+| Rollback | Phase reset validation, dispatch cancellation | All rollbacks with initiator, scope, reason, and affected records |
+| Cross-project deps | Portfolio gate rollup (all children must pass) | Dependency change events, upstream verification triggers |
+| Cost/billing | Budget threshold events | Self-reported tokens, reconciliation discrepancies |
 
 The kernel enforces **structural invariants** (can't skip a nonexistent phase, can't exceed spawn limits, can't advance without gate passage). It records **operational metadata** (token usage, sandbox compliance) without enforcing it — enforcement of operational concerns is the OS's responsibility.
 
@@ -373,6 +411,126 @@ Hard limits on agent proliferation:
 - Maximum total agents per run
 
 These are kernel-enforced invariants, not suggestions. An agent cannot bypass them regardless of what the LLM requests.
+
+## Multi-Project Coordination
+
+The Interverse monorepo contains 25+ modules, each with its own git repository. A change in intercore can break Clavain hooks. A plugin update may need testing across multiple modules. Today, there is no cross-project visibility — each project's `ic` database is an island.
+
+Multi-project coordination extends the kernel with three complementary mechanisms:
+
+### Cross-Project Event Bus
+
+Kernel events from one project are visible to consumers in other projects. When intercore ships a new feature, the event is readable by Clavain's event consumer. When a plugin publishes a new version, downstream projects see the event.
+
+**Mechanism:** A relay process (OS-layer, not kernel) tails events from multiple project databases and writes them to a shared relay database. Consumers subscribe to the relay with the same cursor-based API. The kernel provides the event format and cursor primitives; the OS provides the relay topology.
+
+**Why relay, not shared database:** Each project's SQLite database is its transactional boundary. A shared database would serialize writes across all projects, creating contention. A relay provides eventual consistency (sub-second latency) while preserving per-project write independence.
+
+### Portfolio-Level Runs
+
+A run can span multiple projects. `ic run create --projects=intercore,clavain --goal="Migrate hooks"` creates a portfolio run with per-project scoping for artifacts, gates, and dispatches, but a unified run ID for tracking and reporting.
+
+**Kernel mechanism:** The `runs` table gains an optional `portfolio_id` column. A portfolio run is a parent record that groups per-project child runs. Phase advancement in the portfolio requires gate passage in all child runs. The kernel enforces the rollup — a portfolio can't advance to "shipping" while any child is still in "executing."
+
+**OS policy:** Which projects participate in a portfolio run, how gates compose across projects (all-pass vs majority-pass), and how dispatches are allocated across projects are OS-level decisions configured at portfolio creation time.
+
+### Dependency Graph Awareness
+
+The kernel knows that Clavain depends on intercore. When intercore ships a change, the kernel auto-creates a verification event for dependent projects. The OS consumes this event and creates a "verify downstream" bead in each dependent project.
+
+**Mechanism:** A `project_deps` table maps project → dependency relationships. When a `run.completed` event fires for a project, the kernel checks for dependents and emits `dependency.upstream_changed` events for each. The OS decides what to do — auto-create a test run, create a bead, send a notification, or ignore.
+
+**Why reactive, not pre-planned:** Dependency verification is triggered by actual changes, not by anticipated changes. This avoids the overhead of pre-scheduling verification runs for changes that might not happen.
+
+## Cost and Billing Awareness
+
+Token tracking (described under Resource Management) records what agents self-report. But self-reporting is insufficient for accurate cost management. The kernel needs a verification layer.
+
+### Kernel Records, OS Verifies
+
+The kernel records token counts per dispatch as reported by agents. The OS periodically cross-references these counts against API billing data (Claude usage exports, Anthropic billing API). Discrepancies are recorded as reconciliation events.
+
+**What the kernel provides:**
+- Per-dispatch token counts (input, output, cache hits) — self-reported by agents
+- Per-run token aggregates — computed from dispatch records
+- Per-project token aggregates — computed from run records
+- Budget threshold events — emitted when configurable per-run or per-project thresholds are crossed
+
+**What the OS provides:**
+- Billing API integration — polling Anthropic's usage API for actual costs
+- Reconciliation logic — comparing self-reported counts against billed counts
+- Cost alerting — notifications when spending exceeds budgets
+- Model selection policy — choosing cheaper models for low-complexity tasks based on cost data
+
+**Future consideration:** If reconciliation consistently shows significant discrepancies, the runner layer could inject token tracking at the API call level — wrapping the LLM API client to capture actual token counts before the agent sees them. This is Tier 2 mitigation, deferred until self-reporting proves insufficient.
+
+## Rollback and Recovery
+
+When a sprint goes wrong — bad code, skipped gates, or erroneous discovery-created beads — there is no structured way to revert. Git handles code rollback. Nothing handles workflow state rollback or backlog rollback. This is a gap.
+
+### Three Rollback Layers
+
+**Code rollback.** Git revert handles code. The kernel records which commits were produced by which dispatches (artifact metadata includes git SHA). `ic run rollback <id> --layer=code` identifies all commits associated with a run's dispatches and generates a `git revert` sequence. The kernel doesn't execute the revert — it produces the plan. The OS or human executes it.
+
+**Workflow state rollback.** When a sprint advances too fast or skips a gate incorrectly, the run's phase needs to reset. `ic run rollback <id> --to-phase=plan-review` resets the run's current phase, marks intervening phase transitions as `rolled_back` (not deleted — audit trail is preserved), and re-evaluates gates for the target phase. Dispatches spawned in rolled-back phases are cancelled if still running.
+
+**Backlog rollback.** When the discovery pipeline auto-creates beads from a bad signal (noisy source, miscalibrated profile), the backlog needs cleanup. `ic discovery rollback --source=<source> --since=<timestamp>` identifies all beads created from discoveries by that source since the given time. It proposes closing them (with reason `rolled_back:discovery`) — the human confirms. Priority shifts and dependency suggestions triggered by rolled-back discoveries are also reverted.
+
+### Rollback Audit Trail
+
+Every rollback is recorded as a typed event: `run.rolled_back`, `phase.rolled_back`, `discovery.rolled_back`, `backlog.rolled_back`. The event includes who initiated the rollback, what was reverted, and why. This evidence feeds Interspect — patterns of rollbacks indicate systemic issues (e.g., a phase that's frequently rolled back should have stronger gates).
+
+### Rollback Is Not Undo
+
+Rollback resets state to enable re-execution. It does not erase history. All events, dispatches, and artifacts from the rolled-back period are preserved with `rolled_back` status. This means:
+- Interspect can analyze what went wrong (the evidence exists)
+- Billing data is accurate (the tokens were consumed)
+- The audit trail is complete (no gaps in the event log)
+
+## Migration Strategy
+
+### Hook Cutover: Big-Bang
+
+Clavain currently maintains ~20 temp-file state mechanisms in `/tmp/` (see gap analysis). The migration to intercore is a **big-bang cutover** — all hooks switch to `ic` in one release. `ic` becomes a hard dependency.
+
+**Why not gradual?** Dual-path state management (try `ic`, fall back to temp files) creates a consistency nightmare. Two sources of truth for sentinel state, dispatch tracking, or phase position means every consumer must handle both. The complexity tax of maintaining fallback paths exceeds the risk of a clean cutover.
+
+**What the cutover involves:**
+
+| Current Pattern | `ic` Replacement |
+|---|---|
+| `/tmp/clavain-compound-last-${SID}` (throttle) | `ic sentinel check compound --ttl=300` |
+| `/tmp/clavain-drift-last-${SID}` (throttle) | `ic sentinel check drift --ttl=600` |
+| `/tmp/clavain-autopub.lock` (lock) | `ic lock acquire autopub session` |
+| `/tmp/clavain-dispatch-$$.json` (dispatch state) | `ic dispatch status <id> --json` |
+| `/tmp/intercheck-${SID}.json` (accumulator) | `ic state set intercheck.count <n> --scope=session` |
+| `.clavain/scratch/handoff-*.md` (session state) | `ic run` + `ic state` (run state outlives sessions) |
+| `.clavain/scratch/inflight-agents.json` | `ic dispatch list --active` |
+| `/tmp/clavain-bead-${SID}.json` (phase sideband) | `ic run phase <id>` |
+
+**Prerequisite:** The `ic` binary must be built and available on `$PATH` before the cutover release ships. The launcher script pattern (already used for MCP servers) handles first-run compilation.
+
+### Sprint Migration: Hybrid to Kernel-Driven
+
+The sprint skill currently orchestrates the full brainstorm→ship workflow through slash commands, with its own phase state in beads metadata and checkpoint JSON. Migration to kernel-driven sprints is staged:
+
+**Phase 1 (Hybrid):** The sprint skill calls `ic run create` at sprint start and `ic run advance` alongside its existing logic. Both systems track phase state. The skill still drives the workflow. This phase provides kernel tracking and event emission without requiring a skill rewrite.
+
+**Phase 2 (Handover):** `ic run advance` becomes the authoritative advancement call. The skill stops maintaining its own phase state. Gate enforcement is real — `ic run advance` returns exit code 1 and the phase doesn't change. The skill becomes a UX wrapper that translates user intent into kernel calls.
+
+**Phase 3 (Kernel-driven):** The sprint skill is a thin experience layer. It prompts the user, invokes slash commands, and displays results. All state, gates, events, and dispatch tracking flow through the kernel. If the sprint skill breaks, the run state is intact and recoverable via `ic` CLI.
+
+**Key milestone:** Phase 2 completion means the gap analysis item #2 ("gate enforcement is just prompting") is fully resolved. Gates become kernel-enforced invariants, not prompt suggestions.
+
+### Interspect Migration: Staged to Kernel Events
+
+Interspect currently operates with its own SQLite database and hook-based evidence collection. Migration to kernel events preserves the mechanism/policy separation — Interspect reads kernel data but doesn't own it.
+
+**Phase 1:** Interspect becomes a consumer of existing kernel events (phase transitions, gate evaluations, dispatch outcomes) via `ic events tail --consumer=interspect --durable`. Its own DB supplements with Interspect-specific data (agent quality scores, false-positive patterns, routing proposals).
+
+**Phase 2:** Add correction and override event types to the kernel. When a human overrides an agent finding or marks a false positive, the kernel records it as a typed event. Interspect reads these events instead of collecting them via its own hooks.
+
+**Phase 3:** Retire Interspect's own SQLite database. Interspect's state becomes a materialized view derived entirely from kernel events. Single source of truth.
 
 ## Autonomous Research and Backlog Intelligence
 
@@ -611,19 +769,26 @@ The kernel doesn't know what "brainstorm" means. It knows that phase 0 requires 
 
 **Clock monotonicity.** TTL computations, sentinel timing, and event ordering assume monotonic system time. NTP jumps or clock skew on the host could cause incorrect TTL expirations or event ordering anomalies. The kernel uses Go's `time.Now().Unix()` (not SQLite's `unixepoch()`) to avoid float promotion, but doesn't guard against backward clock jumps.
 
+**Open-source product.** Intercore is designed for community adoption, not just personal use. This creates obligations that personal tools don't have:
+- **API stability.** CLI flags, event schemas, and database schemas need backward compatibility discipline from v1 onward. Breaking changes require migration paths and deprecation periods.
+- **Documentation for strangers.** The vision doc and AGENTS.md are written for the maintainer. An open-source product needs installation guides, quickstart tutorials, concept explanations, and configuration references for people who don't know what Clavain is or why temp files are a problem.
+- **Sensible defaults.** The kernel should work out of the box with zero configuration. Phase chains, gate rules, and throttle intervals should have defaults that cover common cases. Power users customize; new users get something useful immediately.
+- **Error messages for humans.** Every `ic` error should explain what went wrong and suggest a fix. "ErrStalePhase" is an internal name; the CLI should say "Another process already advanced this run. Re-read the current phase with `ic run phase <id>` and decide if your advance still applies."
+
 ## Success at Each Horizon
 
 | Horizon | Timeframe | What Success Looks Like |
 |---|---|---|
 | v1 | Current | Gates enforce real conditions. Events flow. Dispatches are tracked. The kernel is the system of record. |
-| v2 | 1-3 months | Configurable phase chains. Lane-based scheduling. Token tracking per dispatch. The OS configures the kernel, not the other way around. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. |
-| v3 | 3-6 months | Interspect reads kernel events and proposes improvements. Sandboxing Tier 1 (tool allowlists). TUI control room reads kernel state. Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement (dedup, priority, decay) runs as an event consumer. Interest profile converges from feedback. |
-| v4 | 6-12 months | Multi-run portfolio management. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization across projects. The kernel orchestrates a fleet and knows what it should be working on next. |
+| v1.5 | 1-2 months | Big-bang hook cutover — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode (calls `ic run` alongside existing logic). Fully custom phase chains with sprint as default preset. API stability contract established for open-source readiness. |
+| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. |
+| v3 | 4-8 months | Interspect Phase 2-3 (correction events, retire own DB). Sandboxing Tier 1 (tool allowlists, multi-agent isolation). TUI control room reads kernel state. Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement runs as an event consumer. Code and backlog rollback. Cross-project event relay. Installation guide and quickstart for community adopters. |
+| v4 | 8-14 months | Portfolio-level runs across multiple projects. Dependency graph awareness with auto-verification. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization. The kernel orchestrates a fleet and knows what it should be working on next. |
 
 ## What This Is Not
 
 - **Not an LLM framework.** Intercore doesn't call LLMs, manage context windows, or process natural language. That's what the dispatched agents do.
 - **Not a Claude Code plugin.** Intercore is a Go CLI binary with a SQLite database. It's infrastructure that plugins call, not a plugin itself.
 - **Not a workflow DSL.** The kernel provides primitives (phases, gates, events). It doesn't provide a language for defining workflows. The OS maps its domain concepts to kernel primitives.
-- **Not a replacement for Clavain.** Clavain is the developer experience. Intercore is the infrastructure beneath it. Both are necessary. Neither subsumes the other.
+- **Not a replacement for Clavain.** Clavain is the developer experience layer — the opinionated workflow, the sprint sequence, the quality gates philosophy. Intercore is the engine beneath it. Clavain is the car; Intercore is the engine. Both are necessary. Neither subsumes the other.
 - **Not self-modifying.** The kernel's behavior is determined by its code and configuration. Interspect can modify OS-level configuration (routing rules, agent prompts, gate policies). It cannot modify the kernel itself. This is a deliberate safety boundary.
