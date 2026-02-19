@@ -405,7 +405,7 @@ intercore_events_tail_all() {
 intercore_events_cursor_get() {
     intercore_available || { echo ""; return 0; }
     local consumer="$1"
-    $INTERCORE_BIN events cursor list 2>/dev/null | grep "^${consumer}	" | cut -f2 || echo ""
+    $INTERCORE_BIN events cursor list 2>/dev/null | grep -P "^${consumer}\t" | cut -f2 || echo ""
 }
 
 # intercore_events_cursor_set <consumer> <phase_id> <dispatch_id>

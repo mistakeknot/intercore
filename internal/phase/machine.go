@@ -23,7 +23,7 @@ type AdvanceResult struct {
 	Advanced   bool
 }
 
-// PhaseEventCallback is called after a successful phase transition.
+// PhaseEventCallback is called after every advance attempt (advance, skip, block, pause).
 // Errors are logged but do not fail the advance.
 type PhaseEventCallback func(runID, eventType, fromPhase, toPhase, reason string)
 
@@ -89,6 +89,9 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		}); err != nil {
 			return nil, fmt.Errorf("advance: record pause: %w", err)
 		}
+		if callback != nil {
+			callback(runID, EventPause, fromPhase, toPhase, "auto_advance disabled")
+		}
 		return result, nil
 	}
 
@@ -135,6 +138,9 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 			Reason:     strPtr(blockReason),
 		}); err != nil {
 			return nil, fmt.Errorf("advance: record block: %w", err)
+		}
+		if callback != nil {
+			callback(runID, EventBlock, fromPhase, toPhase, blockReason)
 		}
 		return result, nil
 	}

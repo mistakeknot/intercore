@@ -124,9 +124,14 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			return 2
 		}
 
+		encodeErr := false
 		for _, e := range events {
-			enc.Encode(e)
-			// Track high water mark per source
+			if err := enc.Encode(e); err != nil {
+				fmt.Fprintf(os.Stderr, "ic: events tail: write: %v\n", err)
+				encodeErr = true
+				break
+			}
+			// Track high water mark per source (only after successful write)
 			if e.Source == event.SourcePhase && e.ID > sincePhase {
 				sincePhase = e.ID
 			}
@@ -135,9 +140,13 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			}
 		}
 
-		// Save cursor after each batch
-		if consumer != "" && len(events) > 0 {
+		// Save cursor after each batch (skip on encode error to avoid advancing past undelivered events)
+		if consumer != "" && len(events) > 0 && !encodeErr {
 			saveCursor(ctx, stStore, consumer, runID, sincePhase, sinceDispatch)
+		}
+
+		if encodeErr {
+			return 2
 		}
 
 		if !follow {

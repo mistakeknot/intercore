@@ -228,7 +228,9 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			ToState:   toStatus,
 			Timestamp: time.Now(),
 		}
-		evStore.AddDispatchEvent(ctx, dispatchID, runID, fromStatus, toStatus, "status_change", "")
+		if err := evStore.AddDispatchEvent(ctx, dispatchID, runID, fromStatus, toStatus, "status_change", ""); err != nil {
+			fmt.Fprintf(os.Stderr, "[event] dispatch event: %v\n", err)
+		}
 		notifier.Notify(ctx, e)
 	}
 	dStore := dispatch.New(d.SqlDB(), dispatchRecorder)

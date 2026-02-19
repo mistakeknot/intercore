@@ -189,6 +189,14 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 // UpdateFields is a map of column names to values for partial updates.
 type UpdateFields map[string]interface{}
 
+// allowedUpdateCols is the set of columns that may be set via UpdateFields.
+var allowedUpdateCols = map[string]bool{
+	"pid": true, "exit_code": true, "started_at": true, "completed_at": true,
+	"turns": true, "commands": true, "messages": true,
+	"input_tokens": true, "output_tokens": true,
+	"verdict_status": true, "verdict_summary": true, "error_message": true,
+}
+
 // UpdateStatus transitions a dispatch to a new status with optional field updates.
 // Records a dispatch event in the same transaction when an event recorder is set.
 func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields UpdateFields) error {
@@ -210,11 +218,14 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 		return fmt.Errorf("dispatch update: read prev: %w", err)
 	}
 
-	// Build dynamic SET clause
+	// Build dynamic SET clause (validate column names against allowlist)
 	sets := []string{"status = ?"}
 	args := []interface{}{status}
 
 	for col, val := range fields {
+		if !allowedUpdateCols[col] {
+			return fmt.Errorf("dispatch update: disallowed column: %q", col)
+		}
 		sets = append(sets, col+" = ?")
 		args = append(args, val)
 	}
