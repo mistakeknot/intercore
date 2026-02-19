@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -434,6 +435,90 @@ func TestStore_Current_IgnoresCancelled(t *testing.T) {
 	// Should return the first (only active one)
 	if got.ID != id1 {
 		t.Errorf("Current ID = %q, want %q (only active)", got.ID, id1)
+	}
+}
+
+func TestStore_SkipPhase(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test skip",
+		Phases:      []string{"a", "b", "c", "d"},
+		AutoAdvance: true,
+	})
+
+	// Skip phase "b" while at phase "a"
+	err := store.SkipPhase(ctx, id, "b", "complexity 1", "clavain")
+	if err != nil {
+		t.Fatalf("SkipPhase: %v", err)
+	}
+
+	// Verify event was recorded
+	events, err := store.Events(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range events {
+		if e.EventType == EventSkip && e.ToPhase == "b" {
+			found = true
+			if e.Reason == nil || !strings.Contains(*e.Reason, "clavain") {
+				t.Errorf("skip event reason = %v, want to contain 'clavain'", e.Reason)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected skip event for phase 'b'")
+	}
+
+	// Verify SkippedPhases returns the right set
+	skipped, err := store.SkippedPhases(ctx, id)
+	if err != nil {
+		t.Fatalf("SkippedPhases: %v", err)
+	}
+	if !skipped["b"] {
+		t.Error("expected 'b' in skipped set")
+	}
+	if skipped["c"] {
+		t.Error("expected 'c' NOT in skipped set")
+	}
+}
+
+func TestStore_SkipPhaseErrors(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test skip errors",
+		Phases:      []string{"a", "b", "c"},
+		AutoAdvance: true,
+	})
+
+	// Skip nonexistent phase
+	err := store.SkipPhase(ctx, id, "nonexistent", "test", "test")
+	if err == nil {
+		t.Error("expected error for nonexistent phase")
+	}
+
+	// Skip current phase (current is "a", can't skip "a" itself)
+	err = store.SkipPhase(ctx, id, "a", "test", "test")
+	if err == nil {
+		t.Error("expected error for skipping current phase")
+	}
+
+	// Skip terminal phase
+	err = store.SkipPhase(ctx, id, "c", "test", "test")
+	if err == nil {
+		t.Error("expected error for skipping terminal phase")
+	}
+
+	// Skip on nonexistent run
+	err = store.SkipPhase(ctx, "nonexist", "b", "test", "test")
+	if err != ErrNotFound {
+		t.Errorf("SkipPhase(nonexist) error = %v, want ErrNotFound", err)
 	}
 }
 

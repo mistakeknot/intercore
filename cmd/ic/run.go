@@ -20,7 +20,7 @@ import (
 
 func cmdRun(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, phase, list, events, cancel, set, current, agent, artifact)\n")
+		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, phase, list, events, cancel, set, current, agent, artifact)\n")
 		return 3
 	}
 
@@ -31,6 +31,8 @@ func cmdRun(ctx context.Context, args []string) int {
 		return cmdRunStatus(ctx, args[1:])
 	case "advance":
 		return cmdRunAdvance(ctx, args[1:])
+	case "skip":
+		return cmdRunSkip(ctx, args[1:])
 	case "phase":
 		return cmdRunPhase(ctx, args[1:])
 	case "list":
@@ -345,6 +347,57 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		return 0
 	}
 	return 1
+}
+
+func cmdRunSkip(ctx context.Context, args []string) int {
+	var reason, actor string
+	var positional []string
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "--reason="):
+			reason = strings.TrimPrefix(args[i], "--reason=")
+		case strings.HasPrefix(args[i], "--actor="):
+			actor = strings.TrimPrefix(args[i], "--actor=")
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+
+	if len(positional) < 2 {
+		fmt.Fprintf(os.Stderr, "ic: run skip: usage: ic run skip <id> <phase> --reason=<text> [--actor=<name>]\n")
+		return 3
+	}
+	runID := positional[0]
+	targetPhase := positional[1]
+
+	if reason == "" {
+		fmt.Fprintf(os.Stderr, "ic: run skip: --reason is required\n")
+		return 3
+	}
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run skip: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := phase.New(d.SqlDB())
+	if err := store.SkipPhase(ctx, runID, targetPhase, reason, actor); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run skip: %v\n", err)
+		return 1
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]string{
+			"status": "skipped",
+			"phase":  targetPhase,
+		})
+	} else {
+		fmt.Printf("skipped: %s\n", targetPhase)
+	}
+	return 0
 }
 
 func cmdRunPhase(ctx context.Context, args []string) int {

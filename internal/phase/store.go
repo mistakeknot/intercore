@@ -337,6 +337,71 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	return r, nil
 }
 
+// SkipPhase marks a future phase as skipped with an audit trail.
+// The phase must exist in the run's chain and must be ahead of the current phase.
+// It does NOT advance the run — the next Advance will walk past it.
+func (s *Store) SkipPhase(ctx context.Context, runID, targetPhase, reason, actor string) error {
+	run, err := s.Get(ctx, runID)
+	if err != nil {
+		return err
+	}
+	if IsTerminalStatus(run.Status) {
+		return ErrTerminalRun
+	}
+
+	chain := ResolveChain(run)
+
+	// Validate target phase exists in chain
+	if !ChainContains(chain, targetPhase) {
+		return fmt.Errorf("skip: phase %q not in chain", targetPhase)
+	}
+
+	// Validate target is ahead of current (can't skip current or past phases)
+	if !ChainIsValidTransition(chain, run.Phase, targetPhase) {
+		return fmt.Errorf("skip: phase %q is not ahead of current phase %q", targetPhase, run.Phase)
+	}
+
+	// Guard: can't skip the terminal phase
+	if ChainIsTerminal(chain, targetPhase) {
+		return fmt.Errorf("skip: cannot skip terminal phase %q", targetPhase)
+	}
+
+	// Build reason string
+	reasonStr := reason
+	if actor != "" {
+		reasonStr = fmt.Sprintf("actor=%s: %s", actor, reason)
+	}
+
+	return s.AddEvent(ctx, &PhaseEvent{
+		RunID:     runID,
+		FromPhase: run.Phase,
+		ToPhase:   targetPhase,
+		EventType: EventSkip,
+		Reason:    strPtrOrNil(reasonStr),
+	})
+}
+
+// SkippedPhases returns the set of phases that have been pre-skipped for a run.
+func (s *Store) SkippedPhases(ctx context.Context, runID string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT to_phase FROM phase_events
+		WHERE run_id = ? AND event_type = 'skip'`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("skipped phases: %w", err)
+	}
+	defer rows.Close()
+
+	skipped := make(map[string]bool)
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, fmt.Errorf("skipped phases scan: %w", err)
+		}
+		skipped[p] = true
+	}
+	return skipped, rows.Err()
+}
+
 // --- helpers ---
 
 const runCols = `id, project_dir, goal, status, phase, complexity,
