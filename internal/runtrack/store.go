@@ -85,6 +85,34 @@ func (s *Store) UpdateAgent(ctx context.Context, id, status string) error {
 	return nil
 }
 
+// UpdateAgentDispatch sets the dispatch_id on an agent record.
+// Uses CAS semantics: only succeeds if dispatch_id is currently NULL.
+// Returns ErrDispatchIDConflict if the agent already has a dispatch_id set.
+func (s *Store) UpdateAgentDispatch(ctx context.Context, agentID, dispatchID string) error {
+	now := time.Now().Unix()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE run_agents SET dispatch_id = ?, updated_at = ?
+		WHERE id = ? AND dispatch_id IS NULL`,
+		dispatchID, now, agentID,
+	)
+	if err != nil {
+		return fmt.Errorf("agent update dispatch: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("agent update dispatch: %w", err)
+	}
+	if n == 0 {
+		// Distinguish: agent not found vs. dispatch_id already set
+		_, err := s.GetAgent(ctx, agentID)
+		if err != nil {
+			return ErrAgentNotFound
+		}
+		return ErrDispatchIDConflict
+	}
+	return nil
+}
+
 // GetAgent retrieves an agent by ID.
 func (s *Store) GetAgent(ctx context.Context, id string) (*Agent, error) {
 	a := &Agent{}

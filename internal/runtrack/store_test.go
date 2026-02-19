@@ -302,6 +302,77 @@ func TestStore_AgentWithDispatchID(t *testing.T) {
 	}
 }
 
+func TestStore_UpdateAgentDispatch(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	id, err := store.AddAgent(ctx, &Agent{
+		RunID:     "testrun1",
+		AgentType: "codex",
+	})
+	if err != nil {
+		t.Fatalf("AddAgent: %v", err)
+	}
+
+	// Initially no dispatch ID
+	got, _ := store.GetAgent(ctx, id)
+	if got.DispatchID != nil {
+		t.Errorf("DispatchID = %v, want nil", got.DispatchID)
+	}
+
+	// Set dispatch ID
+	if err := store.UpdateAgentDispatch(ctx, id, "dispatch-abc"); err != nil {
+		t.Fatalf("UpdateAgentDispatch: %v", err)
+	}
+
+	got, _ = store.GetAgent(ctx, id)
+	if got.DispatchID == nil || *got.DispatchID != "dispatch-abc" {
+		t.Errorf("DispatchID = %v, want %q", got.DispatchID, "dispatch-abc")
+	}
+}
+
+func TestStore_UpdateAgentDispatch_NotFound(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	err := store.UpdateAgentDispatch(ctx, "nonexist", "dispatch-abc")
+	if err != ErrAgentNotFound {
+		t.Errorf("UpdateAgentDispatch(nonexist) error = %v, want ErrAgentNotFound", err)
+	}
+}
+
+func TestStore_UpdateAgentDispatch_Conflict(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	id, err := store.AddAgent(ctx, &Agent{
+		RunID:     "testrun1",
+		AgentType: "codex",
+	})
+	if err != nil {
+		t.Fatalf("AddAgent: %v", err)
+	}
+
+	// First set succeeds
+	if err := store.UpdateAgentDispatch(ctx, id, "dispatch-first"); err != nil {
+		t.Fatalf("first UpdateAgentDispatch: %v", err)
+	}
+
+	// Second set conflicts (CAS: dispatch_id IS NULL check fails)
+	err = store.UpdateAgentDispatch(ctx, id, "dispatch-second")
+	if err != ErrDispatchIDConflict {
+		t.Errorf("second UpdateAgentDispatch error = %v, want ErrDispatchIDConflict", err)
+	}
+
+	// Verify original value preserved
+	got, _ := store.GetAgent(ctx, id)
+	if got.DispatchID == nil || *got.DispatchID != "dispatch-first" {
+		t.Errorf("DispatchID = %v, want %q", got.DispatchID, "dispatch-first")
+	}
+}
+
 func TestStore_AgentFailedStatus(t *testing.T) {
 	store, d := setupTestStore(t)
 	ctx := context.Background()

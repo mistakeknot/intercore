@@ -17,6 +17,13 @@ type AgentSpawner interface {
 	SpawnByAgentID(ctx context.Context, agentID string) error
 }
 
+// AgentSpawnerFunc adapts a plain function to the AgentSpawner interface.
+type AgentSpawnerFunc func(ctx context.Context, agentID string) error
+
+func (f AgentSpawnerFunc) SpawnByAgentID(ctx context.Context, agentID string) error {
+	return f(ctx, agentID)
+}
+
 // NewSpawnHandler returns a handler that auto-spawns agents when phase
 // reaches "executing". No-op for other phase transitions or dispatch events.
 func NewSpawnHandler(querier AgentQuerier, spawner AgentSpawner, logw io.Writer) Handler {

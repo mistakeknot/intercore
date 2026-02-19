@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -234,6 +235,61 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		notifier.Notify(ctx, e)
 	}
 	dStore := dispatch.New(d.SqlDB(), dispatchRecorder)
+
+	// Auto-spawn adapter: looks up agent, re-uses dispatch config or convention path
+	spawner := event.AgentSpawnerFunc(func(ctx context.Context, agentID string) error {
+		agent, err := rtStore.GetAgent(ctx, agentID)
+		if err != nil {
+			return fmt.Errorf("spawn lookup: %w", err)
+		}
+
+		var opts dispatch.SpawnOptions
+		opts.ProjectDir = run.ProjectDir
+		opts.AgentType = agent.AgentType
+
+		// If agent has a prior dispatch, re-use its spawn config
+		if agent.DispatchID != nil {
+			prior, err := dStore.Get(ctx, *agent.DispatchID)
+			if err != nil {
+				return fmt.Errorf("spawn: lookup prior dispatch %s: %w", *agent.DispatchID, err)
+			}
+			if prior.PromptFile != nil {
+				opts.PromptFile = *prior.PromptFile
+			}
+			if prior.Model != nil {
+				opts.Model = *prior.Model
+			}
+			if prior.Sandbox != nil {
+				opts.Sandbox = *prior.Sandbox
+			}
+		}
+
+		// Fallback: convention-based prompt path
+		if opts.PromptFile == "" && agent.Name != nil {
+			opts.PromptFile = filepath.Join(run.ProjectDir, ".ic", "prompts", *agent.Name+".md")
+		}
+
+		if opts.PromptFile == "" {
+			return fmt.Errorf("spawn: agent %s has no prompt file and no name for convention lookup", agentID)
+		}
+
+		spawnResult, err := dispatch.Spawn(ctx, dStore, opts)
+		if err != nil {
+			return fmt.Errorf("spawn: agent %s: %w", agentID, err)
+		}
+
+		// Link the new dispatch back to the agent record (CAS: only if not already linked)
+		if err := rtStore.UpdateAgentDispatch(ctx, agentID, spawnResult.ID); err != nil {
+			// Kill the orphan process to prevent resource leak
+			if spawnResult.Cmd != nil && spawnResult.Cmd.Process != nil {
+				_ = spawnResult.Cmd.Process.Kill()
+			}
+			return fmt.Errorf("spawn: link dispatch to agent %s: %w", agentID, err)
+		}
+
+		return nil
+	})
+	notifier.Subscribe("spawn", event.NewSpawnHandler(rtStore, spawner, os.Stderr))
 
 	// Phase event callback: notifies after phase transition
 	phaseCallback := func(runID, eventType, fromPhase, toPhase, reason string) {
