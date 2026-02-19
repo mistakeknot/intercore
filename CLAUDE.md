@@ -76,6 +76,24 @@ ic gate override <run_id> --reason=<text>   # Force-advance past failed gate
 ic gate rules [--phase=<p>]                 # Display gate rules table
 ```
 
+## Event Bus Quick Reference
+
+```bash
+# Tail events for a run (one-shot)
+ic events tail <run_id>
+ic events tail --all                        # All runs
+
+# Tail with consumer cursor (at-least-once delivery)
+ic events tail <run_id> --consumer=my-hook
+ic events tail --all --consumer=my-hook -f  # Follow mode with polling
+
+# Cursor management
+ic events cursor list                       # Show all consumer cursors
+ic events cursor reset <consumer>           # Reset cursor to replay from start
+
+# Options: --since-phase=N --since-dispatch=N --limit=100 --poll-interval=500ms
+```
+
 ## Claude-Specific Settings
 
 - Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)

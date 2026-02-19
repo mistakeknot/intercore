@@ -16,7 +16,7 @@ cmd/ic/run.go           Run subcommands (create, status, advance, phase, current
 cmd/ic/gate.go          Gate subcommands (check, override, rules)
 cmd/ic/lock.go          Lock subcommands (acquire, release, list, stale, clean) — filesystem-only
 internal/db/db.go       SQLite connection, migration, health check
-internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, run_agents, run_artifacts)
+internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, dispatch_events, run_agents, run_artifacts)
 internal/db/disk.go     Disk space check (Linux syscall)
 internal/state/         State CRUD with JSON validation and TTL
 internal/sentinel/      Atomic throttle guards with UPDATE+RETURNING
@@ -33,12 +33,20 @@ internal/phase/         Phase state machine: run lifecycle with complexity-based
 internal/lock/          Filesystem-based mutex using POSIX mkdir atomicity
   lock.go               Manager, Acquire (spin-wait + stale-break), Release, List, Clean
   lock_test.go          Unit tests (8 tests, race-detector safe)
+internal/event/         Event bus: Event type, EventStore, Notifier, handlers
+  event.go              Event struct, source constants (SourcePhase, SourceDispatch)
+  store.go              EventStore: AddPhaseEvent, AddDispatchEvent, ListEvents, ListAllEvents (UNION + dual cursors)
+  notifier.go           Notifier: Subscribe/Notify with named handlers
+  handler_log.go        LogHandler: logs events to stderr (quiet mode suppresses)
+  handler_spawn.go      SpawnHandler: auto-agent-spawn on phase transitions (scaffolded)
+  handler_hook.go       HookHandler: executes .clavain/hooks/on-event.sh async (goroutine, 5s timeout)
+cmd/ic/events.go        CLI: ic events tail (dual cursor), ic events cursor (list, reset)
 internal/runtrack/      Agent and artifact tracking within runs
   runtrack.go           Agent/Artifact types, status constants
   store.go              CRUD for run_agents and run_artifacts
   errors.go             Error sentinels (ErrAgentNotFound, ErrArtifactNotFound)
-lib-intercore.sh        Bash wrappers for hooks (v0.5.0)
-test-integration.sh     End-to-end integration test (~85 tests)
+lib-intercore.sh        Bash wrappers for hooks (v0.6.0)
+test-integration.sh     End-to-end integration test (~93 tests)
 ```
 
 ## CLI Commands
@@ -77,6 +85,10 @@ ic run agent list <run>                    List agents for a run
 ic run agent update <id> --status=<s>      Update agent status (active|completed|failed)
 ic run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
 ic run artifact list <run> [--phase=<p>]   List artifacts for a run
+ic events tail <run_id> [flags]             Tail events for a run (JSON lines)
+ic events tail --all [flags]               Tail events across all runs
+ic events cursor list                      List consumer cursors
+ic events cursor reset <consumer>          Reset a consumer cursor
 ic gate check <run_id> [--priority=N]      Dry-run gate evaluation (exit 0=pass, 1=fail)
 ic gate override <run_id> --reason=<text>  Force-advance past a failed gate
 ic gate rules [--phase=<p>]                Display gate rules table
@@ -289,6 +301,54 @@ Gates enforce conditions before phase transitions. Each transition has a set of 
 
 **Override:** `ic gate override` force-advances past a failed gate. It calls `UpdatePhase` first, then records the event — if a crash occurs between, the advance happened without audit (safer than audit without advance).
 
+## Event Bus Module
+
+The event bus (schema v5) provides reactive notification of phase transitions and dispatch status changes. It uses an in-process `Notifier` with callback-based wiring — no cross-package interfaces.
+
+### Architecture
+
+```
+phase.Advance() → PhaseEventCallback → Notifier.Notify() → handlers
+dispatch.UpdateStatus() → DispatchEventRecorder → Notifier.Notify() → handlers
+```
+
+Callbacks fire **after DB commit** (fire-and-forget). Handler errors are logged but never fail the parent operation. The hook handler runs in a detached goroutine with `context.Background()` and a 5s timeout to avoid blocking the single DB connection.
+
+### Tables
+
+- `phase_events` — phase transitions (pre-existing, read by event bus)
+- `dispatch_events` — dispatch status changes (new in v5). No FK on `dispatch_id` — dispatches may be pruned while events are retained.
+
+### Dual Cursors
+
+`ic events tail` tracks separate high-water marks for phase and dispatch events because they use independent AUTOINCREMENT sequences. Cursors are persisted in the `state` table with a 24h TTL for auto-cleanup.
+
+### Handlers
+
+| Handler | Registered | Behavior |
+|---------|-----------|----------|
+| LogHandler | Always | Logs events to stderr; quiet mode (default) suppresses output |
+| HookHandler | Always | Executes `.clavain/hooks/on-event.sh` with event JSON on stdin; async goroutine |
+| SpawnHandler | Not wired | Scaffolded for auto-agent-spawn on phase transitions |
+
+### PhaseEventCallback
+
+The callback fires on **all** advance attempts: advance, skip, block, and pause. Consumers see the full lifecycle, not just successful transitions.
+
+### Column Allowlist (dispatch.UpdateStatus)
+
+`UpdateFields` map keys are validated against `allowedUpdateCols` before SQL interpolation. This prevents column injection via the exported `UpdateFields` type.
+
+### Bash Wrappers (lib-intercore.sh v0.6.0)
+
+```bash
+intercore_events_tail <run_id> [flags]        # One-shot event dump (JSON lines)
+intercore_events_tail_all [flags]             # Events across all runs
+intercore_events_cursor_get <consumer>        # Get cursor JSON
+intercore_events_cursor_set <consumer> <phase_id> <dispatch_id>  # Manual cursor set
+intercore_events_cursor_reset <consumer>      # Reset cursor
+```
+
 ### Optimistic Concurrency
 
 `UpdatePhase` uses `WHERE phase = ?` with the expected current phase. If another process already advanced the run, 0 rows are affected → `ErrStalePhase`. This prevents two concurrent `ic run advance` invocations from double-advancing.
@@ -339,7 +399,7 @@ All payloads are validated before storage:
 | state get | No transaction | Read-only |
 | sentinel check | Transaction (default) | Atomic claim + auto-prune |
 | dispatch create | No transaction | Single INSERT |
-| dispatch update | No transaction | Single UPDATE |
+| dispatch update | Transaction | Capture prev status + UPDATE + commit before event recorder |
 | migrate | Transaction (default) | Schema DDL + version update |
 
 ### Migration Safety
@@ -350,9 +410,9 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~114 tests across 8 packages)
+go test ./...                    # Unit tests (~130 tests across 9 packages)
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (~70 tests)
+bash test-integration.sh         # Full CLI integration test (~93 tests)
 ```
 
 ## Recovery Procedures
