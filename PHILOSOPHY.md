@@ -1,15 +1,17 @@
 # intercore Philosophy
 
 ## Purpose
-intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provides atomic state operations, throttle guards, agent dispatch tracking, and phase lifecycle management callable from bash hooks. It replaces ~15 scattered temp files in `/tmp/` used by the Clavain hook infrastructure.
+intercore is the kernel layer of the Clavain autonomous software agency. It is a host-agnostic Go CLI (`ic`) backed by a single SQLite WAL database that provides the durable system of record for runs, phases, gates, dispatches, events, and token budgets. The kernel is mechanism, not policy — it doesn't know what "brainstorm" means, only that a phase transition happened and needs recording.
+
+In the three-layer architecture (Kernel → OS → Drivers), intercore is Layer 1. Clavain (the OS, Layer 2) encodes policy — which phases exist, what gates enforce, how agents are routed. Companion plugins (drivers, Layer 3) wrap individual capabilities. If the OS layer changes or the host platform disappears, the kernel and all its data survive untouched.
 
 ## North Star
-Advance intercore through small, testable changes aligned to its core mission: intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provides atomic state operations, throttle guards, agent dispatch tracking, and phase lifecycle management callable from bash hooks. It replaces ~15 scattered temp files in `/tmp/` used by the Clavain hook infrastructure.
+Advance intercore through small, testable changes aligned to its core mission: provide durable, crash-safe orchestration primitives that any OS layer can build on. The kernel's event bus is the backbone of observability — every state change produces a typed, durable event. You can't refine what you can't see.
 
 ## Working Priorities
-- Tracking
-- Throttle
-- State
+- Durability — every operation is crash-safe, every state change is auditable
+- Mechanism — provide primitives, not opinions; policy belongs in the OS layer
+- Observability — emit typed events for every transition so profilers and reactors can act
 
 ## Brainstorming Doctrine
 1. Start from outcomes and failure modes, not implementation details.
@@ -30,7 +32,7 @@ Advance intercore through small, testable changes aligned to its core mission: i
 - Can we revert safely if assumptions fail?
 
 ## Evidence Base
-- Brainstorms analyzed: 0
-- Plans analyzed: 0
-- Source confidence: inferred (no local brainstorm/plan corpus found)
-- Representative artifacts: none yet. Build this corpus over time under `docs/brainstorms/` and `docs/plans/`.
+- Brainstorms analyzed: 3 (E1 kernel primitives, E2 event reactor, event bus)
+- Plans analyzed: 3 (E1 kernel primitives, E2 event reactor, event bus)
+- Source confidence: high (multiple design docs, integration tests, shipped CLI)
+- Representative artifacts: `docs/event-reactor-pattern.md`, `MIGRATION.md`

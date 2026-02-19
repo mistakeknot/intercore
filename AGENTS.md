@@ -2,7 +2,9 @@
 
 ## Overview
 
-intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provides atomic state operations, throttle guards, agent dispatch tracking, and phase lifecycle management callable from bash hooks. It replaces ~15 scattered temp files in `/tmp/` used by the Clavain hook infrastructure.
+intercore is the kernel layer (Layer 1) of the Clavain autonomous software agency. It is a host-agnostic Go CLI (`ic`) backed by a single SQLite WAL database that provides the durable system of record for runs, phases, gates, dispatches, events, and token budgets. The kernel is mechanism, not policy — it doesn't know what "brainstorm" means, only that a phase transition happened and needs recording.
+
+In the three-layer architecture, intercore sits beneath the OS (Clavain, Layer 2) and drivers (companion plugins, Layer 3). If the host platform changes, the kernel and all its data survive untouched. Bash hooks and the Clavain sprint pipeline call `ic` for all state operations instead of writing to temp files.
 
 **Location:** `infra/intercore/` (infrastructure, not a plugin — hooks depend on it)
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
