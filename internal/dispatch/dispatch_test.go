@@ -375,6 +375,56 @@ func TestUpdateTokensNotFound(t *testing.T) {
 	}
 }
 
+func TestAggregateTokens(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	runID := "testrun"
+	for _, tok := range []struct{ in, out, cache int }{
+		{1000, 500, 3000},
+		{2000, 1000, 5000},
+	} {
+		d := &Dispatch{
+			ProjectDir: "/tmp",
+			AgentType:  "codex",
+			ScopeID:    &runID,
+		}
+		id, _ := store.Create(ctx, d)
+		store.UpdateStatus(ctx, id, StatusCompleted, UpdateFields{
+			"input_tokens":  tok.in,
+			"output_tokens": tok.out,
+			"cache_hits":    tok.cache,
+		})
+	}
+
+	agg, err := store.AggregateTokens(ctx, runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agg.TotalIn != 3000 {
+		t.Errorf("TotalIn = %d, want 3000", agg.TotalIn)
+	}
+	if agg.TotalOut != 1500 {
+		t.Errorf("TotalOut = %d, want 1500", agg.TotalOut)
+	}
+	if agg.TotalCache != 8000 {
+		t.Errorf("TotalCache = %d, want 8000", agg.TotalCache)
+	}
+}
+
+func TestAggregateTokensEmpty(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	agg, err := store.AggregateTokens(ctx, "nonexist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agg.TotalIn != 0 || agg.TotalOut != 0 || agg.TotalCache != 0 {
+		t.Errorf("Empty scope: got %+v, want all zeros", agg)
+	}
+}
+
 func TestGenerateID(t *testing.T) {
 	seen := make(map[string]bool)
 	for i := 0; i < 100; i++ {

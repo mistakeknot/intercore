@@ -319,6 +319,31 @@ func (s *Store) Prune(ctx context.Context, olderThan time.Duration) (int64, erro
 	return result.RowsAffected()
 }
 
+// --- Token aggregation ---
+
+// TokenAggregation holds summed token counts for a scope (run).
+type TokenAggregation struct {
+	TotalIn    int64
+	TotalOut   int64
+	TotalCache int64
+}
+
+// AggregateTokens sums token counts across all dispatches for the given scope.
+func (s *Store) AggregateTokens(ctx context.Context, scopeID string) (*TokenAggregation, error) {
+	agg := &TokenAggregation{}
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(input_tokens), 0),
+		       COALESCE(SUM(output_tokens), 0),
+		       COALESCE(SUM(cache_hits), 0)
+		FROM dispatches WHERE scope_id = ?`, scopeID).Scan(
+		&agg.TotalIn, &agg.TotalOut, &agg.TotalCache,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("aggregate tokens: %w", err)
+	}
+	return agg, nil
+}
+
 // --- Gate query methods (satisfy phase.VerdictQuerier) ---
 
 // HasVerdict returns true if any dispatch for the given scope has a non-null, non-reject verdict.

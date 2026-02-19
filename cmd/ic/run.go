@@ -20,7 +20,7 @@ import (
 
 func cmdRun(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, phase, list, events, cancel, set, current, agent, artifact)\n")
+		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, phase, list, events, cancel, set, current, agent, artifact, tokens)\n")
 		return 3
 	}
 
@@ -49,6 +49,8 @@ func cmdRun(ctx context.Context, args []string) int {
 		return cmdRunAgent(ctx, args[1:])
 	case "artifact":
 		return cmdRunArtifact(ctx, args[1:])
+	case "tokens":
+		return cmdRunTokens(ctx, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "ic: run: unknown subcommand: %s\n", args[0])
 		return 3
@@ -888,6 +890,58 @@ func cmdRunAgentUpdate(ctx context.Context, args []string) int {
 }
 
 // --- Run Artifact Commands ---
+
+func cmdRunTokens(ctx context.Context, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: run tokens: usage: ic run tokens <run_id>\n")
+		return 3
+	}
+	runID := args[0]
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run tokens: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	dStore := dispatch.New(d.SqlDB(), nil)
+	agg, err := dStore.AggregateTokens(ctx, runID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run tokens: %v\n", err)
+		return 2
+	}
+
+	total := agg.TotalIn + agg.TotalOut
+	var cacheRatio float64
+	if agg.TotalIn > 0 {
+		cacheRatio = float64(agg.TotalCache) / float64(agg.TotalIn+agg.TotalCache) * 100
+	}
+
+	if flagJSON {
+		out := map[string]interface{}{
+			"run_id":       runID,
+			"input_tokens": agg.TotalIn,
+			"output_tokens": agg.TotalOut,
+			"cache_hits":   agg.TotalCache,
+			"total_tokens": total,
+		}
+		if agg.TotalIn > 0 || agg.TotalCache > 0 {
+			out["cache_ratio"] = cacheRatio
+		}
+		json.NewEncoder(os.Stdout).Encode(out)
+	} else {
+		fmt.Printf("Run: %s\n", runID)
+		fmt.Printf("  Input tokens:  %d\n", agg.TotalIn)
+		fmt.Printf("  Output tokens: %d\n", agg.TotalOut)
+		fmt.Printf("  Cache hits:    %d\n", agg.TotalCache)
+		if agg.TotalIn > 0 || agg.TotalCache > 0 {
+			fmt.Printf("  Cache ratio:   %.1f%%\n", cacheRatio)
+		}
+		fmt.Printf("  Total tokens:  %d\n", total)
+	}
+	return 0
+}
 
 func cmdRunArtifact(ctx context.Context, args []string) int {
 	if len(args) == 0 {
