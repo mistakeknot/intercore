@@ -520,6 +520,46 @@ ic lock list | grep -q "staletest" && fail "stale lock not cleaned" || pass "sta
 # Cleanup test locks
 rm -rf "$LOCK_DIR/testlock" "$LOCK_DIR/ownertest" "$LOCK_DIR/conttest" "$LOCK_DIR/staletest" 2>/dev/null || true
 
+# --- Event Bus Tests ---
+echo ""
+echo "=== Event Bus ==="
+
+# Create a run and advance it
+EVT_RUN=$(ic --db="$TEST_DB" run create --project="$TEST_DIR" --goal="Event bus test")
+pass "create run for events"
+
+ic --db="$TEST_DB" run advance "$EVT_RUN" --priority=4 >/dev/null
+pass "advance run for events"
+
+# Tail events — should have at least one phase event
+EVT_OUTPUT=$(ic --db="$TEST_DB" events tail "$EVT_RUN")
+echo "$EVT_OUTPUT" | grep -q '"source":"phase"' || fail "events tail: no phase events"
+pass "events tail returns phase events"
+
+# Tail --all should also work
+ic --db="$TEST_DB" events tail --all | grep -q '"source":"phase"' || fail "events tail --all: no events"
+pass "events tail --all"
+
+# Consumer cursor: first tail stores events, second tail returns empty
+ic --db="$TEST_DB" events tail "$EVT_RUN" --consumer=integ-consumer >/dev/null
+ic --db="$TEST_DB" events cursor list | grep -q "integ-consumer" || fail "cursor not persisted"
+pass "cursor persisted after tail"
+
+SECOND_TAIL=$(ic --db="$TEST_DB" events tail "$EVT_RUN" --consumer=integ-consumer)
+[[ -z "$SECOND_TAIL" ]] || fail "cursor dedup failed: got $SECOND_TAIL"
+pass "cursor dedup (second tail empty)"
+
+# Cursor reset
+ic --db="$TEST_DB" events cursor reset "integ-consumer:$EVT_RUN" | grep -q "reset" || fail "cursor reset failed"
+pass "cursor reset"
+
+# After reset, tail should return events again
+RESET_TAIL=$(ic --db="$TEST_DB" events tail "$EVT_RUN" --consumer=integ-consumer)
+echo "$RESET_TAIL" | grep -q '"source":"phase"' || fail "events after cursor reset: no events"
+pass "events after cursor reset"
+
+echo "  Event bus tests passed"
+
 # --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then
