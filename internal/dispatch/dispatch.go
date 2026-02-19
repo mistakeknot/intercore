@@ -65,14 +65,19 @@ func (d *Dispatch) IsTerminal() bool {
 	return false
 }
 
+// DispatchEventRecorder is called after a dispatch status change.
+// May be nil — UpdateStatus checks before calling.
+type DispatchEventRecorder func(dispatchID, runID, fromStatus, toStatus string)
+
 // Store provides dispatch operations against the intercore DB.
 type Store struct {
-	db *sql.DB
+	db            *sql.DB
+	eventRecorder DispatchEventRecorder
 }
 
-// New creates a dispatch store.
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
+// New creates a dispatch store. recorder may be nil if event recording is not needed.
+func New(db *sql.DB, recorder DispatchEventRecorder) *Store {
+	return &Store{db: db, eventRecorder: recorder}
 }
 
 // generateID creates an 8-char random alphanumeric ID.
@@ -185,20 +190,38 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 type UpdateFields map[string]interface{}
 
 // UpdateStatus transitions a dispatch to a new status with optional field updates.
+// Records a dispatch event in the same transaction when an event recorder is set.
 func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields UpdateFields) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("dispatch update: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Capture previous status before the UPDATE
+	var prevStatus string
+	var scopeID sql.NullString
+	err = tx.QueryRowContext(ctx,
+		"SELECT status, scope_id FROM dispatches WHERE id = ?", id).Scan(&prevStatus, &scopeID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return fmt.Errorf("dispatch update: read prev: %w", err)
+	}
+
 	// Build dynamic SET clause
 	sets := []string{"status = ?"}
 	args := []interface{}{status}
 
 	for col, val := range fields {
-		sets[0] = sets[0] // keep status first
 		sets = append(sets, col+" = ?")
 		args = append(args, val)
 	}
 	args = append(args, id)
 
 	query := "UPDATE dispatches SET " + joinStrings(sets, ", ") + " WHERE id = ?"
-	result, err := s.db.ExecContext(ctx, query, args...)
+	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("dispatch update: %w", err)
 	}
@@ -209,6 +232,20 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 	if n == 0 {
 		return ErrNotFound
 	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("dispatch update: commit: %w", err)
+	}
+
+	// Fire event recorder outside transaction (fire-and-forget)
+	if s.eventRecorder != nil && status != prevStatus {
+		runID := ""
+		if scopeID.Valid {
+			runID = scopeID.String
+		}
+		s.eventRecorder(id, runID, prevStatus, status)
+	}
+
 	return nil
 }
 

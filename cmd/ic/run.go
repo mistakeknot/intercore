@@ -198,12 +198,12 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 
 	store := phase.New(d.SqlDB())
 	rtStore := runtrack.New(d.SqlDB())
-	dStore := dispatch.New(d.SqlDB())
+	dStore := dispatch.New(d.SqlDB(), nil)
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
 		Priority:   priority,
 		DisableAll: disableGates,
 		SkipReason: skipReason,
-	}, rtStore, dStore)
+	}, rtStore, dStore, nil)
 	if err != nil {
 		if err == phase.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)

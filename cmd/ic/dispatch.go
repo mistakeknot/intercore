@@ -98,7 +98,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB())
+	store := dispatch.New(d.SqlDB(), nil)
 	result, err := dispatch.Spawn(ctx, store, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: dispatch spawn: %v\n", err)
@@ -129,7 +129,7 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB())
+	store := dispatch.New(d.SqlDB(), nil)
 	disp, err := store.Get(ctx, args[0])
 	if err != nil {
 		if err == dispatch.ErrNotFound {
@@ -169,7 +169,7 @@ func cmdDispatchList(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB())
+	store := dispatch.New(d.SqlDB(), nil)
 	var dispatches []*dispatch.Dispatch
 
 	if activeOnly {
@@ -213,7 +213,7 @@ func cmdDispatchPoll(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB())
+	store := dispatch.New(d.SqlDB(), nil)
 	disp, err := dispatch.Poll(ctx, store, args[0])
 	if err != nil {
 		if err == dispatch.ErrNotFound {
@@ -282,7 +282,7 @@ func cmdDispatchWait(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB())
+	store := dispatch.New(d.SqlDB(), nil)
 	disp, err := dispatch.Wait(ctx, store, id, pollInterval, timeout)
 	if err != nil {
 		if err == dispatch.ErrNotFound {
@@ -318,7 +318,7 @@ func cmdDispatchKill(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB())
+	store := dispatch.New(d.SqlDB(), nil)
 	if err := dispatch.Kill(ctx, store, args[0]); err != nil {
 		if err == dispatch.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: dispatch kill: not found: %s\n", args[0])
@@ -360,7 +360,7 @@ func cmdDispatchPrune(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB())
+	store := dispatch.New(d.SqlDB(), nil)
 	count, err := store.Prune(ctx, dur)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: dispatch prune: %v\n", err)

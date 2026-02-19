@@ -67,7 +67,7 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 
 	store := phase.New(d.SqlDB())
 	rtStore := runtrack.New(d.SqlDB())
-	dStore := dispatch.New(d.SqlDB())
+	dStore := dispatch.New(d.SqlDB(), nil)
 
 	result, err := phase.EvaluateGate(ctx, store, runID, phase.GateConfig{
 		Priority: priority,

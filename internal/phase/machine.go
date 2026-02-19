@@ -23,6 +23,10 @@ type AdvanceResult struct {
 	Advanced   bool
 }
 
+// PhaseEventCallback is called after a successful phase transition.
+// Errors are logged but do not fail the advance.
+type PhaseEventCallback func(runID, eventType, fromPhase, toPhase, reason string)
+
 // Advance attempts to move a run to its next required phase.
 //
 // The lifecycle:
@@ -33,9 +37,11 @@ type AdvanceResult struct {
 //  5. UpdatePhase with optimistic concurrency
 //  6. Record event in audit trail
 //  7. If target=done, set status=completed
+//  8. Fire callback (if provided) for event bus notification
 //
 // rt and vq may be nil when Priority >= 4 (TierNone skips gate evaluation).
-func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier) (*AdvanceResult, error) {
+// callback may be nil — Advance checks before calling.
+func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, callback PhaseEventCallback) (*AdvanceResult, error) {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -156,6 +162,11 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		if err := store.UpdateStatus(ctx, runID, StatusCompleted); err != nil {
 			return nil, fmt.Errorf("advance: complete run: %w", err)
 		}
+	}
+
+	// Fire event bus callback (fire-and-forget)
+	if callback != nil {
+		callback(runID, eventType, fromPhase, toPhase, reason)
 	}
 
 	return &AdvanceResult{

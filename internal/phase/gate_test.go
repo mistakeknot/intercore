@@ -22,7 +22,7 @@ func TestGate_ArtifactExists_Pass(t *testing.T) {
 		RunID: id, Phase: PhaseBrainstorm, Path: "brainstorm.md", Type: "file",
 	})
 
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -42,7 +42,7 @@ func TestGate_ArtifactExists_Fail(t *testing.T) {
 	})
 
 	// No artifact — hard gate (priority 0) should block
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestGate_ArtifactExists_SoftFail(t *testing.T) {
 	})
 
 	// No artifact — soft gate (priority 2) should warn but advance
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 2}, rtStore, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 2}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestGate_AgentsComplete_Pass(t *testing.T) {
 	advanceToPhase(t, store, id, PhaseExecuting, rtStore)
 
 	// No active agents — gate should pass
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestGate_AgentsComplete_Fail(t *testing.T) {
 	})
 
 	// Hard gate should block
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestGate_VerdictExists_Pass(t *testing.T) {
 	advanceToPhase(t, store, id, PhaseReview, rtStore)
 
 	// Add a dispatch with passing verdict
-	dStore := dispatch.New(sqlDB)
+	dStore := dispatch.New(sqlDB, nil)
 	dStore.Create(ctx, &dispatch.Dispatch{
 		AgentType:  "claude",
 		ProjectDir: "/tmp",
@@ -156,7 +156,7 @@ func TestGate_VerdictExists_Pass(t *testing.T) {
 		"verdict_status": "approved",
 	})
 
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -175,10 +175,10 @@ func TestGate_VerdictExists_Fail(t *testing.T) {
 	})
 	advanceToPhase(t, store, id, PhaseReview, rtStore)
 
-	dStore := dispatch.New(sqlDB)
+	dStore := dispatch.New(sqlDB, nil)
 
 	// No verdict — hard gate should block
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -196,8 +196,8 @@ func TestGate_VerdictExists_NoScopeID_Fails(t *testing.T) {
 	})
 	advanceToPhase(t, store, id, PhaseReview, rtStore)
 
-	dStore := dispatch.New(sqlDB)
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore)
+	dStore := dispatch.New(sqlDB, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestGate_DisableAll(t *testing.T) {
 	})
 
 	// Gate disabled — should advance regardless of missing artifacts
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0, DisableAll: true}, nil, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0, DisableAll: true}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestGate_NoRulesForTransition(t *testing.T) {
 	advanceToPhase(t, store, id, PhasePolish, rtStore)
 
 	// polish → done has no rules — should always pass
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestGate_Evidence_Serialized(t *testing.T) {
 		RunID: id, Phase: PhaseBrainstorm, Path: "test.md", Type: "file",
 	})
 
-	_, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil)
+	_, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestGate_BlockEvidenceInReason(t *testing.T) {
 	})
 
 	// No artifact — hard gate should block and record evidence
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}

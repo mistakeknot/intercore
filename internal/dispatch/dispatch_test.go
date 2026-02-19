@@ -22,7 +22,7 @@ func testStore(t *testing.T) *Store {
 	if err := d.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return New(d.SqlDB())
+	return New(d.SqlDB(), nil)
 }
 
 func strPtr(s string) *string { return &s }
