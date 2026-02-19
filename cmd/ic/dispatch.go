@@ -9,7 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/interverse/infra/intercore/internal/budget"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
 )
 
 // --- Dispatch Commands ---
@@ -424,14 +427,31 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB(), nil)
-	if err := store.UpdateTokens(ctx, id, fields); err != nil {
+	dStore := dispatch.New(d.SqlDB(), nil)
+	if err := dStore.UpdateTokens(ctx, id, fields); err != nil {
 		if err == dispatch.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: dispatch tokens: not found: %s\n", id)
 			return 1
 		}
 		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: %v\n", err)
 		return 2
+	}
+
+	// Budget check: if this dispatch belongs to a run, check budget thresholds
+	if disp, err := dStore.Get(ctx, id); err == nil && disp.ScopeID != nil {
+		pStore := phase.New(d.SqlDB())
+		sStore := state.New(d.SqlDB())
+		checker := budget.New(pStore, dStore, sStore, nil)
+		result, err := checker.Check(ctx, *disp.ScopeID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[budget] check: %v\n", err)
+		} else if result != nil {
+			if result.Exceeded {
+				fmt.Fprintf(os.Stderr, "[budget] EXCEEDED: %d/%d tokens\n", result.Used, result.Budget)
+			} else if result.Warning {
+				fmt.Fprintf(os.Stderr, "[budget] WARNING: %d/%d tokens (%d%% threshold)\n", result.Used, result.Budget, result.WarnPct)
+			}
+		}
 	}
 
 	if flagJSON {

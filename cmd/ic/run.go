@@ -10,17 +10,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/interverse/infra/intercore/internal/budget"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/event"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
 )
 
 // --- Run Commands ---
 
 func cmdRun(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, phase, list, events, cancel, set, current, agent, artifact, tokens)\n")
+		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, phase, list, events, cancel, set, current, agent, artifact, tokens, budget)\n")
 		return 3
 	}
 
@@ -51,6 +53,8 @@ func cmdRun(ctx context.Context, args []string) int {
 		return cmdRunArtifact(ctx, args[1:])
 	case "tokens":
 		return cmdRunTokens(ctx, args[1:])
+	case "budget":
+		return cmdRunBudget(ctx, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "ic: run: unknown subcommand: %s\n", args[0])
 		return 3
@@ -60,6 +64,8 @@ func cmdRun(ctx context.Context, args []string) int {
 func cmdRunCreate(ctx context.Context, args []string) int {
 	var project, goal, scopeID string
 	complexity := 3
+	var tokenBudget int64
+	budgetWarnPct := 80
 
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -77,6 +83,22 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			complexity = c
 		case strings.HasPrefix(args[i], "--scope-id="):
 			scopeID = strings.TrimPrefix(args[i], "--scope-id=")
+		case strings.HasPrefix(args[i], "--token-budget="):
+			val := strings.TrimPrefix(args[i], "--token-budget=")
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil || v <= 0 {
+				fmt.Fprintf(os.Stderr, "ic: run create: invalid token-budget (positive integer): %s\n", val)
+				return 3
+			}
+			tokenBudget = v
+		case strings.HasPrefix(args[i], "--budget-warn-pct="):
+			val := strings.TrimPrefix(args[i], "--budget-warn-pct=")
+			v, err := strconv.Atoi(val)
+			if err != nil || v < 1 || v > 99 {
+				fmt.Fprintf(os.Stderr, "ic: run create: invalid budget-warn-pct (1-99): %s\n", val)
+				return 3
+			}
+			budgetWarnPct = v
 		default:
 			fmt.Fprintf(os.Stderr, "ic: run create: unknown flag: %s\n", args[i])
 			return 3
@@ -105,10 +127,14 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	run := &phase.Run{
-		ProjectDir:  project,
-		Goal:        goal,
-		Complexity:  complexity,
-		AutoAdvance: true,
+		ProjectDir:    project,
+		Goal:          goal,
+		Complexity:    complexity,
+		AutoAdvance:   true,
+		BudgetWarnPct: budgetWarnPct,
+	}
+	if tokenBudget > 0 {
+		run.TokenBudget = &tokenBudget
 	}
 	if scopeID != "" {
 		run.ScopeID = &scopeID
@@ -943,6 +969,78 @@ func cmdRunTokens(ctx context.Context, args []string) int {
 	return 0
 }
 
+func cmdRunBudget(ctx context.Context, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: run budget: usage: ic run budget <run_id>\n")
+		return 3
+	}
+	runID := args[0]
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run budget: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	pStore := phase.New(d.SqlDB())
+	dStore := dispatch.New(d.SqlDB(), nil)
+	sStore := state.New(d.SqlDB())
+
+	checker := budget.New(pStore, dStore, sStore, nil)
+	result, err := checker.Check(ctx, runID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run budget: %v\n", err)
+		return 2
+	}
+	if result == nil {
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				"run_id":  runID,
+				"budget":  nil,
+				"message": "no budget set",
+			})
+		} else {
+			fmt.Printf("Run %s: no budget set\n", runID)
+		}
+		return 0
+	}
+
+	pct := float64(0)
+	if result.Budget > 0 {
+		pct = float64(result.Used) / float64(result.Budget) * 100
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"run_id":      result.RunID,
+			"budget":      result.Budget,
+			"used":        result.Used,
+			"warn_pct":    result.WarnPct,
+			"usage_pct":   pct,
+			"warning":     result.Warning,
+			"exceeded":    result.Exceeded,
+		})
+	} else {
+		fmt.Printf("Run: %s\n", result.RunID)
+		fmt.Printf("  Budget:    %d tokens\n", result.Budget)
+		fmt.Printf("  Used:      %d tokens (%.1f%%)\n", result.Used, pct)
+		fmt.Printf("  Warn at:   %d%%\n", result.WarnPct)
+		if result.Exceeded {
+			fmt.Printf("  Status:    EXCEEDED\n")
+		} else if result.Warning {
+			fmt.Printf("  Status:    WARNING\n")
+		} else {
+			fmt.Printf("  Status:    OK\n")
+		}
+	}
+
+	if result.Exceeded {
+		return 1
+	}
+	return 0
+}
+
 func cmdRunArtifact(ctx context.Context, args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintf(os.Stderr, "ic: run artifact: missing subcommand (add, list)\n")
@@ -1104,6 +1202,10 @@ func runToMap(r *phase.Run) map[string]interface{} {
 	if r.ScopeID != nil {
 		m["scope_id"] = *r.ScopeID
 	}
+	if r.TokenBudget != nil {
+		m["token_budget"] = *r.TokenBudget
+		m["budget_warn_pct"] = r.BudgetWarnPct
+	}
 	if r.Metadata != nil {
 		m["metadata"] = *r.Metadata
 	}
@@ -1182,5 +1284,8 @@ func printRun(r *phase.Run) {
 	}
 	if r.ScopeID != nil {
 		fmt.Printf("Scope:      %s\n", *r.ScopeID)
+	}
+	if r.TokenBudget != nil {
+		fmt.Printf("Budget:     %d tokens (warn at %d%%)\n", *r.TokenBudget, r.BudgetWarnPct)
 	}
 }
