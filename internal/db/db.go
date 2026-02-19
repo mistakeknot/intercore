@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -18,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 5
-	maxSchemaVersion     = 5
+	currentSchemaVersion = 6
+	maxSchemaVersion     = 6
 )
 
 var (
@@ -132,6 +133,26 @@ func (d *DB) Migrate(ctx context.Context) error {
 		return nil // already migrated
 	}
 
+	// v5 → v6: add new columns for configurable phase chains, token tracking, artifact hashing, budget
+	if currentVersion >= 5 {
+		v6Stmts := []string{
+			"ALTER TABLE runs ADD COLUMN phases TEXT",
+			"ALTER TABLE runs ADD COLUMN token_budget INTEGER",
+			"ALTER TABLE runs ADD COLUMN budget_warn_pct INTEGER DEFAULT 80",
+			"ALTER TABLE dispatches ADD COLUMN cache_hits INTEGER",
+			"ALTER TABLE run_artifacts ADD COLUMN content_hash TEXT",
+			"ALTER TABLE run_artifacts ADD COLUMN dispatch_id TEXT",
+		}
+		for _, stmt := range v6Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				// Column may already exist from a partial prior run — ignore "duplicate column" errors
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v5→v6: %w", err)
+				}
+			}
+		}
+	}
+
 	// Apply schema DDL
 	if _, err := tx.ExecContext(ctx, schemaDDL); err != nil {
 		return fmt.Errorf("migrate: apply schema: %w", err)
@@ -172,6 +193,13 @@ func (d *DB) Health(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// isDuplicateColumnError checks if an ALTER TABLE ADD COLUMN error is a "duplicate column name" error.
+// This makes the v5→v6 migration idempotent: if a prior run added some columns before failing,
+// the retry will skip those columns instead of failing permanently.
+func isDuplicateColumnError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "duplicate column name")
 }
 
 func copyFile(src, dst string) error {

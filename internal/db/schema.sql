@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS dispatches (
     messages        INTEGER DEFAULT 0,
     input_tokens    INTEGER DEFAULT 0,
     output_tokens   INTEGER DEFAULT 0,
+    cache_hits      INTEGER,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
     started_at      INTEGER,
     completed_at    INTEGER,
@@ -67,7 +68,10 @@ CREATE TABLE IF NOT EXISTS runs (
     updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
     completed_at    INTEGER,
     scope_id        TEXT,
-    metadata        TEXT
+    metadata        TEXT,
+    phases          TEXT,
+    token_budget    INTEGER,
+    budget_warn_pct INTEGER DEFAULT 80
 );
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status) WHERE status = 'active';
 
@@ -104,6 +108,8 @@ CREATE TABLE IF NOT EXISTS run_artifacts (
     phase       TEXT NOT NULL,
     path        TEXT NOT NULL,
     type        TEXT NOT NULL DEFAULT 'file',
+    content_hash TEXT,
+    dispatch_id TEXT,
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);

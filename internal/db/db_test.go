@@ -68,8 +68,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 5 {
-		t.Errorf("SchemaVersion = %d, want 5", v)
+	if v != 6 {
+		t.Errorf("SchemaVersion = %d, want 6", v)
 	}
 
 	// Verify tables exist
@@ -137,8 +137,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 5 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 5", v)
+	if v != 6 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 6", v)
 	}
 }
 
@@ -237,8 +237,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 5 {
-		t.Errorf("SchemaVersion = %d after v1→v5 migrate, want 5", v)
+	if v != 6 {
+		t.Errorf("SchemaVersion = %d after v1→v6 migrate, want 6", v)
 	}
 
 	// Verify dispatches table exists
@@ -316,8 +316,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 5 {
-		t.Errorf("SchemaVersion = %d after v2→v5 migrate, want 5", v)
+	if v != 6 {
+		t.Errorf("SchemaVersion = %d after v2→v6 migrate, want 6", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -408,8 +408,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 5 {
-		t.Errorf("SchemaVersion = %d after v3→v5 migrate, want 5", v)
+	if v != 6 {
+		t.Errorf("SchemaVersion = %d after v3→v6 migrate, want 6", v)
 	}
 
 	// Verify new tables exist
@@ -472,5 +472,170 @@ func TestSchemaVersionTooNew(t *testing.T) {
 	_, err = Open(path, 100*time.Millisecond)
 	if err != ErrSchemaVersionTooNew {
 		t.Errorf("expected ErrSchemaVersionTooNew, got %v", err)
+	}
+}
+
+func TestMigrate_V5ToV6(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Simulate a v5 database with all v5 tables
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (
+			key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL,
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER,
+			PRIMARY KEY (key, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS sentinels (
+			name TEXT NOT NULL, scope_id TEXT NOT NULL,
+			last_fired INTEGER NOT NULL DEFAULT (unixepoch()),
+			PRIMARY KEY (name, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS dispatches (
+			id TEXT NOT NULL PRIMARY KEY, agent_type TEXT NOT NULL DEFAULT 'codex',
+			status TEXT NOT NULL DEFAULT 'spawned', project_dir TEXT NOT NULL,
+			prompt_file TEXT, prompt_hash TEXT, output_file TEXT, verdict_file TEXT,
+			pid INTEGER, exit_code INTEGER, name TEXT, model TEXT,
+			sandbox TEXT DEFAULT 'workspace-write', timeout_sec INTEGER,
+			turns INTEGER DEFAULT 0, commands INTEGER DEFAULT 0, messages INTEGER DEFAULT 0,
+			input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			started_at INTEGER, completed_at INTEGER,
+			verdict_status TEXT, verdict_summary TEXT, error_message TEXT,
+			scope_id TEXT, parent_id TEXT
+		);
+		CREATE TABLE IF NOT EXISTS runs (
+			id TEXT NOT NULL PRIMARY KEY, project_dir TEXT NOT NULL,
+			goal TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active',
+			phase TEXT NOT NULL DEFAULT 'brainstorm', complexity INTEGER NOT NULL DEFAULT 3,
+			force_full INTEGER NOT NULL DEFAULT 0, auto_advance INTEGER NOT NULL DEFAULT 1,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			completed_at INTEGER, scope_id TEXT, metadata TEXT
+		);
+		CREATE TABLE IF NOT EXISTS phase_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id TEXT NOT NULL REFERENCES runs(id),
+			from_phase TEXT NOT NULL, to_phase TEXT NOT NULL,
+			event_type TEXT NOT NULL DEFAULT 'advance',
+			gate_result TEXT, gate_tier TEXT, reason TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		CREATE TABLE IF NOT EXISTS run_agents (
+			id TEXT NOT NULL PRIMARY KEY,
+			run_id TEXT NOT NULL REFERENCES runs(id),
+			agent_type TEXT NOT NULL DEFAULT 'claude', name TEXT,
+			status TEXT NOT NULL DEFAULT 'active', dispatch_id TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		CREATE TABLE IF NOT EXISTS run_artifacts (
+			id TEXT NOT NULL PRIMARY KEY,
+			run_id TEXT NOT NULL REFERENCES runs(id),
+			phase TEXT NOT NULL, path TEXT NOT NULL,
+			type TEXT NOT NULL DEFAULT 'file',
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		CREATE TABLE IF NOT EXISTS dispatch_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			dispatch_id TEXT NOT NULL, run_id TEXT,
+			from_status TEXT NOT NULL, to_status TEXT NOT NULL,
+			event_type TEXT NOT NULL DEFAULT 'status_change',
+			reason TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		PRAGMA user_version = 5;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert v5 data to verify preservation
+	_, err = d.db.Exec("INSERT INTO runs (id, project_dir, goal) VALUES ('r1', '/tmp', 'test goal')")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.db.Exec("INSERT INTO dispatches (id, project_dir) VALUES ('d1', '/tmp')")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Migrate to v6
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate v5→v6: %v", err)
+	}
+
+	// Verify version
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 6 {
+		t.Errorf("SchemaVersion = %d, want 6", v)
+	}
+
+	// Verify new columns on runs
+	_, err = d.db.Exec(`UPDATE runs SET phases = '["a","b"]', token_budget = 10000, budget_warn_pct = 80 WHERE id = 'r1'`)
+	if err != nil {
+		t.Fatalf("runs new columns not writable: %v", err)
+	}
+
+	// Verify new column on dispatches
+	_, err = d.db.Exec(`UPDATE dispatches SET cache_hits = 5000 WHERE id = 'd1'`)
+	if err != nil {
+		t.Fatalf("dispatches cache_hits not writable: %v", err)
+	}
+
+	// Verify new columns on run_artifacts
+	_, err = d.db.Exec(`INSERT INTO run_artifacts (id, run_id, phase, path, content_hash, dispatch_id) VALUES ('a1', 'r1', 'plan', '/tmp/plan.md', 'sha256:abc123', 'd1')`)
+	if err != nil {
+		t.Fatalf("run_artifacts new columns not writable: %v", err)
+	}
+
+	// Verify v5 data preserved
+	var goal string
+	err = d.db.QueryRow("SELECT goal FROM runs WHERE id='r1'").Scan(&goal)
+	if err != nil {
+		t.Fatal("v5 data lost:", err)
+	}
+	if goal != "test goal" {
+		t.Errorf("goal = %q, want %q", goal, "test goal")
+	}
+}
+
+func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Create a v5 DB
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL, updated_at INTEGER, expires_at INTEGER, PRIMARY KEY (key, scope_id));
+		CREATE TABLE IF NOT EXISTS sentinels (name TEXT NOT NULL, scope_id TEXT NOT NULL, last_fired INTEGER, PRIMARY KEY (name, scope_id));
+		CREATE TABLE IF NOT EXISTS dispatches (id TEXT NOT NULL PRIMARY KEY, agent_type TEXT DEFAULT 'codex', status TEXT DEFAULT 'spawned', project_dir TEXT NOT NULL, prompt_file TEXT, prompt_hash TEXT, output_file TEXT, verdict_file TEXT, pid INTEGER, exit_code INTEGER, name TEXT, model TEXT, sandbox TEXT, timeout_sec INTEGER, turns INTEGER DEFAULT 0, commands INTEGER DEFAULT 0, messages INTEGER DEFAULT 0, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, created_at INTEGER, started_at INTEGER, completed_at INTEGER, verdict_status TEXT, verdict_summary TEXT, error_message TEXT, scope_id TEXT, parent_id TEXT);
+		CREATE TABLE IF NOT EXISTS runs (id TEXT NOT NULL PRIMARY KEY, project_dir TEXT NOT NULL, goal TEXT NOT NULL, status TEXT DEFAULT 'active', phase TEXT DEFAULT 'brainstorm', complexity INTEGER DEFAULT 3, force_full INTEGER DEFAULT 0, auto_advance INTEGER DEFAULT 1, created_at INTEGER, updated_at INTEGER, completed_at INTEGER, scope_id TEXT, metadata TEXT);
+		CREATE TABLE IF NOT EXISTS phase_events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL, from_phase TEXT, to_phase TEXT, event_type TEXT DEFAULT 'advance', gate_result TEXT, gate_tier TEXT, reason TEXT, created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS run_agents (id TEXT NOT NULL PRIMARY KEY, run_id TEXT NOT NULL, agent_type TEXT DEFAULT 'claude', name TEXT, status TEXT DEFAULT 'active', dispatch_id TEXT, created_at INTEGER, updated_at INTEGER);
+		CREATE TABLE IF NOT EXISTS run_artifacts (id TEXT NOT NULL PRIMARY KEY, run_id TEXT NOT NULL, phase TEXT NOT NULL, path TEXT NOT NULL, type TEXT DEFAULT 'file', created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS dispatch_events (id INTEGER PRIMARY KEY AUTOINCREMENT, dispatch_id TEXT NOT NULL, run_id TEXT, from_status TEXT, to_status TEXT, event_type TEXT DEFAULT 'status_change', reason TEXT, created_at INTEGER);
+		PRAGMA user_version = 5;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run migration twice — second run must not fail
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate 1: %v", err)
+	}
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate 2: %v", err)
+	}
+
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 6 {
+		t.Errorf("SchemaVersion = %d, want 6", v)
 	}
 }
