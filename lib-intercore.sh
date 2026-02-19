@@ -423,3 +423,46 @@ intercore_events_cursor_reset() {
     intercore_available || return 0
     $INTERCORE_BIN events cursor reset "$1" 2>/dev/null
 }
+
+# --- E1: Skip, Token, Budget wrappers ---
+
+# intercore_run_skip — Skip a phase for a run.
+# Args: $1=run_id, $2=phase, $3=reason, $4=actor (optional)
+# Returns: 0 on success, 1 on failure
+intercore_run_skip() {
+    local run_id="$1" phase="$2" reason="$3" actor="${4:-}"
+    if ! intercore_available; then return 1; fi
+    local args=(run skip "$run_id" "$phase" --reason="$reason")
+    [[ -n "$actor" ]] && args+=(--actor="$actor")
+    "$INTERCORE_BIN" "${args[@]}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_tokens — Get aggregated token usage for a run (JSON).
+# Args: $1=run_id
+# Prints: JSON with input_tokens, output_tokens, cache_hits, total_tokens
+intercore_run_tokens() {
+    local run_id="$1"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" run tokens "$run_id" --json ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_budget — Check budget status for a run (JSON).
+# Args: $1=run_id
+# Prints: JSON with budget, used, warning, exceeded
+# Returns: 0=OK/warning, 1=exceeded
+intercore_run_budget() {
+    local run_id="$1"
+    if ! intercore_available; then return 0; fi
+    "$INTERCORE_BIN" run budget "$run_id" --json ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_dispatch_tokens — Report token counts for a dispatch.
+# Args: $1=dispatch_id, $2=input_tokens, $3=output_tokens, $4=cache_hits (optional)
+# Returns: 0 on success, 1 on failure
+intercore_dispatch_tokens() {
+    local dispatch_id="$1" tokens_in="$2" tokens_out="$3" cache_hits="${4:-}"
+    if ! intercore_available; then return 1; fi
+    local args=(dispatch tokens "$dispatch_id" --in="$tokens_in" --out="$tokens_out")
+    [[ -n "$cache_hits" ]] && args+=(--cache="$cache_hits")
+    "$INTERCORE_BIN" "${args[@]}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}

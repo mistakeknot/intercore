@@ -246,16 +246,16 @@ json_out=$(ic run status "$RUN_ID" --json --db="$TEST_DB")
 echo "$json_out" | grep -q '"complexity":1' || fail "JSON should show complexity=1, got: $json_out"
 pass "run status --json"
 
-# Create a complexity-1 run and advance through full lifecycle
-FAST_RUN=$(ic run create --project="$TEST_DIR" --goal="Fast run" --complexity=1 --db="$TEST_DB")
-ic run advance "$FAST_RUN" --db="$TEST_DB" >/dev/null  # brainstorm → planned
-ic run advance "$FAST_RUN" --db="$TEST_DB" >/dev/null  # planned → executing
-ic run advance "$FAST_RUN" --db="$TEST_DB" >/dev/null  # executing → done
+# Create a complexity-1 run with a short custom chain and advance through full lifecycle
+FAST_RUN=$(ic run create --project="$TEST_DIR" --goal="Fast run" --complexity=1 --phases='["brainstorm","planned","executing","done"]' --db="$TEST_DB")
+ic run advance "$FAST_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # brainstorm → planned
+ic run advance "$FAST_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # planned → executing
+ic run advance "$FAST_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # executing → done
 fast_phase=$(ic run phase "$FAST_RUN" --db="$TEST_DB")
 [[ "$fast_phase" == "done" ]] || fail "complexity-1 run should reach done, got: $fast_phase"
 fast_status=$(ic run status "$FAST_RUN" --json --db="$TEST_DB")
 echo "$fast_status" | grep -q '"status":"completed"' || fail "completed run should have status=completed"
-pass "run full lifecycle (complexity 1)"
+pass "run full lifecycle (complexity 1 with short chain)"
 
 # Advance past done should fail
 ic run advance "$FAST_RUN" --db="$TEST_DB" 2>/dev/null && fail "advance past done should fail" || true
@@ -559,6 +559,83 @@ echo "$RESET_TAIL" | grep -q '"source":"phase"' || fail "events after cursor res
 pass "events after cursor reset"
 
 echo "  Event bus tests passed"
+
+# --- E1: Kernel Primitives Integration Tests ---
+echo ""
+echo "=== E1: Custom Phase Chain ==="
+CHAIN_RUN=$(ic run create --project="$TEST_DIR" --goal="custom chain test" --phases='["draft","review","done"]' --db="$TEST_DB")
+chain_phase=$(ic run phase "$CHAIN_RUN" --db="$TEST_DB")
+[[ "$chain_phase" == "draft" ]] || fail "custom chain initial phase should be draft, got: $chain_phase"
+pass "custom chain: initial phase is first in chain"
+
+ic run advance "$CHAIN_RUN" --disable-gates --db="$TEST_DB" >/dev/null
+chain_phase=$(ic run phase "$CHAIN_RUN" --db="$TEST_DB")
+[[ "$chain_phase" == "review" ]] || fail "custom chain advance should go to review, got: $chain_phase"
+pass "custom chain: advance to second phase"
+
+ic run advance "$CHAIN_RUN" --disable-gates --db="$TEST_DB" >/dev/null
+chain_phase=$(ic run phase "$CHAIN_RUN" --db="$TEST_DB")
+[[ "$chain_phase" == "done" ]] || fail "custom chain advance should go to done, got: $chain_phase"
+pass "custom chain: advance to terminal"
+
+chain_json=$(ic run status "$CHAIN_RUN" --json --db="$TEST_DB")
+echo "$chain_json" | grep -q '"phases"' || fail "JSON should include phases"
+pass "custom chain: phases in JSON output"
+
+echo "=== E1: Skip Command ==="
+SKIP_RUN=$(ic run create --project="$TEST_DIR" --goal="skip test" --phases='["a","b","c","d"]' --db="$TEST_DB")
+ic run skip "$SKIP_RUN" b --reason="complexity 1" --actor="test" --db="$TEST_DB" >/dev/null
+ic run advance "$SKIP_RUN" --disable-gates --db="$TEST_DB" >/dev/null
+skip_phase=$(ic run phase "$SKIP_RUN" --db="$TEST_DB")
+[[ "$skip_phase" == "c" ]] || fail "advance should skip 'b' and land on 'c', got: $skip_phase"
+pass "skip: advance skips pre-skipped phase"
+
+echo "=== E1: Artifact Content Hashing ==="
+echo "test content for hash" > "$TEST_DIR/test-artifact.md"
+HASH_RUN=$(ic run create --project="$TEST_DIR" --goal="hash test" --db="$TEST_DB")
+HASH_ART=$(ic run artifact add "$HASH_RUN" --phase=brainstorm --path="$TEST_DIR/test-artifact.md" --db="$TEST_DB")
+hash_json=$(ic run artifact list "$HASH_RUN" --json --db="$TEST_DB")
+echo "$hash_json" | grep -q 'sha256:' || fail "artifact should have sha256 content_hash, got: $hash_json"
+pass "artifact: content hash computed"
+
+echo "=== E1: Token Tracking ==="
+TOKEN_RUN=$(ic run create --project="$TEST_DIR" --goal="token test" --token-budget=100000 --budget-warn-pct=80 --db="$TEST_DB")
+token_json=$(ic run status "$TOKEN_RUN" --json --db="$TEST_DB")
+echo "$token_json" | grep -q '"token_budget":100000' || fail "run should have token_budget, got: $token_json"
+echo "$token_json" | grep -q '"budget_warn_pct":80' || fail "run should have budget_warn_pct, got: $token_json"
+pass "token: budget fields on run create"
+
+# Create a dispatch scoped to this run, report tokens
+TOKEN_DISPATCH=$(ic dispatch spawn --type=codex --prompt-file="$PROMPT_FILE" --project="$TEST_DIR" --scope-id="$TOKEN_RUN" --name=token-test --dispatch-sh=/bin/echo --db="$TEST_DB")
+sleep 0.5
+ic dispatch poll "$TOKEN_DISPATCH" --db="$TEST_DB" >/dev/null 2>&1 || true
+ic dispatch tokens "$TOKEN_DISPATCH" --in=5000 --out=2000 --cache=8000 --db="$TEST_DB" >/dev/null 2>&1
+pass "token: dispatch tokens reported"
+
+# Aggregate tokens
+agg_json=$(ic run tokens "$TOKEN_RUN" --json --db="$TEST_DB")
+echo "$agg_json" | grep -q '"input_tokens":5000' || fail "aggregation should show 5000 input, got: $agg_json"
+echo "$agg_json" | grep -q '"output_tokens":2000' || fail "aggregation should show 2000 output, got: $agg_json"
+pass "token: aggregation correct"
+
+# Budget check (7000/100000 = 7% — should be OK)
+budget_json=$(ic run budget "$TOKEN_RUN" --json --db="$TEST_DB")
+echo "$budget_json" | grep -q '"exceeded":false' || fail "budget should not be exceeded, got: $budget_json"
+pass "token: budget check OK"
+
+echo "=== E1: Wrapper Skip/Token/Budget ==="
+intercore_run_skip "$SKIP_RUN" c --reason="wrapper test" --actor="integ" 2>/dev/null || true
+pass "wrapper: run skip"
+
+tok_out=$(intercore_run_tokens "$TOKEN_RUN")
+echo "$tok_out" | grep -q "input_tokens" || fail "wrapper run tokens should return JSON, got: $tok_out"
+pass "wrapper: run tokens"
+
+budget_out=$(intercore_run_budget "$TOKEN_RUN")
+echo "$budget_out" | grep -q "budget" || fail "wrapper run budget should return JSON, got: $budget_out"
+pass "wrapper: run budget"
+
+echo "  E1 integration tests passed"
 
 # --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"

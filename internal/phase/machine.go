@@ -66,6 +66,19 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		return nil, fmt.Errorf("advance: %w", err)
 	}
 
+	// Walk past pre-skipped phases
+	skipped, err := store.SkippedPhases(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("advance: %w", err)
+	}
+	for skipped[toPhase] && !ChainIsTerminal(chain, toPhase) {
+		next, err := ChainNextPhase(chain, toPhase)
+		if err != nil {
+			break
+		}
+		toPhase = next
+	}
+
 	// Determine event type — advance is the only automatic transition now
 	// (explicit skips are handled by the separate Skip command)
 	eventType := EventAdvance

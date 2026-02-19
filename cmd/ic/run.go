@@ -62,7 +62,7 @@ func cmdRun(ctx context.Context, args []string) int {
 }
 
 func cmdRunCreate(ctx context.Context, args []string) int {
-	var project, goal, scopeID string
+	var project, goal, scopeID, phasesJSON string
 	complexity := 3
 	var tokenBudget int64
 	budgetWarnPct := 80
@@ -83,6 +83,8 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			complexity = c
 		case strings.HasPrefix(args[i], "--scope-id="):
 			scopeID = strings.TrimPrefix(args[i], "--scope-id=")
+		case strings.HasPrefix(args[i], "--phases="):
+			phasesJSON = strings.TrimPrefix(args[i], "--phases=")
 		case strings.HasPrefix(args[i], "--token-budget="):
 			val := strings.TrimPrefix(args[i], "--token-budget=")
 			v, err := strconv.ParseInt(val, 10, 64)
@@ -126,12 +128,24 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
+	// Validate custom phases if provided
+	var customPhases []string
+	if phasesJSON != "" {
+		parsed, err := phase.ParsePhaseChain(phasesJSON)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			return 3
+		}
+		customPhases = parsed
+	}
+
 	run := &phase.Run{
 		ProjectDir:    project,
 		Goal:          goal,
 		Complexity:    complexity,
 		AutoAdvance:   true,
 		BudgetWarnPct: budgetWarnPct,
+		Phases:        customPhases,
 	}
 	if tokenBudget > 0 {
 		run.TokenBudget = &tokenBudget
@@ -1195,6 +1209,9 @@ func runToMap(r *phase.Run) map[string]interface{} {
 		"auto_advance": r.AutoAdvance,
 		"created_at":   r.CreatedAt,
 		"updated_at":   r.UpdatedAt,
+	}
+	if r.Phases != nil {
+		m["phases"] = r.Phases
 	}
 	if r.CompletedAt != nil {
 		m["completed_at"] = *r.CompletedAt
