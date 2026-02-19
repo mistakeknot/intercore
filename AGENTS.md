@@ -40,7 +40,7 @@ internal/event/         Event bus: Event type, EventStore, Notifier, handlers
   store.go              EventStore: AddPhaseEvent, AddDispatchEvent, ListEvents, ListAllEvents (UNION + dual cursors)
   notifier.go           Notifier: Subscribe/Notify with named handlers
   handler_log.go        LogHandler: logs events to stderr (quiet mode suppresses)
-  handler_spawn.go      SpawnHandler: auto-agent-spawn on phase transitions (scaffolded)
+  handler_spawn.go      SpawnHandler: auto-agent-spawn on phase transitions + AgentSpawnerFunc adapter
   handler_hook.go       HookHandler: executes .clavain/hooks/on-event.sh async (goroutine, 5s timeout)
 cmd/ic/events.go        CLI: ic events tail (dual cursor), ic events cursor (list, reset)
 internal/runtrack/      Agent and artifact tracking within runs
@@ -343,7 +343,7 @@ Callbacks fire **after DB commit** (fire-and-forget). Handler errors are logged 
 |---------|-----------|----------|
 | LogHandler | Always | Logs events to stderr; quiet mode (default) suppresses output |
 | HookHandler | Always | Executes `.clavain/hooks/on-event.sh` with event JSON on stdin; async goroutine |
-| SpawnHandler | Not wired | Scaffolded for auto-agent-spawn on phase transitions |
+| SpawnHandler | Always | Auto-spawns pending agents when phase transitions to "executing"; wired in `cmdRunAdvance` |
 
 ### PhaseEventCallback
 
@@ -362,6 +362,31 @@ intercore_events_cursor_get <consumer>        # Get cursor JSON
 intercore_events_cursor_set <consumer> <phase_id> <dispatch_id>  # Manual cursor set
 intercore_events_cursor_reset <consumer>      # Reset cursor
 ```
+
+### Event Reactor Pattern
+
+The kernel emits events but does not react to them. OS components (Clavain, Interspect, custom scripts) subscribe as event consumers using `ic events tail -f`.
+
+```bash
+# Start a consumer (long-running, cursor-persisted)
+ic events tail --all -f --consumer=my-reactor --poll-interval=1s
+
+# One-shot read (no cursor, all events)
+ic events tail --all
+
+# Filter by run
+ic events tail <run-id> -f --consumer=my-reactor
+
+# Manage cursors
+ic events cursor list
+ic events cursor reset <consumer-name>
+```
+
+**Consumer guidelines:**
+- Always use `--consumer=<name>` for durability (cursor survives restarts)
+- Consumers MUST be idempotent — events are at-least-once
+- Use `--poll-interval` to control CPU (500ms–2s recommended)
+- See `docs/event-reactor-pattern.md` for full patterns, examples, and lifecycle management
 
 ### Optimistic Concurrency
 

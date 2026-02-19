@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -110,5 +111,100 @@ func TestSpawnHandler_PartialFailure(t *testing.T) {
 	}
 	if !bytes.Contains(buf.Bytes(), []byte("fail1 failed")) {
 		t.Error("expected failure log for fail1")
+	}
+}
+
+// TestSpawnWiringIntegration tests the full Notifier → SpawnHandler → mock chain,
+// mirroring how cmdRunAdvance wires the spawn handler at run.go:336.
+func TestSpawnWiringIntegration(t *testing.T) {
+	// 1. Create notifier (same as cmdRunAdvance)
+	notifier := NewNotifier()
+
+	// 2. Create mocks matching existing patterns
+	q := &mockQuerier{agents: []string{"agent-1", "agent-2"}}
+	var spawned []string
+	spawner := AgentSpawnerFunc(func(ctx context.Context, agentID string) error {
+		spawned = append(spawned, agentID)
+		return nil
+	})
+
+	// 3. Subscribe spawn handler (same pattern as cmdRunAdvance)
+	var logBuf bytes.Buffer
+	notifier.Subscribe("spawn", NewSpawnHandler(q, spawner, &logBuf))
+
+	// 4. Fire a phase event to "executing" (simulates Advance callback)
+	ctx := context.Background()
+	if err := notifier.Notify(ctx, Event{
+		RunID:     "test-run-1",
+		Source:    SourcePhase,
+		Type:      "advance",
+		FromState: "planned",
+		ToState:   "executing",
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+
+	// 5. Assert spawns happened
+	if len(spawned) != 2 {
+		t.Fatalf("spawned %d agents, want 2", len(spawned))
+	}
+	if spawned[0] != "agent-1" || spawned[1] != "agent-2" {
+		t.Errorf("spawned = %v, want [agent-1 agent-2]", spawned)
+	}
+
+	// 6. Assert log output (handler prefixes with "[event] ")
+	logStr := logBuf.String()
+	if !strings.Contains(logStr, "[event] auto-spawn: agent agent-1 started") {
+		t.Errorf("missing log for agent-1 in: %s", logStr)
+	}
+	if !strings.Contains(logStr, "[event] auto-spawn: agent agent-2 started") {
+		t.Errorf("missing log for agent-2 in: %s", logStr)
+	}
+}
+
+// TestSpawnWiringIntegration_MultipleHandlers verifies that the spawn handler
+// coexists with other handlers on the same notifier without interference.
+func TestSpawnWiringIntegration_MultipleHandlers(t *testing.T) {
+	notifier := NewNotifier()
+
+	// Subscribe a log handler first (like cmdRunAdvance does)
+	var logEvents []Event
+	notifier.Subscribe("log", func(ctx context.Context, e Event) error {
+		logEvents = append(logEvents, e)
+		return nil
+	})
+
+	// Subscribe spawn handler
+	q := &mockQuerier{agents: []string{"agent-1"}}
+	var spawned []string
+	spawner := AgentSpawnerFunc(func(ctx context.Context, agentID string) error {
+		spawned = append(spawned, agentID)
+		return nil
+	})
+	notifier.Subscribe("spawn", NewSpawnHandler(q, spawner, nil))
+
+	// Fire event
+	ctx := context.Background()
+	if err := notifier.Notify(ctx, Event{
+		RunID:   "run-1",
+		Source:  SourcePhase,
+		Type:    "advance",
+		ToState: "executing",
+	}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+
+	// Both handlers should have fired
+	if len(logEvents) != 1 {
+		t.Errorf("log handler received %d events, want 1", len(logEvents))
+	}
+	if len(spawned) != 1 {
+		t.Errorf("spawn handler spawned %d agents, want 1", len(spawned))
+	}
+
+	// Verify handler count
+	if notifier.HandlerCount() != 2 {
+		t.Errorf("handler count = %d, want 2", notifier.HandlerCount())
 	}
 }
