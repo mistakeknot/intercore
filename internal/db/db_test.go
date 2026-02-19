@@ -68,12 +68,12 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 4 {
-		t.Errorf("SchemaVersion = %d, want 4", v)
+	if v != 5 {
+		t.Errorf("SchemaVersion = %d, want 5", v)
 	}
 
 	// Verify tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -137,8 +137,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 4 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 4", v)
+	if v != 5 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 5", v)
 	}
 }
 
@@ -229,7 +229,7 @@ func TestMigrate_V1ToV2(t *testing.T) {
 
 	// Migrate should upgrade to v4
 	if err := d.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate v1→v4: %v", err)
+		t.Fatalf("Migrate v1→v5: %v", err)
 	}
 
 	// Verify version
@@ -237,8 +237,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 4 {
-		t.Errorf("SchemaVersion = %d after v1→v4 migrate, want 4", v)
+	if v != 5 {
+		t.Errorf("SchemaVersion = %d after v1→v5 migrate, want 5", v)
 	}
 
 	// Verify dispatches table exists
@@ -308,7 +308,7 @@ func TestMigrate_V2ToV3(t *testing.T) {
 
 	// Migrate should upgrade to v4
 	if err := d.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate v2→v4: %v", err)
+		t.Fatalf("Migrate v2→v5: %v", err)
 	}
 
 	// Verify version
@@ -316,8 +316,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 4 {
-		t.Errorf("SchemaVersion = %d after v2→v4 migrate, want 4", v)
+	if v != 5 {
+		t.Errorf("SchemaVersion = %d after v2→v5 migrate, want 5", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -325,7 +325,7 @@ func TestMigrate_V2ToV3(t *testing.T) {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
-			t.Fatalf("%s table not created by v2→v4 migration: %v", table, err)
+			t.Fatalf("%s table not created by v2→v5 migration: %v", table, err)
 		}
 	}
 
@@ -400,7 +400,7 @@ func TestMigrate_V3ToV4(t *testing.T) {
 
 	// Migrate should upgrade to v4
 	if err := d.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate v3→v4: %v", err)
+		t.Fatalf("Migrate v3→v5: %v", err)
 	}
 
 	// Verify version
@@ -408,8 +408,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 4 {
-		t.Errorf("SchemaVersion = %d after v3→v4 migrate, want 4", v)
+	if v != 5 {
+		t.Errorf("SchemaVersion = %d after v3→v5 migrate, want 5", v)
 	}
 
 	// Verify new tables exist
@@ -417,7 +417,7 @@ func TestMigrate_V3ToV4(t *testing.T) {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
-			t.Fatalf("%s table not created by v3→v4 migration: %v", table, err)
+			t.Fatalf("%s table not created by v3→v5 migration: %v", table, err)
 		}
 	}
 

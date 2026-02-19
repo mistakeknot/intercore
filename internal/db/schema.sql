@@ -108,3 +108,18 @@ CREATE TABLE IF NOT EXISTS run_artifacts (
 );
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_phase ON run_artifacts(run_id, phase);
+
+-- v5: dispatch events (event bus)
+CREATE TABLE IF NOT EXISTS dispatch_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    dispatch_id     TEXT NOT NULL,
+    run_id          TEXT,
+    from_status     TEXT NOT NULL,
+    to_status       TEXT NOT NULL,
+    event_type      TEXT NOT NULL DEFAULT 'status_change',
+    reason          TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_dispatch_events_dispatch ON dispatch_events(dispatch_id);
+CREATE INDEX IF NOT EXISTS idx_dispatch_events_run ON dispatch_events(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dispatch_events_created ON dispatch_events(created_at);

@@ -1,0 +1,132 @@
+package event
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+)
+
+// Store provides event read/write operations.
+type Store struct {
+	db *sql.DB
+}
+
+// NewStore creates an event store.
+func NewStore(db *sql.DB) *Store {
+	return &Store{db: db}
+}
+
+// AddDispatchEvent records a dispatch lifecycle event.
+func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromStatus, toStatus, eventType, reason string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO dispatch_events (dispatch_id, run_id, from_status, to_status, event_type, reason)
+		VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''))`,
+		dispatchID, runID, fromStatus, toStatus, eventType, reason,
+	)
+	if err != nil {
+		return fmt.Errorf("add dispatch event: %w", err)
+	}
+	return nil
+}
+
+// ListEvents returns unified events for a run, merging phase_events and
+// dispatch_events, ordered by timestamp. Uses separate per-table cursors
+// to avoid conflating independent AUTOINCREMENT ID spaces.
+func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID int64, limit int) ([]Event, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
+			COALESCE(reason, '') AS reason, created_at
+		FROM phase_events
+		WHERE run_id = ? AND id > ?
+		UNION ALL
+		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
+			from_status, to_status, COALESCE(reason, '') AS reason, created_at
+		FROM dispatch_events
+		WHERE (run_id = ? OR ? = '') AND id > ?
+		ORDER BY created_at ASC, source ASC, id ASC
+		LIMIT ?`,
+		runID, sincePhaseID,
+		runID, runID, sinceDispatchID,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	defer rows.Close()
+
+	return scanEvents(rows)
+}
+
+// ListAllEvents returns events across all runs, merging both tables.
+func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID int64, limit int) ([]Event, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
+			COALESCE(reason, '') AS reason, created_at
+		FROM phase_events
+		WHERE id > ?
+		UNION ALL
+		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
+			from_status, to_status, COALESCE(reason, '') AS reason, created_at
+		FROM dispatch_events
+		WHERE id > ?
+		ORDER BY created_at ASC, source ASC, id ASC
+		LIMIT ?`,
+		sincePhaseID, sinceDispatchID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list all events: %w", err)
+	}
+	defer rows.Close()
+
+	return scanEvents(rows)
+}
+
+// MaxPhaseEventID returns the highest phase_events.id (for cursor init).
+func (s *Store) MaxPhaseEventID(ctx context.Context) (int64, error) {
+	var id sql.NullInt64
+	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM phase_events").Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if !id.Valid {
+		return 0, nil
+	}
+	return id.Int64, nil
+}
+
+// MaxDispatchEventID returns the highest dispatch_events.id (for cursor init).
+func (s *Store) MaxDispatchEventID(ctx context.Context) (int64, error) {
+	var id sql.NullInt64
+	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM dispatch_events").Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if !id.Valid {
+		return 0, nil
+	}
+	return id.Int64, nil
+}
+
+func scanEvents(rows *sql.Rows) ([]Event, error) {
+	var events []Event
+	for rows.Next() {
+		var e Event
+		var createdAt int64
+		if err := rows.Scan(&e.ID, &e.RunID, &e.Source, &e.Type,
+			&e.FromState, &e.ToState, &e.Reason, &createdAt); err != nil {
+			return nil, fmt.Errorf("events scan: %w", err)
+		}
+		e.Timestamp = time.Unix(createdAt, 0)
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
