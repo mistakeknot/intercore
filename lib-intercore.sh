@@ -452,7 +452,7 @@ intercore_run_tokens() {
 # Returns: 0=OK/warning, 1=exceeded
 intercore_run_budget() {
     local run_id="$1"
-    if ! intercore_available; then return 0; fi
+    if ! intercore_available; then return 1; fi  # fail-safe: treat unavailability as exceeded
     "$INTERCORE_BIN" run budget "$run_id" --json ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
 }
 

@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
@@ -56,7 +57,10 @@ func New(ps PhaseStoreQuerier, ds *dispatch.Store, ss *state.Store, recorder Eve
 func (c *Checker) Check(ctx context.Context, runID string) (*Result, error) {
 	run, err := c.phaseStore.Get(ctx, runID)
 	if err != nil {
-		return nil, nil // run not found or error — no budget to check
+		if errors.Is(err, phase.ErrNotFound) {
+			return nil, nil // run doesn't exist — no budget to check
+		}
+		return nil, fmt.Errorf("budget check: get run: %w", err)
 	}
 	if run.TokenBudget == nil || *run.TokenBudget <= 0 {
 		return nil, nil // no budget set

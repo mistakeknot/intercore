@@ -74,7 +74,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 	for skipped[toPhase] && !ChainIsTerminal(chain, toPhase) {
 		next, err := ChainNextPhase(chain, toPhase)
 		if err != nil {
-			break
+			return nil, fmt.Errorf("advance: skip walk: %w", err)
 		}
 		toPhase = next
 	}

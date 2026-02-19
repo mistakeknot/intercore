@@ -47,7 +47,7 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 
 	// Determine initial phase from chain
 	initialPhase := PhaseBrainstorm
-	if r.Phases != nil && len(r.Phases) > 0 {
+	if len(r.Phases) > 0 {
 		initialPhase = r.Phases[0]
 	}
 
@@ -122,12 +122,11 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 	r.Metadata = nullStr(metadata)
 	r.TokenBudget = nullInt64(tokenBudget)
 	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
-	if phasesJSON.Valid {
-		var chain []string
-		if err := json.Unmarshal([]byte(phasesJSON.String), &chain); err == nil {
-			r.Phases = chain
-		}
+	phases, err := parsePhasesJSON(phasesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("run get: %w", err)
 	}
+	r.Phases = phases
 
 	return r, nil
 }
@@ -327,12 +326,11 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	r.Metadata = nullStr(metadata)
 	r.TokenBudget = nullInt64(tokenBudget)
 	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
-	if phasesJSON.Valid {
-		var chain []string
-		if err := json.Unmarshal([]byte(phasesJSON.String), &chain); err == nil {
-			r.Phases = chain
-		}
+	phases, err := parsePhasesJSON(phasesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("run current: %w", err)
 	}
+	r.Phases = phases
 
 	return r, nil
 }
@@ -444,12 +442,11 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 		r.Metadata = nullStr(metadata)
 		r.TokenBudget = nullInt64(tokenBudget)
 		r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
-		if phasesJSON.Valid {
-			var chain []string
-			if err := json.Unmarshal([]byte(phasesJSON.String), &chain); err == nil {
-				r.Phases = chain
-			}
+		phases, err := parsePhasesJSON(phasesJSON)
+		if err != nil {
+			return nil, fmt.Errorf("run list: %w", err)
 		}
+		r.Phases = phases
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
@@ -467,6 +464,20 @@ func nullInt64(ni sql.NullInt64) *int64 {
 		return &ni.Int64
 	}
 	return nil
+}
+
+// parsePhasesJSON decodes a nullable JSON phases column into a string slice.
+// Returns nil, nil if the column is NULL. Returns error if the column is non-NULL
+// but contains invalid JSON (prevents silent fallback to DefaultPhaseChain).
+func parsePhasesJSON(ns sql.NullString) ([]string, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	var chain []string
+	if err := json.Unmarshal([]byte(ns.String), &chain); err != nil {
+		return nil, fmt.Errorf("decode phases JSON: %w", err)
+	}
+	return chain, nil
 }
 
 func nullInt64OrDefault(ni sql.NullInt64, def int64) int64 {

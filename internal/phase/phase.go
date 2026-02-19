@@ -88,12 +88,25 @@ func ParsePhaseChain(jsonStr string) ([]string, error) {
 	}
 	seen := make(map[string]bool, len(chain))
 	for _, p := range chain {
+		if p == "" || !isValidPhaseName(p) {
+			return nil, fmt.Errorf("parse phase chain: invalid phase name %q (must match [a-zA-Z0-9_-]+)", p)
+		}
 		if seen[p] {
 			return nil, fmt.Errorf("parse phase chain: duplicate phase %q", p)
 		}
 		seen[p] = true
 	}
 	return chain, nil
+}
+
+// isValidPhaseName checks that a phase name contains only alphanumeric, hyphen, or underscore.
+func isValidPhaseName(s string) bool {
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // ChainNextPhase returns the next phase in the chain after current.
