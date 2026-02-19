@@ -19,6 +19,11 @@ Apps (Autarch)
 ├── Renders OS opinions into interactive experiences
 └── Swappable — Autarch is one set of apps, not the only possible set
 
+Drivers (Companion Plugins)
+├── Each wraps one capability (review, coordination, code mapping, research)
+├── Call the kernel directly for shared state — no Clavain bottleneck
+└── Examples: interflux (review), interlock (coordination), interject (research)
+
 OS (Clavain)
 ├── The autonomous software agency — macro-stages, quality gates, model routing
 ├── Skills, prompts, routing tables, workflow definitions
@@ -29,6 +34,11 @@ Kernel (Intercore)
 ├── Runs, phases, gates, dispatches, events — the durable system of record
 ├── Host-agnostic Go CLI + SQLite
 └── Mechanism, not policy — the kernel doesn't know what "brainstorm" means
+
+Profiler: Interspect (cross-cutting)
+├── Reads kernel events (phase results, gate evidence, dispatch outcomes)
+├── Proposes changes to OS configuration (routing, agent selection, gate rules)
+└── Never modifies the kernel — only the OS layer
 ```
 
 ### Apps Are Swappable
@@ -39,7 +49,7 @@ This is the same principle that makes Clavain portable across host platforms: if
 
 ### Relationship to Clavain
 
-Apps don't contain agency logic. Autarch doesn't decide which model to route a review to, or what gates a phase requires, or when to advance a run. Those are OS decisions. Autarch renders those decisions into interactive experiences:
+In the target architecture, apps don't contain agency logic. Autarch doesn't decide which model to route a review to, or what gates a phase requires, or when to advance a run. Those are OS decisions. Autarch renders those decisions into interactive experiences:
 
 - Bigend renders kernel run state as a monitoring dashboard
 - Gurgeh renders kernel phase chains as a PRD generation workflow
@@ -98,7 +108,9 @@ Pollard becomes the scanner component that feeds the discovery → backlog pipel
 - Spec artifacts → `ic run artifact add` for each generated section
 - Spec evolution → run versioning (new run per spec revision, linked via portfolio)
 
-Gurgeh's arbiter (the sprint orchestration engine) remains as tool-specific logic — it drives the LLM conversation that generates each spec section. The kernel tracks the lifecycle; Gurgeh provides the intelligence.
+Gurgeh's arbiter (the sprint orchestration engine) remains as tool-specific logic during the migration — it drives the LLM conversation that generates each spec section. The kernel tracks the lifecycle; Gurgeh provides the intelligence.
+
+> **Transitional state.** The arbiter is agency logic (it decides how to sequence LLM calls, when to accept confidence scores, and when to advance). In the target architecture, this intelligence migrates to the OS layer (Clavain), making Gurgeh a pure rendering surface for PRD generation. Until that migration, the "apps are swappable" claim is partially false for Gurgeh and Coldwine — a replacement app would need to reimplement the arbiter and orchestration logic, not just render kernel state. This is an acknowledged architectural debt, not an intentional design choice.
 
 **4. Coldwine (task orchestration — migrate last).** Coldwine has the deepest coupling to Autarch's domain model (`Initiative → Epic → Story → Task`). Its migration is the most complex:
 - Task hierarchy → beads (Coldwine's planning hierarchy maps to bead types and dependencies)
@@ -140,6 +152,18 @@ Beyond the four Autarch tools, the shared component library enables a lightweigh
 - Discovery inbox for confidence-tiered review
 
 This minimal TUI would be built on `pkg/tui` components and call `ic` directly. It's the kernel's own status display — simpler than Bigend but always available wherever `ic` is installed.
+
+## Signal Architecture
+
+When latency-sensitive consumers (TUI dashboards, live event streams) need sub-second event delivery, the kernel's pull-based `ic events tail` API may be insufficient. Autarch's signal broker addresses this with an app-layer real-time projection:
+
+- **In-process pub/sub fan-out** with typed subscriptions — each TUI view subscribes to the event types it renders
+- **WebSocket streaming** to TUI and web consumers — Bigend's dashboard and `ic tui` connect via WebSocket rather than polling
+- **Backpressure handling** — evict-oldest-on-full for non-durable consumers (TUI views that can tolerate dropped frames), blocking for durable consumers (audit trails)
+
+The kernel's durable event log remains the source of truth. The broker is a real-time projection of it — a convenience for latency-sensitive rendering, not a replacement for the event bus. If the broker crashes, consumers fall back to `ic events tail` with their cursor position intact.
+
+> **Status:** This architecture exists in Autarch's current codebase (the signal broker pattern is proven in Bigend and Coldwine). It has not yet been connected to Intercore's event bus — that integration is part of the Bigend migration (see Migration to Intercore Backend above).
 
 ## What Autarch Is Not
 
