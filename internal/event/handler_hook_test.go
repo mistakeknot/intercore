@@ -5,9 +5,28 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
+
+// syncBuffer is a goroutine-safe wrapper around bytes.Buffer.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Bytes()
+}
 
 func TestHookHandler_ExecutesPhaseHook(t *testing.T) {
 	dir := t.TempDir()
@@ -84,7 +103,7 @@ func TestHookHandler_FailingHookIsFireAndForget(t *testing.T) {
 	hookPath := filepath.Join(hookDir, "on-phase-advance")
 	os.WriteFile(hookPath, []byte("#!/bin/sh\nexit 1"), 0755)
 
-	var buf bytes.Buffer
+	var buf syncBuffer
 	h := NewHookHandler(dir, &buf)
 
 	err := h(context.Background(), Event{Source: SourcePhase, Type: "advance"})

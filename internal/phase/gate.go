@@ -258,9 +258,9 @@ func GateRulesInfo() []struct {
 	}
 
 	// Iterate in phase order for deterministic output
-	for i := 0; i < len(allPhases)-1; i++ {
-		from := allPhases[i]
-		to := allPhases[i+1]
+	for i := 0; i < len(DefaultPhaseChain)-1; i++ {
+		from := DefaultPhaseChain[i]
+		to := DefaultPhaseChain[i+1]
 		gr, ok := gateRules[[2]string{from, to}]
 		if !ok {
 			continue

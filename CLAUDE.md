@@ -23,6 +23,9 @@ ic dispatch status <id> --json
 ic dispatch poll <id>
 ic dispatch wait <id> --timeout=5m
 
+# Token tracking
+ic dispatch tokens <id> --set --in=1000 --out=500 --cache=200
+
 # List / kill / prune
 ic dispatch list --active
 ic dispatch kill <id>
@@ -34,6 +37,8 @@ ic dispatch prune --older-than=24h
 ```bash
 # Create and advance a run
 ic run create --project=. --goal="Implement feature X" --complexity=3
+ic run create --project=. --goal="Quick fix" --phases='["plan","execute","done"]'
+ic run create --project=. --goal="Big feature" --token-budget=500000 --budget-warn-pct=80
 ic run advance <id>              # Advance to next phase
 ic run phase <id>                # Print current phase
 ic run current --project=.       # Print active run ID for project
@@ -44,6 +49,11 @@ ic run list --active             # Active runs
 ic run events <id>               # Audit trail
 ic run cancel <id>               # Cancel
 ic run set <id> --complexity=1   # Adjust settings
+
+# Skip, tokens, budget
+ic run skip <id> <phase> --reason="Not needed"  # Pre-skip a phase
+ic run tokens <id> --json        # Token aggregation across dispatches
+ic run budget <id> --json        # Check budget thresholds (exit 1=exceeded)
 
 # Track agents and artifacts within a run
 ic run agent add <run> --type=claude --name=brainstorm-agent

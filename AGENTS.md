@@ -24,12 +24,14 @@ internal/dispatch/      Agent dispatch lifecycle: spawn, poll, collect, wait
   dispatch.go           Store (CRUD), Dispatch struct, ID generation
   spawn.go              Process spawning, dispatch.sh resolution, prompt hashing
   collect.go            Liveness polling, verdict/summary parsing, wait loop
-internal/phase/         Phase state machine: run lifecycle with complexity-based skip
-  phase.go              Types, constants, transition table, skip logic
+internal/phase/         Phase state machine: run lifecycle with configurable chains
+  phase.go              Types, constants, chain operations, DefaultPhaseChain
   store.go              Run + PhaseEvent CRUD with optimistic concurrency, Current()
-  machine.go            Advance() with gate evaluation, auto_advance pause
+  machine.go            Advance() with gate evaluation, skip-walk, auto_advance pause
   gate.go               Gate types, interfaces, rules table, evaluateGate, EvaluateGate
   errors.go             Error sentinels
+internal/budget/        Token budget threshold checking with dedup
+  budget.go             Checker, narrow interfaces, state-based dedup
 internal/lock/          Filesystem-based mutex using POSIX mkdir atomicity
   lock.go               Manager, Acquire (spin-wait + stale-break), Release, List, Clean
   lock_test.go          Unit tests (8 tests, race-detector safe)
@@ -70,8 +72,9 @@ ic dispatch list [--active] [--scope=<s>]  List dispatches
 ic dispatch poll <id>                      Check liveness, update stats
 ic dispatch wait <id> [--timeout=<dur>]    Block until terminal or timeout
 ic dispatch kill <id>                      SIGTERM → SIGKILL a dispatch
+ic dispatch tokens <id> --set --in=N --out=N [--cache=N]   Update token counts
 ic dispatch prune --older-than=<dur>       Remove old terminal dispatches
-ic run create --project=<dir> --goal=<text> [--complexity=N] [--scope-id=S]
+ic run create --project=<dir> --goal=<text> [--complexity=N] [--scope-id=S] [--phases='[...]'] [--token-budget=N] [--budget-warn-pct=N]
 ic run status <id>                         Show run details
 ic run advance <id> [--priority=N] [--disable-gates] [--skip-reason=S]
 ic run phase <id>                          Print current phase (scripting)
@@ -80,6 +83,9 @@ ic run events <id>                         Phase event audit trail
 ic run cancel <id>                         Cancel a run
 ic run current [--project=<dir>]            Print active run ID for project (exit 0=found, 1=none)
 ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool]
+ic run skip <id> <phase> [--reason=<text>] [--actor=<name>]   Pre-skip a phase (audit trail)
+ic run tokens <id> [--project=<dir>] [--json]                 Token aggregation across dispatches
+ic run budget <id> [--json]                                   Check budget thresholds (exit 1=exceeded)
 ic run agent add <run> --type=<t> [--name=<n>] [--dispatch-id=<id>]
 ic run agent list <run>                    List agents for a run
 ic run agent update <id> --status=<s>      Update agent status (active|completed|failed)
@@ -204,6 +210,10 @@ intercore_run_current [project_dir]                        # Print active run ID
 intercore_run_phase <run_id>                               # Print current phase
 intercore_run_agent_add <run_id> <type> [name] [dispatch_id]  # Add agent, print ID
 intercore_run_artifact_add <run_id> <phase> <path> [type]  # Add artifact, print ID
+intercore_run_skip <run_id> <phase> [reason] [actor]       # Pre-skip a phase
+intercore_run_tokens <run_id>                              # Token aggregation (JSON)
+intercore_run_budget <run_id>                              # Budget check (JSON, exit 1=exceeded)
+intercore_dispatch_tokens <id> <in> <out> [cache]          # Update dispatch token counts
 intercore_gate_check <run_id>                              # Gate check (0=pass, 1=fail, 2+=error)
 intercore_gate_override <run_id> <reason>                  # Force-advance past failed gate
 ```
@@ -260,21 +270,25 @@ Name and scope components are validated: no `/`, `\`, `..`, empty, or `.` allowe
 
 The phase module implements a run lifecycle state machine ported from `lib-sprint.sh` + `lib-gates.sh`. intercore owns phase transitions instead of relying on LLM prompt instructions.
 
-### Phase Chain
+### Configurable Phase Chains (v6)
+
+Runs can specify a custom phase chain via `--phases='["a","b","c"]'` at creation. If no chain is specified, the default 8-phase Clavain lifecycle is used:
 
 ```
 brainstorm → brainstorm-reviewed → strategized → planned → executing → review → polish → done
 ```
 
-### Complexity-Based Skip
+Custom chains must have at least 2 phases and no duplicates. The last phase in the chain is terminal — reaching it sets `status=completed`.
 
-| Complexity | Phases | Skipped |
-|-----------|--------|---------|
-| 1 (trivial) | brainstorm → planned → executing → done | brainstorm-reviewed, strategized, review, polish |
-| 2 (small) | brainstorm → brainstorm-reviewed → planned → executing → done | strategized, review, polish |
-| 3-5 (full) | All 8 phases | None |
+### Phase Skip
 
-`--force-full` overrides complexity and walks every phase.
+Individual phases can be pre-skipped via `ic run skip <id> <phase>`. When `Advance()` encounters a pre-skipped phase, it automatically walks past it to the next non-skipped phase. Skip events are recorded in the audit trail.
+
+### Legacy: Complexity-Based Skip (removed in v6)
+
+The old `transitionTable`, `complexityWhitelist`, `NextRequiredPhase`, and `ShouldSkip` functions have been removed. The same effect is achieved by:
+- **Short chains:** `--phases='["brainstorm","planned","executing","done"]'` (equivalent to complexity=1)
+- **Explicit skip:** `ic run skip <id> <phase>` for selective skipping
 
 ### Gate System
 
