@@ -7,8 +7,10 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/event"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
 )
@@ -198,12 +200,58 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 
 	store := phase.New(d.SqlDB())
 	rtStore := runtrack.New(d.SqlDB())
-	dStore := dispatch.New(d.SqlDB(), nil)
+	evStore := event.NewStore(d.SqlDB())
+
+	// Set up event notifier with handlers
+	notifier := event.NewNotifier()
+	notifier.Subscribe("log", event.NewLogHandler(os.Stderr, !flagVerbose))
+
+	// Get run info for project dir (needed by hook handler)
+	run, err := store.Get(ctx, id)
+	if err != nil {
+		if err == phase.ErrNotFound {
+			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "ic: run advance: %v\n", err)
+		return 2
+	}
+	notifier.Subscribe("hook", event.NewHookHandler(run.ProjectDir, os.Stderr))
+
+	// Dispatch event recorder: writes to dispatch_events + notifies
+	dispatchRecorder := func(dispatchID, runID, fromStatus, toStatus string) {
+		e := event.Event{
+			RunID:     runID,
+			Source:    event.SourceDispatch,
+			Type:      "status_change",
+			FromState: fromStatus,
+			ToState:   toStatus,
+			Timestamp: time.Now(),
+		}
+		evStore.AddDispatchEvent(ctx, dispatchID, runID, fromStatus, toStatus, "status_change", "")
+		notifier.Notify(ctx, e)
+	}
+	dStore := dispatch.New(d.SqlDB(), dispatchRecorder)
+
+	// Phase event callback: notifies after phase transition
+	phaseCallback := func(runID, eventType, fromPhase, toPhase, reason string) {
+		e := event.Event{
+			RunID:     runID,
+			Source:    event.SourcePhase,
+			Type:      eventType,
+			FromState: fromPhase,
+			ToState:   toPhase,
+			Reason:    reason,
+			Timestamp: time.Now(),
+		}
+		notifier.Notify(ctx, e)
+	}
+
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
 		Priority:   priority,
 		DisableAll: disableGates,
 		SkipReason: skipReason,
-	}, rtStore, dStore, nil)
+	}, rtStore, dStore, phaseCallback)
 	if err != nil {
 		if err == phase.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)
