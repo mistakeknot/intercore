@@ -3,10 +3,13 @@ package runtrack
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"os"
 	"strings"
 	"time"
 )
@@ -194,18 +197,31 @@ func (s *Store) ListPendingAgentIDs(ctx context.Context, runID string) ([]string
 // --- Artifact operations ---
 
 // AddArtifact inserts a new artifact record for a run. Returns the artifact ID.
+// If the artifact Path points to an existing file and ContentHash is not set,
+// the file's SHA256 hash is computed automatically.
 func (s *Store) AddArtifact(ctx context.Context, a *Artifact) (string, error) {
 	id, err := generateID()
 	if err != nil {
 		return "", err
 	}
 
+	// Compute content hash if file exists and no explicit hash was provided.
+	var contentHash *string
+	if a.ContentHash != nil {
+		contentHash = a.ContentHash
+	} else if a.Path != "" {
+		if h, err := hashFile(a.Path); err == nil {
+			contentHash = &h
+		}
+		// If file doesn't exist or can't be read, contentHash stays nil.
+	}
+
 	now := time.Now().Unix()
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO run_artifacts (
-			id, run_id, phase, path, type, created_at
-		) VALUES (?, ?, ?, ?, ?, ?)`,
-		id, a.RunID, a.Phase, a.Path, a.Type, now,
+			id, run_id, phase, path, type, content_hash, dispatch_id, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, a.RunID, a.Phase, a.Path, a.Type, contentHash, a.DispatchID, now,
 	)
 	if err != nil {
 		if isFKViolation(err) {
@@ -222,11 +238,11 @@ func (s *Store) ListArtifacts(ctx context.Context, runID string, phase *string) 
 	var args []interface{}
 
 	if phase != nil {
-		query = `SELECT id, run_id, phase, path, type, created_at
+		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, created_at
 			FROM run_artifacts WHERE run_id = ? AND phase = ? ORDER BY created_at ASC`
 		args = []interface{}{runID, *phase}
 	} else {
-		query = `SELECT id, run_id, phase, path, type, created_at
+		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, created_at
 			FROM run_artifacts WHERE run_id = ? ORDER BY created_at ASC`
 		args = []interface{}{runID}
 	}
@@ -240,11 +256,18 @@ func (s *Store) ListArtifacts(ctx context.Context, runID string, phase *string) 
 	var artifacts []*Artifact
 	for rows.Next() {
 		a := &Artifact{}
+		var (
+			contentHash sql.NullString
+			dispatchID  sql.NullString
+		)
 		if err := rows.Scan(
-			&a.ID, &a.RunID, &a.Phase, &a.Path, &a.Type, &a.CreatedAt,
+			&a.ID, &a.RunID, &a.Phase, &a.Path, &a.Type,
+			&contentHash, &dispatchID, &a.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("artifact list scan: %w", err)
 		}
+		a.ContentHash = nullStr(contentHash)
+		a.DispatchID = nullStr(dispatchID)
 		artifacts = append(artifacts, a)
 	}
 	return artifacts, rows.Err()
@@ -288,4 +311,18 @@ func nullStr(ns sql.NullString) *string {
 		return &ns.String
 	}
 	return nil
+}
+
+// hashFile computes the SHA256 hash of a file, returning "sha256:<hex>".
+func hashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("sha256:%x", h.Sum(nil)), nil
 }

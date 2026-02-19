@@ -907,7 +907,7 @@ func cmdRunArtifact(ctx context.Context, args []string) int {
 }
 
 func cmdRunArtifactAdd(ctx context.Context, args []string) int {
-	var artifactPhase, path, artifactType string
+	var artifactPhase, path, artifactType, dispatch string
 	var positional []string
 
 	for i := 0; i < len(args); i++ {
@@ -918,13 +918,15 @@ func cmdRunArtifactAdd(ctx context.Context, args []string) int {
 			path = strings.TrimPrefix(args[i], "--path=")
 		case strings.HasPrefix(args[i], "--type="):
 			artifactType = strings.TrimPrefix(args[i], "--type=")
+		case strings.HasPrefix(args[i], "--dispatch="):
+			dispatch = strings.TrimPrefix(args[i], "--dispatch=")
 		default:
 			positional = append(positional, args[i])
 		}
 	}
 
 	if len(positional) < 1 {
-		fmt.Fprintf(os.Stderr, "ic: run artifact add: usage: ic run artifact add <run_id> --phase=<phase> --path=<path> [--type=<type>]\n")
+		fmt.Fprintf(os.Stderr, "ic: run artifact add: usage: ic run artifact add <run_id> --phase=<phase> --path=<path> [--type=<type>] [--dispatch=<id>]\n")
 		return 3
 	}
 	runID := positional[0]
@@ -953,6 +955,9 @@ func cmdRunArtifactAdd(ctx context.Context, args []string) int {
 		Phase: artifactPhase,
 		Path:  path,
 		Type:  artifactType,
+	}
+	if dispatch != "" {
+		artifact.DispatchID = &dispatch
 	}
 
 	store := runtrack.New(d.SqlDB())
@@ -1091,7 +1096,7 @@ func agentToMap(a *runtrack.Agent) map[string]interface{} {
 }
 
 func artifactToMap(a *runtrack.Artifact) map[string]interface{} {
-	return map[string]interface{}{
+	m := map[string]interface{}{
 		"id":         a.ID,
 		"run_id":     a.RunID,
 		"phase":      a.Phase,
@@ -1099,6 +1104,13 @@ func artifactToMap(a *runtrack.Artifact) map[string]interface{} {
 		"type":       a.Type,
 		"created_at": a.CreatedAt,
 	}
+	if a.ContentHash != nil {
+		m["content_hash"] = *a.ContentHash
+	}
+	if a.DispatchID != nil {
+		m["dispatch_id"] = *a.DispatchID
+	}
+	return m
 }
 
 func printRun(r *phase.Run) {

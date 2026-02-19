@@ -2,7 +2,9 @@ package runtrack
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -393,5 +395,111 @@ func TestStore_AgentFailedStatus(t *testing.T) {
 	}
 	if !got.IsTerminal() {
 		t.Error("IsTerminal() = false, want true for failed agent")
+	}
+}
+
+func TestStore_ArtifactWithHash(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	// Create a temp file so the hash gets computed
+	tmpFile := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(tmpFile, []byte("# My Plan\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	artifact := &Artifact{
+		RunID: "testrun1",
+		Phase: "planned",
+		Path:  tmpFile,
+		Type:  "file",
+	}
+
+	_, err := store.AddArtifact(ctx, artifact)
+	if err != nil {
+		t.Fatalf("AddArtifact: %v", err)
+	}
+
+	// Retrieve and verify hash was computed
+	artifacts, err := store.ListArtifacts(ctx, "testrun1", nil)
+	if err != nil {
+		t.Fatalf("ListArtifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("expected 1 artifact, got %d", len(artifacts))
+	}
+	if artifacts[0].ContentHash == nil {
+		t.Fatal("expected content_hash to be set")
+	}
+	if !strings.HasPrefix(*artifacts[0].ContentHash, "sha256:") {
+		t.Errorf("content_hash = %q, want sha256: prefix", *artifacts[0].ContentHash)
+	}
+}
+
+func TestStore_ArtifactWithDispatchID(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	dispatch := "dispatch-abc"
+	artifact := &Artifact{
+		RunID:      "testrun1",
+		Phase:      "executing",
+		Path:       "nonexistent/path.md",
+		Type:       "file",
+		DispatchID: &dispatch,
+	}
+
+	_, err := store.AddArtifact(ctx, artifact)
+	if err != nil {
+		t.Fatalf("AddArtifact: %v", err)
+	}
+
+	artifacts, err := store.ListArtifacts(ctx, "testrun1", nil)
+	if err != nil {
+		t.Fatalf("ListArtifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("expected 1 artifact, got %d", len(artifacts))
+	}
+	if artifacts[0].DispatchID == nil || *artifacts[0].DispatchID != "dispatch-abc" {
+		t.Errorf("dispatch_id = %v, want %q", artifacts[0].DispatchID, "dispatch-abc")
+	}
+	// Path doesn't exist, so hash should be nil
+	if artifacts[0].ContentHash != nil {
+		t.Errorf("content_hash = %v, want nil (file doesn't exist)", *artifacts[0].ContentHash)
+	}
+}
+
+func TestStore_ArtifactExplicitHash(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	// Explicit hash overrides auto-computation
+	hash := "sha256:deadbeef"
+	artifact := &Artifact{
+		RunID:       "testrun1",
+		Phase:       "brainstorm",
+		Path:        "nonexistent/path.md",
+		Type:        "file",
+		ContentHash: &hash,
+	}
+
+	_, err := store.AddArtifact(ctx, artifact)
+	if err != nil {
+		t.Fatalf("AddArtifact: %v", err)
+	}
+
+	artifacts, err := store.ListArtifacts(ctx, "testrun1", nil)
+	if err != nil {
+		t.Fatalf("ListArtifacts: %v", err)
+	}
+	if len(artifacts) != 1 {
+		t.Fatalf("expected 1 artifact, got %d", len(artifacts))
+	}
+	if artifacts[0].ContentHash == nil || *artifacts[0].ContentHash != "sha256:deadbeef" {
+		t.Errorf("content_hash = %v, want %q", artifacts[0].ContentHash, "sha256:deadbeef")
 	}
 }

@@ -30,10 +30,12 @@ func (a *Agent) IsTerminal() bool {
 
 // Artifact represents a file produced during a run.
 type Artifact struct {
-	ID        string
-	RunID     string
-	Phase     string
-	Path      string
-	Type      string
-	CreatedAt int64
+	ID          string
+	RunID       string
+	Phase       string
+	Path        string
+	Type        string
+	ContentHash *string
+	DispatchID  *string
+	CreatedAt   int64
 }
