@@ -143,6 +143,26 @@ func (s *Store) ListAgents(ctx context.Context, runID string) ([]*Agent, error) 
 	return agents, rows.Err()
 }
 
+// ListPendingAgentIDs returns agent IDs with status='active' for a run.
+func (s *Store) ListPendingAgentIDs(ctx context.Context, runID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id FROM run_agents WHERE run_id = ? AND status = 'active'`, runID)
+	if err != nil {
+		return nil, fmt.Errorf("list pending agents: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // --- Artifact operations ---
 
 // AddArtifact inserts a new artifact record for a run. Returns the artifact ID.
