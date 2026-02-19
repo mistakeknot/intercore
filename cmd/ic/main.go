@@ -87,6 +87,8 @@ func main() {
 		exitCode = cmdDispatch(ctx, subArgs)
 	case "run":
 		exitCode = cmdRun(ctx, subArgs)
+	case "lock":
+		exitCode = cmdLock(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
 	default:
@@ -137,6 +139,11 @@ Commands:
   run agent update <id> --status=<s>  Update agent status
   run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
   run artifact list <run> [--phase=<p>]  List artifacts for run
+  lock acquire <name> <scope> [--timeout=<dur>] [--owner=<s>]  Acquire a lock
+  lock release <name> <scope> [--owner=<s>]  Release a lock
+  lock list                     List active locks
+  lock stale [--older-than=<dur>]  List stale locks
+  lock clean [--older-than=<dur>]  Remove stale locks
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 

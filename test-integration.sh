@@ -397,6 +397,50 @@ pass "wrapper: run artifact add"
 
 echo "=== Version Sync Check ==="
 # Verify Clavain's copy is in sync (if present in monorepo)
+# --- Lock tests (filesystem-only, no DB) ---
+echo ""
+echo "=== Lock ==="
+
+LOCK_DIR="/tmp/intercore/locks"
+
+# Cleanup any leftover test locks
+rm -rf "$LOCK_DIR/testlock" "$LOCK_DIR/ownertest" "$LOCK_DIR/conttest" "$LOCK_DIR/staletest" 2>/dev/null || true
+
+# Basic acquire/release
+ic lock acquire testlock global --owner="test:host"
+pass "lock acquire"
+ic lock list | grep -q "testlock" || fail "lock list missing testlock"
+pass "lock list shows acquired lock"
+ic lock release testlock global --owner="test:host"
+pass "lock release"
+
+# Owner verification
+ic lock acquire ownertest scope1 --owner="alice:host"
+ic lock release ownertest scope1 --owner="bob:host" 2>/dev/null && fail "wrong owner released lock" || pass "lock release wrong owner blocked"
+ic lock release ownertest scope1 --owner="alice:host"
+pass "lock release correct owner"
+
+# Lock contention
+ic lock acquire conttest scope1 --owner="a:host"
+ic lock acquire conttest scope1 --timeout=200ms --owner="b:host" 2>/dev/null && fail "contended acquire should fail" || pass "lock acquire contention timeout"
+ic lock release conttest scope1 --owner="a:host"
+
+# Stale lock detection (backdate owner.json)
+ic lock acquire staletest global --owner="99999:host"
+STALE_DIR="$LOCK_DIR/staletest/global"
+BACKDATE=$(($(date +%s) - 10))
+echo "{\"pid\":99999,\"host\":\"host\",\"owner\":\"99999:host\",\"created\":${BACKDATE}}" > "$STALE_DIR/owner.json"
+ic lock stale --older-than=1s | grep -q "staletest" || fail "stale list missing staletest"
+pass "stale lists old lock"
+
+# Clean removes stale locks (PID 99999 should not exist)
+ic lock clean --older-than=1s
+ic lock list | grep -q "staletest" && fail "stale lock not cleaned" || pass "stale lock cleaned"
+
+# Cleanup test locks
+rm -rf "$LOCK_DIR/testlock" "$LOCK_DIR/ownertest" "$LOCK_DIR/conttest" "$LOCK_DIR/staletest" 2>/dev/null || true
+
+# --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then
     CLAVAIN_VER=$(grep '^INTERCORE_WRAPPER_VERSION=' "$CLAVAIN_LIB" | cut -d'"' -f2)

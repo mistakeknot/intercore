@@ -53,6 +53,21 @@ ic run artifact add <run> --phase=brainstorm --path=docs/brainstorms/x.md
 ic run artifact list <run> --phase=brainstorm
 ```
 
+## Lock Quick Reference
+
+```bash
+# Acquire / release a named lock
+ic lock acquire <name> <scope> --timeout=1s --owner=$$:$(hostname -s)
+ic lock release <name> <scope> --owner=$$:$(hostname -s)
+
+# Inspect / clean
+ic lock list
+ic lock stale --older-than=5s
+ic lock clean --older-than=5s
+```
+
+Lock commands are **filesystem-only** (no SQLite) — they work even when the DB is broken.
+
 ## Claude-Specific Settings
 
 - Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)

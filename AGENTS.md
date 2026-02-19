@@ -13,6 +13,7 @@ intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provide
 cmd/ic/main.go          CLI entry point, argument parsing, shared helpers
 cmd/ic/dispatch.go      Dispatch subcommands (spawn, status, list, poll, wait, kill, prune)
 cmd/ic/run.go           Run subcommands (create, status, advance, phase, current, agent, artifact)
+cmd/ic/lock.go          Lock subcommands (acquire, release, list, stale, clean) — filesystem-only
 internal/db/db.go       SQLite connection, migration, health check
 internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, run_agents, run_artifacts)
 internal/db/disk.go     Disk space check (Linux syscall)
@@ -27,11 +28,14 @@ internal/phase/         Phase state machine: run lifecycle with complexity-based
   store.go              Run + PhaseEvent CRUD with optimistic concurrency, Current()
   machine.go            Advance() with gate evaluation, auto_advance pause
   errors.go             Error sentinels
+internal/lock/          Filesystem-based mutex using POSIX mkdir atomicity
+  lock.go               Manager, Acquire (spin-wait + stale-break), Release, List, Clean
+  lock_test.go          Unit tests (8 tests, race-detector safe)
 internal/runtrack/      Agent and artifact tracking within runs
   runtrack.go           Agent/Artifact types, status constants
   store.go              CRUD for run_agents and run_artifacts
   errors.go             Error sentinels (ErrAgentNotFound, ErrArtifactNotFound)
-lib-intercore.sh        Bash wrappers for hooks (v0.3.0)
+lib-intercore.sh        Bash wrappers for hooks (v0.4.0)
 test-integration.sh     End-to-end integration test (~70 tests)
 ```
 
@@ -71,6 +75,11 @@ ic run agent list <run>                    List agents for a run
 ic run agent update <id> --status=<s>      Update agent status (active|completed|failed)
 ic run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
 ic run artifact list <run> [--phase=<p>]   List artifacts for a run
+ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<id>]  Acquire lock (exit 0=acquired, 1=contention)
+ic lock release <name> <scope> [--owner=<id>]                   Release lock (verifies owner)
+ic lock list                               List all held locks
+ic lock stale [--older-than=<dur>]         List stale locks
+ic lock clean [--older-than=<dur>]         Remove stale locks (PID-liveness check)
 ic compat status                           Show legacy temp file vs DB coverage
 ic compat check <key>                      Check if key has data in DB
 ```
@@ -180,6 +189,54 @@ intercore_run_agent_add <run_id> <type> [name] [dispatch_id]  # Add agent, print
 intercore_run_artifact_add <run_id> <phase> <path> [type]  # Add artifact, print ID
 ```
 
+## Lock Module
+
+The lock module provides process-level mutual exclusion using POSIX `mkdir` atomicity — entirely filesystem-based, no SQLite involved. This separates concerns: SQLite sentinels handle time-based throttle guards; filesystem locks handle read-modify-write serialization.
+
+### Lock Directory Layout
+
+```
+/tmp/intercore/locks/<name>/<scope>/owner.json
+```
+
+`owner.json` contains `{"pid": N, "host": "hostname", "owner": "PID:hostname", "created": <unix_epoch>}`. The `<name>/<scope>` subdirectory structure avoids ambiguity with hyphenated names.
+
+### Acquire Behavior
+
+1. `os.Mkdir` atomic attempt (fail = lock held)
+2. Write `owner.json` with caller identity
+3. On failure: spin-wait with 100ms sleep (`DefaultRetryWait`), check for stale locks
+4. Stale detection: compare `owner.json` created timestamp against `StaleAge` (default 5s)
+5. Stale-break: `os.Remove(owner.json)` + `os.Remove(lockDir)` (no `os.RemoveAll` — prevents destroying concurrently re-acquired locks)
+
+### PID-Liveness Check (Clean)
+
+`ic lock clean` uses `syscall.Kill(pid, 0)` before evicting:
+- `nil` or `EPERM` → process alive, skip
+- `ESRCH` → process gone, safe to remove
+
+### Bash Wrappers (lib-intercore.sh)
+
+```bash
+intercore_lock_available                   # Binary-only check (no DB health — locks are filesystem-only)
+intercore_lock <name> <scope> [timeout]    # 3-way exit: 0=acquired, 1=contention, 2+=fallback to mkdir
+intercore_unlock <name> <scope>            # Fail-safe: always returns 0
+intercore_lock_clean [max_age]             # Remove stale locks (fallback: find -not -newermt)
+```
+
+### Exit Codes (lock commands)
+
+| Code | Meaning |
+|------|---------|
+| 0 | Lock acquired / released / cleaned |
+| 1 | Expected negative: timeout (acquire), not-found or not-owner (release) |
+| 2 | Unexpected error |
+| 3 | Usage error |
+
+### Input Validation
+
+Name and scope components are validated: no `/`, `\`, `..`, empty, or `.` allowed. The resolved path must remain under `BaseDir` (containment check via `strings.HasPrefix`).
+
 ## Phase Module
 
 The phase module implements a run lifecycle state machine ported from `lib-sprint.sh` + `lib-gates.sh`. intercore owns phase transitions instead of relying on LLM prompt instructions.
@@ -271,7 +328,7 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~90 tests across 6 packages)
+go test ./...                    # Unit tests (~98 tests across 7 packages)
 go test -race ./...              # Race detector
 bash test-integration.sh         # Full CLI integration test (~70 tests)
 ```
@@ -295,4 +352,10 @@ ic version                       # Shows "schema: v<N>"
 ### Sentinel Stuck After Crash
 ```bash
 ic sentinel reset <name> <scope_id>  # Clear the sentinel
+```
+
+### Lock Stuck After Crash
+```bash
+ic lock stale --older-than=5s        # Find stale locks
+ic lock clean --older-than=5s        # Remove stale locks (checks PID liveness)
 ```
