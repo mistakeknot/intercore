@@ -126,7 +126,7 @@ This has important implications:
 
 **No background event loop.** The kernel does not poll, watch, or react on its own. Event consumption is **pull-based**: consumers call `ic events tail --consumer=<name>` to retrieve events since their last cursor position. The kernel writes events; consumers decide when to read them.
 
-**Consumer patterns:** OS-level event reactors, TUI event tails, and one-off analysis scripts all use the same cursor-based API (`ic events tail --consumer=<name>`). The kernel is stateless between calls — consumers decide when and how to poll. For the OS event reactor lifecycle (who starts it, crash behavior, gate failure handling), see the [Clavain vision doc](../../../../hub/clavain/docs/vision.md) Track A3 section.
+**Consumer patterns:** OS-level event reactors, TUI event tails, and one-off analysis scripts all use the same cursor-based API (`ic events tail --consumer=<name>`). The kernel is stateless between calls — consumers decide when and how to poll. For the OS event reactor lifecycle (who starts it, crash behavior, gate failure handling), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Track A3 section.
 
 **Why not a daemon?** Daemons add operational complexity — process management, health monitoring, restart policies, port conflicts. A CLI binary is zero-ops: it works when called, requires no lifecycle management, and can't crash between calls because it doesn't exist between calls. The SQLite database is the persistent state; the binary is stateless.
 
@@ -560,7 +560,7 @@ The kernel enforces a confidence-gated autonomy model. Each discovery is scored 
 | **Low** | 0.3 – 0.5 | `discovery.scored` | v3 |
 | **Discard** | < 0.3 | Recorded with `discarded` status | v3 |
 
-The kernel enforces tier boundaries as gate invariants — the scoring model produces a number, the tier boundaries are configuration, and the kernel rejects promotions that violate tier constraints. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal. For the OS-level actions at each tier (bead creation, briefing docs, inbox notifications), see the [Clavain vision doc](../../../../hub/clavain/docs/vision.md) Discovery → Backlog Pipeline section.
+The kernel enforces tier boundaries as gate invariants — the scoring model produces a number, the tier boundaries are configuration, and the kernel rejects promotions that violate tier constraints. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal. For the OS-level actions at each tier (bead creation, briefing docs, inbox notifications), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Discovery → Backlog Pipeline section.
 
 > **Horizon note:** The discovery subsystem is planned for v3. The `discoveries` table, confidence scoring, and tier enforcement do not exist in the current kernel schema (v5). The table above describes the target design.
 
@@ -572,7 +572,7 @@ The kernel provides two backlog enforcement mechanisms:
 
 **Staleness decay mechanism.** Discovery records that map to backlog items but are never promoted, never worked on, and receive no additional evidence decay in priority over time (configurable rate, default: one priority level per 30 days without activity). Decayed items that receive new evidence are re-evaluated — fresh signal reverses decay.
 
-Additional backlog refinement (priority escalation, dependency suggestion, weekly digests, feedback loops) is OS-level policy. See the [Clavain vision doc](../../../../hub/clavain/docs/vision.md) for the full discovery → backlog pipeline workflow, including source configuration, trigger modes, and backlog refinement rules.
+Additional backlog refinement (priority escalation, dependency suggestion, weekly digests, feedback loops) is OS-level policy. See the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) for the full discovery → backlog pipeline workflow, including source configuration, trigger modes, and backlog refinement rules.
 
 ### What the OS Provides (Policy)
 

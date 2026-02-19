@@ -100,7 +100,7 @@ Bigend never writes to the kernel — it only reads. This makes it the lowest-ri
 - Research queries → `ic discovery search` for semantic retrieval
 - Watch mode → kernel event consumer that triggers targeted scans
 
-Pollard becomes the scanner component that feeds the discovery → backlog pipeline (see [Clavain vision doc](../../../../hub/clavain/docs/vision.md) for the full pipeline workflow). Its hunters become Intercore source adapters.
+Pollard becomes the scanner component that feeds the discovery → backlog pipeline (see [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) for the full pipeline workflow). Its hunters become Intercore source adapters.
 
 **3. Gurgeh (PRD generation → run lifecycle).** Gurgeh's 8-phase spec sprint maps to Intercore's run lifecycle with a custom phase chain. Migration creates runs for PRD generation:
 - Spec sprint → `ic run create --phases='["vision","problem","users","features","cujs","requirements","scope","acceptance"]'`
