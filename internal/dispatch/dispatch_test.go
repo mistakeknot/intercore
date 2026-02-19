@@ -291,6 +291,90 @@ func TestIsTerminal(t *testing.T) {
 	}
 }
 
+func TestCacheHitsViaUpdateStatus(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Dispatch{
+		AgentType:  "codex",
+		ProjectDir: "/tmp/test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.UpdateStatus(ctx, id, StatusCompleted, UpdateFields{
+		"input_tokens":  1000,
+		"output_tokens": 500,
+		"cache_hits":    3000,
+		"exit_code":     0,
+	})
+	if err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.CacheHits == nil || *got.CacheHits != 3000 {
+		t.Errorf("CacheHits = %v, want 3000", got.CacheHits)
+	}
+	if got.InputTokens != 1000 {
+		t.Errorf("InputTokens = %d, want 1000", got.InputTokens)
+	}
+	if got.OutputTokens != 500 {
+		t.Errorf("OutputTokens = %d, want 500", got.OutputTokens)
+	}
+}
+
+func TestUpdateTokens(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Dispatch{
+		AgentType:  "codex",
+		ProjectDir: "/tmp/test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// UpdateTokens doesn't change status
+	err = store.UpdateTokens(ctx, id, UpdateFields{
+		"input_tokens":  2000,
+		"output_tokens": 800,
+		"cache_hits":    5000,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTokens: %v", err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Status != StatusSpawned {
+		t.Errorf("Status = %q, want %q (should not change)", got.Status, StatusSpawned)
+	}
+	if got.InputTokens != 2000 {
+		t.Errorf("InputTokens = %d, want 2000", got.InputTokens)
+	}
+	if got.CacheHits == nil || *got.CacheHits != 5000 {
+		t.Errorf("CacheHits = %v, want 5000", got.CacheHits)
+	}
+}
+
+func TestUpdateTokensNotFound(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	err := store.UpdateTokens(ctx, "nonexist", UpdateFields{"input_tokens": 100})
+	if err != ErrNotFound {
+		t.Errorf("UpdateTokens(nonexist) error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestGenerateID(t *testing.T) {
 	seen := make(map[string]bool)
 	for i := 0; i < 100; i++ {

@@ -46,6 +46,7 @@ type Dispatch struct {
 	Messages      int
 	InputTokens   int
 	OutputTokens  int
+	CacheHits     *int
 	CreatedAt     int64
 	StartedAt     *int64
 	CompletedAt   *int64
@@ -133,6 +134,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 		model          sql.NullString
 		sandbox        sql.NullString
 		timeoutSec     sql.NullInt64
+		cacheHits      sql.NullInt64
 		startedAt      sql.NullInt64
 		completedAt    sql.NullInt64
 		verdictStatus  sql.NullString
@@ -142,18 +144,13 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 		parentID       sql.NullString
 	)
 
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, agent_type, status, project_dir, prompt_file, prompt_hash,
-			output_file, verdict_file, pid, exit_code, name, model, sandbox,
-			timeout_sec, turns, commands, messages, input_tokens, output_tokens,
-			created_at, started_at, completed_at, verdict_status, verdict_summary,
-			error_message, scope_id, parent_id
-		FROM dispatches WHERE id = ?`, id).Scan(
+	err := s.db.QueryRowContext(ctx,
+		"SELECT "+dispatchCols+" FROM dispatches WHERE id = ?", id).Scan(
 		&d.ID, &d.AgentType, &d.Status, &d.ProjectDir,
 		&promptFile, &promptHash, &outputFile, &verdictFile,
 		&pid, &exitCode, &name, &model, &sandbox,
 		&timeoutSec, &d.Turns, &d.Commands, &d.Messages,
-		&d.InputTokens, &d.OutputTokens,
+		&d.InputTokens, &d.OutputTokens, &cacheHits,
 		&d.CreatedAt, &startedAt, &completedAt,
 		&verdictStatus, &verdictSummary, &errorMessage,
 		&scopeID, &parentID,
@@ -175,6 +172,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 	d.Model = nullStr(model)
 	d.Sandbox = nullStr(sandbox)
 	d.TimeoutSec = nullInt(timeoutSec)
+	d.CacheHits = nullInt(cacheHits)
 	d.StartedAt = nullInt64(startedAt)
 	d.CompletedAt = nullInt64(completedAt)
 	d.VerdictStatus = nullStr(verdictStatus)
@@ -193,7 +191,7 @@ type UpdateFields map[string]interface{}
 var allowedUpdateCols = map[string]bool{
 	"pid": true, "exit_code": true, "started_at": true, "completed_at": true,
 	"turns": true, "commands": true, "messages": true,
-	"input_tokens": true, "output_tokens": true,
+	"input_tokens": true, "output_tokens": true, "cache_hits": true,
 	"verdict_status": true, "verdict_summary": true, "error_message": true,
 }
 
@@ -260,6 +258,39 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 	return nil
 }
 
+// UpdateTokens sets token-related fields on a dispatch without changing status.
+func (s *Store) UpdateTokens(ctx context.Context, id string, fields UpdateFields) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	var sets []string
+	var args []interface{}
+
+	for col, val := range fields {
+		if !allowedUpdateCols[col] {
+			return fmt.Errorf("dispatch update tokens: disallowed column: %q", col)
+		}
+		sets = append(sets, col+" = ?")
+		args = append(args, val)
+	}
+	args = append(args, id)
+
+	query := "UPDATE dispatches SET " + joinStrings(sets, ", ") + " WHERE id = ?"
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("dispatch update tokens: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("dispatch update tokens: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListActive returns all non-terminal dispatches.
 func (s *Store) ListActive(ctx context.Context) ([]*Dispatch, error) {
 	return s.queryDispatches(ctx,
@@ -312,8 +343,8 @@ func (s *Store) HasVerdict(ctx context.Context, scopeID string) (bool, error) {
 const dispatchCols = `id, agent_type, status, project_dir, prompt_file, prompt_hash,
 	output_file, verdict_file, pid, exit_code, name, model, sandbox,
 	timeout_sec, turns, commands, messages, input_tokens, output_tokens,
-	created_at, started_at, completed_at, verdict_status, verdict_summary,
-	error_message, scope_id, parent_id`
+	cache_hits, created_at, started_at, completed_at, verdict_status,
+	verdict_summary, error_message, scope_id, parent_id`
 
 func (s *Store) queryDispatches(ctx context.Context, query string, args ...interface{}) ([]*Dispatch, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -336,6 +367,7 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 			model          sql.NullString
 			sandbox        sql.NullString
 			timeoutSec     sql.NullInt64
+			cacheHits      sql.NullInt64
 			startedAt      sql.NullInt64
 			completedAt    sql.NullInt64
 			verdictStatus  sql.NullString
@@ -350,7 +382,7 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 			&promptFile, &promptHash, &outputFile, &verdictFile,
 			&pid, &exitCode, &name, &model, &sandbox,
 			&timeoutSec, &d.Turns, &d.Commands, &d.Messages,
-			&d.InputTokens, &d.OutputTokens,
+			&d.InputTokens, &d.OutputTokens, &cacheHits,
 			&d.CreatedAt, &startedAt, &completedAt,
 			&verdictStatus, &verdictSummary, &errorMessage,
 			&scopeID, &parentID,
@@ -368,6 +400,7 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 		d.Model = nullStr(model)
 		d.Sandbox = nullStr(sandbox)
 		d.TimeoutSec = nullInt(timeoutSec)
+		d.CacheHits = nullInt(cacheHits)
 		d.StartedAt = nullInt64(startedAt)
 		d.CompletedAt = nullInt64(completedAt)
 		d.VerdictStatus = nullStr(verdictStatus)

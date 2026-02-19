@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 
 func cmdDispatch(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: dispatch: missing subcommand (spawn, status, list, poll, wait, kill, prune)\n")
+		fmt.Fprintf(os.Stderr, "ic: dispatch: missing subcommand (spawn, status, list, poll, wait, kill, prune, tokens)\n")
 		return 3
 	}
 
@@ -34,6 +35,8 @@ func cmdDispatch(ctx context.Context, args []string) int {
 		return cmdDispatchKill(ctx, args[1:])
 	case "prune":
 		return cmdDispatchPrune(ctx, args[1:])
+	case "tokens":
+		return cmdDispatchTokens(ctx, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "ic: dispatch: unknown subcommand: %s\n", args[0])
 		return 3
@@ -371,6 +374,74 @@ func cmdDispatchPrune(ctx context.Context, args []string) int {
 	return 0
 }
 
+func cmdDispatchTokens(ctx context.Context, args []string) int {
+	var positional []string
+	fields := dispatch.UpdateFields{}
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "--in="):
+			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--in="))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ic: dispatch tokens: invalid --in: %s\n", args[i])
+				return 3
+			}
+			fields["input_tokens"] = v
+		case strings.HasPrefix(args[i], "--out="):
+			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--out="))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ic: dispatch tokens: invalid --out: %s\n", args[i])
+				return 3
+			}
+			fields["output_tokens"] = v
+		case strings.HasPrefix(args[i], "--cache="):
+			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--cache="))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ic: dispatch tokens: invalid --cache: %s\n", args[i])
+				return 3
+			}
+			fields["cache_hits"] = v
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+
+	if len(positional) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: usage: ic dispatch tokens <id> [--in=N] [--out=N] [--cache=N]\n")
+		return 3
+	}
+	id := positional[0]
+
+	if len(fields) == 0 {
+		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: at least one of --in, --out, --cache is required\n")
+		return 3
+	}
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := dispatch.New(d.SqlDB(), nil)
+	if err := store.UpdateTokens(ctx, id, fields); err != nil {
+		if err == dispatch.ErrNotFound {
+			fmt.Fprintf(os.Stderr, "ic: dispatch tokens: not found: %s\n", id)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: %v\n", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "updated"})
+	} else {
+		fmt.Println("updated")
+	}
+	return 0
+}
+
 // --- dispatch output helpers ---
 
 func dispatchToMap(d *dispatch.Dispatch) map[string]interface{} {
@@ -419,6 +490,9 @@ func dispatchToMap(d *dispatch.Dispatch) map[string]interface{} {
 	if d.ErrorMessage != nil {
 		m["error_message"] = *d.ErrorMessage
 	}
+	if d.CacheHits != nil {
+		m["cache_hits"] = *d.CacheHits
+	}
 	if d.ScopeID != nil {
 		m["scope_id"] = *d.ScopeID
 	}
@@ -449,7 +523,11 @@ func printDispatch(d *dispatch.Dispatch) {
 		fmt.Printf("Stats:   %d turns, %d commands, %d messages\n", d.Turns, d.Commands, d.Messages)
 	}
 	if d.InputTokens > 0 || d.OutputTokens > 0 {
-		fmt.Printf("Tokens:  %d in / %d out\n", d.InputTokens, d.OutputTokens)
+		if d.CacheHits != nil && *d.CacheHits > 0 {
+			fmt.Printf("Tokens:  %d in / %d out / %d cache\n", d.InputTokens, d.OutputTokens, *d.CacheHits)
+		} else {
+			fmt.Printf("Tokens:  %d in / %d out\n", d.InputTokens, d.OutputTokens)
+		}
 	}
 	if d.VerdictStatus != nil {
 		fmt.Printf("Verdict: %s\n", *d.VerdictStatus)
