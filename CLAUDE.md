@@ -68,6 +68,14 @@ ic lock clean --older-than=5s
 
 Lock commands are **filesystem-only** (no SQLite) — they work even when the DB is broken.
 
+## Gate Quick Reference
+
+```bash
+ic gate check <run_id> [--priority=N]      # Dry-run gate eval (exit 0=pass, 1=fail)
+ic gate override <run_id> --reason=<text>   # Force-advance past failed gate
+ic gate rules [--phase=<p>]                 # Display gate rules table
+```
+
 ## Claude-Specific Settings
 
 - Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)

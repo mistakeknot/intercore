@@ -87,6 +87,8 @@ func main() {
 		exitCode = cmdDispatch(ctx, subArgs)
 	case "run":
 		exitCode = cmdRun(ctx, subArgs)
+	case "gate":
+		exitCode = cmdGate(ctx, subArgs)
 	case "lock":
 		exitCode = cmdLock(ctx, subArgs)
 	case "compat":
@@ -139,6 +141,9 @@ Commands:
   run agent update <id> --status=<s>  Update agent status
   run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
   run artifact list <run> [--phase=<p>]  List artifacts for run
+  gate check <run_id> [--priority=N]   Dry-run gate evaluation (0=pass, 1=fail)
+  gate override <run_id> --reason=<s>  Force advance past failing gate
+  gate rules [--phase=<from>]          Show gate conditions
   lock acquire <name> <scope> [--timeout=<dur>] [--owner=<s>]  Acquire a lock
   lock release <name> <scope> [--owner=<s>]  Release a lock
   lock list                     List active locks

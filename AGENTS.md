@@ -13,6 +13,7 @@ intercore is a Go CLI (`ic`) backed by a single SQLite WAL database that provide
 cmd/ic/main.go          CLI entry point, argument parsing, shared helpers
 cmd/ic/dispatch.go      Dispatch subcommands (spawn, status, list, poll, wait, kill, prune)
 cmd/ic/run.go           Run subcommands (create, status, advance, phase, current, agent, artifact)
+cmd/ic/gate.go          Gate subcommands (check, override, rules)
 cmd/ic/lock.go          Lock subcommands (acquire, release, list, stale, clean) — filesystem-only
 internal/db/db.go       SQLite connection, migration, health check
 internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, run_agents, run_artifacts)
@@ -27,6 +28,7 @@ internal/phase/         Phase state machine: run lifecycle with complexity-based
   phase.go              Types, constants, transition table, skip logic
   store.go              Run + PhaseEvent CRUD with optimistic concurrency, Current()
   machine.go            Advance() with gate evaluation, auto_advance pause
+  gate.go               Gate types, interfaces, rules table, evaluateGate, EvaluateGate
   errors.go             Error sentinels
 internal/lock/          Filesystem-based mutex using POSIX mkdir atomicity
   lock.go               Manager, Acquire (spin-wait + stale-break), Release, List, Clean
@@ -35,8 +37,8 @@ internal/runtrack/      Agent and artifact tracking within runs
   runtrack.go           Agent/Artifact types, status constants
   store.go              CRUD for run_agents and run_artifacts
   errors.go             Error sentinels (ErrAgentNotFound, ErrArtifactNotFound)
-lib-intercore.sh        Bash wrappers for hooks (v0.4.0)
-test-integration.sh     End-to-end integration test (~70 tests)
+lib-intercore.sh        Bash wrappers for hooks (v0.5.0)
+test-integration.sh     End-to-end integration test (~85 tests)
 ```
 
 ## CLI Commands
@@ -75,6 +77,9 @@ ic run agent list <run>                    List agents for a run
 ic run agent update <id> --status=<s>      Update agent status (active|completed|failed)
 ic run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
 ic run artifact list <run> [--phase=<p>]   List artifacts for a run
+ic gate check <run_id> [--priority=N]      Dry-run gate evaluation (exit 0=pass, 1=fail)
+ic gate override <run_id> --reason=<text>  Force-advance past a failed gate
+ic gate rules [--phase=<p>]                Display gate rules table
 ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<id>]  Acquire lock (exit 0=acquired, 1=contention)
 ic lock release <name> <scope> [--owner=<id>]                   Release lock (verifies owner)
 ic lock list                               List all held locks
@@ -187,6 +192,8 @@ intercore_run_current [project_dir]                        # Print active run ID
 intercore_run_phase <run_id>                               # Print current phase
 intercore_run_agent_add <run_id> <type> [name] [dispatch_id]  # Add agent, print ID
 intercore_run_artifact_add <run_id> <phase> <path> [type]  # Add artifact, print ID
+intercore_gate_check <run_id>                              # Gate check (0=pass, 1=fail, 2+=error)
+intercore_gate_override <run_id> <reason>                  # Force-advance past failed gate
 ```
 
 ## Lock Module
@@ -257,7 +264,18 @@ brainstorm → brainstorm-reviewed → strategized → planned → executing →
 
 `--force-full` overrides complexity and walks every phase.
 
-### Gate Tiers
+### Gate System
+
+Gates enforce conditions before phase transitions. Each transition has a set of checks defined in `gateRules` (see `internal/phase/gate.go`).
+
+**Checks:**
+- `artifact_exists` — requires at least one artifact recorded for the source phase
+- `agents_complete` — requires no active agents (all completed or failed)
+- `verdict_exists` — requires a non-rejected dispatch verdict (needs `scope_id` on the run)
+
+**Interfaces:** Gate evaluation uses `RuntrackQuerier` and `VerdictQuerier` interfaces to avoid cross-package coupling. The actual implementations live in `runtrack.Store` and `dispatch.Store`.
+
+**Gate Tiers** (set by `--priority` flag):
 
 | Priority | Tier | Behavior |
 |----------|------|----------|
@@ -265,7 +283,11 @@ brainstorm → brainstorm-reviewed → strategized → planned → executing →
 | 2-3 | Soft | Warn but allow advance |
 | 4+ | None | Skip gate evaluation |
 
-Gates always pass in v1 (stub). Real gate logic (artifact presence, review checks) is deferred to Phase 2 (iv-qfg8).
+**Evidence:** Every gate evaluation produces a `GateEvidence` struct with per-condition results, serialized as JSON in the event's `reason` field. Both pass and block events include evidence.
+
+**EvaluateGate vs Advance:** `EvaluateGate()` is a dry-run (read-only) used by `ic gate check`. `Advance()` evaluates the gate and applies the result (advance or block). Both record events.
+
+**Override:** `ic gate override` force-advances past a failed gate. It calls `UpdatePhase` first, then records the event — if a crash occurs between, the advance happened without audit (safer than audit without advance).
 
 ### Optimistic Concurrency
 
@@ -328,7 +350,7 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~98 tests across 7 packages)
+go test ./...                    # Unit tests (~114 tests across 8 packages)
 go test -race ./...              # Race detector
 bash test-integration.sh         # Full CLI integration test (~70 tests)
 ```

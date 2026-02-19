@@ -202,6 +202,32 @@ func (s *Store) ListArtifacts(ctx context.Context, runID string, phase *string) 
 	return artifacts, rows.Err()
 }
 
+// --- Gate query methods (satisfy phase.RuntrackQuerier) ---
+
+// CountArtifacts returns the number of artifacts for a run in the given phase.
+func (s *Store) CountArtifacts(ctx context.Context, runID, phase string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM run_artifacts WHERE run_id = ? AND phase = ?`,
+		runID, phase).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count artifacts: %w", err)
+	}
+	return count, nil
+}
+
+// CountActiveAgents returns the number of agents with status='active' for a run.
+func (s *Store) CountActiveAgents(ctx context.Context, runID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM run_agents WHERE run_id = ? AND status = 'active'`,
+		runID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active agents: %w", err)
+	}
+	return count, nil
+}
+
 // --- helpers ---
 
 // isFKViolation checks if an error is a SQLite foreign key constraint violation.

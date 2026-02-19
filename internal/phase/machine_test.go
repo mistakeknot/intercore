@@ -2,14 +2,16 @@ package phase
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
 )
 
-func setupMachineTest(t *testing.T) (*Store, context.Context) {
+func setupMachineTest(t *testing.T) (*Store, *runtrack.Store, *sql.DB, context.Context) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
@@ -24,17 +26,41 @@ func setupMachineTest(t *testing.T) (*Store, context.Context) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	return New(d.SqlDB()), ctx
+	return New(d.SqlDB()), runtrack.New(d.SqlDB()), d.SqlDB(), ctx
+}
+
+func advanceToPhase(t *testing.T, store *Store, runID string, target string, rt RuntrackQuerier) {
+	t.Helper()
+	cfg := GateConfig{Priority: 4} // TierNone — bypass gates
+	for {
+		run, err := store.Get(context.Background(), runID)
+		if err != nil {
+			t.Fatalf("advanceToPhase(%s): get: %v", target, err)
+		}
+		if run.Phase == target {
+			return
+		}
+		if IsTerminalPhase(run.Phase) || IsTerminalStatus(run.Status) {
+			t.Fatalf("advanceToPhase(%s): overshot (currently at %s, status %s)", target, run.Phase, run.Status)
+		}
+		result, err := Advance(context.Background(), store, runID, cfg, rt, nil)
+		if err != nil {
+			t.Fatalf("advanceToPhase(%s): %v", target, err)
+		}
+		if !result.Advanced {
+			t.Fatalf("advanceToPhase(%s): advance returned Advanced=false at %s", target, run.Phase)
+		}
+	}
 }
 
 func TestAdvance_Basic(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
 	})
 
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4})
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -66,14 +92,14 @@ func TestAdvance_Basic(t *testing.T) {
 }
 
 func TestAdvance_WithComplexitySkip(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 1, AutoAdvance: true,
 	})
 
 	// At complexity 1: brainstorm → planned (skips brainstorm-reviewed + strategized)
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4})
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -87,7 +113,7 @@ func TestAdvance_WithComplexitySkip(t *testing.T) {
 }
 
 func TestAdvance_ForceFull_OverridesSkip(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 1,
@@ -95,7 +121,7 @@ func TestAdvance_ForceFull_OverridesSkip(t *testing.T) {
 	})
 
 	// Even at complexity 1, force_full means brainstorm → brainstorm-reviewed
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4})
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -109,13 +135,13 @@ func TestAdvance_ForceFull_OverridesSkip(t *testing.T) {
 }
 
 func TestAdvance_AutoAdvanceFalse_Pauses(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: false,
 	})
 
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4})
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -135,7 +161,7 @@ func TestAdvance_AutoAdvanceFalse_Pauses(t *testing.T) {
 }
 
 func TestAdvance_AutoAdvanceFalse_WithSkipReason_Proceeds(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: false,
@@ -144,7 +170,7 @@ func TestAdvance_AutoAdvanceFalse_WithSkipReason_Proceeds(t *testing.T) {
 	result, err := Advance(ctx, store, id, GateConfig{
 		Priority:   4,
 		SkipReason: "manual override",
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -155,53 +181,59 @@ func TestAdvance_AutoAdvanceFalse_WithSkipReason_Proceeds(t *testing.T) {
 }
 
 func TestAdvance_GateTiers(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, rtStore, _, ctx := setupMachineTest(t)
 
 	// Priority 4+ = no gate
 	id1, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "t1", Complexity: 3, AutoAdvance: true,
 	})
-	r1, _ := Advance(ctx, store, id1, GateConfig{Priority: 4})
+	r1, _ := Advance(ctx, store, id1, GateConfig{Priority: 4}, nil, nil)
 	if r1.GateTier != TierNone {
 		t.Errorf("Priority 4 tier = %q, want %q", r1.GateTier, TierNone)
 	}
 
-	// Priority 2-3 = soft gate (still passes in v1 stub)
+	// Priority 2-3 = soft gate — needs brainstorm artifact to pass
 	id2, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "t2", Complexity: 3, AutoAdvance: true,
 	})
-	r2, _ := Advance(ctx, store, id2, GateConfig{Priority: 2})
+	rtStore.AddArtifact(ctx, &runtrack.Artifact{
+		RunID: id2, Phase: PhaseBrainstorm, Path: "test.md", Type: "file",
+	})
+	r2, _ := Advance(ctx, store, id2, GateConfig{Priority: 2}, rtStore, nil)
 	if r2.GateTier != TierSoft {
 		t.Errorf("Priority 2 tier = %q, want %q", r2.GateTier, TierSoft)
 	}
 	if !r2.Advanced {
-		t.Error("Soft gate should allow advance in v1 stub")
+		t.Error("Soft gate should allow advance when artifact exists")
 	}
 
-	// Priority 0-1 = hard gate (still passes in v1 stub)
+	// Priority 0-1 = hard gate — needs brainstorm artifact to pass
 	id3, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "t3", Complexity: 3, AutoAdvance: true,
 	})
-	r3, _ := Advance(ctx, store, id3, GateConfig{Priority: 0})
+	rtStore.AddArtifact(ctx, &runtrack.Artifact{
+		RunID: id3, Phase: PhaseBrainstorm, Path: "test.md", Type: "file",
+	})
+	r3, _ := Advance(ctx, store, id3, GateConfig{Priority: 0}, rtStore, nil)
 	if r3.GateTier != TierHard {
 		t.Errorf("Priority 0 tier = %q, want %q", r3.GateTier, TierHard)
 	}
 	if !r3.Advanced {
-		t.Error("Hard gate should pass in v1 stub")
+		t.Error("Hard gate should pass when artifact exists")
 	}
 
 	// DisableAll = no gate
 	id4, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "t4", Complexity: 3, AutoAdvance: true,
 	})
-	r4, _ := Advance(ctx, store, id4, GateConfig{Priority: 0, DisableAll: true})
+	r4, _ := Advance(ctx, store, id4, GateConfig{Priority: 0, DisableAll: true}, nil, nil)
 	if r4.GateTier != TierNone {
 		t.Errorf("DisableAll tier = %q, want %q", r4.GateTier, TierNone)
 	}
 }
 
 func TestAdvance_ToDone_CompletesRun(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	// Complexity 1: brainstorm → planned → executing → done
 	id, _ := store.Create(ctx, &Run{
@@ -211,11 +243,11 @@ func TestAdvance_ToDone_CompletesRun(t *testing.T) {
 	cfg := GateConfig{Priority: 4}
 
 	// brainstorm → planned
-	Advance(ctx, store, id, cfg)
+	Advance(ctx, store, id, cfg, nil, nil)
 	// planned → executing
-	Advance(ctx, store, id, cfg)
+	Advance(ctx, store, id, cfg, nil, nil)
 	// executing → done
-	result, err := Advance(ctx, store, id, cfg)
+	result, err := Advance(ctx, store, id, cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance to done: %v", err)
 	}
@@ -235,32 +267,32 @@ func TestAdvance_ToDone_CompletesRun(t *testing.T) {
 }
 
 func TestAdvance_TerminalRun_ReturnsError(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
 	})
 	store.UpdateStatus(ctx, id, StatusCancelled)
 
-	_, err := Advance(ctx, store, id, GateConfig{Priority: 4})
+	_, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil)
 	if err != ErrTerminalRun {
 		t.Errorf("Advance(cancelled run) error = %v, want ErrTerminalRun", err)
 	}
 }
 
 func TestAdvance_TerminalPhase_ReturnsError(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	// Walk a complexity-1 run to done
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 1, AutoAdvance: true,
 	})
 	cfg := GateConfig{Priority: 4}
-	Advance(ctx, store, id, cfg) // → planned
-	Advance(ctx, store, id, cfg) // → executing
-	Advance(ctx, store, id, cfg) // → done
+	Advance(ctx, store, id, cfg, nil, nil) // → planned
+	Advance(ctx, store, id, cfg, nil, nil) // → executing
+	Advance(ctx, store, id, cfg, nil, nil) // → done
 
-	_, err := Advance(ctx, store, id, GateConfig{Priority: 4})
+	_, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil)
 	if err != ErrTerminalRun {
 		// Run is now completed, so ErrTerminalRun is expected
 		t.Errorf("Advance(done run) error = %v, want ErrTerminalRun", err)
@@ -268,16 +300,16 @@ func TestAdvance_TerminalPhase_ReturnsError(t *testing.T) {
 }
 
 func TestAdvance_NotFound(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
-	_, err := Advance(ctx, store, "nonexist", GateConfig{Priority: 4})
+	_, err := Advance(ctx, store, "nonexist", GateConfig{Priority: 4}, nil, nil)
 	if err != ErrNotFound {
 		t.Errorf("Advance(nonexist) error = %v, want ErrNotFound", err)
 	}
 }
 
 func TestAdvance_FullLifecycle_Complexity3(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "full lifecycle", Complexity: 3, AutoAdvance: true,
@@ -295,7 +327,7 @@ func TestAdvance_FullLifecycle_Complexity3(t *testing.T) {
 
 	cfg := GateConfig{Priority: 4}
 	for i, expected := range expectedPhases {
-		result, err := Advance(ctx, store, id, cfg)
+		result, err := Advance(ctx, store, id, cfg, nil, nil)
 		if err != nil {
 			t.Fatalf("Advance step %d: %v", i, err)
 		}
@@ -321,7 +353,7 @@ func TestAdvance_FullLifecycle_Complexity3(t *testing.T) {
 }
 
 func TestAdvance_SkipReason_RecordedInEvent(t *testing.T) {
-	store, ctx := setupMachineTest(t)
+	store, _, _, ctx := setupMachineTest(t)
 
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
@@ -330,7 +362,7 @@ func TestAdvance_SkipReason_RecordedInEvent(t *testing.T) {
 	result, err := Advance(ctx, store, id, GateConfig{
 		Priority:   4,
 		SkipReason: "testing reason",
-	})
+	}, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}

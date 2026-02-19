@@ -240,6 +240,25 @@ func (s *Store) Prune(ctx context.Context, olderThan time.Duration) (int64, erro
 	return result.RowsAffected()
 }
 
+// --- Gate query methods (satisfy phase.VerdictQuerier) ---
+
+// HasVerdict returns true if any dispatch for the given scope has a non-null, non-reject verdict.
+// When scopeID is empty, returns false (gate fails explicitly — use override for unusual configs).
+func (s *Store) HasVerdict(ctx context.Context, scopeID string) (bool, error) {
+	if scopeID == "" {
+		return false, nil
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dispatches
+			WHERE scope_id = ? AND verdict_status IS NOT NULL AND verdict_status != 'reject'`,
+		scopeID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("has verdict: %w", err)
+	}
+	return count > 0, nil
+}
+
 // --- helpers ---
 
 const dispatchCols = `id, agent_type, status, project_dir, prompt_file, prompt_hash,

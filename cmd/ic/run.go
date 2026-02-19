@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
 )
@@ -196,11 +197,13 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := phase.New(d.SqlDB())
+	rtStore := runtrack.New(d.SqlDB())
+	dStore := dispatch.New(d.SqlDB())
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
 		Priority:   priority,
 		DisableAll: disableGates,
 		SkipReason: skipReason,
-	})
+	}, rtStore, dStore)
 	if err != nil {
 		if err == phase.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)

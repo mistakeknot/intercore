@@ -395,6 +395,86 @@ ARTIFACT_ID3=$(intercore_run_artifact_add "$RUN_ID" "strategized" "docs/prds/tes
 [[ -n "$ARTIFACT_ID3" ]] || fail "wrapper run artifact add returned empty ID"
 pass "wrapper: run artifact add"
 
+# === Gates ===
+echo ""
+echo "=== Gates ==="
+
+# Create a gated run (complexity 3 = all phases)
+GATE_RUN=$(ic run create --project="$TEST_DIR" --goal="Gate test run" --complexity=3 --db="$TEST_DB")
+[[ -n "$GATE_RUN" ]] || fail "gate run create returned empty ID"
+pass "gate: run create"
+
+# Gate check should fail (no brainstorm artifact, hard priority)
+ic gate check "$GATE_RUN" --priority=0 --db="$TEST_DB" 2>/dev/null && fail "gate check should fail without artifact" || true
+pass "gate: check fails without artifact (hard)"
+
+# Gate rules should display
+rules_out=$(ic gate rules --db="$TEST_DB")
+echo "$rules_out" | grep -q "artifact_exists" || fail "gate rules should show artifact_exists"
+pass "gate: rules display"
+
+# Gate rules with phase filter
+rules_filtered=$(ic gate rules --phase=brainstorm --db="$TEST_DB")
+echo "$rules_filtered" | grep -q "brainstorm" || fail "gate rules --phase should show brainstorm"
+pass "gate: rules --phase filter"
+
+# Gate rules JSON
+rules_json=$(ic gate rules --json --db="$TEST_DB")
+echo "$rules_json" | grep -q '"check":"artifact_exists"' || fail "gate rules JSON should include artifact_exists"
+pass "gate: rules --json"
+
+# Add brainstorm artifact, then gate check should pass (hard priority)
+ic run artifact add "$GATE_RUN" --phase=brainstorm --path=docs/brainstorms/gate-test.md --db="$TEST_DB" >/dev/null
+gate_result=$(ic gate check "$GATE_RUN" --priority=0 --db="$TEST_DB")
+echo "$gate_result" | grep -q "PASS" || fail "gate check should pass with artifact, got: $gate_result"
+pass "gate: check passes with artifact (hard)"
+
+# Gate check JSON output
+gate_json=$(ic gate check "$GATE_RUN" --priority=0 --json --db="$TEST_DB")
+echo "$gate_json" | grep -q '"result":"pass"' || fail "gate check JSON should show pass, got: $gate_json"
+pass "gate: check --json"
+
+# Advance with passing gate
+advance_gate=$(ic run advance "$GATE_RUN" --db="$TEST_DB")
+echo "$advance_gate" | grep -q "brainstorm-reviewed" || fail "advance should go to brainstorm-reviewed, got: $advance_gate"
+pass "gate: advance with passing gate"
+
+# Advance through to a phase with no artifacts (should block at hard priority)
+# brainstorm-reviewed → strategized requires artifact_exists for brainstorm-reviewed
+ic gate check "$GATE_RUN" --priority=0 --db="$TEST_DB" 2>/dev/null && fail "gate should block at brainstorm-reviewed without artifact" || true
+pass "gate: blocks at next phase without artifact (hard)"
+
+# Gate override
+ic gate override "$GATE_RUN" --reason="integration test override" --db="$TEST_DB"
+gate_phase=$(ic run phase "$GATE_RUN" --db="$TEST_DB")
+[[ "$gate_phase" == "strategized" ]] || fail "override should advance to strategized, got: $gate_phase"
+pass "gate: override advances phase"
+
+# Override event in audit trail
+events_gate=$(ic run events "$GATE_RUN" --db="$TEST_DB")
+echo "$events_gate" | grep -q "override" || fail "events should show override"
+pass "gate: override in audit trail"
+
+# Gate override without reason should fail
+ic gate override "$GATE_RUN" --db="$TEST_DB" 2>/dev/null && fail "override without reason should fail" || true
+pass "gate: override without reason rejected"
+
+# Gate check on non-existent run should fail
+ic gate check "nonexist" --db="$TEST_DB" 2>/dev/null && fail "gate check nonexistent should fail" || true
+pass "gate: check non-existent run"
+
+# Soft gate (priority 2) — dry-run shows soft tier (still reports fail, but advance would proceed)
+soft_result=$(ic gate check "$GATE_RUN" --priority=2 --db="$TEST_DB" 2>/dev/null) || true
+echo "$soft_result" | grep -q "soft" || fail "soft gate should show soft tier, got: $soft_result"
+pass "gate: soft priority shows tier"
+
+# Wrapper test: intercore_gate_check (lib-intercore.sh already sourced above)
+# The run is at strategized with no artifact → gate fails (exit 1), so capture rc
+wrapper_rc=0
+intercore_gate_check "$GATE_RUN" || wrapper_rc=$?
+[[ $wrapper_rc -eq 1 ]] || fail "wrapper gate check should return 1 (fail), got: $wrapper_rc"
+pass "wrapper: gate check"
+
 echo "=== Version Sync Check ==="
 # Verify Clavain's copy is in sync (if present in monorepo)
 # --- Lock tests (filesystem-only, no DB) ---

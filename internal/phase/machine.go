@@ -33,7 +33,9 @@ type AdvanceResult struct {
 //  5. UpdatePhase with optimistic concurrency
 //  6. Record event in audit trail
 //  7. If target=done, set status=completed
-func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig) (*AdvanceResult, error) {
+//
+// rt and vq may be nil when Priority >= 4 (TierNone skips gate evaluation).
+func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier) (*AdvanceResult, error) {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -85,12 +87,28 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig) (*
 	}
 
 	// Evaluate gate
-	gateResult, gateTier := evaluateGate(cfg, fromPhase, toPhase)
+	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, rt, vq)
+	if gateErr != nil {
+		return nil, fmt.Errorf("advance: %w", gateErr)
+	}
+
+	// Build reason string
+	reason := ""
+	if evidence != nil {
+		reason = evidence.String()
+	}
+	if cfg.SkipReason != "" {
+		if reason != "" {
+			reason = cfg.SkipReason + " | " + reason
+		} else {
+			reason = cfg.SkipReason
+		}
+	}
 
 	if gateResult == GateFail && gateTier == TierHard {
-		reason := "gate blocked advance"
-		if cfg.SkipReason != "" {
-			reason = cfg.SkipReason
+		blockReason := reason
+		if blockReason == "" {
+			blockReason = "gate blocked advance"
 		}
 		result := &AdvanceResult{
 			FromPhase:  fromPhase,
@@ -98,7 +116,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig) (*
 			EventType:  EventBlock,
 			GateResult: gateResult,
 			GateTier:   gateTier,
-			Reason:     reason,
+			Reason:     blockReason,
 			Advanced:   false,
 		}
 		if err := store.AddEvent(ctx, &PhaseEvent{
@@ -108,7 +126,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig) (*
 			EventType:  EventBlock,
 			GateResult: strPtr(gateResult),
 			GateTier:   strPtr(gateTier),
-			Reason:     strPtr(reason),
+			Reason:     strPtr(blockReason),
 		}); err != nil {
 			return nil, fmt.Errorf("advance: record block: %w", err)
 		}
@@ -118,11 +136,6 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig) (*
 	// Perform the transition
 	if err := store.UpdatePhase(ctx, runID, fromPhase, toPhase); err != nil {
 		return nil, fmt.Errorf("advance: %w", err)
-	}
-
-	reason := ""
-	if cfg.SkipReason != "" {
-		reason = cfg.SkipReason
 	}
 
 	// Record event
@@ -154,34 +167,6 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig) (*
 		Reason:     reason,
 		Advanced:   true,
 	}, nil
-}
-
-// evaluateGate checks whether a phase transition should be allowed.
-// In this initial implementation, gates always pass.
-// Future: plug in real gate checks (git log, artifact presence, etc.)
-func evaluateGate(cfg GateConfig, from, to string) (result, tier string) {
-	if cfg.DisableAll {
-		return GateNone, TierNone
-	}
-
-	// Determine tier from priority
-	switch {
-	case cfg.Priority <= 1:
-		tier = TierHard
-	case cfg.Priority <= 3:
-		tier = TierSoft
-	default:
-		return GateNone, TierNone
-	}
-
-	// Stub: all gates pass in v1.
-	// Real implementation would check:
-	// - Does a brainstorm artifact exist? (brainstorm → brainstorm-reviewed)
-	// - Is there a strategy doc? (brainstorm-reviewed → strategized)
-	// - Has a plan been written? (strategized → planned)
-	// - Are all plan tasks done? (executing → review)
-	// - Has code review happened? (review → polish)
-	return GatePass, tier
 }
 
 func strPtrOrNil(s string) *string {
