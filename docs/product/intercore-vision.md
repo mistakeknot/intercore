@@ -1,6 +1,6 @@
 # Intercore — Vision Document
 
-**Version:** 1.5
+**Version:** 1.6
 **Date:** 2026-02-19
 **Status:** Draft
 
@@ -51,23 +51,11 @@ Interspect (Profiler)
 ├── Proposes changes to OS configuration (routing rules, agent prompts)
 └── Never modifies the kernel — only the OS layer
 
-Interject (Research Engine)
-├── Source adapters: arXiv, HN, GitHub, Exa, RSS, Anthropic docs
-├── Embedding-based scoring against learned interest profile
-├── Emits discovery events through kernel event bus
-├── Consumes kernel events as targeted scan triggers
-└── Backlog refinement: dedup, priority, dependencies, decay
-
-Autarch (Apps / TUI Layer)
-├── Bigend: multi-project mission control (agent monitoring, run dashboards)
-├── Gurgeh: PRD generation with confidence scoring and spec evolution
-├── Coldwine: task orchestration with agent coordination
-├── Pollard: research intelligence with multi-domain hunters
-├── pkg/tui: shared Bubble Tea components (ShellLayout, ChatPanel, Tokyo Night)
-└── Each app migrating from own backend → intercore kernel as shared state
+Autarch (Apps) — interactive TUI surfaces (see Autarch vision doc)
 
 Companion Plugins (Drivers)
 ├── interflux: multi-agent review dispatch
+├── interject: ambient research and discovery engine
 ├── interlock: file-level coordination
 ├── intermux: agent visibility
 ├── tldr-swinton: token-efficient code context
@@ -540,134 +528,17 @@ Interspect currently operates with its own SQLite database and hook-based eviden
 
 **Phase 3:** Retire Interspect's own SQLite database. Interspect's state becomes a materialized view derived entirely from kernel events. Single source of truth.
 
-## Apps and TUI Layer (Autarch)
+## Apps Layer (Autarch)
 
-Autarch is merging into the Interverse monorepo as the apps/TUI layer — the visual, interactive surface for intercore's kernel state. Where Clavain provides the developer experience via CLI skills and hooks, Autarch provides the developer experience via rich terminal UIs.
-
-### The Four Tools
-
-**Bigend** — Multi-project mission control. A read-only aggregator that monitors agent activity, displays run progress, and provides a dashboard view across projects. Currently discovers projects via filesystem scanning and monitors agents via tmux session heuristics. Has both a web interface (htmx + Tailwind) and an in-progress TUI.
-
-**Gurgeh** — PRD generation and validation. The most mature tool. Drives an 8-phase spec sprint with per-phase AI generation, confidence scoring (0.0–1.0 across completeness, consistency, specificity, and research axes), cross-section consistency checking, assumption confidence decay, and spec evolution versioning. Specs persist as YAML.
-
-**Coldwine** — Task orchestration. Reads Gurgeh PRDs, generates epics/stories/tasks, manages git worktrees, coordinates agent execution, and integrates with Intermute for messaging. Has a full Bubble Tea TUI (the largest single view at 2200+ lines).
-
-**Pollard** — Research intelligence. Multi-domain hunters (tech, academic, medical, legal, GitHub), continuous watch mode, and insight synthesis. CLI-first with integration into Gurgeh and Coldwine.
-
-### Shared Component Library: `pkg/tui`
-
-Autarch's shared TUI component library is fully portable and immediately reusable:
-
-- `ShellLayout` — split-pane layout with resizable panels
-- `ChatPanel` — streaming chat interface with message history
-- `Composer` — text input with command completion
-- `CommandPicker` — fuzzy-searchable command palette
-- `AgentSelector` — agent selection with status indicators
-- `View` interface — clean abstraction for pluggable view implementations
-- Tokyo Night color scheme — consistent theming across all views
-
-These components depend only on Bubble Tea and lipgloss. They have no Autarch domain coupling.
-
-### Migration to Intercore Backend
-
-Each tool migrates from its own storage backend (YAML files, tool-specific SQLite) to intercore's kernel as the shared state layer. The migration follows coupling depth — least coupled tools migrate first:
-
-**1. Bigend (read-only — migrate first).** Bigend is a pure observer. Today it discovers projects via filesystem scanning and monitors agents by scraping tmux panes. Migration swaps these data sources:
-- Project discovery → `ic run list` across project databases
-- Agent monitoring → `ic dispatch list --active`
-- Run progress → `ic events tail --all --consumer=bigend`
-- Dashboard metrics → kernel aggregates (runs per state, dispatches per status, token totals)
-
-Bigend never writes to the kernel — it only reads. This makes it the lowest-risk migration and the first validation that the kernel provides sufficient observability data.
-
-**2. Pollard (research → discovery pipeline).** Pollard's multi-domain hunters map directly to intercore's discovery subsystem. Migration connects Pollard's research output to the kernel:
-- Hunter results → `ic discovery` events through the kernel event bus
-- Insight scoring → kernel confidence scoring with Pollard's domain-specific weights
-- Research queries → `ic discovery search` for semantic retrieval
-- Watch mode → kernel event consumer that triggers targeted scans
-
-Pollard becomes the scanner component that feeds the discovery → backlog pipeline described in the Autonomous Research section. Its hunters become intercore source adapters.
-
-**3. Gurgeh (PRD generation → run lifecycle).** Gurgeh's 8-phase spec sprint maps to intercore's run lifecycle with a custom phase chain. Migration creates runs for PRD generation:
-- Spec sprint → `ic run create --phases='["vision","problem","users","features","cujs","requirements","scope","acceptance"]'`
-- Phase confidence scores → kernel gate evidence (Gurgeh's confidence thresholds become gate rules)
-- Spec artifacts → `ic run artifact add` for each generated section
-- Spec evolution → run versioning (new run per spec revision, linked via portfolio)
-
-Gurgeh's arbiter (the sprint orchestration engine) remains as tool-specific logic — it drives the LLM conversation that generates each spec section. The kernel tracks the lifecycle; Gurgeh provides the intelligence.
-
-**4. Coldwine (task orchestration — migrate last).** Coldwine has the deepest coupling to Autarch's domain model (`Initiative → Epic → Story → Task`). Its migration is the most complex:
-- Task hierarchy → beads (Coldwine's planning hierarchy maps to bead types and dependencies)
-- Agent coordination → `ic dispatch` for agent lifecycle
-- Git worktree management → remains in Coldwine (kernel doesn't manage git)
-- Intermute integration → remains in Coldwine (kernel doesn't manage messaging)
-
-Coldwine's migration overlaps with Clavain's sprint skill — both orchestrate task execution with agent dispatch. The resolution is that Coldwine provides TUI-driven orchestration while Clavain provides CLI-driven orchestration, both calling the same kernel primitives.
-
-### Relationship to the Three-Layer Architecture
-
-Autarch sits alongside Clavain at Layer 2 (OS), providing an alternative interaction surface:
-
-```
-User Interaction
-├── Clavain (CLI: slash commands, hooks, skills) → calls ic
-├── Autarch (TUI: Bigend, Gurgeh, Coldwine, Pollard) → calls ic
-└── Direct CLI (ic run, ic dispatch, ic events) → for power users and scripts
-
-All three surfaces share the same kernel state. A run created via Clavain's /sprint
-is visible in Bigend's dashboard. A discovery from Pollard's hunters triggers the same
-kernel events that Clavain's hooks consume. The kernel is the single source of truth.
-```
-
-### What `pkg/tui` Enables
-
-Beyond the four Autarch tools, the shared component library enables a lightweight `ic tui` subcommand — a kernel-native TUI that provides basic observability without requiring the full Autarch tool suite:
-
-- Run list with phase progress bars
-- Event stream tail (live-updating)
-- Dispatch status dashboard
-- Discovery inbox for confidence-tiered review
-
-This minimal TUI would be built on `pkg/tui` components and call `ic` directly. It's the kernel's own status display — simpler than Bigend but always available wherever `ic` is installed.
+Autarch provides the interactive TUI surfaces for kernel state — Bigend (monitoring), Gurgeh (PRD generation), Coldwine (task orchestration), and Pollard (research intelligence). Each tool is migrating from its own backend to the kernel as the shared state layer. For full details on the four tools, `pkg/tui`, and the migration plan, see the [Autarch vision doc](autarch-vision.md).
 
 ## Autonomous Research and Backlog Intelligence
 
-The kernel's first three levels — Record, Enforce, React — focus on work that's already been defined. A human creates a run, the kernel tracks it. But where does the work come from? How does the system discover that a new arXiv paper invalidates an assumption, that an upstream dependency shipped a breaking change, or that three separate session transcripts reveal the same untracked pain point?
+The kernel's first three levels — Record, Enforce, React — focus on work that's already been defined. A human creates a run, the kernel tracks it. But where does the work come from? Autonomous research and backlog intelligence close the loop between **what the world knows** and **what the system is working on**.
 
-Autonomous research and backlog intelligence close the loop between **what the world knows** and **what the system is working on**. This is where the autonomy ladder extends beyond execution into discovery.
+### What the Kernel Provides (Mechanism)
 
-### The Discovery → Backlog Pipeline
-
-```
-Sources                     Scoring & Triage           Backlog Actions
-─────────────────          ──────────────────         ──────────────────
-arXiv (Atom feeds)    ┐
-Hacker News (API)     │     Embedding-based           High confidence:
-GitHub (releases,     │     relevance scoring    ──→    auto-create bead
-  issues, READMEs)    ├──→  against learned             + briefing doc
-Exa (semantic web     │     interest profile
-  search)             │                               Medium confidence:
-Anthropic docs        │     Confidence tiers:    ──→    propose to human
-  (change detection)  │     high / medium /              (inbox review)
-RSS/Atom feeds        │     low / discard
-  (general)           │                               Low confidence:
-User submissions      ┘     Adaptive thresholds  ──→    log only
-                            (shift with feedback)
-
-Internal signals                                      Backlog refinement:
-─────────────────                                     ──────────────────
-Beads history              Feedback loop:              merge duplicates
-Solution docs        ──→   promotions strengthen ──→   update priorities
-Error patterns             dismissals weaken           suggest dependencies
-Session telemetry          source trust adapts          decay stale items
-Kernel events              thresholds shift             link related work
-```
-
-### Kernel vs OS Responsibilities
-
-This subsystem follows the same mechanism/policy separation as the rest of the kernel. The kernel provides primitives for tracking discoveries, scoring confidence, and emitting events. The OS decides what sources to scan, what confidence thresholds to use, and how aggressively to act on discoveries.
-
-**What the kernel provides (mechanism):**
+The kernel provides primitives for tracking discoveries, scoring confidence, and emitting events. The OS decides what sources to scan, what confidence thresholds to use, and how aggressively to act on discoveries.
 
 | Primitive | What It Does |
 |---|---|
@@ -677,38 +548,6 @@ This subsystem follows the same mechanism/policy separation as the rest of the k
 | **Discovery events** | Typed events (`discovery.scanned`, `discovery.scored`, `discovery.promoted`, `discovery.proposed`, `discovery.dismissed`) that flow through the same event bus as phase and dispatch events |
 | **Backlog events** | Typed events (`backlog.refined`, `backlog.merged`, `backlog.submitted`, `backlog.prioritized`) for tracking how the backlog evolves from research signals |
 | **Feedback ingestion** | Structured recording of human actions (promote, dismiss, adjust priority) that update the interest profile and source trust weights |
-
-**What the OS provides (policy):**
-
-- **Source configuration** — which RSS feeds, arXiv categories, GitHub repos, and search queries to monitor
-- **Scan scheduling** — how often to scan (4x daily via systemd timer, event-driven after run completion, user-initiated via slash command)
-- **Confidence thresholds** — what scores map to high/medium/low/discard tiers
-- **Autonomy policy** — what the system does at each tier (create bead? write briefing? propose only?)
-- **Backlog refinement rules** — dedup similarity threshold, staleness decay rate, priority escalation criteria
-- **Interest profile management** — topic weights, keyword lists, source trust overrides
-
-### Three Trigger Modes
-
-The discovery pipeline can be triggered three ways, all producing the same event stream:
-
-**Scheduled (background).** A systemd timer runs the scanner at configurable intervals (default: 4x daily with randomized jitter). Each scan queries all configured sources, scores discoveries against the interest profile, routes through the confidence gate, and emits kernel events. This is the "always watching" mode — the system continuously monitors the landscape without human initiation.
-
-**Event-driven (reactive).** The scanner registers as an intercore event bus consumer. When specific kernel events occur, the scanner runs a targeted search:
-
-- `run.completed` → search for literature related to the run's goal (did someone else solve this differently?)
-- `bead.created` with `source: user` → check for existing research on the topic
-- `dispatch.completed` with verdict containing novel technique → search for prior art
-- `discovery.promoted` → search for related discoveries that strengthen or contradict the promoted one
-
-This is not redundant with scheduled scans. Scheduled scans cast a wide net. Event-driven scans are targeted — they use the specific context of the triggering event to formulate precise queries. A scheduled scan might find "new MCP frameworks" generally; an event-driven scan after a dispatch timeout might find "MCP connection pooling best practices" specifically.
-
-**User-initiated (on-demand).** Three entry points:
-
-- `ic discovery scan` — trigger a full scan now (CLI equivalent of the scheduled timer)
-- `ic discovery submit --text="..." --source=user` — submit a topic, URL, or idea for triage through the same scoring pipeline
-- `ic discovery search --query="..."` — semantic search across stored discoveries using embedding similarity
-
-User submissions flow through the same confidence scoring as automated discoveries, with one key difference: user-submitted items receive a source trust bonus (configurable, default 0.2) that reflects the signal value of a human choosing to submit something. A user submission that also scores high against the interest profile is very likely to be actionable.
 
 ### Confidence-Tiered Autonomy
 
@@ -723,57 +562,26 @@ The kernel enforces a confidence-gated autonomy model. Each discovery is scored 
 
 This is a **kernel-enforced gate**, not a prompt suggestion. The scoring model produces a number; the tier boundaries are configuration; the action constraints at each tier are invariants. An OS-layer component cannot auto-create a bead for a discovery scored at 0.4 — the kernel will reject the promotion. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal that adjusts the profile.
 
-**Adaptive thresholds:** Tier boundaries shift based on the promotion-to-discovery ratio. If humans consistently promote items the system scored as Medium (>30% promotion rate), the High threshold lowers by 0.02 per feedback cycle. If humans consistently dismiss items scored as High (<10% promotion rate), the threshold rises. The thresholds converge toward the human's actual decision boundary over time. The kernel records the threshold history — Interspect can analyze whether the thresholds are converging, oscillating, or drifting.
+### Backlog Refinement Primitives
 
-### Backlog Refinement
+The kernel provides two backlog enforcement mechanisms:
 
-Raw discovery is necessary but not sufficient. A stream of unprocessed research findings creates its own kind of noise. The backlog refinement subsystem transforms raw discoveries into actionable, well-connected work items.
+**Dedup threshold enforcement.** When a new discovery arrives, its embedding is compared against all open beads (cosine similarity). If similarity exceeds a configurable threshold (default 0.85), the discovery is linked as additional evidence to the existing bead rather than creating a new one. The dedup rate is tracked for OS-level analysis.
 
-**Deduplication.** When a new discovery arrives, its embedding is compared against all open beads (cosine similarity). If similarity exceeds 0.85, the discovery is linked as additional evidence to the existing bead rather than creating a new one. This prevents the "100 beads about the same MCP framework" failure mode. The dedup threshold is configurable and its effectiveness is tracked — if the dedup rate is very high, the scanner may be over-covering a topic.
+**Staleness decay mechanism.** Beads created from discoveries that are never promoted, never worked on, and receive no additional evidence decay in priority over time (configurable rate, default: one priority level per 30 days without activity). Decayed beads that receive new evidence are re-evaluated — fresh signal reverses decay.
 
-**Priority refinement.** When multiple independent sources converge on the same topic — an arXiv paper, a Hacker News discussion, and a GitHub release all about the same capability — the kernel bumps the associated bead's priority. The escalation rule is configurable: default requires 3+ independent sources within 7 days. This is evidence-based prioritization — not "this seems important" but "three independent signals confirm this matters."
+Additional backlog refinement (priority escalation, dependency suggestion, weekly digests, feedback loops) is OS-level policy. See the [Clavain vision doc](../../../../hub/clavain/docs/vision.md) for the full discovery → backlog pipeline workflow, including source configuration, trigger modes, and backlog refinement rules.
 
-**Dependency suggestion.** If a discovery about capability A references capability B, and B is tracked as a separate bead, the refinement engine suggests a dependency link. These suggestions are proposed, not auto-applied — dependency structure affects execution order and should have human review.
+### What the OS Provides (Policy)
 
-**Staleness decay.** Beads created from discoveries that are never promoted, never worked on, and receive no additional evidence decay in priority over time (configurable rate, default: one priority level per 30 days without activity). A P2 research bead that sits untouched for 60 days becomes P4. This prevents the backlog from growing without bound. Decayed beads that receive new evidence are re-evaluated — fresh signal reverses decay.
+The kernel provides mechanism; the OS provides the discovery pipeline workflow. Key OS responsibilities (defined in the Clavain vision doc):
 
-**Weekly digest.** A periodic rollup of research activity: what was discovered, what was promoted, what's trending across sources, what decayed, and what the interest profile learned. This is the human's checkpoint — a summary that lets them validate the system's autonomous decisions and course-correct the profile.
-
-### The Feedback Loop
-
-The discovery → backlog pipeline is not a one-way funnel. Human actions on discoveries feed back into the scoring model:
-
-```
-Discovery scored → Human promotes → Profile vector shifts toward discovery embedding
-                                     Source trust for that source increases
-                                     Adaptive threshold adjusts
-
-Discovery scored → Human dismisses → Profile vector shifts away from discovery embedding
-                                      Source trust for that source decreases
-                                      If pattern: source deprioritized
-
-Bead shipped     → Feedback signal → Discovery that created the bead marked "validated"
-                                      Source that produced it gets trust bonus
-                                      Similar future discoveries score higher
-```
-
-This is the same evidence-based improvement pattern that Interspect uses for agent routing — but applied to research intake. Over time, the system learns what the developer cares about, which sources produce actionable discoveries, and what confidence thresholds align with human judgment.
-
-### Relationship to the Autonomy Ladder
-
-Autonomous research extends the autonomy ladder with a capability that precedes Level 0:
-
-**Level -1: Discover.** Before the system can record, enforce, or react to work, it must know what work exists. Autonomous research is the input funnel — the system scans the landscape, identifies relevant signals, and proposes them as work items. This is the difference between "the system executes what you tell it" and "the system finds things worth doing."
-
-At Level 2 (React), the discovery pipeline becomes event-driven — kernel events trigger targeted research. At Level 3 (Adapt), the profile evolves from feedback. At Level 4 (Orchestrate), the discovery pipeline feeds the portfolio manager — competing research signals are weighed against resource constraints and strategic priorities across multiple projects.
-
-### What Already Exists
-
-The interject plugin already implements the core discovery engine: source adapters (arXiv, Hacker News, GitHub, Anthropic docs, Exa semantic search), embedding-based scoring (all-MiniLM-L6-v2, 384 dims), adaptive thresholds, and an output pipeline that creates beads and writes briefing docs. The intersearch library provides shared embedding and Exa search infrastructure. Systemd timer configs exist but are not installed.
-
-What's missing is the kernel integration. Today, interject operates as a standalone silo with its own SQLite database, its own scheduling (not running), and no connection to the event bus. Discoveries don't produce kernel events. The scanner can't react to kernel events. The confidence gate auto-creates beads at medium tier without human review. There's no backlog refinement — no dedup, no priority updating, no dependency suggestion, no staleness decay.
-
-The path forward is connecting interject to intercore: emit discovery events through the kernel event bus, consume kernel events as scan triggers, enforce confidence tiers as kernel gates, and add the backlog refinement engine as an event consumer that reads both discovery events and bead lifecycle events.
+- Source configuration and scan scheduling
+- Trigger modes (scheduled, event-driven, user-initiated)
+- Confidence threshold tuning and adaptive thresholds
+- Autonomy policy (what actions at each tier)
+- Backlog refinement rules (priority escalation, dependency suggestion, digests)
+- Interest profile management and feedback loop
 
 ## What Makes This Different
 
@@ -789,7 +597,7 @@ Existing agent orchestration systems address parts of this problem. Understandin
 
 **Durable execution engines** (Temporal, Restate) provide crash-proof workflows with state captured at each step, retry policies, and saga patterns. Temporal is the closest conceptual relative to Intercore's durability story. The key differences are deployment model and domain specialization (see "Why not Temporal?" below).
 
-**Autarch** (merging into Interverse) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Autarch is merging into the Interverse monorepo as the apps/TUI layer, with its tools progressively migrating from their own YAML/SQLite backends to intercore's kernel as the shared state backend (see Apps and TUI Layer below).
+**Autarch** (merging into Interverse) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Autarch is merging into the Interverse monorepo as the apps/TUI layer, with its tools progressively migrating from their own YAML/SQLite backends to intercore's kernel as the shared state backend (see [Autarch vision doc](autarch-vision.md)).
 
 ### Where Intercore Contributes
 
