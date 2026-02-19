@@ -40,7 +40,8 @@ func advanceToPhase(t *testing.T, store *Store, runID string, target string, rt 
 		if run.Phase == target {
 			return
 		}
-		if IsTerminalPhase(run.Phase) || IsTerminalStatus(run.Status) {
+		chain := ResolveChain(run)
+		if ChainIsTerminal(chain, run.Phase) || IsTerminalStatus(run.Status) {
 			t.Fatalf("advanceToPhase(%s): overshot (currently at %s, status %s)", target, run.Phase, run.Status)
 		}
 		result, err := Advance(context.Background(), store, runID, cfg, rt, nil, nil)
@@ -91,46 +92,75 @@ func TestAdvance_Basic(t *testing.T) {
 	}
 }
 
-func TestAdvance_WithComplexitySkip(t *testing.T) {
+func TestAdvance_DefaultChain_StepsSequentially(t *testing.T) {
 	store, _, _, ctx := setupMachineTest(t)
 
+	// Even at complexity 1, Advance now always steps to next in chain.
+	// Complexity-based skipping is handled by the explicit Skip command (Task 4).
 	id, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "test", Complexity: 1, AutoAdvance: true,
 	})
 
-	// At complexity 1: brainstorm → planned (skips brainstorm-reviewed + strategized)
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("Advance: %v", err)
-	}
-
-	if result.ToPhase != PhasePlanned {
-		t.Errorf("ToPhase = %q, want %q (skip)", result.ToPhase, PhasePlanned)
-	}
-	if result.EventType != EventSkip {
-		t.Errorf("EventType = %q, want %q", result.EventType, EventSkip)
-	}
-}
-
-func TestAdvance_ForceFull_OverridesSkip(t *testing.T) {
-	store, _, _, ctx := setupMachineTest(t)
-
-	id, _ := store.Create(ctx, &Run{
-		ProjectDir: "/tmp", Goal: "test", Complexity: 1,
-		AutoAdvance: true, ForceFull: true,
-	})
-
-	// Even at complexity 1, force_full means brainstorm → brainstorm-reviewed
 	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
 
 	if result.ToPhase != PhaseBrainstormReviewed {
-		t.Errorf("ToPhase = %q, want %q (force full)", result.ToPhase, PhaseBrainstormReviewed)
+		t.Errorf("ToPhase = %q, want %q (sequential)", result.ToPhase, PhaseBrainstormReviewed)
 	}
 	if result.EventType != EventAdvance {
 		t.Errorf("EventType = %q, want %q", result.EventType, EventAdvance)
+	}
+}
+
+func TestAdvance_CustomChain(t *testing.T) {
+	store, _, _, ctx := setupMachineTest(t)
+
+	// Create a run with a custom 3-phase chain
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test custom chain",
+		Phases:      []string{"draft", "review", "ship"},
+		AutoAdvance: true,
+	})
+
+	// Initial phase should be first in chain
+	run, _ := store.Get(ctx, id)
+	if run.Phase != "draft" {
+		t.Errorf("initial phase = %q, want %q", run.Phase, "draft")
+	}
+
+	cfg := GateConfig{Priority: 4}
+
+	// draft → review
+	r1, err := Advance(ctx, store, id, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance 1: %v", err)
+	}
+	if r1.ToPhase != "review" {
+		t.Errorf("advance 1 to = %q, want %q", r1.ToPhase, "review")
+	}
+
+	// review → ship (terminal — should complete the run)
+	r2, err := Advance(ctx, store, id, cfg, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance 2: %v", err)
+	}
+	if r2.ToPhase != "ship" {
+		t.Errorf("advance 2 to = %q, want %q", r2.ToPhase, "ship")
+	}
+
+	// Run should be completed (ship is terminal)
+	run, _ = store.Get(ctx, id)
+	if run.Status != StatusCompleted {
+		t.Errorf("status = %q, want %q", run.Status, StatusCompleted)
+	}
+
+	// Further advance should fail
+	_, err = Advance(ctx, store, id, cfg, nil, nil, nil)
+	if err != ErrTerminalRun {
+		t.Errorf("advance past terminal: err = %v, want ErrTerminalRun", err)
 	}
 }
 
@@ -235,18 +265,21 @@ func TestAdvance_GateTiers(t *testing.T) {
 func TestAdvance_ToDone_CompletesRun(t *testing.T) {
 	store, _, _, ctx := setupMachineTest(t)
 
-	// Complexity 1: brainstorm → planned → executing → done
 	id, _ := store.Create(ctx, &Run{
-		ProjectDir: "/tmp", Goal: "test", Complexity: 1, AutoAdvance: true,
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
 	})
 
 	cfg := GateConfig{Priority: 4}
 
-	// brainstorm → planned
-	Advance(ctx, store, id, cfg, nil, nil, nil)
-	// planned → executing
-	Advance(ctx, store, id, cfg, nil, nil, nil)
-	// executing → done
+	// Walk through all 7 transitions: brainstorm → ... → done
+	for i := 0; i < 6; i++ {
+		_, err := Advance(ctx, store, id, cfg, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("Advance step %d: %v", i, err)
+		}
+	}
+
+	// Final advance → done
 	result, err := Advance(ctx, store, id, cfg, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance to done: %v", err)
@@ -283,14 +316,13 @@ func TestAdvance_TerminalRun_ReturnsError(t *testing.T) {
 func TestAdvance_TerminalPhase_ReturnsError(t *testing.T) {
 	store, _, _, ctx := setupMachineTest(t)
 
-	// Walk a complexity-1 run to done
+	// Use a short custom chain to reach terminal quickly
 	id, _ := store.Create(ctx, &Run{
-		ProjectDir: "/tmp", Goal: "test", Complexity: 1, AutoAdvance: true,
+		ProjectDir: "/tmp", Goal: "test", AutoAdvance: true,
+		Phases: []string{"start", "done"},
 	})
 	cfg := GateConfig{Priority: 4}
-	Advance(ctx, store, id, cfg, nil, nil, nil) // → planned
-	Advance(ctx, store, id, cfg, nil, nil, nil) // → executing
-	Advance(ctx, store, id, cfg, nil, nil, nil) // → done
+	Advance(ctx, store, id, cfg, nil, nil, nil) // → done (completed)
 
 	_, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil)
 	if err != ErrTerminalRun {

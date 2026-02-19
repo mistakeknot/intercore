@@ -170,13 +170,18 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "ic: gate override: run is %s\n", run.Status)
 		return 1
 	}
-	if phase.IsTerminalPhase(run.Phase) {
+	chain := phase.ResolveChain(run)
+	if phase.ChainIsTerminal(chain, run.Phase) {
 		fmt.Fprintf(os.Stderr, "ic: gate override: run is already at terminal phase\n")
 		return 1
 	}
 
 	fromPhase := run.Phase
-	toPhase := phase.NextRequiredPhase(fromPhase, run.Complexity, run.ForceFull)
+	toPhase, err := phase.ChainNextPhase(chain, fromPhase)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: gate override: %v\n", err)
+		return 2
+	}
 
 	// R3: UpdatePhase first, then record event.
 	// If crash between, advance happened without audit — safer than audit without advance.
@@ -198,8 +203,8 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 		// Phase already advanced — log but don't fail (R3 ordering)
 	}
 
-	// If we reached done, mark the run as completed
-	if toPhase == phase.PhaseDone {
+	// If we reached the terminal phase, mark the run as completed
+	if phase.ChainIsTerminal(chain, toPhase) {
 		if err := store.UpdateStatus(ctx, runID, phase.StatusCompleted); err != nil {
 			fmt.Fprintf(os.Stderr, "ic: gate override: status: %v\n", err)
 		}

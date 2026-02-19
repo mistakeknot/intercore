@@ -214,11 +214,16 @@ func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfi
 	if IsTerminalStatus(run.Status) {
 		return nil, ErrTerminalRun
 	}
-	if IsTerminalPhase(run.Phase) {
+
+	chain := ResolveChain(run)
+	if ChainIsTerminal(chain, run.Phase) {
 		return nil, ErrTerminalPhase
 	}
 
-	toPhase := NextRequiredPhase(run.Phase, run.Complexity, run.ForceFull)
+	toPhase, err := ChainNextPhase(chain, run.Phase)
+	if err != nil {
+		return nil, fmt.Errorf("evaluate gate: %w", err)
+	}
 	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)

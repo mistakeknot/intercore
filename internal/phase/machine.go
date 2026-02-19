@@ -52,20 +52,23 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		return nil, ErrTerminalRun
 	}
 
-	// Check terminal phase
-	if IsTerminalPhase(run.Phase) {
+	// Resolve the phase chain (custom or default)
+	chain := ResolveChain(run)
+
+	// Check terminal phase using chain
+	if ChainIsTerminal(chain, run.Phase) {
 		return nil, ErrTerminalPhase
 	}
 
 	fromPhase := run.Phase
-	toPhase := NextRequiredPhase(fromPhase, run.Complexity, run.ForceFull)
-
-	// Determine if this is a skip (jumped over intermediate phases)
-	directNext, _ := NextPhase(fromPhase)
-	eventType := EventAdvance
-	if toPhase != directNext {
-		eventType = EventSkip
+	toPhase, err := ChainNextPhase(chain, fromPhase)
+	if err != nil {
+		return nil, fmt.Errorf("advance: %w", err)
 	}
+
+	// Determine event type — advance is the only automatic transition now
+	// (explicit skips are handled by the separate Skip command)
+	eventType := EventAdvance
 
 	// Check auto_advance
 	if !run.AutoAdvance && cfg.SkipReason == "" {
@@ -163,8 +166,8 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		return nil, fmt.Errorf("advance: record event: %w", err)
 	}
 
-	// If we reached done, mark the run as completed
-	if toPhase == PhaseDone {
+	// If we reached the terminal phase, mark the run as completed
+	if ChainIsTerminal(chain, toPhase) {
 		if err := store.UpdateStatus(ctx, runID, StatusCompleted); err != nil {
 			return nil, fmt.Errorf("advance: complete run: %w", err)
 		}
