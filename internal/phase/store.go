@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -44,16 +45,39 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 		return "", err
 	}
 
+	// Determine initial phase from chain
+	initialPhase := PhaseBrainstorm
+	if r.Phases != nil && len(r.Phases) > 0 {
+		initialPhase = r.Phases[0]
+	}
+
+	// Marshal phases to JSON if set
+	var phasesJSON *string
+	if r.Phases != nil {
+		b, err := json.Marshal(r.Phases)
+		if err != nil {
+			return "", fmt.Errorf("run create: marshal phases: %w", err)
+		}
+		s := string(b)
+		phasesJSON = &s
+	}
+
+	budgetWarnPct := r.BudgetWarnPct
+	if budgetWarnPct == 0 {
+		budgetWarnPct = 80 // default
+	}
+
 	now := time.Now().Unix()
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO runs (
 			id, project_dir, goal, status, phase, complexity,
 			force_full, auto_advance, created_at, updated_at,
-			scope_id, metadata
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, r.ProjectDir, r.Goal, StatusActive, PhaseBrainstorm,
+			scope_id, metadata, phases, token_budget, budget_warn_pct
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, r.ProjectDir, r.Goal, StatusActive, initialPhase,
 		r.Complexity, boolToInt(r.ForceFull), boolToInt(r.AutoAdvance),
 		now, now, r.ScopeID, r.Metadata,
+		phasesJSON, r.TokenBudget, budgetWarnPct,
 	)
 	if err != nil {
 		return "", fmt.Errorf("run create: %w", err)
@@ -65,22 +89,24 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 	r := &Run{}
 	var (
-		completedAt sql.NullInt64
-		scopeID     sql.NullString
-		metadata    sql.NullString
-		forceFull   int
-		autoAdvance int
+		completedAt   sql.NullInt64
+		scopeID       sql.NullString
+		metadata      sql.NullString
+		forceFull     int
+		autoAdvance   int
+		phasesJSON    sql.NullString
+		tokenBudget   sql.NullInt64
+		budgetWarnPct sql.NullInt64
 	)
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, project_dir, goal, status, phase, complexity,
-			force_full, auto_advance, created_at, updated_at,
-			completed_at, scope_id, metadata
+		SELECT `+runCols+`
 		FROM runs WHERE id = ?`, id).Scan(
 		&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
 		&r.Complexity, &forceFull, &autoAdvance,
 		&r.CreatedAt, &r.UpdatedAt,
 		&completedAt, &scopeID, &metadata,
+		&phasesJSON, &tokenBudget, &budgetWarnPct,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -94,6 +120,14 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 	r.CompletedAt = nullInt64(completedAt)
 	r.ScopeID = nullStr(scopeID)
 	r.Metadata = nullStr(metadata)
+	r.TokenBudget = nullInt64(tokenBudget)
+	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
+	if phasesJSON.Valid {
+		var chain []string
+		if err := json.Unmarshal([]byte(phasesJSON.String), &chain); err == nil {
+			r.Phases = chain
+		}
+	}
 
 	return r, nil
 }
@@ -259,11 +293,14 @@ func (s *Store) Events(ctx context.Context, runID string) ([]*PhaseEvent, error)
 func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	r := &Run{}
 	var (
-		completedAt sql.NullInt64
-		scopeID     sql.NullString
-		metadata    sql.NullString
-		forceFull   int
-		autoAdvance int
+		completedAt   sql.NullInt64
+		scopeID       sql.NullString
+		metadata      sql.NullString
+		forceFull     int
+		autoAdvance   int
+		phasesJSON    sql.NullString
+		tokenBudget   sql.NullInt64
+		budgetWarnPct sql.NullInt64
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -274,6 +311,7 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		&r.Complexity, &forceFull, &autoAdvance,
 		&r.CreatedAt, &r.UpdatedAt,
 		&completedAt, &scopeID, &metadata,
+		&phasesJSON, &tokenBudget, &budgetWarnPct,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -287,6 +325,14 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	r.CompletedAt = nullInt64(completedAt)
 	r.ScopeID = nullStr(scopeID)
 	r.Metadata = nullStr(metadata)
+	r.TokenBudget = nullInt64(tokenBudget)
+	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
+	if phasesJSON.Valid {
+		var chain []string
+		if err := json.Unmarshal([]byte(phasesJSON.String), &chain); err == nil {
+			r.Phases = chain
+		}
+	}
 
 	return r, nil
 }
@@ -295,7 +341,7 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 
 const runCols = `id, project_dir, goal, status, phase, complexity,
 	force_full, auto_advance, created_at, updated_at,
-	completed_at, scope_id, metadata`
+	completed_at, scope_id, metadata, phases, token_budget, budget_warn_pct`
 
 func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}) ([]*Run, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -308,17 +354,21 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 	for rows.Next() {
 		r := &Run{}
 		var (
-			completedAt sql.NullInt64
-			scopeID     sql.NullString
-			metadata    sql.NullString
-			forceFull   int
-			autoAdvance int
+			completedAt   sql.NullInt64
+			scopeID       sql.NullString
+			metadata      sql.NullString
+			forceFull     int
+			autoAdvance   int
+			phasesJSON    sql.NullString
+			tokenBudget   sql.NullInt64
+			budgetWarnPct sql.NullInt64
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
 			&r.Complexity, &forceFull, &autoAdvance,
 			&r.CreatedAt, &r.UpdatedAt,
 			&completedAt, &scopeID, &metadata,
+			&phasesJSON, &tokenBudget, &budgetWarnPct,
 		); err != nil {
 			return nil, fmt.Errorf("run list scan: %w", err)
 		}
@@ -327,6 +377,14 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 		r.CompletedAt = nullInt64(completedAt)
 		r.ScopeID = nullStr(scopeID)
 		r.Metadata = nullStr(metadata)
+		r.TokenBudget = nullInt64(tokenBudget)
+		r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
+		if phasesJSON.Valid {
+			var chain []string
+			if err := json.Unmarshal([]byte(phasesJSON.String), &chain); err == nil {
+				r.Phases = chain
+			}
+		}
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
@@ -344,6 +402,13 @@ func nullInt64(ni sql.NullInt64) *int64 {
 		return &ni.Int64
 	}
 	return nil
+}
+
+func nullInt64OrDefault(ni sql.NullInt64, def int64) int64 {
+	if ni.Valid {
+		return ni.Int64
+	}
+	return def
 }
 
 func boolToInt(b bool) int {
