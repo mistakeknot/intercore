@@ -1,142 +1,146 @@
-# Quality Gate Synthesis: intercore-event-bus Plan Review
+# Quality Gate Synthesis: Rollback and Recovery Feature
 
-**Date:** 2026-02-18
-**Plan reviewed:** `docs/plans/2026-02-18-intercore-event-bus.md`
-**Agents:** fd-architecture, fd-correctness, fd-quality
-**Output dir:** `/root/projects/Interverse/.clavain/quality-gates/`
+**Date:** 2026-02-20
+**Context:** 18 files changed across Go, SQL, and Shell. Risk domains: database migration (schema v8), state machine (phase rollback), SQL queries (artifact marking, dispatch cancellation), CLI argument handling.
+**Agents:** fd-architecture, fd-correctness, fd-quality, fd-safety
+**Output dir:** `/root/projects/Interverse/infra/intercore/.clavain/quality-gates/`
 
 ---
 
 ## Validation
 
-All 3 agent output files found and validated:
-- `/root/projects/Interverse/.clavain/quality-gates/fd-architecture.md` — Valid (Findings Index present, `Verdict: needs-changes`)
-- `/root/projects/Interverse/.clavain/quality-gates/fd-correctness.md` — Valid (Findings Index present, `Verdict: needs-changes`)
-- `/root/projects/Interverse/.clavain/quality-gates/fd-quality.md` — Valid (Findings Index present, `Verdict: needs-changes`)
+All 4 agent output files found and validated:
+- `/root/projects/Interverse/infra/intercore/.clavain/quality-gates/fd-architecture.md` — Valid (Findings Index present, `Verdict: needs-changes`)
+- `/root/projects/Interverse/infra/intercore/.clavain/quality-gates/fd-correctness.md` — Valid (Findings Index present, `Verdict: needs-changes`)
+- `/root/projects/Interverse/infra/intercore/.clavain/quality-gates/fd-quality.md` — Valid (Findings Index present, `Verdict: safe`)
+- `/root/projects/Interverse/infra/intercore/.clavain/quality-gates/fd-safety.md` — Valid (Findings Index present, `Verdict: safe`)
 
-**Validation: 3/3 agents valid, 0 failed**
+**Validation: 4/4 agents valid, 0 failed**
 
-All three agents independently returned `needs-changes`. No agent returned `safe` or `error`.
+Two agents returned `needs-changes` (fd-architecture, fd-correctness). Two returned `safe` (fd-quality, fd-safety).
 
 ---
 
-## Verdict
+## Verdict Summary
+
+| Agent | Status | Summary |
+|---|---|---|
+| fd-architecture | NEEDS_ATTENTION | Missing transaction for compound rollback; overbroad dispatch cancellation; boundary violations |
+| fd-correctness | NEEDS_ATTENTION | Partial failure exits 0; CodeRollbackEntry missing status field; no phase CAS guard |
+| fd-quality | CLEAN | Architecturally sound; minor style debt and doc drift |
+| fd-safety | CLEAN | No exploitable vulnerabilities; two operational gaps |
 
 **Overall verdict: needs-changes**
 **Gate: FAIL**
 
-2 P1 (HIGH) findings block implementation as written. 5 P2 (MEDIUM) findings should be resolved before implementation begins. No P0 critical findings.
+Three P1 findings converge across agents. No P0 critical findings. fd-quality rated overall "safe" but independently confirmed the transaction problem at LOW — severity conflict resolved in favor of fd-architecture which traces the concrete gate-pass failure mode.
 
 ---
 
 ## Findings Index
 
-### P1 — Must fix before implementation
+### P1 — Must fix (blocks merge)
 
-**[P1] Unified cursor collapses independent ID spaces — polling silently misses events**
-- Convergence: 3/3 agents (fd-correctness C-01/C-06, fd-architecture A3/A6, fd-quality Q8)
-- Section: Task 7 `cmdEventsTail`, Task 1 `ListEvents`
-- Root cause: `--since=N` sets `sincePhaseID = n` AND `sinceDispatchID = n` from one command-line integer. `phase_events` and `dispatch_events` use separate AUTOINCREMENT sequences. An integer meaningful in one table is meaningless in the other.
-- Failure mode: A poll cycle that sees dispatch events with id=50 advances `sincePhase` to 50 even if the highest phase event ID is 10. Next poll uses `WHERE id > 50` on `phase_events`, silently skipping all phase events 11–50. Events are permanently missed, not re-deliverable.
-- Secondary failure: `--since` and `--consumer` are mutually incompatible — passing both gives neither the stored cursor nor the `--since` semantics (silently).
-- Fix: Split `--since` into `--since-phase=N` and `--since-dispatch=N`, OR replace with timestamp-based filtering on `created_at` (which IS comparable across both tables).
-- Evidence: `events.go` lines ~1347–1355 (`--since` initialization); `store.go` `ListEvents` signature `sincePhaseID, sinceDispatchID int64`; cursor poll loop lines ~1421–1427 (per-source tracking is correct here — initialization is the bug)
+**[P1-A] No transaction wrapping the rollback compound operation**
+- Convergence: 4/4 agents (fd-architecture F01 CRITICAL, fd-correctness C-04 LOW, fd-quality Q3 LOW, fd-safety S1 LOW)
+- File: `cmd/ic/run.go` lines 155-181 (`cmdRunRollbackWorkflow`)
+- Root cause: `phase.Rollback()`, `MarkArtifactsRolledBack()`, `CancelByRun()`, and `FailAgentsByRun()` execute as four independent SQL writes with no enclosing transaction. A crash after step 1 leaves phase rewound but artifacts still `status='active'`. Gate checks on next advance see stale active artifacts from rolled-back phases and may pass on invalid state.
+- Secondary issue (fd-correctness C-01): Cleanup errors are warning-only and return exit 0. Automation treating exit 0 as "clean rollback" cannot detect partial failure.
+- Fix: Wrap all four operations in a `*sql.Tx`. Keep event-bus callbacks outside the transaction (matches existing Advance pattern). On any cleanup failure, return exit code 2 and emit `"warnings": [...]` in JSON output.
 
-**[P1] `fromStatus` always empty string — dispatch audit trail permanently corrupted**
-- Convergence: 2/3 agents (fd-correctness C-03, fd-quality Q3)
-- Section: Task 3 Step 2, `dispatch.UpdateStatus`
-- Root cause: The event recorder closure is called with `fromStatus = ""` (literal empty string). `UpdateStatus` takes only the new status as a parameter and never reads the previous state. Every `dispatch_events.from_status` will be `""`.
-- Failure mode: The audit trail is permanently corrupted. State-machine replay, diffing, and debugging using `from_status` all receive garbage data. The `NOT NULL` constraint is satisfied by `""` so no error is surfaced — the corruption is entirely silent.
-- Fix: Either (a) `UpdateStatus` reads previous status within a transaction before the UPDATE (`SELECT status FROM dispatches WHERE id = ?`), or (b) callers pass `fromStatus` as a parameter. Option (b) preferred — callers often already know the previous state, and it avoids an extra DB round-trip.
-- Evidence: `dispatch.go` Task 3 Step 2: `s.eventRecorder(id, runID, "", status)` — third argument is hardcoded `""`; schema `from_status TEXT NOT NULL`
+**[P1-B] `CancelByRun` cancels dispatches beyond rolled-back phases**
+- Convergence: 3/4 agents (fd-architecture F04 SIGNIFICANT, fd-correctness C-09 INFO, fd-quality Q6 INFO)
+- File: `internal/dispatch/dispatch.go` `CancelByRun` lines 491-506
+- Root cause: `CancelByRun` filters only on `scope_id = runID` with no phase constraint. `MarkArtifactsRolledBack` correctly accepts a `phases []string` argument and scopes to only rolled-back phases. If a run has dispatches in phases that were NOT rolled back, those dispatches are incorrectly cancelled by the broad filter.
+- Note: fd-correctness partially dismisses this as a "pre-existing design constraint" for custom scope_id cases. fd-architecture correctly identifies it as a regression introduced by the asymmetry with `MarkArtifactsRolledBack`. Adopted the fd-architecture framing.
+- Fix: Rename to `CancelByRunAndPhases(ctx, runID string, phases []string)` and add `AND phase IN (...)` clause matching the precision of `MarkArtifactsRolledBack`.
 
-### P2 — Should fix before implementation
+**[P1-C] Partial cleanup failure exits 0 — automation cannot detect degraded rollback**
+- Convergence: 3/4 agents (fd-correctness C-01 MEDIUM, fd-quality Q3 LOW, fd-safety S1 LOW)
+- File: `cmd/ic/run.go` lines 166-180
+- Root cause: `MarkArtifactsRolledBack`, `CancelByRun`, `FailAgentsByRun` are each wrapped in `warning: ... failed` handlers that continue and return exit 0. A caller relying on exit code to determine rollback success has no signal that cleanup was incomplete.
+- Note: Partially subsumed by P1-A if the transaction approach is adopted. Kept separate because the exit code behavior requires its own CLI change regardless of the transaction wrapping.
+- Fix: Return exit code 2 when any cleanup step fails; include `"warnings": [...]` key in JSON output.
 
-**[P2] SetEventRecorder is a post-construction mutator — violates constructor-injection and introduces data race**
-- Convergence: 2/3 agents (fd-architecture A2, fd-quality Q2)
-- Section: Task 3 Step 2
-- Root cause: Every store in the codebase uses fixed-field structs with a single constructor. `SetEventRecorder(fn func(...))` is the only post-construction mutator in the entire codebase. `dispatch.Store` methods are called concurrently; assigning a field after construction without a mutex is a data race under Go's memory model.
-- Fix: Pass the recorder function through `dispatch.New`: `func New(db *sql.DB, recorder func(dispatchID, runID, fromStatus, toStatus string)) *Store`. Call sites that do not need recording pass `nil`.
-- Evidence: `/root/projects/Interverse/infra/intercore/internal/dispatch/dispatch.go:74` — `func New(db *sql.DB) *Store { return &Store{db: db} }` — all other stores follow this shape
+---
 
-**[P2] Shell hook runs synchronously — blocks advance command and risks SQLite deadlock**
-- Convergence: 1/3 agents (fd-correctness C-07)
-- Section: Task 6, `handler_hook.go`
-- Root cause: `NewHookHandler` runs `exec.CommandContext` inline within the synchronous Notifier call stack with a 5-second timeout. `ic` uses `SetMaxOpenConns(1)`. If a hook calls back into `ic` (e.g., `ic run status`), that subprocess hits `SQLITE_BUSY` because the parent holds the one connection. Parent waits for hook; hook waits for DB — deadlock.
-- Fix: Run hooks in a detached goroutine with an independent context and timeout. The hook subprocess must not share the parent process's DB connection.
-- Evidence: Task 6 `handler_hook.go`, `Notifier.Notify` synchronous call pattern, `SetMaxOpenConns(1)` in `db.go`
+### P2 — Should fix
 
-**[P2] EventNotifier interface left in plan alongside callback type — risks circular import**
-- Convergence: 2/3 agents (fd-architecture A1, fd-quality Q1)
-- Section: Task 3 Step 1
-- Root cause: The plan defines `EventNotifier interface { Notify(ctx context.Context, e interface{}) error }` in `phase/machine.go`, then immediately discards it in favor of `PhaseEventCallback`. Both variants remain in plan text. If an implementor uses the interface variant and imports `event.Event` into `phase`, a `phase` → `event` circular import is created (since `event.Store` queries `phase`-owned tables).
-- Additional issue: The interface uses `interface{}` instead of a concrete type — a code quality defect independent of the circular import risk.
-- Fix: Delete the interface variant from the plan entirely. Only `PhaseEventCallback` should remain.
-- Evidence: Task 3 Step 1 plan text contains both definitions
+**[P2-A] `CodeRollbackEntry` lacks `status` field — cannot distinguish active vs rolled-back artifacts**
+- Convergence: 2/4 agents (fd-correctness C-02 MEDIUM, fd-quality Q4 LOW)
+- File: `internal/runtrack/store.go` `ListArtifactsForCodeRollback`; `runtrack.go` `CodeRollbackEntry`
+- Root cause: SELECT returns all artifacts including `status='rolled_back'` but does not project `a.status`. `CodeRollbackEntry` struct has no `Status` field. Operator using `ic run rollback --layer=code` after a workflow rollback cannot tell which artifacts are still active vs already invalidated, risking redundant or incorrect file reversions.
+- Fix: Add `Status string` to `CodeRollbackEntry` and include `a.status` in the SELECT projection.
 
-**[P2] AddDispatchEvent executes outside UpdateStatus transaction — silent audit gap on crash**
-- Convergence: 1/3 agents (fd-correctness C-09, with C-02 as context)
-- Section: Task 3 `dispatch.UpdateStatus`
-- Root cause: `UPDATE dispatches SET status = ?` and `INSERT INTO dispatch_events` are two separate un-transacted operations. Process crash between them leaves status updated but no event recorded.
-- Fix: Wrap both operations in a single transaction inside `UpdateStatus`. `SetMaxOpenConns(1)` means this is serialized and safe.
-- Evidence: `docs/guides/data-integrity-patterns.md` WAL protocol; Task 3 Step 2 implementation — no transaction wrapping shown
+**[P2-B] `--layer=code` flag routes a query into a mutation subcommand**
+- Convergence: 1/4 agents (fd-architecture F02 SIGNIFICANT)
+- File: `cmd/ic/run.go` lines 79-91
+- Root cause: The routing fork at line 79-90 sends `--layer=code` to `cmdRunRollbackCode`, a function that only queries artifacts and performs no rollback. No other `ic run` subcommand merges query and mutation behind a flag. Creates a semantic boundary violation; callers reading `ic run rollback --layer=code` interpret it as performing a code rollback.
+- Fix: Split into a dedicated subcommand or query path (e.g., `ic run artifact list --with-dispatch` or `ic run code-changes <id>`).
 
-**[P2] Schema v5 bump has no downgrade path — old binary on new DB panics at open**
-- Convergence: 1/3 agents (fd-correctness C-04)
-- Section: Task 1, schema migration
-- Root cause: `db.Open()` returns `ErrSchemaVersionTooNew` for old binaries. During rolling upgrade, any cron job or hook using the old binary fails at DB open. The migration is not gated on checking for concurrent writers. Pre-migration backup is the only recovery; restoring it discards all v5 events.
-- Fix: This is acceptable risk for a single-process CLI tool. Document the deployment requirement (no concurrent processes during `ic init`) explicitly in the plan and ensure the error message provides actionable guidance.
-- Evidence: `db.go` schema version check logic
+**[P2-C] Duplicate validation and double `Get()` between machine and store creates TOCTOU window**
+- Convergence: 3/4 agents (fd-architecture F03 SIGNIFICANT, fd-quality Q1 LOW, fd-correctness C-08 INFO)
+- File: `internal/phase/machine.go` lines 551-568; `internal/phase/store.go` lines 814-855
+- Root cause: Both `phase.Rollback()` and `phase.RollbackPhase()` independently fetch the run, check terminal status, resolve the phase chain, and validate ordering. Creates a TOCTOU window between the two reads. Also creates maintenance burden: changing rollback acceptance criteria requires editing two sites.
+- Fix: Remove pre-read from `store.RollbackPhase`; use `WHERE id = ? AND status NOT IN ('cancelled','failed')` predicate on the UPDATE instead of a pre-fetch, and return `ErrTerminalRun` if 0 rows affected.
+
+**[P2-D] No CAS guard on `RollbackPhase` UPDATE — concurrent rollbacks produce duplicate audit events**
+- Convergence: 1/4 agents (fd-correctness C-03 LOW)
+- File: `internal/phase/store.go` lines 257-261
+- Root cause: `UPDATE runs SET phase = ? WHERE id = ?` has no `AND phase = currentPhase` predicate. Two concurrent `ic run rollback` processes see the same current phase, both validate OK, both write the same target phase, both record a rollback event. Run state is idempotently correct but the audit trail contains a duplicate rollback event. Contrast with `UpdatePhase` at `store.go:140` which uses CAS.
+- Fix: Add `AND phase = currentPhase` to UPDATE; return `ErrAlreadyRolledBack` when 0 rows affected.
+
+---
 
 ### P3/IMP — Nice to have
 
 | ID | Convergence | Title |
 |----|-------------|-------|
-| C-05 | 1/3 | Cursor saved only on non-empty batches — handlers must be idempotent, not documented |
-| C-10/Q7 | 2/3 | saveCursor silently ignores state.Set error |
-| A4 | 1/3 | AgentQuerier.ListPendingAgentIDs requires new runtrack.Store method not in plan scope |
-| A5 | 1/3 | Task 9 title misleads — "Register at CLI Startup" means "register before calling Advance" |
-| Q6 | 1/3 | PhaseEventCallback omits gate result and gate tier from AdvanceResult |
-| Q5 | 1/3 | MaxPhaseEventID / MaxDispatchEventID exported but only used by CLI |
-| Q9 | 1/3 | Hook handler serializes event.Event as map[string]string — loses type fidelity |
-| A7 | 1/3 | intercore_events_cursor_get bash wrapper bypasses ic CLI, reads state directly |
+| F06/Q5 | 2/4 | AGENTS.md still references `lib-intercore.sh` at `v0.6.0` — bump to `v1.1.0` at lines 52, 358 |
+| F05/C-05 | 2/4 | Dispatch cancellation event recorded with `dispatch_id=""` — use synthetic `"rollback-bulk"` or omit |
+| C-06 | 1/4 | Migration guard comment says "v7->v8" but fires for v4-v7 — update comment |
+| F07 | 1/4 | `ChainPhasesBetween` doc comment orientation-ambiguous for rollback callers |
+| Q2 | 1/4 | New rollback CLI code uses `err == sentinel` not `errors.Is` — 3 new sites at lines 671, 719, 781 |
+| S2 | 1/4 | Schema v8 downgrade procedure (binary revert + DB restore) not documented in rollback output or CLAUDE.md |
+| S3 | 1/4 | Unknown `--format` values silently treated as JSON — should reject with exit 3 |
+| S4 | 1/4 | `--reason` stored permanently in audit trail without documentation — add note to help text |
+| Q8 | 1/4 | `CancelByRun` has no unit test; `FailAgentsByRun` does — add parallel test in `internal/dispatch/` |
+| F09 | 1/4 | Dry-run output omits artifact and agent impact counts — less useful for pre-flight assessment |
+| C-07 | 1/4 | `isDuplicateColumnError` uses driver error string match — fragile if driver updates message |
+| F08 | 1/4 | `--format=text` in `cmdRunRollbackCode` premature — no consumer, not covered by integration test content |
 
 ---
 
 ## Conflicts
 
-**Partial conflict: Notifier transaction semantics (fd-correctness C-02 vs fd-architecture intent)**
+**Transaction severity conflict (fd-architecture vs fd-quality):** fd-architecture rates the missing transaction CRITICAL (F01). fd-quality rates the same issue LOW (Q3) and returns overall verdict "safe." fd-correctness rates it MEDIUM (C-01). fd-safety rates it LOW (S1).
 
-fd-correctness flags that the Notifier fires outside a transaction as a correctness risk. fd-architecture notes this is intentional fire-and-forget design but flags the dispatch event recorder (separate INSERT) as the real atomicity problem.
+Resolution: fd-architecture is most complete — it traces the concrete gate-pass failure mode (stale `status='active'` artifacts satisfying `artifact_exists` checks), independently confirmed by fd-correctness (C-01). The fd-quality "safe" verdict appears to underweight this finding. Adopted severity: **P1 (must fix)**.
 
-Resolution: Both are right. The Notifier's fire-and-forget is acceptable design; the dispatch event INSERT not being in the same transaction as the UPDATE is the real issue (see P2 finding C-09 above). Address C-09 / I-02 from fd-correctness.
-
-No other agent disagreements detected.
+**CancelByRun scope conflict (fd-architecture vs fd-correctness):** fd-correctness (C-09) calls the scope issue a "pre-existing design constraint, not a regression." fd-architecture (F04 SIGNIFICANT) correctly identifies it as a regression because `MarkArtifactsRolledBack` uses `phases []string` but `CancelByRun` does not, creating a new asymmetry. Adopted: fd-architecture framing. Severity: **P1 (must fix)**.
 
 ---
 
 ## Compact Summary (host agent return value)
 
 ```
-Validation: 3/3 agents valid
+Validation: 4/4 agents valid
 Verdict: needs-changes
 Gate: FAIL
-P0: 0 | P1: 2 | P2: 5 | IMP: 8
-Conflicts: 1 (resolved — C-02 vs intent, see synthesis)
+P0: 0 | P1: 3 | P2: 4 | IMP: 12
+Conflicts: 2 (resolved — see Conflicts section)
 Top findings:
-- P1 Unified cursor collapses independent ID spaces — polling silently misses events — fd-correctness/fd-architecture/fd-quality (3/3)
-- P1 fromStatus always empty string — dispatch audit trail permanently corrupted — fd-correctness/fd-quality (2/3)
-- P2 SetEventRecorder post-construction mutator — data race + violates constructor-injection — fd-architecture/fd-quality (2/3)
-- P2 Shell hook synchronous on call stack — SQLite deadlock risk — fd-correctness (1/3)
-- P2 EventNotifier interface left in plan — circular import trap + interface{} type — fd-architecture/fd-quality (2/3)
+- P1 No transaction wrapping rollback compound operation — all 4 agents (4/4)
+- P1 Partial cleanup failure exits 0, automation cannot detect degraded rollback — fd-correctness/fd-quality/fd-safety (3/4)
+- P1 CancelByRun cancels dispatches beyond rolled-back phases — fd-architecture/fd-correctness/fd-quality (3/4)
+- P2 CodeRollbackEntry lacks status field — fd-correctness/fd-quality (2/4)
+- P2 Duplicate validation + TOCTOU window between machine and store — fd-architecture/fd-correctness/fd-quality (3/4)
 ```
 
 ---
 
 ## Output Files Written
 
-- `/root/projects/Interverse/.clavain/quality-gates/synthesis.md` — full human-readable synthesis report
-- `/root/projects/Interverse/.clavain/quality-gates/findings.json` — structured findings data
-- `/root/projects/Interverse/.clavain/verdicts/fd-architecture.json` — NEEDS_ATTENTION
-- `/root/projects/Interverse/.clavain/verdicts/fd-correctness.json` — NEEDS_ATTENTION
-- `/root/projects/Interverse/.clavain/verdicts/fd-quality.json` — NEEDS_ATTENTION
+- `/root/projects/Interverse/infra/intercore/.clavain/quality-gates/synthesis.md` — full human-readable synthesis (this document mirrors that)
+- `/root/projects/Interverse/infra/intercore/.clavain/quality-gates/findings.json` — structured findings data
+- `/root/projects/Interverse/infra/intercore/docs/research/synthesize-quality-gate-results.md` — this file
