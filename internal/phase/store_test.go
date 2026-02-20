@@ -556,7 +556,7 @@ func TestRollbackPhase(t *testing.T) {
 	}
 }
 
-func TestRollbackPhase_NotBehind(t *testing.T) {
+func TestRollbackPhase_StalePhase(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
@@ -567,10 +567,31 @@ func TestRollbackPhase_NotBehind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Try to roll back to a phase ahead of current — should fail
-	err = store.RollbackPhase(ctx, id, PhaseBrainstorm, PhaseStrategized)
-	if err != ErrInvalidRollback {
-		t.Fatalf("expected ErrInvalidRollback, got %v", err)
+	// Provide wrong currentPhase — should get ErrStalePhase
+	err = store.RollbackPhase(ctx, id, "nonexistent-phase", PhaseBrainstorm)
+	if err != ErrStalePhase {
+		t.Fatalf("expected ErrStalePhase, got %v", err)
+	}
+}
+
+func TestRollbackPhase_TerminalRun(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/test", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateStatus(ctx, id, StatusCancelled); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cancelled run should return ErrTerminalRun
+	err = store.RollbackPhase(ctx, id, PhaseBrainstorm, PhaseBrainstorm)
+	if err != ErrTerminalRun {
+		t.Fatalf("expected ErrTerminalRun, got %v", err)
 	}
 }
 

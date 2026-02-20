@@ -214,22 +214,18 @@ type RollbackResult struct {
 //
 // Unlike Advance, rollback:
 //   - Goes backward (target must be behind current)
-//   - Uses a direct UPDATE (no optimistic concurrency — rollback is authoritative)
+//   - Uses optimistic concurrency on phase (AND phase = ?) to prevent TOCTOU races
 //   - Reverts completed runs back to active
 //   - Records a rollback event in the audit trail
 //   - Returns the list of phases that were rolled back
 //
+// Terminal status rejection (cancelled/failed) is enforced by the store layer.
 // Rollback does NOT delete events or artifacts — those are marked separately
 // by the caller (see runtrack.MarkArtifactsRolledBack).
 func Rollback(ctx context.Context, store *Store, runID, targetPhase, reason string, callback PhaseEventCallback) (*RollbackResult, error) {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		return nil, err
-	}
-
-	// Reject cancelled/failed runs (completed is OK — rollback reverts it)
-	if run.Status == StatusCancelled || run.Status == StatusFailed {
-		return nil, ErrTerminalRun
 	}
 
 	chain := ResolveChain(run)
@@ -241,7 +237,7 @@ func Rollback(ctx context.Context, store *Store, runID, targetPhase, reason stri
 		return nil, ErrInvalidRollback
 	}
 
-	// Perform the phase rewind
+	// Perform the phase rewind (store enforces terminal-status rejection + OCC)
 	if err := store.RollbackPhase(ctx, runID, fromPhase, targetPhase); err != nil {
 		return nil, fmt.Errorf("rollback: %w", err)
 	}

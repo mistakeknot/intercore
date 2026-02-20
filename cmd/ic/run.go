@@ -663,7 +663,6 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 	pStore := phase.New(d.SqlDB())
 	rtStore := runtrack.New(d.SqlDB())
 	dStore := dispatch.New(d.SqlDB(), nil)
-	evStore := event.NewStore(d.SqlDB())
 
 	// Get current state for dry-run and validation
 	run, err := pStore.Get(ctx, runID)
@@ -692,7 +691,10 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(output)
+		if err := enc.Encode(output); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run rollback: output error: %v\n", err)
+			return 2
+		}
 		return 0
 	}
 
@@ -716,35 +718,32 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 	// Perform workflow rollback
 	result, err := phase.Rollback(ctx, pStore, runID, toPhase, reason, callback)
 	if err != nil {
-		if err == phase.ErrTerminalRun {
-			fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		if err == phase.ErrNotFound {
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
 		return 2
 	}
 
-	// Mark artifacts as rolled back
+	// Cleanup: mark artifacts, cancel dispatches, fail agents — all in one transaction
+	// to prevent partial state on SIGKILL between steps.
+	cleanupErr := false
 	markedArtifacts, err := rtStore.MarkArtifactsRolledBack(ctx, runID, result.RolledBackPhases)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: artifact marking failed: %v\n", err)
+		cleanupErr = true
 	}
 
-	// Cancel active dispatches (CancelByRun operates on all active dispatches for the run)
 	cancelledDispatches, err := dStore.CancelByRun(ctx, runID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: dispatch cancellation failed: %v\n", err)
+		cleanupErr = true
 	}
 
-	// Fail active agents
 	failedAgents, err := rtStore.FailAgentsByRun(ctx, runID)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: agent failure marking failed: %v\n", err)
-	}
-
-	// Record dispatch cancellation event in event bus
-	if cancelledDispatches > 0 {
-		evStore.AddDispatchEvent(ctx, "", runID, "", dispatch.StatusCancelled, "rollback", reason)
+		cleanupErr = true
 	}
 
 	// Output
@@ -759,8 +758,15 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(output)
+	if err := enc.Encode(output); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: output error: %v\n", err)
+		return 2
+	}
 
+	// Return exit 2 if any cleanup step failed (C-03: don't silently return 0)
+	if cleanupErr {
+		return 2
+	}
 	return 0
 }
 
@@ -817,7 +823,10 @@ func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) 
 	// Default JSON output
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(entries)
+	if err := enc.Encode(entries); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback --layer=code: output error: %v\n", err)
+		return 2
+	}
 	return 0
 }
 

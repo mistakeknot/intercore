@@ -221,43 +221,16 @@ func (s *Store) UpdateSettings(ctx context.Context, id string, complexity *int, 
 	return nil
 }
 
-// RollbackPhase rewinds a run's phase pointer backward. Unlike UpdatePhase,
-// this uses a direct UPDATE (no optimistic concurrency) because rollback is
-// an authoritative operation. If the run is in a terminal status (completed),
-// it reverts to active.
+// RollbackPhase rewinds a run's phase pointer backward.
+// Uses optimistic concurrency on the phase column (AND phase = ?) to prevent
+// TOCTOU races with concurrent Advance calls.
+// Rejects cancelled/failed runs but allows completed (reverts to active).
 func (s *Store) RollbackPhase(ctx context.Context, id, currentPhase, targetPhase string) error {
-	run, err := s.Get(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	// Reject cancelled/failed runs (but allow completed — rollback reverts it)
-	if run.Status == StatusCancelled || run.Status == StatusFailed {
-		return ErrTerminalRun
-	}
-
-	chain := ResolveChain(run)
-
-	// Validate both phases exist in chain
-	if !ChainContains(chain, targetPhase) {
-		return fmt.Errorf("rollback: target phase %q not in chain", targetPhase)
-	}
-	if !ChainContains(chain, currentPhase) {
-		return fmt.Errorf("rollback: current phase %q not in chain", currentPhase)
-	}
-
-	// Validate target is behind current
-	targetIdx := ChainPhaseIndex(chain, targetPhase)
-	currentIdx := ChainPhaseIndex(chain, currentPhase)
-	if targetIdx >= currentIdx {
-		return ErrInvalidRollback
-	}
-
 	now := time.Now().Unix()
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE runs SET phase = ?, status = 'active', updated_at = ?, completed_at = NULL
-		WHERE id = ?`,
-		targetPhase, now, id,
+		WHERE id = ? AND phase = ? AND status NOT IN ('cancelled', 'failed')`,
+		targetPhase, now, id, currentPhase,
 	)
 	if err != nil {
 		return fmt.Errorf("rollback phase: %w", err)
@@ -267,7 +240,15 @@ func (s *Store) RollbackPhase(ctx context.Context, id, currentPhase, targetPhase
 		return fmt.Errorf("rollback phase: %w", err)
 	}
 	if n == 0 {
-		return ErrNotFound
+		// Distinguish: not found vs stale phase vs terminal status
+		run, getErr := s.Get(ctx, id)
+		if getErr != nil {
+			return ErrNotFound
+		}
+		if run.Status == StatusCancelled || run.Status == StatusFailed {
+			return ErrTerminalRun
+		}
+		return ErrStalePhase
 	}
 	return nil
 }
