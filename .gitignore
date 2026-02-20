@@ -1,0 +1,13 @@
+# Session artifacts
+.clavain/scratch/
+.clavain/verdicts/
+.clavain/quality-gates/
+.clavain/reviews/
+.clavain/checkpoint.json
+.clavain/intercore.db
+.clavain/intercore.db.backup-*
+.clavain/interspect/
+
+# Runtime
+*.db.backup-*
+ic
