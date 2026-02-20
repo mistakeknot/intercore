@@ -1,6 +1,6 @@
 # Intercore — Vision Document
 
-**Version:** 1.6
+**Version:** 1.7
 **Date:** 2026-02-19
 **Status:** Draft
 
@@ -139,6 +139,12 @@ Who can mutate kernel state, and how:
 
 > This contract is aspirational for v1 — today, companion plugins and apps call `ic` directly. The migration path is: (1) define the contract (this section), (2) route policy-governing writes through OS abstractions, (3) enforce namespace boundaries in the kernel.
 
+**Phased enforcement plan:**
+- **v1 (current):** Convention-only. The contract is documented. Code review catches violations. All callers can call any `ic` command.
+- **v1.5:** Namespace validation. `ic state set` rejects writes outside the caller's declared namespace. Companion plugins declare their namespace at init time. OS-level writes require the `os/` prefix.
+- **v2:** Write-path auditing. Every `ic` mutation records the caller identity (derived from `--caller` flag or `$IC_CALLER` env var). Interspect flags contract violations as governance events. Enforcement remains cooperative but violations are visible.
+- **v3 (stretch):** Capability tokens. Callers authenticate with scoped tokens that limit which subsystems they can mutate. Full enforcement of the write-path contract.
+
 ## Process Model
 
 Intercore is a **CLI binary**, not a daemon. Every `ic` invocation opens the SQLite database, performs its operation, and exits. There is no long-running server process.
@@ -151,9 +157,9 @@ This has important implications:
 
 **Consumer patterns:** OS-level event reactors, TUI event tails, and one-off analysis scripts all use the same cursor-based API (`ic events tail --consumer=<name>`). The kernel is stateless between calls — consumers decide when and how to poll. For the OS event reactor lifecycle (who starts it, crash behavior, gate failure handling), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Track A3 section.
 
-**Why not a daemon?** Daemons add operational complexity — process management, health monitoring, restart policies, port conflicts. A CLI binary is zero-ops: it works when called, requires no lifecycle management, and can't crash between calls because it doesn't exist between calls. The SQLite database is the persistent state; the binary is stateless.
+**Why not a daemon?** Daemons add operational complexity — process management, health monitoring, restart policies, port conflicts. A CLI binary is zero-ops: it works when called, requires no lifecycle management, and has no background process that can crash or become stale between calls. If `ic` crashes *during* a call, SQLite's transaction semantics ensure either the full operation committed or nothing did (see Recovery Semantics below). The SQLite database is the persistent state; the binary is stateless.
 
-**Future consideration:** If event-driven reactions (Level 2 on the autonomy ladder) require sub-second latency, a lightweight daemon or socket-activated service could be introduced. The kernel's API surface (CLI commands) would remain the same — the daemon would be an optimization, not a new architecture. This is explicitly deferred until pull-based polling proves insufficient. The durable event log remains the source of truth; any real-time projection layer would be an app-layer concern (see the [Autarch vision doc](autarch-vision.md) Signal Architecture section).
+**Future consideration:** If event-driven reactions (Level 2 on the autonomy ladder) require sub-second latency, a lightweight daemon or socket-activated service could be introduced. The kernel's API surface (CLI commands) would remain the same — the daemon would be an optimization, not a new architecture. This is explicitly deferred until pull-based polling proves insufficient. The durable event log remains the source of truth; any real-time projection layer would be an app-layer concern (see the [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md) Signal Architecture section).
 
 ## Design Principles
 
@@ -175,7 +181,7 @@ Temp files, environment variables, and in-memory state are acceptable for non-cr
 
 Every state change produces an event. Phase transitions, gate evaluations (pass and fail), dispatch status changes — all written to the event log. Consumers maintain cursors for at-least-once delivery.
 
-This means the OS doesn't need to poll for changes. It subscribes to kernel events and reacts. The TUI doesn't need to query every table — it tails the event stream. Interspect doesn't need custom instrumentation — it reads the same events everyone else reads.
+This means the OS doesn't need to poll state tables for changes — it tails the event log and reacts. The TUI doesn't need to query every table — it tails the event stream. Interspect doesn't need custom instrumentation — it reads the same events everyone else reads. All event consumption is pull-based (consumers call `ic events tail`); there is no push/subscribe at the kernel level. "Follow mode" (`-f`) is client-side polling of the event log, not a server-side push.
 
 ### 4. Token Efficiency as Infrastructure
 
@@ -211,7 +217,7 @@ Gates evaluate real conditions. A run cannot advance from `planned` to `executin
 
 ### Level 2: React
 
-Events trigger automatic reactions. When a run advances to `review`, the kernel emits an event. The OS subscribes and spawns review agents. When all agents complete, the OS advances the phase. The human observes and intervenes only on exceptions.
+Events trigger automatic reactions. When a run advances to `review`, the kernel emits an event. The OS tails the event log and spawns review agents. When all agents complete, the OS advances the phase. The human observes and intervenes only on exceptions.
 
 *This is the event bus milestone — the system does the next obvious thing.*
 
@@ -219,7 +225,7 @@ Events trigger automatic reactions. When a run advances to `review`, the kernel 
 
 Interspect reads kernel events and correlates them with outcomes. Agents that consistently produce false positives get downweighted. Phases that never produce useful artifacts get skipped by default. Gate rules tighten or relax based on evidence.
 
-The kernel supports this by recording structured evidence with enough dimensionality for meaningful analysis. Gate evaluations include not just pass/fail but the specific conditions checked and the artifacts examined. Dispatch outcomes include verdict quality, token cost, and wall-clock time. Over many runs, this evidence enables weighted confidence scoring across multiple dimensions — completeness, consistency, cost-effectiveness — following the pattern of Autarch's `ConfidenceScore` (see [Autarch vision doc](autarch-vision.md) for the scoring model) to produce an actionable composite score rather than a binary judgment.
+The kernel supports this by recording structured evidence with enough dimensionality for meaningful analysis. Gate evaluations include not just pass/fail but the specific conditions checked and the artifacts examined. Dispatch outcomes include verdict quality, token cost, and wall-clock time. Over many runs, this evidence enables weighted confidence scoring across multiple dimensions — completeness, consistency, cost-effectiveness — following the pattern of Autarch's `ConfidenceScore` (see [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md) for the scoring model) to produce an actionable composite score rather than a binary judgment.
 
 The profiler proposes changes. The OS applies them as overlays. The kernel enforces the updated rules. The human reviews proposals and maintains veto power.
 
@@ -257,9 +263,29 @@ Gate rules are data, not code — stored as configuration that maps transitions 
 - `agents_complete` — are all active agents finished?
 - `verdict_exists` — does a non-rejected dispatch verdict exist?
 
-Gate tiers control enforcement: hard gates block advancement, soft gates warn, none-tier gates skip evaluation entirely.
+**Gate tiers.** Each gate rule has a tier that controls enforcement behavior:
+
+| Tier | On pass | On fail | Exit code (`ic gate check`) |
+|------|---------|---------|---------------------------|
+| **hard** | Advance allowed | Advance blocked — run cannot proceed | 1 |
+| **soft** | Advance allowed | Advance allowed with warning — gate failure recorded as evidence but does not block | 0 (with warning on stderr) |
+| **none** | Evaluation skipped | Evaluation skipped | 0 |
+
+Soft gates are for advisory checks that the OS wants to track (e.g., "code coverage above 80%") without blocking advancement. The evidence is still recorded, enabling Interspect to analyze patterns (e.g., "runs that skip soft gates have 2x the defect rate").
+
+**Gate override.** A hard gate can be overridden via `ic gate override <run_id> --reason=<text>`. The override:
+- Records the override as a `gate.override` event with the caller's identity and reason text
+- Advances the run past the failed gate as if it had passed
+- Preserves the original gate failure evidence alongside the override evidence
+
+Override authority is cooperative in v1 (any caller with DB access can override). The OS may restrict overrides to human-initiated commands by convention. Override frequency is tracked — Interspect flags runs with high override rates as process health signals.
 
 **Artifact identity:** An artifact is a kernel-tracked record of a file produced during a run. Each artifact has: a filesystem path, a content hash (SHA256), the dispatch that produced it, a type label (plan, brainstorm, review, diff, test-report), and a timestamp. The `artifact_exists` gate check verifies that at least one artifact record exists for the specified phase — it checks the database, not the filesystem directly. Artifact content lives on disk; the kernel tracks metadata. This follows Autarch's `RunArtifact` model (type, label, path, mime type, run ID) adapted for kernel use.
+
+**Artifact lifecycle contract:**
+- **Registration.** Artifacts are registered via `ic run artifact add <run> --phase=<p> --path=<f> --type=<t>`. The kernel computes and stores the SHA256 hash at registration time. The path must exist and be readable; the kernel rejects registration of nonexistent files.
+- **Validity at gate time.** The `artifact_exists` gate checks the database record, not the filesystem. If the file is deleted after registration, the gate still passes — the kernel recorded that the artifact was produced. A separate `artifact_integrity` gate type (future) could verify the hash at gate time for higher assurance.
+- **No garbage collection.** The kernel does not delete artifact files. Artifact records are pruned with their parent run during `ic run prune`. The OS is responsible for filesystem cleanup of orphaned artifact files.
 
 Every gate evaluation — pass or fail — produces structured evidence recorded in the event log. This evidence is the foundation for Interspect's analysis.
 
@@ -271,13 +297,15 @@ The dispatch subsystem manages agent process lifecycle:
 spawn → running → completed | failed | timeout | cancelled
 ```
 
-Each dispatch carries a **dispatch config** — a structured record of how the agent should be executed: preferred agent backend (Claude CLI, Codex CLI), timeout, sandbox mode, model override, working directory, environment variables, and extra CLI flags. This config is captured at spawn time and stored with the dispatch record, giving provenance for every agent invocation. The pattern follows Autarch's `DispatchConfig` model, which separates billing path (subscription-cli vs api), execution constraints (sandbox, timeout), and runtime parameters (model, working directory) into a single declarative struct.
+Each dispatch carries a **dispatch config** — a structured record of how the agent should be executed: preferred agent backend (Claude CLI, Codex CLI), timeout, sandbox mode, model override, working directory, and extra CLI flags. This config is captured at spawn time and stored with the dispatch record, giving provenance for every agent invocation. The pattern follows Autarch's `DispatchConfig` model, which separates billing path (subscription-cli vs api), execution constraints (sandbox, timeout), and runtime parameters (model, working directory) into a single declarative struct.
+
+**Secret handling.** Environment variables are not stored in the dispatch config. Secrets (API keys, tokens) must not enter the kernel database — the DB is a readable file and dispatch records are queryable by any caller. The dispatch runner inherits environment variables from the OS process that calls `ic dispatch spawn`; the kernel records only the variable *names* (not values) for provenance tracking.
 
 Key capabilities:
 - **Fan-out tracking** — parent-child dispatch relationships for parallel agent patterns.
-- **Liveness detection** — convergent signals (kill(pid,0), state file presence, sidecar appearance) handle reparented processes.
+- **Liveness detection** — the kernel's `ic dispatch poll` checks process liveness via `kill(pid, 0)`. This is the primary signal. Two supplementary signals handle edge cases: (a) a state file at a well-known path (`<workdir>/.ic-dispatch-<id>.alive`) that the dispatch runner touches periodically — covers processes reparented to init where PID checks may be ambiguous; (b) the dispatch's stdout/stderr file modification time as a staleness heuristic. The kernel uses convergent evaluation: a dispatch is considered alive if any signal indicates liveness, and dead only when all signals agree.
 - **Verdict collection** — structured results (verdict status, summary, artifact paths) collected from completed dispatches. Follows Autarch's `Outcome` pattern: success/failure, human-readable summary, and a list of produced artifacts.
-- **Spawn limits** — maximum concurrent dispatches per run, per project, globally. Prevents runaway agent proliferation (informed by OpenClaw's `maxSpawnDepth` and `maxChildrenPerAgent` patterns).
+- **Spawn limits** (v1.5, planned) — maximum concurrent dispatches per run, per project, globally. Prevents runaway agent proliferation (informed by OpenClaw's `maxSpawnDepth` and `maxChildrenPerAgent` patterns).
 - **Backend detection** — the kernel validates that the requested agent backend (claude, codex) is available on `$PATH` before dispatching. A dispatch with an unavailable backend fails immediately with a clear error, not after timeout.
 
 ### Events
@@ -296,12 +324,18 @@ Event sources:
 
 **Idempotency:** Events carry a deduplication key (`source_type:source_id:action` — e.g., `dispatch:42:completed`). Producers that retry after a crash can re-emit the same event; the kernel ignores duplicates by dedup key. This makes at-least-once production safe without requiring exactly-once semantics in producers.
 
-**Consumer cursors:** Each consumer tracks its high-water mark (the `rowid` of the last processed event). On restart, it replays from the cursor position. Cursors are stored in the state table. Two consumer classes exist:
+**Consumer cursors:** Each consumer tracks its high-water mark (a monotonic event ID) of the last processed event. On restart, it replays from the cursor position. Cursors are stored in the state table.
+
+**Cursor advancement contract.** `ic events tail` is a read-only operation — it does not advance the cursor. The consumer must explicitly advance its cursor after processing events by calling `ic events cursor set <consumer> <event_id>`. This two-step pattern (read then advance) lets consumers implement at-least-once delivery: if the consumer crashes after reading but before advancing, it replays the same events on restart. Two consumers with the same name (e.g., two reactor instances) would share a cursor and race — this is prevented by the single-instance constraint on the reactor (see Clavain vision doc, Event Reactor Operational Contracts).
+
+Two consumer classes exist:
 
 - **Durable consumers** (e.g., Interspect, Clavain's event reactor) register with `ic events cursor register --durable`. Their cursors never expire. The kernel guarantees no event loss for durable consumers as long as events haven't been pruned by the retention policy.
 - **Ephemeral consumers** (e.g., TUI sessions, one-off tails) have a TTL on their cursor (default: 7 days). After TTL expiry, the cursor is garbage-collected. On next poll, an expired ephemeral consumer receives events from the oldest retained event, not from the beginning of time.
 
-**Event retention:** Events are pruned by a configurable retention policy (default: 30 days). The kernel guarantees that no event is pruned while any durable consumer's cursor still points before it. This means a durable consumer that falls behind can block event pruning — the OS should monitor consumer lag and alert on stale durable consumers.
+**Event retention:** Events are pruned on demand via `ic events prune --older-than=<duration>` (recommended default: 30 days). The kernel does not auto-prune — the OS is responsible for scheduling prune operations (e.g., via cron or a session hook). The kernel guarantees that no event is pruned while any durable consumer's cursor still points before it. This means a durable consumer that falls behind can block event pruning — the OS should monitor consumer lag and alert on stale durable consumers.
+
+**Event ID stability.** Consumer cursors reference event IDs, not SQLite `rowid`. The events table uses an explicit `INTEGER PRIMARY KEY` (which aliases `rowid`) that is never reused. `VACUUM` can reassign `rowid` values on tables without an explicit integer primary key, but the events table's explicit primary key is stable across `VACUUM`. Consumers can safely persist and compare event IDs across vacuum operations.
 
 **Delivery guarantee:** At-least-once from the consumer's perspective. The consumer is responsible for idempotent processing. The kernel does not track acknowledgments — cursor advancement is the consumer's responsibility (call `ic events cursor set`).
 
@@ -389,7 +423,9 @@ Agent sandboxing controls **where** agents execute and **what** they can access.
 The ownership model (informed by OpenClaw's three-layer security and NullClaw's multi-layer sandbox auto-detection):
 
 1. **The kernel stores sandbox specs** — each dispatch record includes a `SandboxSpec` (requested tool allowlist, working directory, filesystem access mode, resource limits). These are data attached to the dispatch, not enforcement.
-2. **The dispatch driver enforces the spec** — Claude Code, Codex, or a container runtime reads the spec and applies it using their native isolation mechanisms. The kernel cannot guarantee enforcement — a misconfigured or compromised driver may not honor the spec. The kernel can **refuse to dispatch** without a compliant driver registered, but cannot verify enforcement at runtime.
+2. **The dispatch driver enforces the spec** — Claude Code, Codex, or a container runtime reads the spec and applies it using their native isolation mechanisms. The kernel cannot guarantee enforcement — a misconfigured or compromised driver may not honor the spec. The kernel can **refuse to dispatch** without a registered driver, but cannot verify enforcement at runtime.
+
+**Driver registration.** A driver is registered by adding an entry to the OS-managed driver config (`drivers.json`): driver name, binary path, supported sandbox capabilities (tool allowlists, filesystem isolation, container support), and a compliance self-declaration. The kernel reads this config at dispatch time to validate that the requested driver exists and declares support for the requested sandbox capabilities. Registration is cooperative — the driver declares what it supports; the kernel trusts the declaration. Interspect audits actual compliance by comparing requested vs effective sandbox policies in dispatch completion events.
 3. **The kernel records compliance** — dispatch completion events include the **effective** sandbox policy (what the driver actually applied) alongside the **requested** policy. Divergence between requested and effective is recorded as evidence for Interspect analysis. The kernel does not block on divergence — it records it.
 
 ### Tier 1: Tool Allowlists + Working Directory Isolation (Near-Term)
@@ -439,7 +475,7 @@ These are kernel-enforced invariants, not suggestions. An agent cannot bypass th
 
 ## Multi-Project Coordination
 
-The Interverse monorepo contains 25+ modules, each with its own git repository. A change in intercore can break Clavain hooks. A plugin update may need testing across multiple modules. Today, there is no cross-project visibility — each project's `ic` database is an island.
+The Interverse workspace contains 25+ modules, each with its own git repository. A change in intercore can break Clavain hooks. A plugin update may need testing across multiple modules. Today, there is no cross-project visibility — each project has its own `ic` database, and that per-project isolation is the design default.
 
 Multi-project coordination extends the kernel with three complementary mechanisms:
 
@@ -447,7 +483,7 @@ Multi-project coordination extends the kernel with three complementary mechanism
 
 Kernel events from one project are visible to consumers in other projects. When intercore ships a new feature, the event is readable by Clavain's event consumer. When a plugin publishes a new version, downstream projects see the event.
 
-**Mechanism:** A relay process (OS-layer, not kernel) tails events from multiple project databases and writes them to a shared relay database. Consumers subscribe to the relay with the same cursor-based API. The kernel provides the event format and cursor primitives; the OS provides the relay topology.
+**Mechanism:** A relay process (OS-layer, not kernel) tails events from multiple project databases and writes them to a shared relay database. Consumers tail the relay with the same cursor-based API. The kernel provides the event format and cursor primitives; the OS provides the relay topology.
 
 **Why relay, not shared database:** Each project's SQLite database is its transactional boundary. A shared database would serialize writes across all projects, creating contention. A relay provides eventual consistency (sub-second latency) while preserving per-project write independence.
 
@@ -455,7 +491,9 @@ Kernel events from one project are visible to consumers in other projects. When 
 
 A run can span multiple projects. `ic run create --projects=intercore,clavain --goal="Migrate hooks"` creates a portfolio run with per-project scoping for artifacts, gates, and dispatches, but a unified run ID for tracking and reporting.
 
-**Kernel mechanism:** The `runs` table gains an optional `portfolio_id` column. A portfolio run is a parent record that groups per-project child runs. Phase advancement in the portfolio requires gate passage in all child runs. The kernel enforces the rollup — a portfolio can't advance to "shipping" while any child is still in "executing."
+**Kernel mechanism:** The portfolio parent record lives in a designated portfolio database (separate from any project's database), while child runs live in their respective project databases. Each child run's `portfolio_id` links back to the parent. The relay process (see Cross-Project Event Bus) aggregates child run events into the portfolio database. Phase advancement in the portfolio requires gate passage in all child runs — the kernel evaluates composite gates by querying child run state via the relay.
+
+**Discovery model.** The OS enumerates project databases via a registry file (`~/.config/ic/projects.json`) or filesystem convention (`<workspace>/*/.ic/`). Bigend's multi-project dashboard uses this same registry to discover and aggregate across databases. There is no global shared database — cross-project queries always go through the relay or by iterating the registry.
 
 **OS policy:** Which projects participate in a portfolio run, how gates compose across projects (all-pass vs majority-pass), and how dispatches are allocated across projects are OS-level decisions configured at portfolio creation time.
 
@@ -559,7 +597,7 @@ Interspect currently operates with its own SQLite database and hook-based eviden
 
 ## Apps Layer (Autarch)
 
-Autarch provides the interactive TUI surfaces for kernel state — Bigend (monitoring), Gurgeh (PRD generation), Coldwine (task orchestration), and Pollard (research intelligence). Each tool is migrating from its own backend to the kernel as the shared state layer. For full details on the four tools, `pkg/tui`, and the migration plan, see the [Autarch vision doc](autarch-vision.md).
+Autarch provides the interactive TUI surfaces for kernel state — Bigend (monitoring), Gurgeh (PRD generation), Coldwine (task orchestration), and Pollard (research intelligence). Each tool is migrating from its own backend to the kernel as the shared state layer. For full details on the four tools, `pkg/tui`, and the migration plan, see the [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md).
 
 ## Autonomous Research and Backlog Intelligence
 
@@ -591,7 +629,7 @@ The kernel enforces a confidence-gated autonomy model. Each discovery is scored 
 
 The kernel enforces tier boundaries as gate invariants — the scoring model produces a number, the tier boundaries are configuration, and the kernel rejects promotions that violate tier constraints. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal. For the OS-level actions at each tier (work item creation, briefing docs, inbox notifications), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Discovery → Backlog Pipeline section.
 
-> **Horizon note:** The discovery subsystem is planned for v3. The `discoveries` table, confidence scoring, and tier enforcement do not exist in the current kernel schema (v5). The table above describes the target design.
+> **Horizon note:** The discovery subsystem is planned for product horizon v3 (see Success at Each Horizon table). The `discoveries` table, confidence scoring, and tier enforcement do not exist in the current database schema (schema revision 5, tracked via `PRAGMA user_version`). These are different version axes: product horizons (v1–v4) describe feature milestones; schema revisions (1–N) track database migrations. The table above describes the target design.
 
 ### Backlog Refinement Primitives
 
@@ -628,7 +666,7 @@ Existing agent orchestration systems address parts of this problem. Understandin
 
 **Durable execution engines** (Temporal, Restate) provide crash-proof workflows with state captured at each step, retry policies, and saga patterns. Temporal is the closest conceptual relative to Intercore's durability story. The key differences are deployment model and domain specialization (see "Why not Temporal?" below).
 
-**Autarch** (merged into the Interverse monorepo) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Autarch is merging into the Interverse monorepo as the apps/TUI layer, with its tools progressively migrating from their own YAML/SQLite backends to intercore's kernel as the shared state backend (see [Autarch vision doc](autarch-vision.md)).
+**Autarch** (merged into the Interverse monorepo) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Autarch is merging into the Interverse monorepo as the apps/TUI layer, with its tools progressively migrating from their own YAML/SQLite backends to intercore's kernel as the shared state backend (see [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md)).
 
 ### Where Intercore Contributes
 
@@ -696,9 +734,22 @@ The kernel doesn't know what any phase name means. It knows that phase 0 require
 
 ## Assumptions and Constraints
 
-**Single-machine, single-database.** The kernel assumes a single-machine deployment where all callers can access the same SQLite database file. Multiple OS processes can read concurrently (WAL mode); writes are serialized by SQLite's write lock, with filesystem locks providing application-level mutual exclusion for read-modify-write operations. Multiple repos can use separate databases (one `.db` per project) or share one — the kernel scopes by run ID, not by filesystem location. Multi-machine coordination (distributed locks, replicated event logs) is explicitly out of scope. If the system needs to scale beyond a single machine, the database layer would need replacement — but single-machine operation is the expected deployment model for autonomous development environments.
+**Single-machine, per-project databases.** The kernel assumes a single-machine deployment with one SQLite database per project (stored at `<project>/.ic/intercore.db`). Multiple OS processes can read concurrently (WAL mode); writes are serialized by SQLite's write lock, with filesystem locks providing application-level mutual exclusion for read-modify-write operations. Cross-project visibility is provided by the relay process and project registry (see Multi-Project Coordination), not by shared databases. Multi-machine coordination (distributed locks, replicated event logs) is explicitly out of scope — single-machine operation is the expected deployment model for autonomous development environments.
 
 **Callers are cooperative.** The kernel enforces invariants (gate conditions, spawn limits, optimistic concurrency) but does not defend against malicious callers. An agent could bypass the kernel entirely by writing to the filesystem. The security model assumes trusted but fallible callers — the kernel prevents mistakes, not attacks.
+
+**Security baseline.** While the kernel does not defend against malicious callers, it maintains a security floor:
+- **No secrets in the database.** The kernel never stores API keys, tokens, passwords, or credentials. Environment variables are recorded by name only, never by value. Dispatch configs store model names and flags, not authentication material. This is a hard invariant — any code path that would write a secret to the database is a security bug.
+- **File permissions.** The database file is created with mode `0600` (owner read/write only). The kernel does not modify permissions after creation. Multi-user access (e.g., `claude-user` via ACLs) is an OS-level concern.
+- **Threat model.** The kernel assumes a single trusted operator on a single machine. It defends against accidental corruption (transactions, WAL mode, optimistic concurrency) and operational mistakes (gate enforcement, spawn limits). It does not defend against adversarial agents, prompt injection attacks on dispatched LLMs, or supply chain compromise of companion plugins. These threats are real but are addressed at the OS and driver layers (sandbox specs, tool allowlists, code review gates), not in the kernel.
+- **No network surface.** The kernel is a CLI binary. It opens no ports, listens on no sockets, and accepts no remote connections. The attack surface is the filesystem (database file, lock directories) and the caller's process environment.
+
+**Single-machine invariant.** The kernel assumes single-machine deployment through v2. This is a hard constraint, not a convenience default:
+- One SQLite database per project, on local disk. No networked filesystems, no shared storage.
+- Filesystem locks (`mkdir`) assume local POSIX semantics. NFS or distributed filesystems may not honor `mkdir` atomicity.
+- PID-based liveness detection (`kill(pid, 0)`) assumes all processes share a PID namespace. Containers with separate PID namespaces require the state-file liveness signal as primary.
+- The relay process for cross-project events runs on the same machine, reading multiple local databases.
+- Multi-machine coordination (distributed locks, replicated event logs, consensus) is explicitly deferred to v3+ and will require a different coordination substrate (not SQLite).
 
 **Token tracking is self-reported.** The kernel records token counts that dispatched agents report. It cannot independently verify these counts. An agent that misreports its token usage undermines budgeting. Tier 1 mitigation: the OS can cross-reference reported counts with API billing data. Tier 2: the runner could inject token tracking at the API call layer.
 
@@ -712,13 +763,65 @@ The kernel doesn't know what any phase name means. It knows that phase 0 require
 - **Sensible defaults.** The kernel should work out of the box with zero configuration. Phase chains, gate rules, and throttle intervals should have defaults that cover common cases. Power users customize; new users get something useful immediately.
 - **Error messages for humans.** Every `ic` error should explain what went wrong and suggest a fix. "ErrStalePhase" is an internal name; the CLI should say "Another process already advanced this run. Re-read the current phase with `ic run phase <id>` and decide if your advance still applies."
 
+## The v1 Kernel Wedge
+
+The kernel's minimum viable scope — what must exist before Clavain hooks can migrate from temp files:
+
+**Ships in v1:**
+- `ic run create/advance/phase/status/list/cancel` — full run lifecycle with configurable phase chains
+- `ic gate check/override/rules` — gate evaluation with hard/soft tiers and evidence recording
+- `ic dispatch spawn/status/poll/wait/list/kill/prune/tokens` — agent process lifecycle with liveness detection
+- `ic events tail/cursor` — append-only event log with durable and ephemeral consumer cursors
+- `ic state set/get/delete` — scoped key-value store with TTL and namespace isolation
+- `ic lock acquire/release/list/stale/clean` — filesystem-based mutual exclusion
+- `ic sentinel check` — time-based throttle guards
+- `ic run artifact add/list` — artifact registration with SHA256 hashing
+- `ic run agent add/list/update` — agent tracking within runs
+- `ic init` — database initialization with auto-migration
+
+**Does not ship in v1:**
+- Discovery subsystem (v3)
+- Rollback primitives (v2)
+- Multi-project portfolio runs (v4)
+- Lane-based scheduling (v2)
+- Sandbox spec enforcement (v3)
+- Cost reconciliation (v2)
+- Capability tokens for write-path enforcement (v3)
+
+**The wedge test:** Can Clavain's `lib-sprint.sh` create a run, advance through phases with gate enforcement, dispatch agents, track their completion, emit events, and record artifacts — all via `ic` instead of temp files? If yes, v1 is sufficient for the hook cutover.
+
+## Compatibility Contract
+
+The kernel is designed for open-source adoption. Breaking changes have real costs for external consumers. Starting with v1, the following stability guarantees apply:
+
+**CLI surface (stable from v1):**
+- Command names, required flags, and exit codes are backward-compatible across minor versions.
+- New commands and optional flags may be added in minor versions.
+- Existing commands are deprecated (with warnings) for one minor version before removal.
+- Exit codes: 0 = success, 1 = gate failure / expected rejection, 2 = usage error, 3+ = internal error.
+
+**Event schema (stable from v1):**
+- Event type strings (e.g., `phase.advanced`, `dispatch.completed`) are stable across minor versions.
+- New event types may be added. Existing event types are never renamed or removed without a major version bump.
+- Event payload fields may gain new optional fields. Existing fields are never removed or type-changed without a major version bump.
+
+**Database schema (migration-safe):**
+- Schema changes use `PRAGMA user_version` for versioning and `ic init` for auto-migration.
+- Migrations are forward-only (no downgrades). `ic init` creates a timestamped backup before any migration.
+- New columns use `ALTER TABLE ADD COLUMN` with defaults (never `NOT NULL` without a default on existing tables).
+
+**What is NOT stable:**
+- Internal Go API (no library API in v1 — the CLI is the contract).
+- Database file layout and internal table structures (callers should use `ic` commands, not raw SQL).
+- Debug output format (stderr messages may change without notice).
+
 ## Success at Each Horizon
 
 | Horizon | Timeframe | What Success Looks Like |
 |---|---|---|
 | v1 | Current | Gates enforce real conditions. Events flow. Dispatches are tracked. The kernel is the system of record. |
 | v1.5 | 1-2 months | Big-bang hook cutover — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode (calls `ic run` alongside existing logic). Fully custom phase chains (OS provides preset templates like sprint). API stability contract established for open-source readiness. Autarch merged into Interverse monorepo. |
-| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. Bigend migrated to kernel backend (read-only dashboard over `ic` state). Autarch status tool provides minimal TUI over kernel state (see [Autarch vision doc](autarch-vision.md)). |
+| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. Bigend migrated to kernel backend (read-only dashboard over `ic` state). Autarch status tool provides minimal TUI over kernel state (see [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md)). |
 | v3 | 4-8 months | Interspect Phase 2-3 (correction events, retire own DB). Sandboxing Tier 1 (tool allowlists, multi-agent isolation). Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement runs as an event consumer. Code and backlog rollback. Cross-project event relay. Pollard migrated to kernel discovery pipeline. Gurgeh PRD generation backed by kernel runs. Installation guide and quickstart for community adopters. |
 | v4 | 8-14 months | Portfolio-level runs across multiple projects. Dependency graph awareness with auto-verification. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization. Coldwine task orchestration backed by kernel dispatches. Full Autarch TUI suite reads kernel state as single source of truth. The kernel orchestrates a fleet and knows what it should be working on next. |
 
