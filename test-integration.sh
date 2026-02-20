@@ -26,6 +26,18 @@ echo "=== Init ==="
 ic init --db="$TEST_DB"
 pass "init"
 
+echo "=== File Permissions ==="
+# Test that ic init creates directory with 0700 and DB file with 0600.
+# Use a fresh subdirectory under CWD (ic validates --db is under CWD).
+PERM_DB="$TEST_DIR/perms/.clavain/intercore.db"
+ic init --db="$PERM_DB"
+dir_perm=$(stat -c '%a' "$TEST_DIR/perms/.clavain")
+[[ "$dir_perm" == "700" ]] || fail "directory permissions: expected 700, got $dir_perm"
+pass "directory permissions: $dir_perm"
+file_perm=$(stat -c '%a' "$PERM_DB")
+[[ "$file_perm" == "600" ]] || fail "DB file permissions: expected 600, got $file_perm"
+pass "DB file permissions: $file_perm"
+
 echo "=== Health ==="
 ic health --db="$TEST_DB"
 pass "health"

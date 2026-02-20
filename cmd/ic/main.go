@@ -236,9 +236,9 @@ func cmdInit(ctx context.Context) int {
 		return 2
 	}
 
-	// Ensure parent directory exists
+	// Ensure parent directory exists with restricted permissions
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		fmt.Fprintf(os.Stderr, "ic: init: cannot create directory %s: %v\n", dir, err)
 		return 2
 	}
@@ -253,6 +253,12 @@ func cmdInit(ctx context.Context) int {
 	if err := d.Migrate(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "ic: init: migration failed: %v\n", err)
 		return 2
+	}
+
+	// Ensure DB file has restricted permissions (owner read/write only).
+	// SQLite creates files with the process umask, which may be too permissive.
+	if err := os.Chmod(path, 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: init: warning: could not set file permissions: %v\n", err)
 	}
 
 	v, _ := d.SchemaVersion()
