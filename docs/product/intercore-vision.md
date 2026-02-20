@@ -792,6 +792,8 @@ The kernel's minimum viable scope — what must exist before Clavain hooks can m
 
 ## Compatibility Contract
 
+> **Full document:** [COMPATIBILITY.md](../../COMPATIBILITY.md) — the standalone reference for external consumers.
+
 The kernel is designed for open-source adoption. Breaking changes have real costs for external consumers. Starting with v1, the following stability guarantees apply:
 
 **CLI surface (stable from v1):**
