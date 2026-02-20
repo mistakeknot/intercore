@@ -13,33 +13,31 @@ Autarch is the application layer of the Interverse stack — the interactive sur
 Autarch sits above the OS, which sits above the kernel:
 
 ```
-Apps (Autarch)
+Layer 3: Apps (Autarch)
 ├── Interactive TUI tools: Bigend, Gurgeh, Coldwine, Pollard
 ├── Shared component library: pkg/tui (Bubble Tea + lipgloss)
 ├── Renders OS opinions into interactive experiences
 └── Swappable — Autarch is one set of apps, not the only possible set
 
-Drivers (Companion Plugins)
-├── Each wraps one capability (review, coordination, code mapping, research)
-├── Call the kernel directly for shared state — no Clavain bottleneck
-└── Examples: interflux (review), interlock (coordination), interject (research)
-
-OS (Clavain)
+Layer 2: OS (Clavain)
 ├── The autonomous software agency — macro-stages, quality gates, model routing
 ├── Skills, prompts, routing tables, workflow definitions
+├── Companion plugins (interflux, interlock, interject, etc.) are OS extensions — each wraps one capability
 ├── Configures the kernel: phase chains, gate rules, dispatch policies
 └── Reacts to kernel events (agent completed → advance phase)
 
-Kernel (Intercore)
+Layer 1: Kernel (Intercore)
 ├── Runs, phases, gates, dispatches, events — the durable system of record
 ├── Host-agnostic Go CLI + SQLite
 └── Mechanism, not policy — the kernel doesn't know what "brainstorm" means
 
-Profiler: Interspect (cross-cutting)
+Interspect (Profiler) — cross-cutting
 ├── Reads kernel events (phase results, gate evidence, dispatch outcomes)
 ├── Proposes changes to OS configuration (routing, agent selection, gate rules)
 └── Never modifies the kernel — only the OS layer
 ```
+
+> **Terminology:** For term definitions across all three vision docs, see the [shared glossary](glossary.md).
 
 ### Apps Are Swappable
 
@@ -57,6 +55,8 @@ In the target architecture, apps don't contain agency logic. Autarch doesn't dec
 - Pollard renders kernel discoveries as a research intelligence tool
 
 When Clavain's policies change (new gate rules, different model routing), Autarch's UIs reflect the change without code modification — they read kernel state, which the OS controls.
+
+**Write-path contract.** Autarch apps are read-only consumers of kernel state. They submit intents to the OS (Clavain) for any action that implies policy — creating runs, advancing phases, overriding gates. They do not call kernel primitives directly for policy-governing operations. See the [Intercore vision doc](intercore-vision.md) for the full write-path contract.
 
 ## The Four Tools
 
@@ -122,43 +122,43 @@ Coldwine's migration overlaps with Clavain's sprint skill — both orchestrate t
 
 ## Relationship to the Three-Layer Architecture
 
-Autarch sits as the application layer atop the OS:
+Autarch is Layer 3 — the application layer atop the OS:
 
 ```
-Apps (Autarch)
+Layer 3: Apps (Autarch)
 ├── Bigend: multi-project mission control (monitoring dashboard)
 ├── Gurgeh: PRD generation with confidence scoring (spec workflow)
 ├── Coldwine: task orchestration with agent coordination (execution interface)
 ├── Pollard: research intelligence with multi-domain hunters (research tool)
 └── pkg/tui: shared Bubble Tea components (ShellLayout, ChatPanel, Tokyo Night)
 
-User Interaction
+User Interaction (all surfaces share the same kernel state)
 ├── Clavain (CLI: slash commands, hooks, skills) → calls ic
 ├── Autarch (TUI: Bigend, Gurgeh, Coldwine, Pollard) → calls ic
 └── Direct CLI (ic run, ic dispatch, ic events) → for power users and scripts
 
-All three surfaces share the same kernel state. A run created via Clavain's /sprint
-is visible in Bigend's dashboard. A discovery from Pollard's hunters triggers the same
-kernel events that Clavain's hooks consume. The kernel is the single source of truth.
+A run created via Clavain's /sprint is visible in Bigend's dashboard.
+A discovery from Pollard's hunters triggers the same kernel events that
+Clavain's hooks consume. The kernel is the single source of truth.
 ```
 
 ## What `pkg/tui` Enables
 
-Beyond the four Autarch tools, the shared component library enables a lightweight `ic tui` subcommand — a kernel-native TUI that provides basic observability without requiring the full Autarch tool suite:
+Beyond the four Autarch tools, the shared component library enables a lightweight **Autarch status tool** — a minimal TUI that provides basic observability without requiring the full tool suite:
 
 - Run list with phase progress bars
 - Event stream tail (live-updating)
 - Dispatch status dashboard
 - Discovery inbox for confidence-tiered review
 
-This minimal TUI would be built on `pkg/tui` components and call `ic` directly. It's the kernel's own status display — simpler than Bigend but always available wherever `ic` is installed.
+This minimal TUI is an Autarch tool (not a kernel subcommand) built on `pkg/tui` components that calls `ic` for all its data. It preserves the layering: the kernel is a CLI binary with no TUI dependencies; the app layer provides all interactive surfaces. It's simpler than Bigend but covers the common "what's running right now?" question.
 
 ## Signal Architecture
 
 When latency-sensitive consumers (TUI dashboards, live event streams) need sub-second event delivery, the kernel's pull-based `ic events tail` API may be insufficient. Autarch's signal broker addresses this with an app-layer real-time projection:
 
 - **In-process pub/sub fan-out** with typed subscriptions — each TUI view subscribes to the event types it renders
-- **WebSocket streaming** to TUI and web consumers — Bigend's dashboard and `ic tui` connect via WebSocket rather than polling
+- **WebSocket streaming** to TUI and web consumers — Bigend's dashboard and the Autarch status tool connect via WebSocket rather than polling
 - **Backpressure handling** — evict-oldest-on-full for non-durable consumers (TUI views that can tolerate dropped frames), blocking for durable consumers (audit trails)
 
 The kernel's durable event log remains the source of truth. The broker is a real-time projection of it — a convenience for latency-sensitive rendering, not a replacement for the event bus. If the broker crashes, consumers fall back to `ic events tail` with their cursor position intact.

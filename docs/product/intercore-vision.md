@@ -38,28 +38,28 @@ Intercore (Kernel)
 ├── Dispatch: spawns agents, tracks liveness, collects results
 ├── Events: typed event bus for state changes
 ├── Discovery: scored discoveries with confidence-tiered autonomy gates
-├── State: scoped key-value store for kernel coordination
+├── State: namespace-isolated key-value store (`_kernel/*`, `os/*`, `app/*`)
 ├── Coordination: locks, sentinels, lane-based scheduling
 ├── Rollback: phase rewind, dispatch cancellation, discovery revert with full audit trail
 ├── Portfolio: cross-project runs, dependency graph, composite gate evaluation
 ├── Sandbox specs: stores requested/effective isolation contracts (enforcement by drivers)
 └── Resource management: concurrency limits, token tracking, cost reconciliation, agent caps
 
-Interspect (Profiler)
+Interspect (Profiler) — cross-cutting
 ├── Reads kernel events (phase results, gate evidence, dispatch outcomes)
 ├── Correlates with human corrections
 ├── Proposes changes to OS configuration (routing rules, agent prompts)
 └── Never modifies the kernel — only the OS layer
 
-Autarch (Apps) — interactive TUI surfaces (see Autarch vision doc)
+Autarch (Apps — Layer 3) — interactive TUI surfaces (see Autarch vision doc)
 
-Companion Plugins (Drivers)
+Companion Plugins (OS Extensions)
 ├── interflux: multi-agent review dispatch
 ├── interject: ambient research and discovery engine
 ├── interlock: file-level coordination
 ├── intermux: agent visibility
 ├── tldr-swinton: token-efficient code context
-└── ... each extends the OS, all route through kernel primitives
+└── ... each extends the OS with one capability, all route through kernel primitives
 ```
 
 ### Three-Layer Architecture
@@ -67,28 +67,35 @@ Companion Plugins (Drivers)
 The ecosystem has three distinct layers, each with clear ownership:
 
 ```
-Layer 3: Drivers (Plugins)
-├── Each plugin wraps one capability (review dispatch, file coordination, code mapping)
-├── Plugins call `ic` directly for shared state — no Clavain bottleneck
-├── Plugins are Claude Code-native but the capabilities they wrap are not
-└── Examples: interflux (review), interlock (coordination), intermux (visibility)
+Layer 3: Apps (Autarch)
+├── Interactive TUI surfaces: Bigend, Gurgeh, Coldwine, Pollard
+├── Renders OS opinions into interactive experiences
+└── Swappable — Autarch is one set of apps, not the only possible set (see Autarch vision doc for transitional caveats)
 
 Layer 2: OS (Clavain)
-├── The opinionated workflow — sprint phases, quality gates, brainstorm→plan→ship
-├── Skills orchestrate by calling both `ic` (state/gates/events) and plugins (capabilities)
+├── The opinionated workflow — macro-stages, quality gates, brainstorm→plan→ship
+├── Skills orchestrate by calling `ic` (state/gates/events) and companion plugins (capabilities)
 ├── Clavain is the developer experience: slash commands, session hooks, routing tables
+├── Companion plugins (interflux, interlock, interject, etc.) are OS extensions — each wraps one capability
 └── If the host platform changes, Clavain's opinions survive; the UX wrappers are rewritten
 
 Layer 1: Kernel (Intercore)
 ├── Host-agnostic Go CLI + SQLite — works from Claude Code, Codex, bare shell, or any future platform
 ├── State, gates, events, dispatch, discovery — the durable system of record
-├── If Claude Code disappears, the kernel and all its data survive untouched
-└── The "real magic" lives here: everything that matters is in `ic`
+├── If the UX layer disappears, the kernel and all its data survive untouched
+└── Mechanism, not policy — the kernel doesn't know what "brainstorm" means
+
+Interspect (Profiler) — cross-cutting
+├── Reads kernel events, correlates with human corrections
+├── Proposes changes to OS configuration (routing, agent selection, gate rules)
+└── Never modifies the kernel — only the OS layer
 ```
 
-**The guiding principle:** Plugins work in Claude Code, but the real magic is in Clavain + Intercore. If the host platform changes, you lose UX convenience (slash commands, hooks) but not capability (state, gates, events, evidence, workflow logic). Drivers are swappable. The OS is portable. The kernel is permanent.
+**The guiding principle:** the system of record is in the kernel; the policy authority is in the OS; the interactive surfaces are swappable apps. If the host platform changes, you lose UX convenience (slash commands, hooks) but not capability (state, gates, events, evidence, workflow logic). Companion plugins are swappable. The OS is portable. The kernel is permanent.
 
-**What this means for plugin design:** Every plugin currently doing state management through temp files, bead metadata, or its own SQLite database should instead call `ic`. The big-bang hook cutover (see Migration Strategy below) is the forcing function — when Clavain hooks switch from temp files to `ic`, plugins that share state with those hooks must follow.
+> **Terminology:** This doc uses kernel vocabulary (work items, runs, dispatches). For mappings to OS vocabulary (beads, sprints) and app vocabulary, see the [shared glossary](glossary.md).
+
+**What this means for plugin design:** Every plugin currently doing state management through temp files, OS-level metadata, or its own SQLite database should instead call `ic`. The big-bang hook cutover (see Migration Strategy below) is the forcing function — when Clavain hooks switch from temp files to `ic`, plugins that share state with those hooks must follow.
 
 ### What the Kernel Owns
 
@@ -101,7 +108,7 @@ The kernel provides **mechanism, not policy**. It says "a gate can block a trans
 | **Dispatch** | Agent processes | Spawn, liveness, collection, timeout, fan-out |
 | **Events** | Typed event bus | Append-only log with consumer cursors |
 | **Discovery** | Scored discoveries | Confidence-tiered autonomy gates for research intake and backlog generation |
-| **State** | Scoped key-value | TTL-based storage for coordination data |
+| **State** | Scoped key-value | TTL-based storage with namespace isolation (`_kernel/*`, `os/*`, `app/*`) |
 | **Coordination** | Locks + Sentinels | Mutual exclusion and time-based throttling |
 | **Run Tracking** | Agents + Artifacts | What agents are active, what files were produced |
 | **Rollback** | State reset + audit trail | Phase rewind, dispatch cancellation, discovery revert — preserving history |
@@ -115,6 +122,22 @@ The kernel provides **mechanism, not policy**. It says "a gate can block a trans
 - **Gate policies** — "brainstorm needs an artifact" is Clavain policy configured into kernel gates.
 - **Session lifecycle** — hooks, context injection, handoff files. The OS integrating with Claude Code.
 - **Self-improvement decisions** — Interspect reads kernel events and proposes OS changes.
+
+### Write-Path Contract
+
+Who can mutate kernel state, and how:
+
+| Caller | Allowed mutations | Not allowed |
+|--------|------------------|-------------|
+| **Kernel (internal)** | All state transitions, event emission, gate evaluation | n/a |
+| **OS (Clavain)** | Run lifecycle (create, advance, pause, cancel), phase chain configuration, gate rule definition, dispatch spawn, discovery policy | n/a |
+| **Companion plugins** | Artifact registration, evidence submission, telemetry, capability results within their namespace | Run/phase/gate mutations, policy definitions |
+| **Apps (Autarch)** | Read all kernel state, submit intents to OS | Direct kernel mutations — apps call OS operations, not kernel primitives, for anything implying policy |
+| **Interspect** | Read events, propose OS config changes | Direct kernel or OS mutations |
+
+**Enforcement model:** callers are cooperative (no ACL tokens in v1). The contract is enforced by convention and code review. The kernel reserves the right to add namespace-scoped write restrictions in future versions.
+
+> This contract is aspirational for v1 — today, companion plugins and apps call `ic` directly. The migration path is: (1) define the contract (this section), (2) route policy-governing writes through OS abstractions, (3) enforce namespace boundaries in the kernel.
 
 ## Process Model
 
@@ -286,7 +309,13 @@ Event sources:
 
 ### State
 
-A scoped key-value store with TTL. Used **exclusively** for kernel-internal coordination data — consumer cursors, lease tokens, transient signals between kernel operations. This is not a general-purpose config store.
+A scoped key-value store with TTL and namespace isolation. Supports three namespaces:
+
+- **`_kernel/*`** — reserved for kernel-internal coordination (consumer cursors, lease tokens, transient signals). Callers outside the kernel should not read or write these keys.
+- **`os/*`** — OS-layer coordination data (session accumulators, handoff state, plugin counters). Written by Clavain and companion plugins.
+- **`app/*`** — App-layer ephemeral data (UI preferences, view state). Written by Autarch tools.
+
+All namespaces share the same TTL and scoping mechanics. This is not a general-purpose config store — it is for coordination data with bounded lifetimes.
 
 Keys are scoped by `scope_id` (typically a run ID or project path). Values are validated JSON with size and depth limits.
 
@@ -432,9 +461,9 @@ A run can span multiple projects. `ic run create --projects=intercore,clavain --
 
 ### Dependency Graph Awareness
 
-The kernel knows that Clavain depends on intercore. When intercore ships a change, the kernel auto-creates a verification event for dependent projects. The OS consumes this event and creates a "verify downstream" bead in each dependent project.
+The kernel knows that Clavain depends on intercore. When intercore ships a change (a `run.completed` event fires), the kernel emits `dependency.upstream_changed` events for each dependent project. The OS decides how to react — auto-create a test run, create a work item, send a notification, or ignore.
 
-**Mechanism:** A `project_deps` table maps project → dependency relationships. When a `run.completed` event fires for a project, the kernel checks for dependents and emits `dependency.upstream_changed` events for each. The OS decides what to do — auto-create a test run, create a bead, send a notification, or ignore.
+**Mechanism:** A `project_deps` table maps project → dependency relationships. When a `run.completed` event fires for a project, the kernel checks for dependents and emits `dependency.upstream_changed` events for each. The OS decides what to do — auto-create a test run, create a work item, send a notification, or ignore.
 
 **Why reactive, not pre-planned:** Dependency verification is triggered by actual changes, not by anticipated changes. This avoids the overhead of pre-scheduling verification runs for changes that might not happen.
 
@@ -462,15 +491,15 @@ The kernel records token counts per dispatch as reported by agents. The OS perio
 
 ## Rollback and Recovery
 
-When a sprint goes wrong — bad code, skipped gates, or erroneous discovery-created beads — there is no structured way to revert. Git handles code rollback. Nothing handles workflow state rollback or backlog rollback. This is a gap.
+When a run goes wrong — bad code, skipped gates, or erroneous discovery-created work items — there is no structured way to revert. Git handles code rollback. Nothing handles workflow state rollback or backlog rollback. This is a gap.
 
 ### Three Rollback Layers
 
-**Code rollback.** Git revert handles code. The kernel records which commits were produced by which dispatches (artifact metadata includes git SHA). `ic run rollback <id> --layer=code` identifies all commits associated with a run's dispatches and generates a `git revert` sequence. The kernel doesn't execute the revert — it produces the plan. The OS or human executes it.
+**Code rollback.** Git revert handles code. The kernel records which commits were produced by which dispatches (artifact metadata includes git SHA). The kernel provides a query to list all commits associated with a run's dispatches. The OS or human generates and executes the `git revert` sequence — the kernel stores provenance, not VCS-specific operational plans.
 
-**Workflow state rollback.** When a sprint advances too fast or skips a gate incorrectly, the run's phase needs to reset. `ic run rollback <id> --to-phase=plan-review` resets the run's current phase, marks intervening phase transitions as `rolled_back` (not deleted — audit trail is preserved), and re-evaluates gates for the target phase. Dispatches spawned in rolled-back phases are cancelled if still running.
+**Workflow state rollback.** When a run advances too fast or skips a gate incorrectly, the run's phase needs to reset. `ic run rollback <id> --to-phase=plan-review` resets the run's current phase, marks intervening phase transitions as `rolled_back` (not deleted — audit trail is preserved), and re-evaluates gates for the target phase. Dispatches spawned in rolled-back phases are cancelled if still running.
 
-**Backlog rollback.** When the discovery pipeline auto-creates beads from a bad signal (noisy source, miscalibrated profile), the backlog needs cleanup. `ic discovery rollback --source=<source> --since=<timestamp>` identifies all beads created from discoveries by that source since the given time. It proposes closing them (with reason `rolled_back:discovery`) — the human confirms. Priority shifts and dependency suggestions triggered by rolled-back discoveries are also reverted.
+**Backlog rollback.** When the discovery pipeline auto-creates work items from a bad signal (noisy source, miscalibrated profile), the backlog needs cleanup. `ic discovery rollback --source=<source> --since=<timestamp>` identifies all work items created from discoveries by that source since the given time. It proposes closing them (with reason `rolled_back:discovery`) — the human confirms. Priority shifts and dependency suggestions triggered by rolled-back discoveries are also reverted.
 
 ### Rollback Audit Trail
 
@@ -543,7 +572,7 @@ The kernel provides primitives for tracking discoveries, scoring confidence, and
 | Primitive | What It Does |
 |---|---|
 | **Discovery records** | Durable storage for scored discoveries with embedding vectors, source metadata, and lifecycle state |
-| **Confidence scoring** | Embedding-based similarity against a learned profile vector, with configurable weight multipliers for source trust, keyword matches, recency, and capability gaps |
+| **Confidence scoring** | Stores a numeric confidence score (0.0–1.0) with provenance metadata. The kernel accepts scores from any caller — it does not define the scoring algorithm. Scoring algorithms (embedding similarity, weight multipliers, profile vectors) are OS policy |
 | **Confidence-tiered action gates** | Kernel-enforced thresholds that control which autonomy tier a discovery reaches — auto-execute, propose-to-human, log-only, or discard |
 | **Discovery events** | Typed events (`discovery.scanned`, `discovery.scored`, `discovery.promoted`, `discovery.proposed`, `discovery.dismissed`) that flow through the same event bus as phase and dispatch events |
 | **Backlog events** | Typed events (`backlog.refined`, `backlog.merged`, `backlog.submitted`, `backlog.prioritized`) for tracking how the backlog evolves from research signals |
@@ -560,7 +589,7 @@ The kernel enforces a confidence-gated autonomy model. Each discovery is scored 
 | **Low** | 0.3 – 0.5 | `discovery.scored` | v3 |
 | **Discard** | < 0.3 | Recorded with `discarded` status | v3 |
 
-The kernel enforces tier boundaries as gate invariants — the scoring model produces a number, the tier boundaries are configuration, and the kernel rejects promotions that violate tier constraints. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal. For the OS-level actions at each tier (bead creation, briefing docs, inbox notifications), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Discovery → Backlog Pipeline section.
+The kernel enforces tier boundaries as gate invariants — the scoring model produces a number, the tier boundaries are configuration, and the kernel rejects promotions that violate tier constraints. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal. For the OS-level actions at each tier (work item creation, briefing docs, inbox notifications), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Discovery → Backlog Pipeline section.
 
 > **Horizon note:** The discovery subsystem is planned for v3. The `discoveries` table, confidence scoring, and tier enforcement do not exist in the current kernel schema (v5). The table above describes the target design.
 
@@ -568,9 +597,9 @@ The kernel enforces tier boundaries as gate invariants — the scoring model pro
 
 The kernel provides two backlog enforcement mechanisms:
 
-**Dedup threshold enforcement.** When a new discovery arrives, its embedding is compared against all open backlog items (cosine similarity). If similarity exceeds a configurable threshold (default 0.85), the discovery is linked as additional evidence to the existing item rather than creating a new one. The dedup rate is tracked for OS-level analysis.
+**Dedup threshold enforcement.** When a new discovery arrives, the kernel compares its embedding against existing items using a configurable similarity threshold (provided by the OS at scan time). If similarity exceeds the threshold, the discovery is linked as additional evidence to the existing item rather than creating a new one. The dedup rate is tracked for OS-level analysis. The threshold value is OS policy, not a kernel default.
 
-**Staleness decay mechanism.** Discovery records that map to backlog items but are never promoted, never worked on, and receive no additional evidence decay in priority over time (configurable rate, default: one priority level per 30 days without activity). Decayed items that receive new evidence are re-evaluated — fresh signal reverses decay.
+**Staleness decay mechanism.** Discovery records that are never promoted and receive no activity can be decayed. The kernel provides a `decay` operation that the OS invokes with a rate parameter — decay is computed lazily at query time (virtual priority), not by a background process. The OS decides when to decay, at what rate, and whether fresh evidence reverses it.
 
 Additional backlog refinement (priority escalation, dependency suggestion, weekly digests, feedback loops) is OS-level policy. See the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) for the full discovery → backlog pipeline workflow, including source configuration, trigger modes, and backlog refinement rules.
 
@@ -688,8 +717,8 @@ The kernel doesn't know what any phase name means. It knows that phase 0 require
 | Horizon | Timeframe | What Success Looks Like |
 |---|---|---|
 | v1 | Current | Gates enforce real conditions. Events flow. Dispatches are tracked. The kernel is the system of record. |
-| v1.5 | 1-2 months | Big-bang hook cutover — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode (calls `ic run` alongside existing logic). Fully custom phase chains with sprint as default preset. API stability contract established for open-source readiness. Autarch merged into Interverse monorepo. |
-| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. Bigend migrated to kernel backend (read-only dashboard over `ic` state). Minimal `ic tui` subcommand using `pkg/tui` components. |
+| v1.5 | 1-2 months | Big-bang hook cutover — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode (calls `ic run` alongside existing logic). Fully custom phase chains (OS provides preset templates like sprint). API stability contract established for open-source readiness. Autarch merged into Interverse monorepo. |
+| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. Bigend migrated to kernel backend (read-only dashboard over `ic` state). Autarch status tool provides minimal TUI over kernel state (see [Autarch vision doc](autarch-vision.md)). |
 | v3 | 4-8 months | Interspect Phase 2-3 (correction events, retire own DB). Sandboxing Tier 1 (tool allowlists, multi-agent isolation). Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement runs as an event consumer. Code and backlog rollback. Cross-project event relay. Pollard migrated to kernel discovery pipeline. Gurgeh PRD generation backed by kernel runs. Installation guide and quickstart for community adopters. |
 | v4 | 8-14 months | Portfolio-level runs across multiple projects. Dependency graph awareness with auto-verification. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization. Coldwine task orchestration backed by kernel dispatches. Full Autarch TUI suite reads kernel state as single source of truth. The kernel orchestrates a fleet and knows what it should be working on next. |
 
