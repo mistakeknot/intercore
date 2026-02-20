@@ -61,7 +61,7 @@ func IsTerminalStatus(s string) bool {
 	return false
 }
 
-// DefaultPhaseChain is the 10-phase Clavain lifecycle.
+// DefaultPhaseChain is the 9-phase Clavain lifecycle.
 // Used when a run has no explicit phases column (NULL in DB).
 var DefaultPhaseChain = []string{
 	PhaseBrainstorm,
