@@ -218,4 +218,150 @@ func TestMaxEventIDs_EmptyTables(t *testing.T) {
 	if dispMax != 0 {
 		t.Errorf("MaxDispatchEventID on empty = %d, want 0", dispMax)
 	}
+
+	interspectMax, err := store.MaxInterspectEventID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if interspectMax != 0 {
+		t.Errorf("MaxInterspectEventID on empty = %d, want 0", interspectMax)
+	}
+}
+
+func TestAddInterspectEvent(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.AddInterspectEvent(ctx, "run001", "fd-safety", "correction", "agent_wrong", `{"detail":"wrong finding"}`, "sess-abc", "/tmp/project")
+	if err != nil {
+		t.Fatalf("AddInterspectEvent: %v", err)
+	}
+	if id < 1 {
+		t.Errorf("expected id >= 1, got %d", id)
+	}
+
+	// Verify via query
+	events, err := store.ListInterspectEvents(ctx, "fd-safety", 0, 100)
+	if err != nil {
+		t.Fatalf("ListInterspectEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.AgentName != "fd-safety" {
+		t.Errorf("AgentName = %q, want %q", e.AgentName, "fd-safety")
+	}
+	if e.EventType != "correction" {
+		t.Errorf("EventType = %q, want %q", e.EventType, "correction")
+	}
+	if e.OverrideReason != "agent_wrong" {
+		t.Errorf("OverrideReason = %q, want %q", e.OverrideReason, "agent_wrong")
+	}
+	if e.RunID != "run001" {
+		t.Errorf("RunID = %q, want %q", e.RunID, "run001")
+	}
+	if e.SessionID != "sess-abc" {
+		t.Errorf("SessionID = %q, want %q", e.SessionID, "sess-abc")
+	}
+}
+
+func TestAddInterspectEvent_OptionalFields(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	// All optional fields empty
+	id, err := store.AddInterspectEvent(ctx, "", "fd-quality", "agent_dispatch", "", "", "", "")
+	if err != nil {
+		t.Fatalf("AddInterspectEvent: %v", err)
+	}
+	if id < 1 {
+		t.Errorf("expected id >= 1, got %d", id)
+	}
+
+	events, err := store.ListInterspectEvents(ctx, "fd-quality", 0, 100)
+	if err != nil {
+		t.Fatalf("ListInterspectEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.RunID != "" {
+		t.Errorf("RunID should be empty, got %q", e.RunID)
+	}
+	if e.OverrideReason != "" {
+		t.Errorf("OverrideReason should be empty, got %q", e.OverrideReason)
+	}
+}
+
+func TestListInterspectEvents_FilterByAgent(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	store.AddInterspectEvent(ctx, "", "fd-safety", "correction", "agent_wrong", "", "", "")
+	store.AddInterspectEvent(ctx, "", "fd-quality", "correction", "agent_wrong", "", "", "")
+	store.AddInterspectEvent(ctx, "", "fd-safety", "agent_dispatch", "", "", "", "")
+
+	// Filter by fd-safety
+	events, err := store.ListInterspectEvents(ctx, "fd-safety", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Errorf("expected 2 fd-safety events, got %d", len(events))
+	}
+
+	// No filter — all events
+	all, err := store.ListInterspectEvents(ctx, "", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Errorf("expected 3 total events, got %d", len(all))
+	}
+}
+
+func TestListInterspectEvents_SinceCursor(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	store.AddInterspectEvent(ctx, "", "fd-safety", "correction", "", "", "", "")
+	store.AddInterspectEvent(ctx, "", "fd-safety", "correction", "", "", "", "")
+	store.AddInterspectEvent(ctx, "", "fd-safety", "correction", "", "", "", "")
+
+	all, err := store.ListInterspectEvents(ctx, "", 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3, got %d", len(all))
+	}
+
+	// Since first event — should get 2
+	filtered, err := store.ListInterspectEvents(ctx, "", all[0].ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 2 {
+		t.Errorf("expected 2 after cursor, got %d", len(filtered))
+	}
+}
+
+func TestMaxInterspectEventID(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	store.AddInterspectEvent(ctx, "", "fd-safety", "correction", "", "", "", "")
+	store.AddInterspectEvent(ctx, "", "fd-safety", "correction", "", "", "", "")
+
+	maxID, err := store.MaxInterspectEventID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxID != 2 {
+		t.Errorf("MaxInterspectEventID = %d, want 2", maxID)
+	}
 }

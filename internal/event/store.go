@@ -116,6 +116,88 @@ func (s *Store) MaxDispatchEventID(ctx context.Context) (int64, error) {
 	return id.Int64, nil
 }
 
+// AddInterspectEvent records a human correction or agent dispatch signal.
+func (s *Store) AddInterspectEvent(ctx context.Context, runID, agentName, eventType, overrideReason, contextJSON, sessionID, projectDir string) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO interspect_events (run_id, agent_name, event_type, override_reason, context_json, session_id, project_dir)
+		VALUES (NULLIF(?, ''), ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))`,
+		runID, agentName, eventType, overrideReason, contextJSON, sessionID, projectDir,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("add interspect event: %w", err)
+	}
+	return result.LastInsertId()
+}
+
+// ListInterspectEvents returns interspect events, optionally filtered by agent name.
+func (s *Store) ListInterspectEvents(ctx context.Context, agentName string, since int64, limit int) ([]InterspectEvent, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	var rows *sql.Rows
+	var err error
+	if agentName != "" {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, COALESCE(run_id, '') AS run_id, agent_name, event_type,
+				COALESCE(override_reason, '') AS override_reason,
+				COALESCE(context_json, '') AS context_json,
+				COALESCE(session_id, '') AS session_id,
+				COALESCE(project_dir, '') AS project_dir,
+				created_at
+			FROM interspect_events
+			WHERE agent_name = ? AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?`,
+			agentName, since, limit,
+		)
+	} else {
+		rows, err = s.db.QueryContext(ctx, `
+			SELECT id, COALESCE(run_id, '') AS run_id, agent_name, event_type,
+				COALESCE(override_reason, '') AS override_reason,
+				COALESCE(context_json, '') AS context_json,
+				COALESCE(session_id, '') AS session_id,
+				COALESCE(project_dir, '') AS project_dir,
+				created_at
+			FROM interspect_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?`,
+			since, limit,
+		)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list interspect events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []InterspectEvent
+	for rows.Next() {
+		var e InterspectEvent
+		var createdAt int64
+		if err := rows.Scan(&e.ID, &e.RunID, &e.AgentName, &e.EventType,
+			&e.OverrideReason, &e.ContextJSON, &e.SessionID, &e.ProjectDir, &createdAt); err != nil {
+			return nil, fmt.Errorf("interspect events scan: %w", err)
+		}
+		e.Timestamp = time.Unix(createdAt, 0)
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
+// MaxInterspectEventID returns the highest interspect_events.id (for cursor tracking).
+func (s *Store) MaxInterspectEventID(ctx context.Context) (int64, error) {
+	var id sql.NullInt64
+	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM interspect_events").Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if !id.Valid {
+		return 0, nil
+	}
+	return id.Int64, nil
+}
+
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	var events []Event
 	for rows.Next() {

@@ -161,7 +161,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 
 func cmdEventsCursor(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: events cursor: missing subcommand (list, reset)\n")
+		fmt.Fprintf(os.Stderr, "ic: events cursor: missing subcommand (list, reset, register)\n")
 		return 3
 	}
 
@@ -170,6 +170,8 @@ func cmdEventsCursor(ctx context.Context, args []string) int {
 		return cmdEventsCursorList(ctx)
 	case "reset":
 		return cmdEventsCursorReset(ctx, args[1:])
+	case "register":
+		return cmdEventsCursorRegister(ctx, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "ic: events cursor: unknown subcommand: %s\n", args[0])
 		return 3
@@ -229,6 +231,54 @@ func cmdEventsCursorReset(ctx context.Context, args []string) int {
 	return 0
 }
 
+func cmdEventsCursorRegister(ctx context.Context, args []string) int {
+	var durable bool
+	var positional []string
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--durable":
+			durable = true
+		default:
+			positional = append(positional, args[i])
+		}
+	}
+
+	if len(positional) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: events cursor register: usage: ic events cursor register <consumer> [--durable]\n")
+		return 3
+	}
+
+	consumer := positional[0]
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: events cursor register: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	stStore := state.New(d.SqlDB())
+
+	ttl := 24 * time.Hour
+	if durable {
+		ttl = 0
+	}
+
+	payload := `{"phase":0,"dispatch":0,"interspect":0}`
+	if err := stStore.Set(ctx, "cursor", consumer, json.RawMessage(payload), ttl); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: events cursor register: %v\n", err)
+		return 2
+	}
+
+	if durable {
+		fmt.Printf("registered %s (durable)\n", consumer)
+	} else {
+		fmt.Printf("registered %s (ttl: 24h)\n", consumer)
+	}
+	return 0
+}
+
 // --- cursor helpers ---
 
 func loadCursor(ctx context.Context, store *state.Store, consumer, scope string) (int64, int64) {
@@ -242,8 +292,9 @@ func loadCursor(ctx context.Context, store *state.Store, consumer, scope string)
 	}
 
 	var cursor struct {
-		Phase    int64 `json:"phase"`
-		Dispatch int64 `json:"dispatch"`
+		Phase      int64 `json:"phase"`
+		Dispatch   int64 `json:"dispatch"`
+		Interspect int64 `json:"interspect"`
 	}
 	if err := json.Unmarshal(payload, &cursor); err != nil {
 		return 0, 0
@@ -256,9 +307,18 @@ func saveCursor(ctx context.Context, store *state.Store, consumer, scope string,
 	if scope != "" {
 		key = consumer + ":" + scope
 	}
-	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d}`, phaseID, dispatchID)
-	// 24h TTL for auto-cleanup of abandoned cursors
-	if err := store.Set(ctx, "cursor", key, json.RawMessage(payload), 24*time.Hour); err != nil {
+	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d,"interspect":0}`, phaseID, dispatchID)
+	// Use existing TTL if cursor was registered as durable; otherwise default 24h
+	ttl := cursorTTL(ctx, store, key)
+	if err := store.Set(ctx, "cursor", key, json.RawMessage(payload), ttl); err != nil {
 		fmt.Fprintf(os.Stderr, "[event] saveCursor %s: %v\n", key, err)
 	}
+}
+
+// cursorTTL returns 0 (durable) if the cursor exists with no expiry, else 24h default.
+func cursorTTL(ctx context.Context, store *state.Store, key string) time.Duration {
+	if store.IsDurable(ctx, "cursor", key) {
+		return 0
+	}
+	return 24 * time.Hour
 }

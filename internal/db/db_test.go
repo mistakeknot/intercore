@@ -68,12 +68,12 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("SchemaVersion = %d, want 6", v)
+	if v != 7 {
+		t.Errorf("SchemaVersion = %d, want 7", v)
 	}
 
 	// Verify tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events", "interspect_events"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -137,8 +137,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 6", v)
+	if v != 7 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 7", v)
 	}
 }
 
@@ -237,8 +237,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("SchemaVersion = %d after v1→v6 migrate, want 6", v)
+	if v != 7 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 7", v)
 	}
 
 	// Verify dispatches table exists
@@ -316,8 +316,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("SchemaVersion = %d after v2→v6 migrate, want 6", v)
+	if v != 7 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 7", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -408,8 +408,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("SchemaVersion = %d after v3→v6 migrate, want 6", v)
+	if v != 7 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 7", v)
 	}
 
 	// Verify new tables exist
@@ -562,7 +562,7 @@ func TestMigrate_V5ToV6(t *testing.T) {
 
 	// Migrate to v6
 	if err := d.Migrate(ctx); err != nil {
-		t.Fatalf("Migrate v5→v6: %v", err)
+		t.Fatalf("Migrate v5→v7: %v", err)
 	}
 
 	// Verify version
@@ -570,8 +570,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("SchemaVersion = %d, want 6", v)
+	if v != 7 {
+		t.Errorf("SchemaVersion = %d, want 7", v)
 	}
 
 	// Verify new columns on runs
@@ -635,7 +635,7 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Errorf("SchemaVersion = %d, want 6", v)
+	if v != 7 {
+		t.Errorf("SchemaVersion = %d, want 7", v)
 	}
 }

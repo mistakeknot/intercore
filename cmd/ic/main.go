@@ -93,6 +93,8 @@ func main() {
 		exitCode = cmdGate(ctx, subArgs)
 	case "lock":
 		exitCode = cmdLock(ctx, subArgs)
+	case "interspect":
+		exitCode = cmdInterspect(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
 	default:
@@ -155,6 +157,8 @@ Commands:
   lock list                     List active locks
   lock stale [--older-than=<dur>]  List stale locks
   lock clean [--older-than=<dur>]  Remove stale locks
+  interspect record --agent=<name> --type=<type> [opts]  Record evidence event
+  interspect query [--agent=<name>] [--since=<id>]      Query evidence events
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 

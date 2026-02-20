@@ -129,3 +129,19 @@ CREATE TABLE IF NOT EXISTS dispatch_events (
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_dispatch ON dispatch_events(dispatch_id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_run ON dispatch_events(run_id) WHERE run_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_created ON dispatch_events(created_at);
+
+-- v7: interspect evidence events
+CREATE TABLE IF NOT EXISTS interspect_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT,
+    agent_name      TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    override_reason TEXT,
+    context_json    TEXT,
+    session_id      TEXT,
+    project_dir     TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_interspect_events_agent ON interspect_events(agent_name);
+CREATE INDEX IF NOT EXISTS idx_interspect_events_created ON interspect_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;

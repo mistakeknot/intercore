@@ -143,6 +143,18 @@ func (s *Store) List(ctx context.Context, key string) ([]string, error) {
 	return ids, rows.Err()
 }
 
+// IsDurable returns true if the entry exists with no expiration (TTL=0).
+func (s *Store) IsDurable(ctx context.Context, key, scopeID string) bool {
+	var expiresAt sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		"SELECT expires_at FROM state WHERE key = ? AND scope_id = ?",
+		key, scopeID).Scan(&expiresAt)
+	if err != nil {
+		return false
+	}
+	return !expiresAt.Valid // NULL expires_at = durable
+}
+
 // Prune deletes expired state rows.
 func (s *Store) Prune(ctx context.Context) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
