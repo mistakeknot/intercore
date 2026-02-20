@@ -117,6 +117,30 @@ ic run rollback <id> --layer=code --phase=executing   # Single phase
 ic run rollback <id> --layer=code --format=text       # Human-readable
 ```
 
+## Discovery Quick Reference
+
+```bash
+# Submit and list
+ic discovery submit --source=exa --source-id=abc --title="Finding" --score=0.7
+ic discovery status <id> [--json]
+ic discovery list [--source=<s>] [--status=<s>] [--tier=<t>] [--limit=N]
+
+# Lifecycle: score, promote, dismiss
+ic discovery score <id> --score=0.85
+ic discovery promote <id> --bead-id=<bid> [--force]
+ic discovery dismiss <id>
+
+# Feedback and profile
+ic discovery feedback <id> --signal=upvote [--data=@file] [--actor=user]
+ic discovery profile [--json]
+ic discovery profile update --keyword-weights=<json> --source-weights=<json>
+
+# Maintenance: decay old scores, rollback a source, semantic search
+ic discovery decay --rate=0.1 [--min-age=86400]
+ic discovery rollback --source=exa --since=<unix-ts>
+ic discovery search --embedding=@<file> [--source=<s>] [--min-score=0.5] [--limit=10]
+```
+
 ## Claude-Specific Settings
 
 - Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)

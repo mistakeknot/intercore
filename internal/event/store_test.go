@@ -75,7 +75,7 @@ func TestListEvents_MergesPhaseAndDispatch(t *testing.T) {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
 
-	events, err := store.ListEvents(ctx, "run001", 0, 0, 100)
+	events, err := store.ListEvents(ctx, "run001", 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestListEvents_SinceFiltering(t *testing.T) {
 	}
 
 	// Get all first
-	all, err := store.ListEvents(ctx, "run002", 0, 0, 100)
+	all, err := store.ListEvents(ctx, "run002", 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestListEvents_SinceFiltering(t *testing.T) {
 	}
 
 	// Get since first event — should return 2
-	filtered, err := store.ListEvents(ctx, "run002", all[0].ID, 0, 100)
+	filtered, err := store.ListEvents(ctx, "run002", all[0].ID, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents filtered: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestListEvents_DualCursorsIndependent(t *testing.T) {
 
 	// Advance dispatch cursor past both dispatch events, but leave phase cursor at 0
 	// This should still return both phase events
-	events, err := store.ListEvents(ctx, "run003", 0, 100, 100)
+	events, err := store.ListEvents(ctx, "run003", 0, 100, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -190,12 +190,84 @@ func TestListAllEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(events) != 2 {
 		t.Errorf("expected 2 events across runs, got %d", len(events))
+	}
+}
+
+func TestListAllEvents_IncludesDiscovery(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+
+	insertTestRun(t, d, "runD")
+
+	// Insert a phase event
+	_, err := d.SqlDB().ExecContext(ctx, `
+		INSERT INTO phase_events (run_id, from_phase, to_phase, event_type)
+		VALUES ('runD', 'brainstorm', 'strategized', 'advance')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a discovery event directly
+	_, err = d.SqlDB().ExecContext(ctx, `
+		INSERT INTO discovery_events (discovery_id, event_type, from_status, to_status, payload)
+		VALUES ('disc001', 'scored', '', 'new', '{"score":0.85}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+
+	sources := map[string]bool{}
+	for _, e := range events {
+		sources[e.Source] = true
+	}
+	if !sources[SourcePhase] {
+		t.Error("missing phase event")
+	}
+	if !sources[SourceDiscovery] {
+		t.Error("missing discovery event")
+	}
+}
+
+func TestMaxDiscoveryEventID(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	// Empty table
+	maxID, err := store.MaxDiscoveryEventID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxID != 0 {
+		t.Errorf("MaxDiscoveryEventID on empty = %d, want 0", maxID)
+	}
+
+	// Insert an event
+	_, err = store.db.ExecContext(ctx, `
+		INSERT INTO discovery_events (discovery_id, event_type, from_status, to_status)
+		VALUES ('disc001', 'submitted', '', 'new')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	maxID, err = store.MaxDiscoveryEventID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxID != 1 {
+		t.Errorf("MaxDiscoveryEventID = %d, want 1", maxID)
 	}
 }
 
@@ -225,6 +297,14 @@ func TestMaxEventIDs_EmptyTables(t *testing.T) {
 	}
 	if interspectMax != 0 {
 		t.Errorf("MaxInterspectEventID on empty = %d, want 0", interspectMax)
+	}
+
+	discoveryMax, err := store.MaxDiscoveryEventID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discoveryMax != 0 {
+		t.Errorf("MaxDiscoveryEventID on empty = %d, want 0", discoveryMax)
 	}
 }
 

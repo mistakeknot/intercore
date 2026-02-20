@@ -786,6 +786,115 @@ wrap_code=$(intercore_run_code_rollback "$COMP_RUN")
 
 echo "  E6 rollback tests passed"
 
+# --- E5: Discovery Pipeline ---
+echo ""
+echo "=== E5: Discovery Pipeline ==="
+
+# Submit a discovery
+DISC_ID=$(ic discovery submit --source=exa --source-id=exa-001 --title="Test discovery" --summary="A test" --url="https://example.com" --score=0.75 --db="$TEST_DB")
+[[ -n "$DISC_ID" ]] || fail "discovery submit returned empty ID"
+pass "discovery submit"
+
+# Status check
+disc_status=$(ic discovery status "$DISC_ID" --db="$TEST_DB")
+echo "$disc_status" | grep -q "exa" || fail "discovery status should show source 'exa'"
+pass "discovery status"
+
+# JSON status
+disc_json=$(ic discovery status "$DISC_ID" --json --db="$TEST_DB")
+echo "$disc_json" | grep -q '"status":"new"' || fail "discovery should be 'new', got: $disc_json"
+pass "discovery status --json"
+
+# List discoveries
+disc_list=$(ic discovery list --db="$TEST_DB")
+echo "$disc_list" | grep -q "$DISC_ID" || fail "discovery list should include submitted ID"
+pass "discovery list"
+
+# List with filters
+disc_filtered=$(ic discovery list --source=exa --status=new --tier=medium --db="$TEST_DB")
+echo "$disc_filtered" | grep -q "$DISC_ID" || fail "filtered list should include ID"
+pass "discovery list --source --status --tier"
+
+# Score a discovery
+ic discovery score "$DISC_ID" --score=0.9 --db="$TEST_DB" | grep -q "scored" || fail "discovery score"
+pass "discovery score"
+
+# Verify tier changed to high
+disc_scored=$(ic discovery status "$DISC_ID" --json --db="$TEST_DB")
+echo "$disc_scored" | grep -q '"confidence_tier":"high"' || fail "scored discovery should be high tier, got: $disc_scored"
+pass "discovery score tier update"
+
+# Promote a discovery
+ic discovery promote "$DISC_ID" --bead-id=iv-test1 --db="$TEST_DB" | grep -q "promoted" || fail "discovery promote"
+disc_promoted=$(ic discovery status "$DISC_ID" --json --db="$TEST_DB")
+echo "$disc_promoted" | grep -q '"status":"promoted"' || fail "promoted discovery should have status=promoted"
+pass "discovery promote"
+
+# Promote already-promoted is idempotent (returns success)
+ic discovery promote "$DISC_ID" --bead-id=iv-test2 --db="$TEST_DB" >/dev/null
+pass "discovery promote (idempotent on re-promote)"
+
+# Submit and dismiss
+DISC_ID2=$(ic discovery submit --source=exa --source-id=exa-002 --title="Dismissable" --score=0.4 --db="$TEST_DB")
+ic discovery dismiss "$DISC_ID2" --db="$TEST_DB" | grep -q "dismissed" || fail "discovery dismiss"
+pass "discovery dismiss"
+
+# Score dismissed should fail
+ic discovery score "$DISC_ID2" --score=0.8 --db="$TEST_DB" 2>/dev/null && fail "score dismissed should fail" || true
+pass "discovery score (dismissed rejected)"
+
+# Promote dismissed should fail even with --force
+ic discovery promote "$DISC_ID2" --bead-id=iv-test3 --force --db="$TEST_DB" 2>/dev/null && fail "promote dismissed should fail" || true
+pass "discovery promote (dismissed blocked even with --force)"
+
+# Submit duplicate source_id should fail
+ic discovery submit --source=exa --source-id=exa-001 --title="Duplicate" --db="$TEST_DB" 2>/dev/null && fail "duplicate source should fail" || true
+pass "discovery submit (duplicate rejected)"
+
+# Feedback
+ic discovery feedback "$DISC_ID" --signal=upvote --actor=user --db="$TEST_DB" | grep -q "feedback recorded" || fail "discovery feedback"
+pass "discovery feedback"
+
+# Profile (should return default empty profile)
+profile_out=$(ic discovery profile --json --db="$TEST_DB")
+echo "$profile_out" | grep -q "keyword_weights" || fail "profile should have keyword_weights"
+pass "discovery profile"
+
+# Profile update
+ic discovery profile update --keyword-weights='{"ai":1.5}' --source-weights='{"exa":2.0}' --db="$TEST_DB" | grep -q "profile updated" || fail "profile update"
+pass "discovery profile update"
+
+# Verify profile update
+profile_updated=$(ic discovery profile --json --db="$TEST_DB")
+echo "$profile_updated" | grep -q "ai" || fail "profile should contain updated keyword"
+pass "discovery profile update verified"
+
+# Decay (submit a fresh one, then decay)
+DISC_ID3=$(ic discovery submit --source=exa --source-id=exa-003 --title="Decayable" --score=0.6 --db="$TEST_DB")
+# Backdate to make it eligible for decay (min-age=0 to bypass age check)
+decay_out=$(ic discovery decay --rate=0.1 --min-age=0 --db="$TEST_DB")
+echo "$decay_out" | grep -q "decayed" || fail "decay should report count"
+pass "discovery decay"
+
+# Rollback
+DISC_ID4=$(ic discovery submit --source=rollback-src --source-id=rb-001 --title="Rollback test" --score=0.5 --db="$TEST_DB")
+DISC_ID5=$(ic discovery submit --source=rollback-src --source-id=rb-002 --title="Rollback test 2" --score=0.5 --db="$TEST_DB")
+rollback_count=$(ic discovery rollback --source=rollback-src --since=0 --db="$TEST_DB")
+[[ "$rollback_count" -eq 2 ]] || fail "rollback should dismiss 2 discoveries, got: $rollback_count"
+pass "discovery rollback"
+
+# Verify rolled back discoveries are dismissed
+rb_status=$(ic discovery status "$DISC_ID4" --json --db="$TEST_DB")
+echo "$rb_status" | grep -q '"status":"dismissed"' || fail "rolled-back discovery should be dismissed"
+pass "discovery rollback status verified"
+
+# Event bus integration — discovery events should appear in unified stream
+EVT_DISC_OUTPUT=$(ic --db="$TEST_DB" events tail --all)
+echo "$EVT_DISC_OUTPUT" | grep -q '"source":"discovery"' || fail "events tail should include discovery events"
+pass "discovery events in unified event bus"
+
+echo "  E5 discovery tests passed"
+
 # --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then

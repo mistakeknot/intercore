@@ -95,6 +95,8 @@ func main() {
 		exitCode = cmdLock(ctx, subArgs)
 	case "interspect":
 		exitCode = cmdInterspect(ctx, subArgs)
+	case "discovery":
+		exitCode = cmdDiscovery(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
 	default:
@@ -159,6 +161,18 @@ Commands:
   lock clean [--older-than=<dur>]  Remove stale locks
   interspect record --agent=<name> --type=<type> [opts]  Record evidence event
   interspect query [--agent=<name>] [--since=<id>]      Query evidence events
+  discovery submit [opts]       Submit a discovery (--source, --source-id, --title required)
+  discovery status <id>         Show discovery details
+  discovery list [opts]         List discoveries (--source, --status, --tier, --limit)
+  discovery score <id> --score=<0.0-1.0>  Score a discovery
+  discovery promote <id> --bead-id=<bid> [--force]  Promote to bead
+  discovery dismiss <id>        Dismiss a discovery
+  discovery feedback <id> --signal=<type> [--data=@file] [--actor=<name>]
+  discovery profile             Show interest profile
+  discovery profile update --keyword-weights=<json> --source-weights=<json>
+  discovery decay --rate=<0.0-1.0> [--min-age=<sec>]  Decay old scores
+  discovery rollback --source=<s> --since=<ts>  Rollback source discoveries
+  discovery search --embedding=@<file> [opts]  Semantic search
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 

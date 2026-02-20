@@ -7,6 +7,7 @@ const (
 	SourcePhase      = "phase"
 	SourceDispatch   = "dispatch"
 	SourceInterspect = "interspect"
+	SourceDiscovery  = "discovery"
 )
 
 // InterspectEvent represents a human correction or agent dispatch signal.
