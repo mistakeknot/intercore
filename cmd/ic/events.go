@@ -33,7 +33,7 @@ func cmdEvents(ctx context.Context, args []string) int {
 func cmdEventsTail(ctx context.Context, args []string) int {
 	var runID, consumer string
 	var follow bool
-	var sincePhase, sinceDispatch, sinceDiscovery int64
+	var sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery int64
 	var allRuns bool
 	pollInterval := 500 * time.Millisecond
 	limit := 100
@@ -113,7 +113,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 
 	// Restore cursor if consumer is named
 	if consumer != "" && sincePhase == 0 && sinceDispatch == 0 && sinceDiscovery == 0 {
-		sincePhase, sinceDispatch, sinceDiscovery = loadCursor(ctx, stStore, consumer, runID)
+		sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery = loadCursor(ctx, stStore, consumer, runID)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -153,7 +153,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 
 		// Save cursor after each batch (skip on encode error to avoid advancing past undelivered events)
 		if consumer != "" && len(events) > 0 && !encodeErr {
-			saveCursor(ctx, stStore, consumer, runID, sincePhase, sinceDispatch, sinceDiscovery)
+			saveCursor(ctx, stStore, consumer, runID, sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery)
 		}
 
 		if encodeErr {
@@ -292,14 +292,14 @@ func cmdEventsCursorRegister(ctx context.Context, args []string) int {
 
 // --- cursor helpers ---
 
-func loadCursor(ctx context.Context, store *state.Store, consumer, scope string) (int64, int64, int64) {
+func loadCursor(ctx context.Context, store *state.Store, consumer, scope string) (phase, dispatch, interspect, discovery int64) {
 	key := consumer
 	if scope != "" {
 		key = consumer + ":" + scope
 	}
 	payload, err := store.Get(ctx, "cursor", key)
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	var cursor struct {
@@ -309,17 +309,17 @@ func loadCursor(ctx context.Context, store *state.Store, consumer, scope string)
 		Discovery  int64 `json:"discovery"`
 	}
 	if err := json.Unmarshal(payload, &cursor); err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
-	return cursor.Phase, cursor.Dispatch, cursor.Discovery
+	return cursor.Phase, cursor.Dispatch, cursor.Interspect, cursor.Discovery
 }
 
-func saveCursor(ctx context.Context, store *state.Store, consumer, scope string, phaseID, dispatchID, discoveryID int64) {
+func saveCursor(ctx context.Context, store *state.Store, consumer, scope string, phaseID, dispatchID, interspectID, discoveryID int64) {
 	key := consumer
 	if scope != "" {
 		key = consumer + ":" + scope
 	}
-	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d,"interspect":0,"discovery":%d}`, phaseID, dispatchID, discoveryID)
+	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d,"interspect":%d,"discovery":%d}`, phaseID, dispatchID, interspectID, discoveryID)
 	// Use existing TTL if cursor was registered as durable; otherwise default 24h
 	ttl := cursorTTL(ctx, store, key)
 	if err := store.Set(ctx, "cursor", key, json.RawMessage(payload), ttl); err != nil {

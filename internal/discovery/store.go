@@ -365,6 +365,9 @@ func (s *Store) Dismiss(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("dismiss: lookup: %w", err)
 	}
+	if status == StatusDismissed {
+		return nil // already dismissed, idempotent
+	}
 
 	now := nowUnix()
 	_, err = tx.ExecContext(ctx,
@@ -464,18 +467,24 @@ func (s *Store) UpdateProfile(ctx context.Context, topicVector []byte, keywordWe
 
 // Decay applies multiplicative decay to active discoveries older than minAgeSec.
 // Tier is recomputed in Go via TierFromScore to avoid SQL parameter binding issues.
+// SELECT + UPDATE run in a single transaction to prevent TOCTOU races with Promote/Dismiss.
 func (s *Store) Decay(ctx context.Context, rate float64, minAgeSec int64) (int, error) {
 	cutoff := nowUnix() - minAgeSec
 
-	// Load eligible discoveries
-	rows, err := s.db.QueryContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("decay: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Load eligible discoveries inside the transaction
+	rows, err := tx.QueryContext(ctx,
 		`SELECT id, relevance_score FROM discoveries
 		 WHERE discovered_at < ? AND status NOT IN ('dismissed', 'promoted')`,
 		cutoff)
 	if err != nil {
 		return 0, fmt.Errorf("decay: query: %w", err)
 	}
-	defer rows.Close()
 
 	type target struct {
 		id    string
@@ -485,6 +494,7 @@ func (s *Store) Decay(ctx context.Context, rate float64, minAgeSec int64) (int, 
 	for rows.Next() {
 		var t target
 		if err := rows.Scan(&t.id, &t.score); err != nil {
+			rows.Close()
 			return 0, fmt.Errorf("decay: scan: %w", err)
 		}
 		targets = append(targets, t)
@@ -495,13 +505,7 @@ func (s *Store) Decay(ctx context.Context, rate float64, minAgeSec int64) (int, 
 		return 0, nil
 	}
 
-	// Apply decay and recompute tier in Go, write back in a single transaction
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("decay: begin: %w", err)
-	}
-	defer tx.Rollback()
-
+	// Apply decay and recompute tier in Go, write back in same transaction
 	for _, t := range targets {
 		newScore := t.score * (1.0 - rate)
 		newTier := TierFromScore(newScore)

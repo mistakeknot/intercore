@@ -27,7 +27,7 @@ type InterspectEvent struct {
 type Event struct {
 	ID        int64     `json:"id"`
 	RunID     string    `json:"run_id"`
-	Source    string    `json:"source"`     // "phase" or "dispatch"
+	Source    string    `json:"source"`     // "phase", "dispatch", or "discovery"
 	Type      string    `json:"type"`       // "advance", "skip", "block", "status_change", etc.
 	FromState string    `json:"from_state"` // from_phase or from_status
 	ToState   string    `json:"to_state"`   // to_phase or to_status

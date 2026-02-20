@@ -199,6 +199,43 @@ func TestListAllEvents(t *testing.T) {
 	}
 }
 
+func TestListEvents_ExcludesDiscovery(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+
+	insertTestRun(t, d, "runExcl")
+
+	// Insert a phase event for this run
+	_, err := d.SqlDB().ExecContext(ctx, `
+		INSERT INTO phase_events (run_id, from_phase, to_phase, event_type)
+		VALUES ('runExcl', 'brainstorm', 'strategized', 'advance')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a discovery event (system-level, no run association)
+	_, err = d.SqlDB().ExecContext(ctx, `
+		INSERT INTO discovery_events (discovery_id, event_type, from_status, to_status, payload)
+		VALUES ('disc-excl', 'scored', '', 'new', '{"score":0.5}')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Run-scoped ListEvents should NOT include discovery events
+	events, err := store.ListEvents(ctx, "runExcl", 0, 0, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Source == SourceDiscovery {
+			t.Error("run-scoped ListEvents should not include discovery events")
+		}
+	}
+	if len(events) != 1 {
+		t.Errorf("expected 1 event (phase only), got %d", len(events))
+	}
+}
+
 func TestListAllEvents_IncludesDiscovery(t *testing.T) {
 	store, d := setupTestStore(t)
 	ctx := context.Background()

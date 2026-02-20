@@ -160,8 +160,10 @@ func cmdDiscoveryStatus(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		data, _ := json.Marshal(disc)
-		fmt.Println(string(data))
+		if err := json.NewEncoder(os.Stdout).Encode(disc); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: discovery status: encode: %v\n", err)
+			return 2
+		}
 	} else {
 		fmt.Printf("%s\t%s\t%s\t%s\t%.2f\t%s\n", disc.ID, disc.Source, disc.Title, disc.Status, disc.RelevanceScore, disc.ConfidenceTier)
 	}
@@ -212,8 +214,10 @@ func cmdDiscoveryList(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		data, _ := json.Marshal(results)
-		fmt.Println(string(data))
+		if err := json.NewEncoder(os.Stdout).Encode(results); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: discovery list: encode: %v\n", err)
+			return 2
+		}
 	} else {
 		for _, r := range results {
 			fmt.Printf("%s\t%s\t%s\t%s\t%.2f\t%s\n", r.ID, r.Source, r.Title, r.Status, r.RelevanceScore, r.ConfidenceTier)
@@ -390,8 +394,10 @@ func cmdDiscoveryProfile(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		data, _ := json.Marshal(p)
-		fmt.Println(string(data))
+		if err := json.NewEncoder(os.Stdout).Encode(p); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: discovery profile: encode: %v\n", err)
+			return 2
+		}
 	} else {
 		fmt.Printf("keyword_weights: %s\nsource_weights: %s\nupdated_at: %d\n", p.KeywordWeights, p.SourceWeights, p.UpdatedAt)
 	}
@@ -601,8 +607,10 @@ func cmdDiscoverySearch(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		data, _ := json.Marshal(results)
-		fmt.Println(string(data))
+		if err := json.NewEncoder(os.Stdout).Encode(results); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: discovery search: encode: %v\n", err)
+			return 2
+		}
 	} else {
 		for _, r := range results {
 			fmt.Printf("%s\t%s\t%s\t%.2f\t%.4f\t%s\n", r.ID, r.Source, r.Title, r.RelevanceScore, r.Similarity, r.ConfidenceTier)

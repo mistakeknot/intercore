@@ -38,6 +38,10 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 		limit = 1000
 	}
 
+	// Note: discovery_events are system-level (no run_id column) and excluded
+	// from run-scoped queries. Use ListAllEvents for cross-run streams including
+	// discovery events. The sinceDiscoveryID param is accepted but unused here
+	// to keep the signature aligned with ListAllEvents.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
 			COALESCE(reason, '') AS reason, created_at
@@ -48,17 +52,10 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 			from_status, to_status, COALESCE(reason, '') AS reason, created_at
 		FROM dispatch_events
 		WHERE (run_id = ? OR ? = '') AND id > ?
-		UNION ALL
-		-- discovery_events: discovery_id AS run_id is for column alignment only
-		SELECT id, COALESCE(discovery_id, '') AS run_id, 'discovery' AS source, event_type,
-			from_status, to_status, COALESCE(payload, '{}') AS reason, created_at
-		FROM discovery_events
-		WHERE id > ?
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
 		runID, sincePhaseID,
 		runID, runID, sinceDispatchID,
-		sinceDiscoveryID,
 		limit,
 	)
 	if err != nil {
