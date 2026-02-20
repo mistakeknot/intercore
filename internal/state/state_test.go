@@ -246,6 +246,48 @@ func TestValidatePayload_LongArray(t *testing.T) {
 	}
 }
 
+func TestValidateKey_Valid(t *testing.T) {
+	valid := []string{
+		"dispatch",
+		"checkpoint",
+		"sprint.checkpoint",
+		"events.cursor",
+		"discovery_brief",
+		"interlock.reservation",
+		"os.clavain.session",
+		"my-plugin.config",
+		"a",
+	}
+	for _, k := range valid {
+		if err := ValidateKey(k); err != nil {
+			t.Errorf("ValidateKey(%q) = %v, want nil", k, err)
+		}
+	}
+}
+
+func TestValidateKey_Invalid(t *testing.T) {
+	cases := []struct {
+		key  string
+		desc string
+	}{
+		{"", "empty key"},
+		{"Dispatch", "uppercase"},
+		{"DISPATCH", "all uppercase"},
+		{"dispatch key", "contains space"},
+		{".leading-dot", "leading dot"},
+		{"123-starts-with-number", "leading digit"},
+		{"dispatch/traversal", "contains slash"},
+		{"dispatch;injection", "contains semicolon"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.desc, func(t *testing.T) {
+			if err := ValidateKey(tc.key); err == nil {
+				t.Errorf("ValidateKey(%q) = nil, want error (%s)", tc.key, tc.desc)
+			}
+		})
+	}
+}
+
 func TestValidatePayload_RejectsSecrets(t *testing.T) {
 	cases := []struct {
 		name    string

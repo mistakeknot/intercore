@@ -505,6 +505,11 @@ func cmdStateSet(ctx context.Context, args []string) int {
 	key := positional[0]
 	scopeID := positional[1]
 
+	if err := state.ValidateKey(key); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: state set: %v\n", err)
+		return 2
+	}
+
 	var ttl time.Duration
 	if ttlStr != "" {
 		var err error
@@ -577,6 +582,11 @@ func cmdStateGet(ctx context.Context, args []string) int {
 		return 3
 	}
 
+	if err := state.ValidateKey(args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: state get: %v\n", err)
+		return 2
+	}
+
 	d, err := openDB()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: state get: %v\n", err)
@@ -602,6 +612,11 @@ func cmdStateDelete(ctx context.Context, args []string) int {
 	if len(args) < 2 {
 		fmt.Fprintf(os.Stderr, "ic: state delete: usage: ic state delete <key> <scope_id>\n")
 		return 3
+	}
+
+	if err := state.ValidateKey(args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: state delete: %v\n", err)
+		return 2
 	}
 
 	d, err := openDB()
@@ -630,6 +645,11 @@ func cmdStateList(ctx context.Context, args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: state list: usage: ic state list <key>\n")
 		return 3
+	}
+
+	if err := state.ValidateKey(args[0]); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: state list: %v\n", err)
+		return 2
 	}
 
 	d, err := openDB()

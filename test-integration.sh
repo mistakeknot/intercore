@@ -65,6 +65,16 @@ pass "state get after delete returns not-found"
 printf '%s\n' '{"token":"sk-abc1234567890abcdefghijklmnop"}' | ic state set dispatch secret-test --db="$TEST_DB" 2>/dev/null && fail "secret value accepted" || true
 pass "secret value rejected"
 
+# Namespace key validation — keys must be lowercase with valid format
+printf '%s\n' '{"x":1}' | ic state set "INVALID_KEY" test-session --db="$TEST_DB" 2>/dev/null && fail "uppercase key accepted" || true
+pass "uppercase key rejected"
+
+printf '%s\n' '{"x":1}' | ic state set "valid.key" test-session --db="$TEST_DB" 2>/dev/null
+pass "dotted key accepted"
+
+# Clean up the dotted key
+ic state delete "valid.key" test-session --db="$TEST_DB" >/dev/null 2>&1 || true
+
 echo "=== Sentinel Operations ==="
 ic sentinel check stop test-session --interval=0 --db="$TEST_DB" >/dev/null
 pass "sentinel check (first = allowed)"

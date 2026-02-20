@@ -22,6 +22,26 @@ const (
 
 var ErrNotFound = errors.New("not found")
 
+// validKeyPattern matches keys with an optional namespace prefix.
+// Format: "namespace" or "namespace.subkey" where namespace is lowercase
+// alphanumeric + hyphens, and subkey can contain dots/underscores.
+var validKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*(\.[a-z0-9_.:-]+)*$`)
+
+// ValidateKey checks that a state key follows the namespace convention.
+// Keys must be lowercase with an alphanumeric namespace prefix.
+func ValidateKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("key must not be empty")
+	}
+	if len(key) > 200 {
+		return fmt.Errorf("key too long: %d chars (max 200)", len(key))
+	}
+	if !validKeyPattern.MatchString(key) {
+		return fmt.Errorf("invalid key %q: must be lowercase alphanumeric with optional dot-separated segments (e.g., 'dispatch', 'sprint.checkpoint')", key)
+	}
+	return nil
+}
+
 // Store provides state operations against the intercore DB.
 type Store struct {
 	db *sql.DB
@@ -34,6 +54,9 @@ func New(db *sql.DB) *Store {
 
 // Set writes a state entry. TTL of 0 means no expiration.
 func (s *Store) Set(ctx context.Context, key, scopeID string, payload json.RawMessage, ttl time.Duration) error {
+	if err := ValidateKey(key); err != nil {
+		return err
+	}
 	if err := ValidatePayload(payload); err != nil {
 		return err
 	}
