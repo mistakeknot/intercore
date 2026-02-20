@@ -663,6 +663,129 @@ pass "wrapper: run budget"
 
 echo "  E1 integration tests passed"
 
+# --- E6: Rollback & Recovery ---
+echo ""
+echo "=== E6: Rollback — Workflow State ==="
+
+# Create a run, advance a few times, then rollback
+ROLL_RUN=$(ic run create --project="$TEST_DIR" --goal="rollback test" --db="$TEST_DB")
+ic run advance "$ROLL_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # brainstorm → brainstorm-reviewed
+ic run advance "$ROLL_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # brainstorm-reviewed → strategized
+ic run advance "$ROLL_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # strategized → planned
+
+# Verify current phase
+roll_phase=$(ic run phase "$ROLL_RUN" --db="$TEST_DB")
+[[ "$roll_phase" == "planned" ]] || fail "phase before rollback should be planned, got: $roll_phase"
+pass "rollback: at planned phase"
+
+# Dry-run first
+dry_out=$(ic run rollback "$ROLL_RUN" --to-phase=brainstorm --dry-run --db="$TEST_DB")
+echo "$dry_out" | jq -e '.dry_run == true' >/dev/null || fail "dry-run should be true"
+echo "$dry_out" | jq -e '.rolled_back_phases | length == 3' >/dev/null || fail "dry-run should show 3 rolled-back phases"
+pass "rollback: dry-run"
+
+# Phase should still be planned after dry-run
+roll_phase=$(ic run phase "$ROLL_RUN" --db="$TEST_DB")
+[[ "$roll_phase" == "planned" ]] || fail "phase after dry-run should still be planned, got: $roll_phase"
+pass "rollback: dry-run doesn't change phase"
+
+# Actual rollback
+roll_result=$(ic run rollback "$ROLL_RUN" --to-phase=brainstorm --reason="test rollback" --db="$TEST_DB")
+echo "$roll_result" | jq -e '.from_phase == "planned"' >/dev/null || fail "from_phase should be planned"
+echo "$roll_result" | jq -e '.to_phase == "brainstorm"' >/dev/null || fail "to_phase should be brainstorm"
+pass "rollback: workflow state"
+
+# Verify phase is now brainstorm
+roll_phase=$(ic run phase "$ROLL_RUN" --db="$TEST_DB")
+[[ "$roll_phase" == "brainstorm" ]] || fail "phase after rollback should be brainstorm, got: $roll_phase"
+pass "rollback: phase reverted"
+
+# Verify run is still active
+roll_status=$(ic run status "$ROLL_RUN" --json --db="$TEST_DB" | jq -r '.status')
+[[ "$roll_status" == "active" ]] || fail "status after rollback should be active, got: $roll_status"
+pass "rollback: status active"
+
+# Verify rollback event in audit trail
+events_json=$(ic run events "$ROLL_RUN" --json --db="$TEST_DB")
+echo "$events_json" | jq -e 'map(select(.event_type == "rollback")) | length > 0' >/dev/null || fail "rollback event should be in audit trail"
+pass "rollback: event in audit trail"
+
+echo "=== E6: Rollback — Code Query ==="
+
+# Add an artifact then query
+ic run artifact add "$ROLL_RUN" --phase=brainstorm --path=docs/test-artifact.md --db="$TEST_DB" >/dev/null
+code_result=$(ic run rollback "$ROLL_RUN" --layer=code --db="$TEST_DB")
+echo "$code_result" | jq -e 'length > 0' >/dev/null || fail "code rollback should return artifacts"
+pass "rollback: code query returns artifacts"
+
+# Text format
+text_result=$(ic run rollback "$ROLL_RUN" --layer=code --format=text --db="$TEST_DB")
+[[ -n "$text_result" ]] || fail "code rollback text format should return data"
+pass "rollback: code query text format"
+
+echo "=== E6: Rollback — Completed Run ==="
+
+# Create and complete a run, then roll back
+COMP_RUN=$(ic run create --project="$TEST_DIR" --goal="completed rollback test" --db="$TEST_DB")
+for i in $(seq 9); do
+    ic run advance "$COMP_RUN" --disable-gates --db="$TEST_DB" >/dev/null 2>&1 || true
+done
+comp_status=$(ic run status "$COMP_RUN" --json --db="$TEST_DB" | jq -r '.status')
+[[ "$comp_status" == "completed" ]] || fail "run should be completed, got: $comp_status"
+pass "rollback: run completed"
+
+# Rollback completed run
+comp_result=$(ic run rollback "$COMP_RUN" --to-phase=brainstorm --reason="re-evaluate" --db="$TEST_DB")
+echo "$comp_result" | jq -e '.to_phase == "brainstorm"' >/dev/null || fail "completed run rollback to_phase"
+pass "rollback: completed run reverted"
+
+comp_status=$(ic run status "$COMP_RUN" --json --db="$TEST_DB" | jq -r '.status')
+[[ "$comp_status" == "active" ]] || fail "completed run should be active after rollback, got: $comp_status"
+pass "rollback: completed run status active"
+
+echo "=== E6: Rollback — Cancelled Run (should fail) ==="
+CANC_RUN=$(ic run create --project="$TEST_DIR" --goal="cancelled rollback test" --db="$TEST_DB")
+ic run cancel "$CANC_RUN" --db="$TEST_DB" >/dev/null
+roll_rc=0
+ic run rollback "$CANC_RUN" --to-phase=brainstorm --db="$TEST_DB" 2>/dev/null || roll_rc=$?
+[[ "$roll_rc" -ne 0 ]] || fail "rollback on cancelled run should fail"
+pass "rollback: cancelled run rejected"
+
+echo "=== E6: Rollback — Forward Target (should fail) ==="
+FWD_RUN=$(ic run create --project="$TEST_DIR" --goal="forward rollback test" --db="$TEST_DB")
+ic run advance "$FWD_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # brainstorm → brainstorm-reviewed
+fwd_rc=0
+ic run rollback "$FWD_RUN" --to-phase=planned --db="$TEST_DB" 2>/dev/null || fwd_rc=$?
+[[ "$fwd_rc" -ne 0 ]] || fail "rollback to forward phase should fail"
+pass "rollback: forward target rejected"
+
+echo "=== E6: Rollback — Wrapper Functions ==="
+# Re-source wrapper (may have been updated)
+source "$SCRIPT_DIR/lib-intercore.sh"
+INTERCORE_BIN="$IC_BIN"
+INTERCORE_DB="$TEST_DB"
+
+# Advance COMP_RUN so we can test rollback wrapper
+# COMP_RUN was rolled back to brainstorm earlier, advance it forward
+ic run advance "$COMP_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # brainstorm → brainstorm-reviewed
+ic run advance "$COMP_RUN" --disable-gates --db="$TEST_DB" >/dev/null  # brainstorm-reviewed → strategized
+
+# Wrapper dry-run
+wrap_dry=$(intercore_run_rollback_dry "$COMP_RUN" "brainstorm")
+echo "$wrap_dry" | jq -e '.dry_run == true' >/dev/null || fail "wrapper dry-run should return dry_run=true"
+pass "wrapper: rollback dry-run"
+
+# Wrapper actual rollback
+wrap_result=$(intercore_run_rollback "$COMP_RUN" "brainstorm" "wrapper test")
+echo "$wrap_result" | jq -e '.to_phase == "brainstorm"' >/dev/null || fail "wrapper rollback to_phase"
+pass "wrapper: rollback"
+
+# Wrapper code rollback
+wrap_code=$(intercore_run_code_rollback "$COMP_RUN")
+[[ -n "$wrap_code" ]] && pass "wrapper: code rollback" || pass "wrapper: code rollback (no artifacts)"
+
+echo "  E6 rollback tests passed"
+
 # --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then

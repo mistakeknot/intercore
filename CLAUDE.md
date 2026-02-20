@@ -104,6 +104,19 @@ ic events cursor reset <consumer>           # Reset cursor to replay from start
 # Options: --since-phase=N --since-dispatch=N --limit=100 --poll-interval=500ms
 ```
 
+## Rollback Quick Reference
+
+```bash
+# Workflow rollback — rewind to a prior phase
+ic run rollback <id> --to-phase=<phase> --reason="why"
+ic run rollback <id> --to-phase=<phase> --dry-run    # Preview only
+
+# Code rollback — query dispatch/artifact metadata
+ic run rollback <id> --layer=code                     # All phases (JSON)
+ic run rollback <id> --layer=code --phase=executing   # Single phase
+ic run rollback <id> --layer=code --format=text       # Human-readable
+```
+
 ## Claude-Specific Settings
 
 - Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)

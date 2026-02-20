@@ -6,7 +6,7 @@
 # Source in hooks: source "$(dirname "$0")/lib-intercore.sh"
 # shellcheck shell=bash
 
-INTERCORE_WRAPPER_VERSION="0.6.0"
+INTERCORE_WRAPPER_VERSION="1.1.0"
 
 # Shared sentinel for Stop hook anti-cascade protocol.
 # All Stop hooks MUST check this sentinel before doing work to prevent
@@ -464,5 +464,42 @@ intercore_dispatch_tokens() {
     if ! intercore_available; then return 1; fi
     local args=(dispatch tokens "$dispatch_id" --in="$tokens_in" --out="$tokens_out")
     [[ -n "$cache_hits" ]] && args+=(--cache="$cache_hits")
+    "$INTERCORE_BIN" "${args[@]}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# --- E6: Rollback wrappers ---
+
+# intercore_run_rollback — Roll back a run to a prior phase.
+# Args: $1=run_id, $2=target_phase, $3=reason (optional)
+# Prints: JSON with from_phase, to_phase, rolled_back_phases, cancelled_dispatches, marked_artifacts
+# Returns: 0=success, 1=failure (not found, invalid target, terminal)
+intercore_run_rollback() {
+    local run_id="$1" target_phase="$2" reason="${3:-}"
+    if ! intercore_available; then return 1; fi
+    local args=(run rollback "$run_id" --to-phase="$target_phase")
+    [[ -n "$reason" ]] && args+=(--reason="$reason")
+    "$INTERCORE_BIN" "${args[@]}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_rollback_dry — Preview what a rollback would do.
+# Args: $1=run_id, $2=target_phase
+# Prints: JSON with dry_run=true, from_phase, to_phase, rolled_back_phases
+# Returns: 0=success, 1=invalid
+intercore_run_rollback_dry() {
+    local run_id="$1" target_phase="$2"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" run rollback "$run_id" --to-phase="$target_phase" --dry-run \
+        ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_code_rollback — Query dispatch metadata for code rollback.
+# Args: $1=run_id, $2=phase (optional, filters to single phase)
+# Prints: JSON array of {dispatch_id, dispatch_name, phase, path, content_hash, type}
+# Returns: 0=success, 1=failure
+intercore_run_code_rollback() {
+    local run_id="$1" filter_phase="${2:-}"
+    if ! intercore_available; then return 1; fi
+    local args=(run rollback "$run_id" --layer=code)
+    [[ -n "$filter_phase" ]] && args+=(--phase="$filter_phase")
     "$INTERCORE_BIN" "${args[@]}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
 }

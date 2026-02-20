@@ -315,6 +315,51 @@ func (s *Store) FailAgentsByRun(ctx context.Context, runID string) (int64, error
 	return result.RowsAffected()
 }
 
+// ListArtifactsForCodeRollback returns artifacts joined with dispatch metadata
+// for generating code rollback reports. Optionally filtered by phase.
+func (s *Store) ListArtifactsForCodeRollback(ctx context.Context, runID string, filterPhase *string) ([]*CodeRollbackEntry, error) {
+	var query string
+	var args []interface{}
+
+	if filterPhase != nil {
+		query = `
+			SELECT a.dispatch_id, d.name, a.phase, a.path, a.content_hash, a.type
+			FROM run_artifacts a
+			LEFT JOIN dispatches d ON a.dispatch_id = d.id
+			WHERE a.run_id = ? AND a.phase = ?
+			ORDER BY a.phase, a.created_at ASC`
+		args = []interface{}{runID, *filterPhase}
+	} else {
+		query = `
+			SELECT a.dispatch_id, d.name, a.phase, a.path, a.content_hash, a.type
+			FROM run_artifacts a
+			LEFT JOIN dispatches d ON a.dispatch_id = d.id
+			WHERE a.run_id = ?
+			ORDER BY a.phase, a.created_at ASC`
+		args = []interface{}{runID}
+	}
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("code rollback query: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []*CodeRollbackEntry
+	for rows.Next() {
+		e := &CodeRollbackEntry{}
+		var dispatchID, dispatchName, contentHash sql.NullString
+		if err := rows.Scan(&dispatchID, &dispatchName, &e.Phase, &e.Path, &contentHash, &e.Type); err != nil {
+			return nil, fmt.Errorf("code rollback scan: %w", err)
+		}
+		e.DispatchID = nullStr(dispatchID)
+		e.DispatchName = nullStr(dispatchName)
+		e.ContentHash = nullStr(contentHash)
+		entries = append(entries, e)
+	}
+	return entries, rows.Err()
+}
+
 // --- Gate query methods (satisfy phase.RuntrackQuerier) ---
 
 // CountArtifacts returns the number of active artifacts for a run in the given phase.

@@ -28,6 +28,16 @@ func (a *Agent) IsTerminal() bool {
 	return false
 }
 
+// CodeRollbackEntry represents an artifact with dispatch metadata for code rollback queries.
+type CodeRollbackEntry struct {
+	DispatchID   *string `json:"dispatch_id"`
+	DispatchName *string `json:"dispatch_name"`
+	Phase        string  `json:"phase"`
+	Path         string  `json:"path"`
+	ContentHash  *string `json:"content_hash"`
+	Type         string  `json:"type"`
+}
+
 // Artifact represents a file produced during a run.
 type Artifact struct {
 	ID          string

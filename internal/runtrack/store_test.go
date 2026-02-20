@@ -588,3 +588,57 @@ func TestStore_ArtifactExplicitHash(t *testing.T) {
 		t.Errorf("content_hash = %v, want %q", artifacts[0].ContentHash, "sha256:deadbeef")
 	}
 }
+
+func TestStore_ListArtifactsForCodeRollback(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	dispatchID := "dispatch-1"
+	_, err := store.AddArtifact(ctx, &Artifact{
+		RunID:      "testrun1",
+		Phase:      "executing",
+		Path:       "src/main.go",
+		Type:       "file",
+		DispatchID: &dispatchID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add a second artifact without dispatch
+	_, err = store.AddArtifact(ctx, &Artifact{
+		RunID: "testrun1",
+		Phase: "brainstorm",
+		Path:  "docs/brainstorm.md",
+		Type:  "file",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Query all
+	results, err := store.ListArtifactsForCodeRollback(ctx, "testrun1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	// Query by phase
+	phase := "executing"
+	filtered, err := store.ListArtifactsForCodeRollback(ctx, "testrun1", &phase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 result for phase=executing, got %d", len(filtered))
+	}
+	if filtered[0].DispatchID == nil || *filtered[0].DispatchID != dispatchID {
+		t.Error("dispatch ID not returned")
+	}
+	if filtered[0].Path != "src/main.go" {
+		t.Errorf("path = %q, want %q", filtered[0].Path, "src/main.go")
+	}
+}

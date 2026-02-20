@@ -22,7 +22,7 @@ import (
 
 func cmdRun(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, phase, list, events, cancel, set, current, agent, artifact, tokens, budget)\n")
+		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, tokens, budget)\n")
 		return 3
 	}
 
@@ -41,6 +41,8 @@ func cmdRun(ctx context.Context, args []string) int {
 		return cmdRunList(ctx, args[1:])
 	case "events":
 		return cmdRunEvents(ctx, args[1:])
+	case "rollback":
+		return cmdRunRollback(ctx, args[1:])
 	case "cancel":
 		return cmdRunCancel(ctx, args[1:])
 	case "set":
@@ -605,6 +607,217 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 	})
 
 	fmt.Println("cancelled")
+	return 0
+}
+
+func cmdRunRollback(ctx context.Context, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: usage: ic run rollback <id> --to-phase=<phase> [--reason=<text>] [--dry-run]\n")
+		fmt.Fprintf(os.Stderr, "       ic run rollback <id> --layer=code [--phase=<phase>] [--format=json|text]\n")
+		return 3
+	}
+
+	runID := args[0]
+	var toPhase, reason, layer, filterPhase, format string
+	dryRun := false
+
+	for i := 1; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "--to-phase="):
+			toPhase = strings.TrimPrefix(args[i], "--to-phase=")
+		case strings.HasPrefix(args[i], "--reason="):
+			reason = strings.TrimPrefix(args[i], "--reason=")
+		case strings.HasPrefix(args[i], "--layer="):
+			layer = strings.TrimPrefix(args[i], "--layer=")
+		case strings.HasPrefix(args[i], "--phase="):
+			filterPhase = strings.TrimPrefix(args[i], "--phase=")
+		case strings.HasPrefix(args[i], "--format="):
+			format = strings.TrimPrefix(args[i], "--format=")
+		case args[i] == "--dry-run":
+			dryRun = true
+		}
+	}
+
+	// Route: --layer=code → code rollback query
+	if layer == "code" {
+		return cmdRunRollbackCode(ctx, runID, filterPhase, format)
+	}
+
+	// Route: --to-phase → workflow rollback
+	if toPhase == "" {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: --to-phase or --layer required\n")
+		return 3
+	}
+
+	return cmdRunRollbackWorkflow(ctx, runID, toPhase, reason, dryRun)
+}
+
+func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, dryRun bool) int {
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	pStore := phase.New(d.SqlDB())
+	rtStore := runtrack.New(d.SqlDB())
+	dStore := dispatch.New(d.SqlDB(), nil)
+	evStore := event.NewStore(d.SqlDB())
+
+	// Get current state for dry-run and validation
+	run, err := pStore.Get(ctx, runID)
+	if err != nil {
+		if err == phase.ErrNotFound {
+			fmt.Fprintf(os.Stderr, "ic: run rollback: not found: %s\n", runID)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		return 2
+	}
+
+	chain := phase.ResolveChain(run)
+	rolledBackPhases := phase.ChainPhasesBetween(chain, toPhase, run.Phase)
+	if rolledBackPhases == nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: target phase %q is not behind current phase %q\n", toPhase, run.Phase)
+		return 1
+	}
+
+	if dryRun {
+		output := map[string]interface{}{
+			"dry_run":            true,
+			"from_phase":         run.Phase,
+			"to_phase":           toPhase,
+			"rolled_back_phases": rolledBackPhases,
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(output)
+		return 0
+	}
+
+	// Set up event notifier for bus notifications
+	notifier := event.NewNotifier()
+	notifier.Subscribe("log", event.NewLogHandler(os.Stderr, !flagVerbose))
+	notifier.Subscribe("hook", event.NewHookHandler(run.ProjectDir, os.Stderr))
+
+	callback := func(runID, eventType, fromPhase, toPhase, cbReason string) {
+		notifier.Notify(ctx, event.Event{
+			RunID:     runID,
+			Source:    event.SourcePhase,
+			Type:      eventType,
+			FromState: fromPhase,
+			ToState:   toPhase,
+			Reason:    cbReason,
+			Timestamp: time.Now(),
+		})
+	}
+
+	// Perform workflow rollback
+	result, err := phase.Rollback(ctx, pStore, runID, toPhase, reason, callback)
+	if err != nil {
+		if err == phase.ErrTerminalRun {
+			fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		return 2
+	}
+
+	// Mark artifacts as rolled back
+	markedArtifacts, err := rtStore.MarkArtifactsRolledBack(ctx, runID, result.RolledBackPhases)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: artifact marking failed: %v\n", err)
+	}
+
+	// Cancel active dispatches (CancelByRun operates on all active dispatches for the run)
+	cancelledDispatches, err := dStore.CancelByRun(ctx, runID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: dispatch cancellation failed: %v\n", err)
+	}
+
+	// Fail active agents
+	failedAgents, err := rtStore.FailAgentsByRun(ctx, runID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: agent failure marking failed: %v\n", err)
+	}
+
+	// Record dispatch cancellation event in event bus
+	if cancelledDispatches > 0 {
+		evStore.AddDispatchEvent(ctx, "", runID, "", dispatch.StatusCancelled, "rollback", reason)
+	}
+
+	// Output
+	output := map[string]interface{}{
+		"from_phase":           result.FromPhase,
+		"to_phase":             result.ToPhase,
+		"rolled_back_phases":   result.RolledBackPhases,
+		"reason":               result.Reason,
+		"cancelled_dispatches": cancelledDispatches,
+		"marked_artifacts":     markedArtifacts,
+		"failed_agents":        failedAgents,
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(output)
+
+	return 0
+}
+
+func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) int {
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback --layer=code: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	pStore := phase.New(d.SqlDB())
+	rtStore := runtrack.New(d.SqlDB())
+
+	// Verify run exists
+	_, err = pStore.Get(ctx, runID)
+	if err != nil {
+		if err == phase.ErrNotFound {
+			fmt.Fprintf(os.Stderr, "ic: run rollback: not found: %s\n", runID)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		return 2
+	}
+
+	var phaseFilter *string
+	if filterPhase != "" {
+		phaseFilter = &filterPhase
+	}
+
+	entries, err := rtStore.ListArtifactsForCodeRollback(ctx, runID, phaseFilter)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run rollback --layer=code: %v\n", err)
+		return 2
+	}
+
+	if format == "text" {
+		for _, e := range entries {
+			dispatchName := "<unknown>"
+			if e.DispatchName != nil {
+				dispatchName = *e.DispatchName
+			}
+			hash := "<none>"
+			if e.ContentHash != nil && len(*e.ContentHash) > 12 {
+				hash = (*e.ContentHash)[:12] + "..."
+			} else if e.ContentHash != nil {
+				hash = *e.ContentHash
+			}
+			fmt.Printf("%-20s %-20s %-40s %s\n", e.Phase, dispatchName, e.Path, hash)
+		}
+		return 0
+	}
+
+	// Default JSON output
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	enc.Encode(entries)
 	return 0
 }
 
@@ -1282,6 +1495,9 @@ func artifactToMap(a *runtrack.Artifact) map[string]interface{} {
 	}
 	if a.DispatchID != nil {
 		m["dispatch_id"] = *a.DispatchID
+	}
+	if a.Status != nil {
+		m["status"] = *a.Status
 	}
 	return m
 }
