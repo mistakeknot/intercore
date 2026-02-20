@@ -124,6 +124,48 @@ func TestChainContains(t *testing.T) {
 	}
 }
 
+func TestChainPhaseIndex(t *testing.T) {
+	chain := []string{"a", "b", "c", "d"}
+	tests := []struct {
+		phase string
+		want  int
+	}{
+		{"a", 0}, {"b", 1}, {"d", 3}, {"x", -1},
+	}
+	for _, tt := range tests {
+		if got := ChainPhaseIndex(chain, tt.phase); got != tt.want {
+			t.Errorf("ChainPhaseIndex(%q) = %d, want %d", tt.phase, got, tt.want)
+		}
+	}
+}
+
+func TestChainPhasesBetween(t *testing.T) {
+	chain := []string{"a", "b", "c", "d", "e"}
+	tests := []struct {
+		from, to string
+		want     []string
+	}{
+		{"a", "d", []string{"b", "c", "d"}},
+		{"b", "d", []string{"c", "d"}},
+		{"a", "b", []string{"b"}},
+		{"d", "a", nil}, // backward = nil
+		{"a", "a", nil}, // same = nil
+		{"x", "d", nil}, // not found = nil
+	}
+	for _, tt := range tests {
+		got := ChainPhasesBetween(chain, tt.from, tt.to)
+		if len(got) != len(tt.want) {
+			t.Errorf("ChainPhasesBetween(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("ChainPhasesBetween(%q, %q)[%d] = %q, want %q", tt.from, tt.to, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
 func TestResolveChain(t *testing.T) {
 	r := &Run{Phases: []string{"x", "y"}}
 	if got := ResolveChain(r); len(got) != 2 || got[0] != "x" {

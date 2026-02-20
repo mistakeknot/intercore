@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -68,8 +69,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 7 {
-		t.Errorf("SchemaVersion = %d, want 7", v)
+	if v != 8 {
+		t.Errorf("SchemaVersion = %d, want 8", v)
 	}
 
 	// Verify tables exist
@@ -137,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 7 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 7", v)
+	if v != 8 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 8", v)
 	}
 }
 
@@ -237,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 7 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 7", v)
+	if v != 8 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 8", v)
 	}
 
 	// Verify dispatches table exists
@@ -316,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 7 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 7", v)
+	if v != 8 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 8", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -408,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 7 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 7", v)
+	if v != 8 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 8", v)
 	}
 
 	// Verify new tables exist
@@ -570,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 7 {
-		t.Errorf("SchemaVersion = %d, want 7", v)
+	if v != 8 {
+		t.Errorf("SchemaVersion = %d, want 8", v)
 	}
 
 	// Verify new columns on runs
@@ -635,7 +636,75 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 7 {
-		t.Errorf("SchemaVersion = %d, want 7", v)
+	if v != 8 {
+		t.Errorf("SchemaVersion = %d, want 8", v)
+	}
+}
+
+func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Create a v7 database with all tables up to v7
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL, updated_at INTEGER, expires_at INTEGER, PRIMARY KEY (key, scope_id));
+		CREATE TABLE IF NOT EXISTS sentinels (name TEXT NOT NULL, scope_id TEXT NOT NULL, last_fired INTEGER, PRIMARY KEY (name, scope_id));
+		CREATE TABLE IF NOT EXISTS dispatches (id TEXT NOT NULL PRIMARY KEY, agent_type TEXT DEFAULT 'codex', status TEXT DEFAULT 'spawned', project_dir TEXT NOT NULL, prompt_file TEXT, prompt_hash TEXT, output_file TEXT, verdict_file TEXT, pid INTEGER, exit_code INTEGER, name TEXT, model TEXT, sandbox TEXT, timeout_sec INTEGER, turns INTEGER DEFAULT 0, commands INTEGER DEFAULT 0, messages INTEGER DEFAULT 0, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_hits INTEGER, created_at INTEGER, started_at INTEGER, completed_at INTEGER, verdict_status TEXT, verdict_summary TEXT, error_message TEXT, scope_id TEXT, parent_id TEXT);
+		CREATE TABLE IF NOT EXISTS runs (id TEXT NOT NULL PRIMARY KEY, project_dir TEXT NOT NULL, goal TEXT NOT NULL, status TEXT DEFAULT 'active', phase TEXT DEFAULT 'brainstorm', complexity INTEGER DEFAULT 3, force_full INTEGER DEFAULT 0, auto_advance INTEGER DEFAULT 1, created_at INTEGER, updated_at INTEGER, completed_at INTEGER, scope_id TEXT, metadata TEXT, phases TEXT, token_budget INTEGER, budget_warn_pct INTEGER DEFAULT 80);
+		CREATE TABLE IF NOT EXISTS phase_events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), from_phase TEXT, to_phase TEXT, event_type TEXT DEFAULT 'advance', gate_result TEXT, gate_tier TEXT, reason TEXT, created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS run_agents (id TEXT NOT NULL PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), agent_type TEXT DEFAULT 'claude', name TEXT, status TEXT DEFAULT 'active', dispatch_id TEXT, created_at INTEGER, updated_at INTEGER);
+		CREATE TABLE IF NOT EXISTS run_artifacts (id TEXT NOT NULL PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), phase TEXT NOT NULL, path TEXT NOT NULL, type TEXT DEFAULT 'file', content_hash TEXT, dispatch_id TEXT, created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS dispatch_events (id INTEGER PRIMARY KEY AUTOINCREMENT, dispatch_id TEXT NOT NULL, run_id TEXT, from_status TEXT, to_status TEXT, event_type TEXT DEFAULT 'status_change', reason TEXT, created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS interspect_events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, agent_name TEXT NOT NULL, event_type TEXT NOT NULL, override_reason TEXT, context_json TEXT, session_id TEXT, project_dir TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()));
+		PRAGMA user_version = 7;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert v7 data to verify preservation
+	_, err = d.db.Exec("INSERT INTO runs (id, project_dir, goal, created_at, updated_at) VALUES ('r1', '/tmp', 'test', 1, 1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.db.Exec("INSERT INTO run_artifacts (id, run_id, phase, path, created_at) VALUES ('a1', 'r1', 'plan', '/tmp/plan.md', 1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Migrate v7 → v8
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate v7→v8: %v", err)
+	}
+
+	// Verify version
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 8 {
+		t.Fatalf("expected schema version 8, got %d", v)
+	}
+
+	// Verify status column exists on run_artifacts with default 'active'
+	var colDefault sql.NullString
+	err = d.db.QueryRow(
+		"SELECT dflt_value FROM pragma_table_info('run_artifacts') WHERE name='status'",
+	).Scan(&colDefault)
+	if err != nil {
+		t.Fatalf("status column not found on run_artifacts: %v", err)
+	}
+	if !colDefault.Valid || colDefault.String != "'active'" {
+		t.Fatalf("expected default 'active', got %v", colDefault)
+	}
+
+	// Verify existing artifact has status='active'
+	var status string
+	err = d.db.QueryRow("SELECT status FROM run_artifacts WHERE id='a1'").Scan(&status)
+	if err != nil {
+		t.Fatalf("existing artifact status not readable: %v", err)
+	}
+	if status != "active" {
+		t.Errorf("existing artifact status = %q, want 'active'", status)
 	}
 }

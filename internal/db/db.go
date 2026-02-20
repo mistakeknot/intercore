@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 7
-	maxSchemaVersion     = 7
+	currentSchemaVersion = 8
+	maxSchemaVersion     = 8
 )
 
 var (
@@ -148,6 +148,21 @@ func (d *DB) Migrate(ctx context.Context) error {
 				// Column may already exist from a partial prior run — ignore "duplicate column" errors
 				if !isDuplicateColumnError(err) {
 					return fmt.Errorf("migrate v5→v6: %w", err)
+				}
+			}
+		}
+	}
+
+	// v7 → v8: add status column to run_artifacts
+	// Guard: run_artifacts exists from v4+. For v0-v3, the DDL below creates it with the column.
+	if currentVersion >= 4 && currentVersion < 8 {
+		v8Stmts := []string{
+			"ALTER TABLE run_artifacts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+		}
+		for _, stmt := range v8Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v7→v8: %w", err)
 				}
 			}
 		}

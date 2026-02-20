@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS run_artifacts (
     type        TEXT NOT NULL DEFAULT 'file',
     content_hash TEXT,
     dispatch_id TEXT,
+    status      TEXT NOT NULL DEFAULT 'active',
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);

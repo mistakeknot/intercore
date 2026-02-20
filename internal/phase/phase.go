@@ -34,7 +34,8 @@ const (
 	EventPause   = "pause"
 	EventBlock   = "block"
 	EventCancel  = "cancel"
-	EventSet     = "set"
+	EventSet      = "set"
+	EventRollback = "rollback"
 )
 
 // Gate result constants.
@@ -152,6 +153,31 @@ func ChainContains(chain []string, p string) bool {
 		}
 	}
 	return false
+}
+
+// ChainPhaseIndex returns the index of phase in chain, or -1 if not found.
+func ChainPhaseIndex(chain []string, p string) int {
+	for i, cp := range chain {
+		if cp == p {
+			return i
+		}
+	}
+	return -1
+}
+
+// ChainPhasesBetween returns the phases strictly after from up to and including to.
+// Returns nil if from is not before to in the chain or either phase is not found.
+func ChainPhasesBetween(chain []string, from, to string) []string {
+	fromIdx := ChainPhaseIndex(chain, from)
+	toIdx := ChainPhaseIndex(chain, to)
+	if fromIdx < 0 || toIdx < 0 || fromIdx >= toIdx {
+		return nil
+	}
+	result := make([]string, 0, toIdx-fromIdx)
+	for i := fromIdx + 1; i <= toIdx; i++ {
+		result = append(result, chain[i])
+	}
+	return result
 }
 
 // ResolveChain returns the run's explicit chain or DefaultPhaseChain if nil.
