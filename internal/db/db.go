@@ -153,8 +153,8 @@ func (d *DB) Migrate(ctx context.Context) error {
 		}
 	}
 
-	// v7 → v8: add status column to run_artifacts
-	// Guard: run_artifacts exists from v4+. For v0-v3, the DDL below creates it with the column.
+	// v4–v7 → v8: add status column to run_artifacts
+	// Guard: run_artifacts exists from v4+. For v0-v3, the DDL creates it with the column already.
 	if currentVersion >= 4 && currentVersion < 8 {
 		v8Stmts := []string{
 			"ALTER TABLE run_artifacts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",

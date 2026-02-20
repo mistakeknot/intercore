@@ -815,7 +815,7 @@ func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) 
 			} else if e.ContentHash != nil {
 				hash = *e.ContentHash
 			}
-			fmt.Printf("%-20s %-20s %-40s %s\n", e.Phase, dispatchName, e.Path, hash)
+			fmt.Printf("%-20s %-12s %-20s %-40s %s\n", e.Phase, e.Status, dispatchName, e.Path, hash)
 		}
 		return 0
 	}

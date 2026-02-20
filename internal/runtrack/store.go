@@ -323,7 +323,7 @@ func (s *Store) ListArtifactsForCodeRollback(ctx context.Context, runID string, 
 
 	if filterPhase != nil {
 		query = `
-			SELECT a.dispatch_id, d.name, a.phase, a.path, a.content_hash, a.type
+			SELECT a.dispatch_id, d.name, a.phase, a.path, a.content_hash, a.type, a.status
 			FROM run_artifacts a
 			LEFT JOIN dispatches d ON a.dispatch_id = d.id
 			WHERE a.run_id = ? AND a.phase = ?
@@ -331,7 +331,7 @@ func (s *Store) ListArtifactsForCodeRollback(ctx context.Context, runID string, 
 		args = []interface{}{runID, *filterPhase}
 	} else {
 		query = `
-			SELECT a.dispatch_id, d.name, a.phase, a.path, a.content_hash, a.type
+			SELECT a.dispatch_id, d.name, a.phase, a.path, a.content_hash, a.type, a.status
 			FROM run_artifacts a
 			LEFT JOIN dispatches d ON a.dispatch_id = d.id
 			WHERE a.run_id = ?
@@ -349,7 +349,7 @@ func (s *Store) ListArtifactsForCodeRollback(ctx context.Context, runID string, 
 	for rows.Next() {
 		e := &CodeRollbackEntry{}
 		var dispatchID, dispatchName, contentHash sql.NullString
-		if err := rows.Scan(&dispatchID, &dispatchName, &e.Phase, &e.Path, &contentHash, &e.Type); err != nil {
+		if err := rows.Scan(&dispatchID, &dispatchName, &e.Phase, &e.Path, &contentHash, &e.Type, &e.Status); err != nil {
 			return nil, fmt.Errorf("code rollback scan: %w", err)
 		}
 		e.DispatchID = nullStr(dispatchID)

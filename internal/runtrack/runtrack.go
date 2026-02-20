@@ -36,6 +36,7 @@ type CodeRollbackEntry struct {
 	Path         string  `json:"path"`
 	ContentHash  *string `json:"content_hash"`
 	Type         string  `json:"type"`
+	Status       string  `json:"status"`
 }
 
 // Artifact represents a file produced during a run.
