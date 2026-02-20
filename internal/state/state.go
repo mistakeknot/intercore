@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -129,13 +130,40 @@ func (s *Store) Prune(ctx context.Context) (int64, error) {
 	return result.RowsAffected()
 }
 
-// ValidatePayload checks JSON validity, size, depth, and structure limits.
+// secretPatterns matches common secret formats that should never be stored
+// in the kernel database. The kernel stores provenance (variable names,
+// references) — never actual secret values.
+var secretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^(sk|pk|rk|ak)[-_][a-zA-Z0-9]{20,}`),            // API key prefixes (OpenAI sk-, Stripe pk_/sk_, etc.)
+	regexp.MustCompile(`(?i)^(ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{30,}`),      // GitHub tokens
+	regexp.MustCompile(`(?i)^xox[bpras]-[A-Za-z0-9-]{20,}`),                  // Slack tokens
+	regexp.MustCompile(`(?i)^eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.`),  // JWT tokens
+	regexp.MustCompile(`(?i)^AKIA[0-9A-Z]{16}`),                              // AWS access key IDs
+	regexp.MustCompile(`(?i)^-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY`), // PEM private keys
+	regexp.MustCompile(`(?i)(password|passwd|secret|token|api_key|apikey|api-key|access_key|private_key)\s*[:=]\s*\S{8,}`), // key=value assignments
+}
+
+// containsSecret checks whether a string value looks like a secret.
+func containsSecret(s string) bool {
+	for _, p := range secretPatterns {
+		if p.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidatePayload checks JSON validity, size, depth, structure limits,
+// and rejects payloads containing likely secret values.
 func ValidatePayload(data []byte) error {
 	if len(data) > maxPayloadSize {
 		return fmt.Errorf("payload too large: %d bytes (max %d)", len(data), maxPayloadSize)
 	}
 	if !json.Valid(data) {
 		return fmt.Errorf("invalid JSON payload")
+	}
+	if err := validateSecrets(data); err != nil {
+		return err
 	}
 	return validateDepth(data)
 }
@@ -194,6 +222,45 @@ func validateDepth(data []byte) error {
 					return fmt.Errorf("JSON array too long: >%d elements", maxArrayLength)
 				}
 			}
+		}
+	}
+	return nil
+}
+
+// validateSecrets walks all string values in the JSON and rejects any
+// that match common secret patterns. This enforces the no-secrets-in-DB
+// invariant from the intercore security baseline.
+func validateSecrets(data []byte) error {
+	dec := json.NewDecoder(strings.NewReader(string(data)))
+	isKey := false
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil // let validateDepth handle parse errors
+		}
+		switch v := tok.(type) {
+		case json.Delim:
+			isKey = v == '{'
+		case string:
+			if isKey {
+				// This is an object key — skip it, check the next value
+				isKey = false
+				continue
+			}
+			if containsSecret(v) {
+				// Truncate the value for the error message
+				preview := v
+				if len(preview) > 20 {
+					preview = preview[:20] + "..."
+				}
+				return fmt.Errorf("payload contains a likely secret value (%q); store variable names for provenance, not secret values", preview)
+			}
+			isKey = false
+		default:
+			isKey = false
 		}
 	}
 	return nil

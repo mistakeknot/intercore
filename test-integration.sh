@@ -61,6 +61,10 @@ pass "state delete"
 ic state get dispatch test-session --db="$TEST_DB" && fail "deleted state visible" || true
 pass "state get after delete returns not-found"
 
+# Secret rejection — the kernel should refuse to store likely secret values
+printf '%s\n' '{"token":"sk-abc1234567890abcdefghijklmnop"}' | ic state set dispatch secret-test --db="$TEST_DB" 2>/dev/null && fail "secret value accepted" || true
+pass "secret value rejected"
+
 echo "=== Sentinel Operations ==="
 ic sentinel check stop test-session --interval=0 --db="$TEST_DB" >/dev/null
 pass "sentinel check (first = allowed)"

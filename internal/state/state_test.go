@@ -246,6 +246,50 @@ func TestValidatePayload_LongArray(t *testing.T) {
 	}
 }
 
+func TestValidatePayload_RejectsSecrets(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+	}{
+		{"OpenAI key", `{"key":"sk-abc1234567890abcdefghijklmnop"}`},
+		{"GitHub token", `{"token":"ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef1234"}`},
+		{"Slack token", `{"token":"xoxb-123456789-abcdefghijklmnop"}`},
+		{"JWT token", `{"auth":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"}`},
+		{"AWS key", `{"aws":"AKIAIOSFODNN7EXAMPLE"}`},
+		{"PEM key", `{"key":"-----BEGIN RSA PRIVATE KEY-----\nblah"}`},
+		{"password assignment", `{"config":"password: hunter2superlong"}`},
+		{"nested secret", `{"outer":{"inner":"sk-abc1234567890abcdefghijklmnop"}}`},
+		{"array secret", `["sk-abc1234567890abcdefghijklmnop"]`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidatePayload([]byte(tc.payload))
+			if err == nil {
+				t.Errorf("expected secret rejection for %s", tc.name)
+			}
+			if err != nil && !strings.Contains(err.Error(), "likely secret") {
+				t.Errorf("expected 'likely secret' error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidatePayload_AllowsNonSecrets(t *testing.T) {
+	safe := []string{
+		`{"phase":"brainstorm"}`,
+		`{"api_key_name":"OPENAI_API_KEY"}`,
+		`{"token_count":42}`,
+		`{"password_reset":true}`,
+		`{"description":"Use sk command to skip"}`,
+		`{"short":"sk-ab"}`,
+	}
+	for _, v := range safe {
+		if err := ValidatePayload([]byte(v)); err != nil {
+			t.Errorf("ValidatePayload(%s) = %v, want nil", v, err)
+		}
+	}
+}
+
 func TestValidatePayload_Valid(t *testing.T) {
 	valid := []string{
 		`{}`,
