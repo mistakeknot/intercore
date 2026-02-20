@@ -411,3 +411,96 @@ func TestAdvance_SkipReason_RecordedInEvent(t *testing.T) {
 		t.Errorf("Event reason = %v, want 'testing reason'", events[0].Reason)
 	}
 }
+
+func TestRollback_Basic(t *testing.T) {
+	store, _, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/test", Goal: "test rollback", Complexity: 3, AutoAdvance: true,
+	})
+	// Advance to strategized
+	advanceToPhase(t, store, id, PhaseStrategized, nil)
+
+	var callbackCalled bool
+	callback := func(runID, eventType, fromPhase, toPhase, reason string) {
+		callbackCalled = true
+		if eventType != EventRollback {
+			t.Errorf("callback event type = %q, want %q", eventType, EventRollback)
+		}
+	}
+
+	result, err := Rollback(ctx, store, id, PhaseBrainstorm, "test reason", callback)
+	if err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+
+	if result.FromPhase != PhaseStrategized {
+		t.Errorf("FromPhase = %q, want %q", result.FromPhase, PhaseStrategized)
+	}
+	if result.ToPhase != PhaseBrainstorm {
+		t.Errorf("ToPhase = %q, want %q", result.ToPhase, PhaseBrainstorm)
+	}
+	if !callbackCalled {
+		t.Error("callback was not called")
+	}
+
+	// Verify the run's phase was updated
+	run, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Phase != PhaseBrainstorm {
+		t.Errorf("run.Phase = %q, want %q", run.Phase, PhaseBrainstorm)
+	}
+
+	// Verify rollback event was recorded
+	events, err := store.Events(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, e := range events {
+		if e.EventType == EventRollback {
+			found = true
+			if e.FromPhase != PhaseStrategized || e.ToPhase != PhaseBrainstorm {
+				t.Errorf("rollback event: from=%q to=%q, want from=strategized to=brainstorm", e.FromPhase, e.ToPhase)
+			}
+		}
+	}
+	if !found {
+		t.Error("no rollback event found in audit trail")
+	}
+}
+
+func TestRollback_TerminalRun(t *testing.T) {
+	store, _, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/test", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+	store.UpdateStatus(ctx, id, StatusCancelled)
+
+	_, err := Rollback(ctx, store, id, PhaseBrainstorm, "test", nil)
+	if err == nil {
+		t.Fatal("expected error for cancelled run rollback")
+	}
+}
+
+func TestRollback_RolledBackPhases(t *testing.T) {
+	store, _, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/test", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+	advanceToPhase(t, store, id, PhasePlanned, nil)
+
+	result, err := Rollback(ctx, store, id, PhaseBrainstorm, "test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should report 3 rolled-back phases: brainstorm-reviewed, strategized, planned
+	if len(result.RolledBackPhases) != 3 {
+		t.Fatalf("RolledBackPhases = %v, want 3 phases", result.RolledBackPhases)
+	}
+}

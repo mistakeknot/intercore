@@ -221,6 +221,57 @@ func (s *Store) UpdateSettings(ctx context.Context, id string, complexity *int, 
 	return nil
 }
 
+// RollbackPhase rewinds a run's phase pointer backward. Unlike UpdatePhase,
+// this uses a direct UPDATE (no optimistic concurrency) because rollback is
+// an authoritative operation. If the run is in a terminal status (completed),
+// it reverts to active.
+func (s *Store) RollbackPhase(ctx context.Context, id, currentPhase, targetPhase string) error {
+	run, err := s.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	// Reject cancelled/failed runs (but allow completed — rollback reverts it)
+	if run.Status == StatusCancelled || run.Status == StatusFailed {
+		return ErrTerminalRun
+	}
+
+	chain := ResolveChain(run)
+
+	// Validate both phases exist in chain
+	if !ChainContains(chain, targetPhase) {
+		return fmt.Errorf("rollback: target phase %q not in chain", targetPhase)
+	}
+	if !ChainContains(chain, currentPhase) {
+		return fmt.Errorf("rollback: current phase %q not in chain", currentPhase)
+	}
+
+	// Validate target is behind current
+	targetIdx := ChainPhaseIndex(chain, targetPhase)
+	currentIdx := ChainPhaseIndex(chain, currentPhase)
+	if targetIdx >= currentIdx {
+		return ErrInvalidRollback
+	}
+
+	now := time.Now().Unix()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE runs SET phase = ?, status = 'active', updated_at = ?, completed_at = NULL
+		WHERE id = ?`,
+		targetPhase, now, id,
+	)
+	if err != nil {
+		return fmt.Errorf("rollback phase: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rollback phase: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // ListActive returns all runs with status='active'.
 func (s *Store) ListActive(ctx context.Context) ([]*Run, error) {
 	return s.queryRuns(ctx,

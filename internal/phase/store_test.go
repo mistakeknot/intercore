@@ -522,6 +522,94 @@ func TestStore_SkipPhaseErrors(t *testing.T) {
 	}
 }
 
+func TestRollbackPhase(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	// Create a run and advance it twice: brainstorm → brainstorm-reviewed → strategized
+	id, err := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/test", Goal: "test rollback", Complexity: 3, AutoAdvance: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePhase(ctx, id, PhaseBrainstorm, PhaseBrainstormReviewed); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdatePhase(ctx, id, PhaseBrainstormReviewed, PhaseStrategized); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rollback to brainstorm
+	err = store.RollbackPhase(ctx, id, PhaseStrategized, PhaseBrainstorm)
+	if err != nil {
+		t.Fatalf("RollbackPhase failed: %v", err)
+	}
+
+	// Verify phase is now brainstorm
+	run, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Phase != PhaseBrainstorm {
+		t.Fatalf("expected phase brainstorm, got %s", run.Phase)
+	}
+}
+
+func TestRollbackPhase_NotBehind(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/test", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Try to roll back to a phase ahead of current — should fail
+	err = store.RollbackPhase(ctx, id, PhaseBrainstorm, PhaseStrategized)
+	if err != ErrInvalidRollback {
+		t.Fatalf("expected ErrInvalidRollback, got %v", err)
+	}
+}
+
+func TestRollbackPhase_CompletedRun(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Run{
+		ProjectDir: "/tmp/test", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Advance to done and mark completed
+	if err := store.UpdatePhase(ctx, id, PhaseBrainstorm, PhaseDone); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateStatus(ctx, id, StatusCompleted); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rollback should revert status to active
+	err = store.RollbackPhase(ctx, id, PhaseDone, PhaseBrainstorm)
+	if err != nil {
+		t.Fatalf("RollbackPhase on completed run failed: %v", err)
+	}
+
+	run, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != StatusActive {
+		t.Fatalf("expected status active, got %s", run.Status)
+	}
+	if run.CompletedAt != nil {
+		t.Fatal("expected completed_at to be cleared after rollback")
+	}
+}
+
 // Ensure the internal helpers work correctly with the underlying SQL types.
 func TestNullHelpers(t *testing.T) {
 	if got := nullStr(sql.NullString{Valid: false}); got != nil {

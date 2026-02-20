@@ -37,5 +37,6 @@ type Artifact struct {
 	Type        string
 	ContentHash *string
 	DispatchID  *string
+	Status      *string
 	CreatedAt   int64
 }

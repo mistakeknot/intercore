@@ -472,6 +472,91 @@ func TestStore_ArtifactWithDispatchID(t *testing.T) {
 	}
 }
 
+func TestStore_MarkArtifactsRolledBack(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	// Add artifacts in three phases
+	store.AddArtifact(ctx, &Artifact{RunID: "testrun1", Phase: "brainstorm", Path: "/tmp/a.md", Type: "file"})
+	store.AddArtifact(ctx, &Artifact{RunID: "testrun1", Phase: "strategized", Path: "/tmp/b.md", Type: "file"})
+	store.AddArtifact(ctx, &Artifact{RunID: "testrun1", Phase: "planned", Path: "/tmp/c.md", Type: "file"})
+
+	// Mark strategized and planned as rolled back
+	count, err := store.MarkArtifactsRolledBack(ctx, "testrun1", []string{"strategized", "planned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("MarkArtifactsRolledBack count = %d, want 2", count)
+	}
+
+	// Verify brainstorm artifact is still active, others are rolled_back
+	arts, err := store.ListArtifacts(ctx, "testrun1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range arts {
+		if a.Phase == "brainstorm" {
+			if a.Status == nil || *a.Status != "active" {
+				t.Errorf("brainstorm artifact status = %v, want active", a.Status)
+			}
+		} else {
+			if a.Status == nil || *a.Status != "rolled_back" {
+				t.Errorf("%s artifact status = %v, want rolled_back", a.Phase, a.Status)
+			}
+		}
+	}
+}
+
+func TestStore_MarkArtifactsRolledBack_EmptyPhases(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	count, err := store.MarkArtifactsRolledBack(ctx, "testrun1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0, got %d", count)
+	}
+}
+
+func TestStore_FailAgentsByRun(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	// Add two active agents and one already completed
+	id1, _ := store.AddAgent(ctx, &Agent{RunID: "testrun1", AgentType: "claude"})
+	store.AddAgent(ctx, &Agent{RunID: "testrun1", AgentType: "codex"})
+	id3, _ := store.AddAgent(ctx, &Agent{RunID: "testrun1", AgentType: "claude"})
+	store.UpdateAgent(ctx, id3, StatusCompleted) // mark as completed
+
+	count, err := store.FailAgentsByRun(ctx, "testrun1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("FailAgentsByRun count = %d, want 2", count)
+	}
+
+	// Verify active agents are now failed, completed one is unchanged
+	agents, err := store.ListAgents(ctx, "testrun1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range agents {
+		if a.ID == id1 && a.Status != StatusFailed {
+			t.Errorf("agent %s status = %q, want failed", a.ID, a.Status)
+		}
+		if a.ID == id3 && a.Status != StatusCompleted {
+			t.Errorf("completed agent %s status = %q, want completed (unchanged)", a.ID, a.Status)
+		}
+	}
+}
+
 func TestStore_ArtifactExplicitHash(t *testing.T) {
 	store, d := setupTestStore(t)
 	ctx := context.Background()

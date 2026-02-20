@@ -238,11 +238,11 @@ func (s *Store) ListArtifacts(ctx context.Context, runID string, phase *string) 
 	var args []interface{}
 
 	if phase != nil {
-		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, created_at
+		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, status, created_at
 			FROM run_artifacts WHERE run_id = ? AND phase = ? ORDER BY created_at ASC`
 		args = []interface{}{runID, *phase}
 	} else {
-		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, created_at
+		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, status, created_at
 			FROM run_artifacts WHERE run_id = ? ORDER BY created_at ASC`
 		args = []interface{}{runID}
 	}
@@ -259,27 +259,70 @@ func (s *Store) ListArtifacts(ctx context.Context, runID string, phase *string) 
 		var (
 			contentHash sql.NullString
 			dispatchID  sql.NullString
+			status      sql.NullString
 		)
 		if err := rows.Scan(
 			&a.ID, &a.RunID, &a.Phase, &a.Path, &a.Type,
-			&contentHash, &dispatchID, &a.CreatedAt,
+			&contentHash, &dispatchID, &status, &a.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("artifact list scan: %w", err)
 		}
 		a.ContentHash = nullStr(contentHash)
 		a.DispatchID = nullStr(dispatchID)
+		a.Status = nullStr(status)
 		artifacts = append(artifacts, a)
 	}
 	return artifacts, rows.Err()
 }
 
+// MarkArtifactsRolledBack sets status='rolled_back' on all active artifacts in the given phases.
+// Returns the number of artifacts marked.
+func (s *Store) MarkArtifactsRolledBack(ctx context.Context, runID string, phases []string) (int64, error) {
+	if len(phases) == 0 {
+		return 0, nil
+	}
+
+	placeholders := make([]string, len(phases))
+	args := make([]interface{}, 0, len(phases)+1)
+	args = append(args, runID)
+	for i, p := range phases {
+		placeholders[i] = "?"
+		args = append(args, p)
+	}
+
+	query := fmt.Sprintf(
+		"UPDATE run_artifacts SET status = 'rolled_back' WHERE run_id = ? AND status = 'active' AND phase IN (%s)",
+		strings.Join(placeholders, ", "),
+	)
+	result, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, fmt.Errorf("mark artifacts rolled back: %w", err)
+	}
+	return result.RowsAffected()
+}
+
+// FailAgentsByRun sets status='failed' on all active agents for a run.
+// Returns the number of agents updated.
+func (s *Store) FailAgentsByRun(ctx context.Context, runID string) (int64, error) {
+	now := time.Now().Unix()
+	result, err := s.db.ExecContext(ctx,
+		"UPDATE run_agents SET status = ?, updated_at = ? WHERE run_id = ? AND status = ?",
+		StatusFailed, now, runID, StatusActive,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("fail agents by run: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 // --- Gate query methods (satisfy phase.RuntrackQuerier) ---
 
-// CountArtifacts returns the number of artifacts for a run in the given phase.
+// CountArtifacts returns the number of active artifacts for a run in the given phase.
+// Rolled-back artifacts are excluded from the count.
 func (s *Store) CountArtifacts(ctx context.Context, runID, phase string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM run_artifacts WHERE run_id = ? AND phase = ?`,
+		`SELECT COUNT(*) FROM run_artifacts WHERE run_id = ? AND phase = ? AND status = 'active'`,
 		runID, phase).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count artifacts: %w", err)

@@ -363,6 +363,26 @@ func (s *Store) HasVerdict(ctx context.Context, scopeID string) (bool, error) {
 	return count > 0, nil
 }
 
+// CancelByRun marks all non-terminal dispatches as cancelled for a run.
+// Dispatches are scoped to runs via scope_id = run_id.
+// Returns the number of dispatches cancelled.
+func (s *Store) CancelByRun(ctx context.Context, runID string) (int64, error) {
+	now := time.Now().Unix()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE dispatches SET status = ?, completed_at = ?
+		WHERE scope_id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'timeout')`,
+		StatusCancelled, now, runID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("cancel dispatches for rollback: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("cancel dispatches for rollback: %w", err)
+	}
+	return n, nil
+}
+
 // --- helpers ---
 
 const dispatchCols = `id, agent_type, status, project_dir, prompt_file, prompt_hash,

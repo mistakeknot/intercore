@@ -202,6 +202,74 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 	}, nil
 }
 
+// RollbackResult describes what happened during a rollback.
+type RollbackResult struct {
+	FromPhase        string   // phase before rollback
+	ToPhase          string   // target phase (now current)
+	RolledBackPhases []string // phases between target and from (exclusive of target, inclusive of from)
+	Reason           string
+}
+
+// Rollback rewinds a run to a prior phase in its chain.
+//
+// Unlike Advance, rollback:
+//   - Goes backward (target must be behind current)
+//   - Uses a direct UPDATE (no optimistic concurrency — rollback is authoritative)
+//   - Reverts completed runs back to active
+//   - Records a rollback event in the audit trail
+//   - Returns the list of phases that were rolled back
+//
+// Rollback does NOT delete events or artifacts — those are marked separately
+// by the caller (see runtrack.MarkArtifactsRolledBack).
+func Rollback(ctx context.Context, store *Store, runID, targetPhase, reason string, callback PhaseEventCallback) (*RollbackResult, error) {
+	run, err := store.Get(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reject cancelled/failed runs (completed is OK — rollback reverts it)
+	if run.Status == StatusCancelled || run.Status == StatusFailed {
+		return nil, ErrTerminalRun
+	}
+
+	chain := ResolveChain(run)
+	fromPhase := run.Phase
+
+	// Compute phases that will be rolled back
+	rolledBack := ChainPhasesBetween(chain, targetPhase, fromPhase)
+	if rolledBack == nil {
+		return nil, ErrInvalidRollback
+	}
+
+	// Perform the phase rewind
+	if err := store.RollbackPhase(ctx, runID, fromPhase, targetPhase); err != nil {
+		return nil, fmt.Errorf("rollback: %w", err)
+	}
+
+	// Record rollback event
+	if err := store.AddEvent(ctx, &PhaseEvent{
+		RunID:     runID,
+		FromPhase: fromPhase,
+		ToPhase:   targetPhase,
+		EventType: EventRollback,
+		Reason:    strPtrOrNil(reason),
+	}); err != nil {
+		return nil, fmt.Errorf("rollback: record event: %w", err)
+	}
+
+	// Fire callback
+	if callback != nil {
+		callback(runID, EventRollback, fromPhase, targetPhase, reason)
+	}
+
+	return &RollbackResult{
+		FromPhase:        fromPhase,
+		ToPhase:          targetPhase,
+		RolledBackPhases: rolledBack,
+		Reason:           reason,
+	}, nil
+}
+
 func strPtrOrNil(s string) *string {
 	if s == "" {
 		return nil
