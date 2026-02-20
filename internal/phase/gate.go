@@ -90,7 +90,11 @@ var gateRules = map[[2]string][]gateRule{
 	{PhaseReview, PhasePolish}: {
 		{check: CheckVerdictExists},
 	},
-	// polish → done: no gate requirements (human judgment)
+	// polish → reflect: no gate requirements (pass-through)
+	// reflect → done: soft gate — requires reflect artifact
+	{PhaseReflect, PhaseDone}: {
+		{check: CheckArtifactExists, phase: PhaseReflect},
+	},
 }
 
 // evaluateGate checks whether a phase transition should be allowed.

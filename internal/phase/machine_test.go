@@ -271,8 +271,8 @@ func TestAdvance_ToDone_CompletesRun(t *testing.T) {
 
 	cfg := GateConfig{Priority: 4}
 
-	// Walk through all 7 transitions: brainstorm → ... → done
-	for i := 0; i < 6; i++ {
+	// Walk through all 9 transitions: brainstorm → ... → done
+	for i := 0; i < 7; i++ {
 		_, err := Advance(ctx, store, id, cfg, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("Advance step %d: %v", i, err)
@@ -354,6 +354,7 @@ func TestAdvance_FullLifecycle_Complexity3(t *testing.T) {
 		PhaseExecuting,
 		PhaseReview,
 		PhasePolish,
+		PhaseReflect,
 		PhaseDone,
 	}
 
@@ -379,8 +380,8 @@ func TestAdvance_FullLifecycle_Complexity3(t *testing.T) {
 
 	// Verify event trail
 	events, _ := store.Events(ctx, id)
-	if len(events) != 7 {
-		t.Errorf("Events count = %d, want 7", len(events))
+	if len(events) != 8 {
+		t.Errorf("Events count = %d, want 8", len(events))
 	}
 }
 

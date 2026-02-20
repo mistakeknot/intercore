@@ -274,10 +274,10 @@ The phase module implements a run lifecycle state machine ported from `lib-sprin
 
 ### Configurable Phase Chains (v6)
 
-Runs can specify a custom phase chain via `--phases='["a","b","c"]'` at creation. If no chain is specified, the default 8-phase Clavain lifecycle is used:
+Runs can specify a custom phase chain via `--phases='["a","b","c"]'` at creation. If no chain is specified, the default 10-phase Clavain lifecycle is used:
 
 ```
-brainstorm → brainstorm-reviewed → strategized → planned → executing → review → polish → done
+brainstorm → brainstorm-reviewed → strategized → planned → executing → review → polish → reflect → done
 ```
 
 Custom chains must have at least 2 phases and no duplicates. The last phase in the chain is terminal — reaching it sets `status=completed`.

@@ -23,7 +23,7 @@ func TestParsePhaseChain(t *testing.T) {
 		wantErr bool
 	}{
 		{"valid 3-phase", `["a","b","c"]`, []string{"a", "b", "c"}, false},
-		{"valid default chain", `["brainstorm","brainstorm-reviewed","strategized","planned","executing","review","polish","done"]`, DefaultPhaseChain, false},
+		{"valid default chain", `["brainstorm","brainstorm-reviewed","strategized","planned","executing","review","polish","reflect","done"]`, DefaultPhaseChain, false},
 		{"empty array", `[]`, nil, true},
 		{"single phase", `["a"]`, nil, true},
 		{"invalid json", `not json`, nil, true},
