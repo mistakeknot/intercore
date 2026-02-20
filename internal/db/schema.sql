@@ -146,3 +146,57 @@ CREATE TABLE IF NOT EXISTS interspect_events (
 CREATE INDEX IF NOT EXISTS idx_interspect_events_agent ON interspect_events(agent_name);
 CREATE INDEX IF NOT EXISTS idx_interspect_events_created ON interspect_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;
+
+-- v9: discovery pipeline
+CREATE TABLE IF NOT EXISTS discoveries (
+    id              TEXT PRIMARY KEY,
+    source          TEXT NOT NULL,
+    source_id       TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    summary         TEXT NOT NULL DEFAULT '',
+    url             TEXT NOT NULL DEFAULT '',
+    raw_metadata    TEXT NOT NULL DEFAULT '{}',
+    embedding       BLOB,
+    relevance_score REAL NOT NULL DEFAULT 0.0,
+    confidence_tier TEXT NOT NULL DEFAULT 'low',
+    status          TEXT NOT NULL DEFAULT 'new',
+    run_id          TEXT,
+    bead_id         TEXT,
+    discovered_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+    promoted_at     INTEGER,
+    reviewed_at     INTEGER,
+    UNIQUE(source, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_discoveries_source ON discoveries(source);
+CREATE INDEX IF NOT EXISTS idx_discoveries_status ON discoveries(status) WHERE status NOT IN ('dismissed');
+CREATE INDEX IF NOT EXISTS idx_discoveries_tier ON discoveries(confidence_tier);
+
+CREATE TABLE IF NOT EXISTS discovery_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    discovery_id    TEXT NOT NULL,
+    event_type      TEXT NOT NULL,
+    from_status     TEXT NOT NULL DEFAULT '',
+    to_status       TEXT NOT NULL DEFAULT '',
+    payload         TEXT NOT NULL DEFAULT '{}',
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_discovery_events_discovery ON discovery_events(discovery_id);
+CREATE INDEX IF NOT EXISTS idx_discovery_events_created ON discovery_events(created_at);
+
+CREATE TABLE IF NOT EXISTS feedback_signals (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    discovery_id    TEXT NOT NULL,
+    signal_type     TEXT NOT NULL,
+    signal_data     TEXT NOT NULL DEFAULT '{}',
+    actor           TEXT NOT NULL DEFAULT 'system',
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_signals_discovery ON feedback_signals(discovery_id);
+
+CREATE TABLE IF NOT EXISTS interest_profile (
+    id              INTEGER PRIMARY KEY CHECK (id = 1),
+    topic_vector    BLOB,
+    keyword_weights TEXT NOT NULL DEFAULT '{}',
+    source_weights  TEXT NOT NULL DEFAULT '{}',
+    updated_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);

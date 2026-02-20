@@ -69,8 +69,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Errorf("SchemaVersion = %d, want 8", v)
+	if v != 9 {
+		t.Errorf("SchemaVersion = %d, want 9", v)
 	}
 
 	// Verify tables exist
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 8", v)
+	if v != 9 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 9", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 8", v)
+	if v != 9 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 9", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 8", v)
+	if v != 9 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 9", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 8", v)
+	if v != 9 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 9", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Errorf("SchemaVersion = %d, want 8", v)
+	if v != 9 {
+		t.Errorf("SchemaVersion = %d, want 9", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Errorf("SchemaVersion = %d, want 8", v)
+	if v != 9 {
+		t.Errorf("SchemaVersion = %d, want 9", v)
 	}
 }
 
@@ -682,8 +682,8 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 8 {
-		t.Fatalf("expected schema version 8, got %d", v)
+	if v != 9 {
+		t.Fatalf("expected schema version 9, got %d", v)
 	}
 
 	// Verify status column exists on run_artifacts with default 'active'
