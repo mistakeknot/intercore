@@ -49,10 +49,31 @@ CREATE TABLE IF NOT EXISTS dispatches (
     verdict_summary TEXT,
     error_message   TEXT,
     scope_id        TEXT,
-    parent_id       TEXT
+    parent_id       TEXT,
+    base_repo_commit TEXT,
+    retry_count      INTEGER NOT NULL DEFAULT 0,
+    conflict_type    TEXT,
+    quarantine_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_dispatches_status ON dispatches(status) WHERE status IN ('spawned', 'running');
 CREATE INDEX IF NOT EXISTS idx_dispatches_scope ON dispatches(scope_id) WHERE scope_id IS NOT NULL;
+
+-- v11: merge intent records (transactional outbox for git+SQLite coordination)
+CREATE TABLE IF NOT EXISTS merge_intents (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    dispatch_id     TEXT NOT NULL,
+    run_id          TEXT,
+    base_commit     TEXT NOT NULL,
+    patch_hash      TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',
+    result_commit   TEXT,
+    conflict_files  TEXT,
+    error_message   TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+    completed_at    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_merge_intents_status ON merge_intents(status) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_merge_intents_dispatch ON merge_intents(dispatch_id);
 
 -- v3: phase state machine (runs + events)
 CREATE TABLE IF NOT EXISTS runs (

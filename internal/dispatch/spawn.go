@@ -1,12 +1,14 @@
 package dispatch
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -48,6 +50,9 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 		opts.Sandbox = "workspace-write"
 	}
 
+	// Capture base repo commit (git HEAD) for write-set conflict detection
+	baseCommit, _ := gitHeadCommit(opts.ProjectDir)
+
 	// Hash the prompt file for dedup detection
 	promptHash, err := hashFile(opts.PromptFile)
 	if err != nil {
@@ -87,6 +92,9 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	}
 	if opts.ParentID != "" {
 		d.ParentID = &opts.ParentID
+	}
+	if baseCommit != "" {
+		d.BaseRepoCommit = &baseCommit
 	}
 
 	id, err := store.Create(ctx, d)
@@ -196,6 +204,19 @@ func resolveDispatchSH(explicit string) string {
 	}
 
 	return "" // fallback to bare codex
+}
+
+// gitHeadCommit runs git rev-parse HEAD in the given directory.
+// Returns empty string on any error (not a git repo, git not installed, etc.).
+func gitHeadCommit(dir string) (string, error) {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "HEAD")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out.String()), nil
 }
 
 func hashFile(path string) (string, error) {

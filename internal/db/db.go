@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 10
-	maxSchemaVersion     = 10
+	currentSchemaVersion = 11
+	maxSchemaVersion     = 11
 )
 
 var (
@@ -43,7 +43,7 @@ func Open(path string, busyTimeout time.Duration) (*DB, error) {
 	}
 
 	if busyTimeout <= 0 {
-		busyTimeout = 100 * time.Millisecond
+		busyTimeout = 5 * time.Second
 	}
 
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d", path, busyTimeout.Milliseconds())
@@ -179,6 +179,24 @@ func (d *DB) Migrate(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
 				if !isDuplicateColumnError(err) {
 					return fmt.Errorf("migrate v9→v10: %w", err)
+				}
+			}
+		}
+	}
+
+	// v2–v10 → v11: TOCTOU conflict detection columns + merge_intents table
+	// Guard: dispatches table exists from v2+. For v0-v1, the DDL creates it with the columns already.
+	if currentVersion >= 2 && currentVersion < 11 {
+		v11Stmts := []string{
+			"ALTER TABLE dispatches ADD COLUMN base_repo_commit TEXT",
+			"ALTER TABLE dispatches ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0",
+			"ALTER TABLE dispatches ADD COLUMN conflict_type TEXT",
+			"ALTER TABLE dispatches ADD COLUMN quarantine_reason TEXT",
+		}
+		for _, stmt := range v11Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v10→v11: %w", err)
 				}
 			}
 		}

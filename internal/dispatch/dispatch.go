@@ -57,8 +57,12 @@ type Dispatch struct {
 	VerdictStatus *string
 	VerdictSummary *string
 	ErrorMessage  *string
-	ScopeID       *string
-	ParentID      *string
+	ScopeID          *string
+	ParentID         *string
+	BaseRepoCommit   *string
+	RetryCount       int
+	ConflictType     *string
+	QuarantineReason *string
 }
 
 // IsTerminal returns true if the dispatch is in a final state.
@@ -119,12 +123,12 @@ func (s *Store) Create(ctx context.Context, d *Dispatch) (string, error) {
 		INSERT INTO dispatches (
 			id, agent_type, status, project_dir, prompt_file, prompt_hash,
 			output_file, verdict_file, name, model, sandbox, timeout_sec,
-			scope_id, parent_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			scope_id, parent_id, base_repo_commit
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, d.AgentType, StatusSpawned, d.ProjectDir,
 		d.PromptFile, d.PromptHash, d.OutputFile, d.VerdictFile,
 		d.Name, d.Model, d.Sandbox, d.TimeoutSec,
-		d.ScopeID, d.ParentID,
+		d.ScopeID, d.ParentID, d.BaseRepoCommit,
 	)
 	if err != nil {
 		return "", fmt.Errorf("dispatch create: %w", err)
@@ -153,8 +157,11 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 		verdictStatus  sql.NullString
 		verdictSummary sql.NullString
 		errorMessage   sql.NullString
-		scopeID        sql.NullString
-		parentID       sql.NullString
+		scopeID          sql.NullString
+		parentID         sql.NullString
+		baseRepoCommit   sql.NullString
+		conflictType     sql.NullString
+		quarantineReason sql.NullString
 	)
 
 	err := s.db.QueryRowContext(ctx,
@@ -167,6 +174,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 		&d.CreatedAt, &startedAt, &completedAt,
 		&verdictStatus, &verdictSummary, &errorMessage,
 		&scopeID, &parentID,
+		&baseRepoCommit, &d.RetryCount, &conflictType, &quarantineReason,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -193,6 +201,9 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 	d.ErrorMessage = nullStr(errorMessage)
 	d.ScopeID = nullStr(scopeID)
 	d.ParentID = nullStr(parentID)
+	d.BaseRepoCommit = nullStr(baseRepoCommit)
+	d.ConflictType = nullStr(conflictType)
+	d.QuarantineReason = nullStr(quarantineReason)
 
 	return d, nil
 }
@@ -206,6 +217,7 @@ var allowedUpdateCols = map[string]bool{
 	"turns": true, "commands": true, "messages": true,
 	"input_tokens": true, "output_tokens": true, "cache_hits": true,
 	"verdict_status": true, "verdict_summary": true, "error_message": true,
+	"retry_count": true, "conflict_type": true, "quarantine_reason": true,
 }
 
 // UpdateStatus transitions a dispatch to a new status with optional field updates.
@@ -414,7 +426,8 @@ const dispatchCols = `id, agent_type, status, project_dir, prompt_file, prompt_h
 	output_file, verdict_file, pid, exit_code, name, model, sandbox,
 	timeout_sec, turns, commands, messages, input_tokens, output_tokens,
 	cache_hits, created_at, started_at, completed_at, verdict_status,
-	verdict_summary, error_message, scope_id, parent_id`
+	verdict_summary, error_message, scope_id, parent_id,
+	base_repo_commit, retry_count, conflict_type, quarantine_reason`
 
 func (s *Store) queryDispatches(ctx context.Context, query string, args ...interface{}) ([]*Dispatch, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -427,24 +440,27 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 	for rows.Next() {
 		d := &Dispatch{}
 		var (
-			promptFile     sql.NullString
-			promptHash     sql.NullString
-			outputFile     sql.NullString
-			verdictFile    sql.NullString
-			pid            sql.NullInt64
-			exitCode       sql.NullInt64
-			name           sql.NullString
-			model          sql.NullString
-			sandbox        sql.NullString
-			timeoutSec     sql.NullInt64
-			cacheHits      sql.NullInt64
-			startedAt      sql.NullInt64
-			completedAt    sql.NullInt64
-			verdictStatus  sql.NullString
-			verdictSummary sql.NullString
-			errorMessage   sql.NullString
-			scopeID        sql.NullString
-			parentID       sql.NullString
+			promptFile       sql.NullString
+			promptHash       sql.NullString
+			outputFile       sql.NullString
+			verdictFile      sql.NullString
+			pid              sql.NullInt64
+			exitCode         sql.NullInt64
+			name             sql.NullString
+			model            sql.NullString
+			sandbox          sql.NullString
+			timeoutSec       sql.NullInt64
+			cacheHits        sql.NullInt64
+			startedAt        sql.NullInt64
+			completedAt      sql.NullInt64
+			verdictStatus    sql.NullString
+			verdictSummary   sql.NullString
+			errorMessage     sql.NullString
+			scopeID          sql.NullString
+			parentID         sql.NullString
+			baseRepoCommit   sql.NullString
+			conflictType     sql.NullString
+			quarantineReason sql.NullString
 		)
 
 		if err := rows.Scan(
@@ -456,6 +472,7 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 			&d.CreatedAt, &startedAt, &completedAt,
 			&verdictStatus, &verdictSummary, &errorMessage,
 			&scopeID, &parentID,
+			&baseRepoCommit, &d.RetryCount, &conflictType, &quarantineReason,
 		); err != nil {
 			return nil, fmt.Errorf("dispatch list scan: %w", err)
 		}
@@ -478,6 +495,9 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 		d.ErrorMessage = nullStr(errorMessage)
 		d.ScopeID = nullStr(scopeID)
 		d.ParentID = nullStr(parentID)
+		d.BaseRepoCommit = nullStr(baseRepoCommit)
+		d.ConflictType = nullStr(conflictType)
+		d.QuarantineReason = nullStr(quarantineReason)
 
 		dispatches = append(dispatches, d)
 	}
