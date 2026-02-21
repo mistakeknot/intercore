@@ -16,7 +16,7 @@ cmd/ic/main.go          CLI entry point, argument parsing, shared helpers
 cmd/ic/dispatch.go      Dispatch subcommands (spawn, status, list, poll, wait, kill, prune)
 cmd/ic/run.go           Run subcommands (create, status, advance, phase, current, agent, artifact)
 cmd/ic/gate.go          Gate subcommands (check, override, rules)
-cmd/ic/portfolio.go     Portfolio subcommands (dep add/list/remove, relay)
+cmd/ic/portfolio.go     Portfolio subcommands (dep add/list/remove, relay, order, status)
 cmd/ic/lock.go          Lock subcommands (acquire, release, list, stale, clean) — filesystem-only
 internal/db/db.go       SQLite connection, migration, health check
 internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, dispatch_events, run_agents, run_artifacts, project_deps)
@@ -34,10 +34,12 @@ internal/phase/         Phase state machine: run lifecycle with configurable cha
   gate.go               Gate types, interfaces, rules table, evaluateGate, EvaluateGate
   errors.go             Error sentinels
 internal/portfolio/     Portfolio orchestration: cross-project coordination
-  deps.go               DepStore: project dependency CRUD with self-loop prevention
+  deps.go               DepStore: project dependency CRUD with cycle detection (DFS + transactional add)
+  topo.go               TopologicalSort: deterministic Kahn's algorithm for dependency-respecting order
   dbpool.go             DBPool: read-only cached handles to child project databases
   relay.go              Relay: polls child DBs, relays events, tracks dispatch counts
-  deps_test.go          Unit tests (7 tests)
+  deps_test.go          Unit tests (11 tests including cycle detection)
+  topo_test.go          Topo sort tests (5 tests: linear, diamond, forest, empty, cycle)
 internal/budget/        Token budget threshold checking with dedup
   budget.go             Checker, narrow interfaces, state-based dedup
 internal/lock/          Filesystem-based mutex using POSIX mkdir atomicity
@@ -56,7 +58,7 @@ internal/runtrack/      Agent and artifact tracking within runs
   store.go              CRUD for run_agents and run_artifacts
   errors.go             Error sentinels (ErrAgentNotFound, ErrArtifactNotFound)
 lib-intercore.sh        Bash wrappers for hooks (v0.6.0)
-test-integration.sh     End-to-end integration test (~93 tests)
+test-integration.sh     End-to-end integration test (~105 tests)
 ```
 
 ## CLI Commands
@@ -118,6 +120,8 @@ ic portfolio dep add <id> --upstream=<path> --downstream=<path>   Add project de
 ic portfolio dep list <id>                 List dependencies for a portfolio
 ic portfolio dep remove <id> --upstream=<path> --downstream=<path>   Remove dependency
 ic portfolio relay <id> [--interval=2s]    Start event relay (blocks, SIGINT to stop)
+ic portfolio order <id>                   Print topological build order (deterministic)
+ic portfolio status <id>                  Show per-child readiness with blocked-by details
 ic compat status                           Show legacy temp file vs DB coverage
 ic compat check <key>                      Check if key has data in DB
 ```
@@ -314,8 +318,9 @@ Gates enforce conditions before phase transitions. Each transition has a set of 
 - `agents_complete` — requires no active agents (all completed or failed)
 - `verdict_exists` — requires a non-rejected dispatch verdict (needs `scope_id` on the run)
 - `children_at_phase` — (portfolio only) requires all active children at or past target phase
+- `upstreams_at_phase` — (child runs with deps) blocks if upstream projects haven't reached the target phase; terminal upstreams (completed/cancelled/failed) don't block
 
-**Interfaces:** Gate evaluation uses `RuntrackQuerier`, `VerdictQuerier`, and `PortfolioQuerier` interfaces to avoid cross-package coupling. The actual implementations live in `runtrack.Store`, `dispatch.Store`, and `phase.Store`.
+**Interfaces:** Gate evaluation uses `RuntrackQuerier`, `VerdictQuerier`, `PortfolioQuerier`, and `DepQuerier` interfaces to avoid cross-package coupling. The actual implementations live in `runtrack.Store`, `dispatch.Store`, `phase.Store`, and `portfolio.DepStore`.
 
 **Gate Tiers** (set by `--priority` flag):
 
@@ -434,13 +439,25 @@ Paths are resolved to absolute. The portfolio run and all children are created a
 
 ### Project Dependencies
 
-The `project_deps` table stores directed dependency edges between child projects within a portfolio. Used by the relay to emit `upstream_changed` events.
+The `project_deps` table stores directed dependency edges between child projects within a portfolio. Used by the relay to emit `upstream_changed` events and by the `upstreams_at_phase` gate check to block downstream advancement.
 
 ```
 ic portfolio dep add <portfolio-id> --upstream=/path/a --downstream=/path/b
 ```
 
-Self-loop prevention: upstream == downstream is rejected. Paths are normalized to absolute via `filepath.Abs`.
+**Validation:** Self-loop prevention (upstream == downstream rejected). Cycle detection via DFS reachability check (`HasPath`) — if downstream can already reach upstream via existing edges, adding the edge would create a cycle. Paths are normalized to absolute via `filepath.Abs`.
+
+**Transactional safety:** The cycle check and INSERT are wrapped in a single `BeginTx` transaction to prevent TOCTOU races where two concurrent `dep add` calls both pass the cycle check and both insert edges that form a cycle.
+
+### Dependency Scheduling (E9)
+
+Child runs in a portfolio can have their phase advancement gated by upstream dependencies. When a child run has upstream deps, the `upstreams_at_phase` gate check blocks advancement until all upstream projects have reached (or passed) the target phase.
+
+**Terminal status handling:** Completed, cancelled, and failed upstream runs are treated as non-blocking. A cancelled or failed upstream should not permanently block downstream progress.
+
+**Topological ordering:** `ic portfolio order <id>` computes a dependency-respecting build order using Kahn's algorithm. Output is deterministic — ties among nodes at the same topological level are broken lexicographically.
+
+**Portfolio status:** `ic portfolio status <id>` shows per-child readiness with blocked-by details. Each child is marked as ready or blocked, with the specific upstream(s) causing the block.
 
 ### Event Relay
 
@@ -470,6 +487,12 @@ Portfolio runs automatically receive a `children_at_phase` gate check. This gate
 - Gate freshness is bounded by the relay poll interval (default 2s)
 
 The gate uses the `PortfolioQuerier` interface (`GetChildren(ctx, runID)`) to avoid cross-package coupling.
+
+**Child dependency gates:** Child runs with upstream dependencies automatically receive an `upstreams_at_phase` gate check in addition to standard gates. This gate blocks the child from advancing to phase P unless all upstream projects have reached phase P. The gate uses the `DepQuerier` interface (`GetUpstream(ctx, portfolioRunID, project)`) — only injected for child runs that have a `parent_run_id`.
+
+- Terminal upstreams (completed, cancelled, failed) don't block
+- Upstream chains that don't contain the target phase are treated as "past it"
+- If no upstream dependencies exist, the gate passes immediately
 
 ### Dispatch Budget
 
@@ -516,6 +539,7 @@ All payloads are validated before storage:
 | state set | Transaction (default) | Write with REPLACE |
 | state get | No transaction | Read-only |
 | sentinel check | Transaction (default) | Atomic claim + auto-prune |
+| dep add | Transaction (default) | Cycle check + INSERT atomicity (TOCTOU prevention) |
 | dispatch create | No transaction | Single INSERT |
 | dispatch update | Transaction | Capture prev status + UPDATE + commit before event recorder |
 | migrate | Transaction (default) | Schema DDL + version update |
@@ -528,9 +552,9 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~140 tests across 12 packages)
+go test ./...                    # Unit tests (~155 tests across 12 packages)
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (~100+ tests)
+bash test-integration.sh         # Full CLI integration test (~105+ tests)
 ```
 
 ## Recovery Procedures
