@@ -16,14 +16,18 @@ import (
 
 // Event type constants for portfolio relay events.
 const (
-	EventChildAdvanced     = "child_advanced"
-	EventChildCompleted    = "child_completed"
-	EventUpstreamChanged   = "upstream_changed"
+	EventChildAdvanced   = "child_advanced"
+	EventChildCompleted  = "child_completed"
+	EventChildCancelled  = "child_cancelled"
+	EventChildBlocked    = "child_blocked"
+	EventChildRolledBack = "child_rolledback"
+	EventUpstreamChanged = "upstream_changed"
 )
 
 // Relay polls child project databases and relays events to the portfolio run.
 type Relay struct {
 	portfolioID string
+	db          *sql.DB
 	store       *phase.Store
 	stateStore  *state.Store
 	depStore    *DepStore
@@ -39,6 +43,7 @@ func NewRelay(portfolioID string, db *sql.DB, interval time.Duration) *Relay {
 	}
 	return &Relay{
 		portfolioID: portfolioID,
+		db:          db,
 		store:       phase.New(db),
 		stateStore:  state.New(db),
 		depStore:    NewDepStore(db),
@@ -63,6 +68,9 @@ func (r *Relay) Run(ctx context.Context) error {
 		return fmt.Errorf("relay: load cursors: %w", err)
 	}
 
+	ticker := time.NewTicker(r.interval)
+	defer ticker.Stop()
+
 	for {
 		if err := r.poll(ctx, cursors); err != nil {
 			fmt.Fprintf(r.logw, "[relay] poll error: %v\n", err)
@@ -71,8 +79,22 @@ func (r *Relay) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(r.interval):
+		case <-ticker.C:
 		}
+	}
+}
+
+// mapChildEventType maps a child phase event type to a portfolio relay event type.
+func mapChildEventType(childEventType string) string {
+	switch childEventType {
+	case phase.EventCancel:
+		return EventChildCancelled
+	case phase.EventBlock, phase.EventPause:
+		return EventChildBlocked
+	case phase.EventRollback:
+		return EventChildRolledBack
+	default:
+		return EventChildAdvanced
 	}
 }
 
@@ -113,46 +135,15 @@ func (r *Relay) poll(ctx context.Context, cursors map[string]int64) error {
 			continue
 		}
 
-		for _, evt := range events {
-			// Relay to portfolio's phase_events
-			relayReason := fmt.Sprintf("relay:%s", child.ProjectDir)
-			eventType := EventChildAdvanced
-			if evt.EventType == phase.EventCancel {
-				eventType = EventChildCompleted
+		// Process events and persist atomically per child
+		if len(events) > 0 {
+			newCursor, err := r.relayChildEvents(ctx, child.ProjectDir, cursor, events, deps)
+			if err != nil {
+				fmt.Fprintf(r.logw, "[relay] relay events %s: %v\n", child.ProjectDir, err)
+				continue
 			}
-
-			r.store.AddEvent(ctx, &phase.PhaseEvent{
-				RunID:     r.portfolioID,
-				FromPhase: evt.FromPhase,
-				ToPhase:   evt.ToPhase,
-				EventType: eventType,
-				Reason:    &relayReason,
-			})
-
-			fmt.Fprintf(r.logw, "[relay] %s: %s %s→%s\n", child.ProjectDir, eventType, evt.FromPhase, evt.ToPhase)
-
-			// Update cursor
-			if evt.ID > cursor {
-				cursor = evt.ID
-			}
-
-			// Check dependencies: did this child advance past an upstream boundary?
-			for _, dep := range deps {
-				if dep.UpstreamProject == child.ProjectDir {
-					reason := fmt.Sprintf("%s:%s→%s", EventUpstreamChanged, evt.FromPhase, evt.ToPhase)
-					r.store.AddEvent(ctx, &phase.PhaseEvent{
-						RunID:     r.portfolioID,
-						FromPhase: evt.FromPhase,
-						ToPhase:   evt.ToPhase,
-						EventType: EventUpstreamChanged,
-						Reason:    &reason,
-					})
-				}
-			}
+			cursors[child.ProjectDir] = newCursor
 		}
-
-		cursors[child.ProjectDir] = cursor
-		r.saveCursor(ctx, child.ProjectDir, cursor)
 
 		// Count active dispatches in child project
 		active, err := countActiveDispatches(ctx, childDB)
@@ -162,10 +153,78 @@ func (r *Relay) poll(ctx context.Context, cursors map[string]int64) error {
 	}
 
 	// Write active dispatch count to state table
-	r.stateStore.Set(ctx, "active-dispatch-count", r.portfolioID,
-		json.RawMessage(strconv.Quote(strconv.Itoa(totalActive))), 0)
+	if err := r.stateStore.Set(ctx, "active-dispatch-count", r.portfolioID,
+		json.RawMessage(strconv.Quote(strconv.Itoa(totalActive))), 0); err != nil {
+		fmt.Fprintf(r.logw, "[relay] write dispatch count: %v\n", err)
+	}
 
 	return nil
+}
+
+// relayChildEvents atomically inserts relay events and advances the cursor
+// for a single child within one transaction on the portfolio DB.
+func (r *Relay) relayChildEvents(ctx context.Context, projectDir string, cursor int64, events []childEvent, deps []Dep) (int64, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return cursor, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	newCursor := cursor
+	for _, evt := range events {
+		relayReason := fmt.Sprintf("relay:%s", projectDir)
+		eventType := mapChildEventType(evt.EventType)
+
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO phase_events (
+				run_id, from_phase, to_phase, event_type, reason
+			) VALUES (?, ?, ?, ?, ?)`,
+			r.portfolioID, evt.FromPhase, evt.ToPhase, eventType, relayReason,
+		)
+		if err != nil {
+			return cursor, fmt.Errorf("insert relay event: %w", err)
+		}
+
+		fmt.Fprintf(r.logw, "[relay] %s: %s %s→%s\n", projectDir, eventType, evt.FromPhase, evt.ToPhase)
+
+		if evt.ID > newCursor {
+			newCursor = evt.ID
+		}
+
+		// Check dependencies: did this child advance past an upstream boundary?
+		for _, dep := range deps {
+			if dep.UpstreamProject == projectDir {
+				reason := fmt.Sprintf("%s:%s→%s", EventUpstreamChanged, evt.FromPhase, evt.ToPhase)
+				_, err := tx.ExecContext(ctx, `
+					INSERT INTO phase_events (
+						run_id, from_phase, to_phase, event_type, reason
+					) VALUES (?, ?, ?, ?, ?)`,
+					r.portfolioID, evt.FromPhase, evt.ToPhase, EventUpstreamChanged, reason,
+				)
+				if err != nil {
+					return cursor, fmt.Errorf("insert upstream event: %w", err)
+				}
+			}
+		}
+	}
+
+	// Save cursor in the same transaction
+	cursorVal := strconv.FormatInt(newCursor, 10)
+	_, err = tx.ExecContext(ctx, `
+		INSERT OR REPLACE INTO state (key, scope_id, payload, updated_at, expires_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		"relay-cursor", projectDir,
+		json.RawMessage(strconv.Quote(cursorVal)),
+		time.Now().Unix(), 0,
+	)
+	if err != nil {
+		return cursor, fmt.Errorf("save cursor: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return cursor, fmt.Errorf("commit: %w", err)
+	}
+	return newCursor, nil
 }
 
 // childEvent is a minimal phase event from a child DB.
@@ -230,10 +289,4 @@ func (r *Relay) loadCursors(ctx context.Context) (map[string]int64, error) {
 		cursors[child.ProjectDir] = val
 	}
 	return cursors, nil
-}
-
-// saveCursor persists a relay cursor to the state table.
-func (r *Relay) saveCursor(ctx context.Context, projectDir string, cursor int64) {
-	r.stateStore.Set(ctx, "relay-cursor", projectDir,
-		json.RawMessage(strconv.Quote(strconv.FormatInt(cursor, 10))), 0)
 }

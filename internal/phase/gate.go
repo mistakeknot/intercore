@@ -223,9 +223,10 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			}
 			behind := 0
 			for _, child := range children {
-				if IsTerminalStatus(child.Status) && child.Status != StatusActive {
+				if child.Status == StatusCompleted || child.Status == StatusCancelled {
 					continue // completed/cancelled children don't block
 				}
+				// Failed children DO block — portfolio should not advance past a failed child
 				childChain := ResolveChain(child)
 				targetIdx := ChainPhaseIndex(childChain, rule.phase)
 				if targetIdx < 0 {

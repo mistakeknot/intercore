@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -104,23 +105,12 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	// Portfolio dispatch limit check (best-effort, relay-maintained cache)
+	// Portfolio dispatch limit check (best-effort, relay-maintained cache).
+	// Note: this is advisory, not atomic — concurrent spawns may exceed the limit.
 	if opts.ScopeID != "" {
-		phaseStore := phase.New(d.SqlDB())
-		stateStore := state.New(d.SqlDB())
-		if run, err := phaseStore.Get(ctx, opts.ScopeID); err == nil && run.ParentRunID != nil {
-			if parent, err := phaseStore.Get(ctx, *run.ParentRunID); err == nil && parent.MaxDispatches > 0 {
-				if payload, err := stateStore.Get(ctx, "active-dispatch-count", *run.ParentRunID); err == nil {
-					var countStr string
-					if json.Unmarshal(payload, &countStr) == nil {
-						if count, err := strconv.Atoi(countStr); err == nil && count >= parent.MaxDispatches {
-							fmt.Fprintf(os.Stderr, "ic: dispatch spawn: portfolio dispatch limit reached (%d/%d)\n", count, parent.MaxDispatches)
-							return 1
-						}
-					}
-				}
-				// If state entry doesn't exist (no relay running), degrade gracefully — allow spawn
-			}
+		if limited, msg := checkPortfolioDispatchLimit(ctx, d.SqlDB(), opts.ScopeID); limited {
+			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: %s\n", msg)
+			return 1
 		}
 	}
 
@@ -581,4 +571,42 @@ func printDispatch(d *dispatch.Dispatch) {
 	if d.ErrorMessage != nil {
 		fmt.Printf("Error:   %s\n", *d.ErrorMessage)
 	}
+}
+
+// checkPortfolioDispatchLimit checks if the dispatch limit for a portfolio run is exceeded.
+// Returns (true, message) if the limit is reached, (false, "") otherwise.
+// Degrades gracefully: returns false if any lookup fails (no relay, no parent, etc.).
+func checkPortfolioDispatchLimit(ctx context.Context, db *sql.DB, scopeID string) (bool, string) {
+	phaseStore := phase.New(db)
+	stateStore := state.New(db)
+
+	run, err := phaseStore.Get(ctx, scopeID)
+	if err != nil || run.ParentRunID == nil {
+		return false, ""
+	}
+
+	parent, err := phaseStore.Get(ctx, *run.ParentRunID)
+	if err != nil || parent.MaxDispatches <= 0 {
+		return false, ""
+	}
+
+	payload, err := stateStore.Get(ctx, "active-dispatch-count", *run.ParentRunID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: dispatch spawn: warning: no relay data for portfolio %s, dispatch limit not enforced\n", *run.ParentRunID)
+		return false, ""
+	}
+
+	var countStr string
+	if err := json.Unmarshal(payload, &countStr); err != nil {
+		return false, ""
+	}
+	count, err := strconv.Atoi(countStr)
+	if err != nil {
+		return false, ""
+	}
+
+	if count >= parent.MaxDispatches {
+		return true, fmt.Sprintf("portfolio dispatch limit reached (%d/%d)", count, parent.MaxDispatches)
+	}
+	return false, ""
 }

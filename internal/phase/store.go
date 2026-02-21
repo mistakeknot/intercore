@@ -421,7 +421,10 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 	}
 	var phasesJSON *string
 	if portfolio.Phases != nil {
-		b, _ := json.Marshal(portfolio.Phases)
+		b, err := json.Marshal(portfolio.Phases)
+		if err != nil {
+			return "", nil, fmt.Errorf("create portfolio: marshal phases: %w", err)
+		}
 		s := string(b)
 		phasesJSON = &s
 	}
@@ -460,7 +463,10 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 		}
 		var childPhasesJSON *string
 		if child.Phases != nil {
-			b, _ := json.Marshal(child.Phases)
+			b, err := json.Marshal(child.Phases)
+			if err != nil {
+				return "", nil, fmt.Errorf("create portfolio: marshal child phases: %w", err)
+			}
 			s := string(b)
 			childPhasesJSON = &s
 		}
@@ -513,7 +519,10 @@ func (s *Store) CancelPortfolio(ctx context.Context, portfolioRunID string) erro
 	if err != nil {
 		return fmt.Errorf("cancel portfolio: update portfolio: %w", err)
 	}
-	n, _ := result.RowsAffected()
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("cancel portfolio: rows affected: %w", err)
+	}
 	if n == 0 {
 		return fmt.Errorf("cancel portfolio: run %s not found or not active", portfolioRunID)
 	}

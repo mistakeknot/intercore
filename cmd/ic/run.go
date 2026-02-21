@@ -719,7 +719,10 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 			ToPhase:   run.Phase,
 			EventType: phase.EventCancel,
 		})
-		children, _ := store.GetChildren(ctx, args[0])
+		children, err := store.GetChildren(ctx, args[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run cancel: warning: could not list children: %v\n", err)
+		}
 		for _, c := range children {
 			store.AddEvent(ctx, &phase.PhaseEvent{
 				RunID:     c.ID,
