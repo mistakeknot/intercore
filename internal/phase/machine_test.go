@@ -44,7 +44,7 @@ func advanceToPhase(t *testing.T, store *Store, runID string, target string, rt 
 		if ChainIsTerminal(chain, run.Phase) || IsTerminalStatus(run.Status) {
 			t.Fatalf("advanceToPhase(%s): overshot (currently at %s, status %s)", target, run.Phase, run.Status)
 		}
-		result, err := Advance(context.Background(), store, runID, cfg, rt, nil, nil, nil)
+		result, err := Advance(context.Background(), store, runID, cfg, rt, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("advanceToPhase(%s): %v", target, err)
 		}
@@ -61,7 +61,7 @@ func TestAdvance_Basic(t *testing.T) {
 		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
 	})
 
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestAdvance_DefaultChain_StepsSequentially(t *testing.T) {
 		ProjectDir: "/tmp", Goal: "test", Complexity: 1, AutoAdvance: true,
 	})
 
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestAdvance_CustomChain(t *testing.T) {
 	cfg := GateConfig{Priority: 4}
 
 	// draft → review
-	r1, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil)
+	r1, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance 1: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestAdvance_CustomChain(t *testing.T) {
 	}
 
 	// review → ship (terminal — should complete the run)
-	r2, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil)
+	r2, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance 2: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestAdvance_CustomChain(t *testing.T) {
 	}
 
 	// Further advance should fail
-	_, err = Advance(ctx, store, id, cfg, nil, nil, nil, nil)
+	_, err = Advance(ctx, store, id, cfg, nil, nil, nil, nil, nil)
 	if err != ErrTerminalRun {
 		t.Errorf("advance past terminal: err = %v, want ErrTerminalRun", err)
 	}
@@ -171,7 +171,7 @@ func TestAdvance_AutoAdvanceFalse_Pauses(t *testing.T) {
 		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: false,
 	})
 
-	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil)
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestAdvance_AutoAdvanceFalse_WithSkipReason_Proceeds(t *testing.T) {
 	result, err := Advance(ctx, store, id, GateConfig{
 		Priority:   4,
 		SkipReason: "manual override",
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestAdvance_GateTiers(t *testing.T) {
 	id1, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "t1", Complexity: 3, AutoAdvance: true,
 	})
-	r1, _ := Advance(ctx, store, id1, GateConfig{Priority: 4}, nil, nil, nil, nil)
+	r1, _ := Advance(ctx, store, id1, GateConfig{Priority: 4}, nil, nil, nil, nil, nil)
 	if r1.GateTier != TierNone {
 		t.Errorf("Priority 4 tier = %q, want %q", r1.GateTier, TierNone)
 	}
@@ -229,7 +229,7 @@ func TestAdvance_GateTiers(t *testing.T) {
 	rtStore.AddArtifact(ctx, &runtrack.Artifact{
 		RunID: id2, Phase: PhaseBrainstorm, Path: "test.md", Type: "file",
 	})
-	r2, _ := Advance(ctx, store, id2, GateConfig{Priority: 2}, rtStore, nil, nil, nil)
+	r2, _ := Advance(ctx, store, id2, GateConfig{Priority: 2}, rtStore, nil, nil, nil, nil)
 	if r2.GateTier != TierSoft {
 		t.Errorf("Priority 2 tier = %q, want %q", r2.GateTier, TierSoft)
 	}
@@ -244,7 +244,7 @@ func TestAdvance_GateTiers(t *testing.T) {
 	rtStore.AddArtifact(ctx, &runtrack.Artifact{
 		RunID: id3, Phase: PhaseBrainstorm, Path: "test.md", Type: "file",
 	})
-	r3, _ := Advance(ctx, store, id3, GateConfig{Priority: 0}, rtStore, nil, nil, nil)
+	r3, _ := Advance(ctx, store, id3, GateConfig{Priority: 0}, rtStore, nil, nil, nil, nil)
 	if r3.GateTier != TierHard {
 		t.Errorf("Priority 0 tier = %q, want %q", r3.GateTier, TierHard)
 	}
@@ -256,7 +256,7 @@ func TestAdvance_GateTiers(t *testing.T) {
 	id4, _ := store.Create(ctx, &Run{
 		ProjectDir: "/tmp", Goal: "t4", Complexity: 3, AutoAdvance: true,
 	})
-	r4, _ := Advance(ctx, store, id4, GateConfig{Priority: 0, DisableAll: true}, nil, nil, nil, nil)
+	r4, _ := Advance(ctx, store, id4, GateConfig{Priority: 0, DisableAll: true}, nil, nil, nil, nil, nil)
 	if r4.GateTier != TierNone {
 		t.Errorf("DisableAll tier = %q, want %q", r4.GateTier, TierNone)
 	}
@@ -273,14 +273,14 @@ func TestAdvance_ToDone_CompletesRun(t *testing.T) {
 
 	// Walk through all 9 transitions: brainstorm → ... → done
 	for i := 0; i < 7; i++ {
-		_, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil)
+		_, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("Advance step %d: %v", i, err)
 		}
 	}
 
 	// Final advance → done
-	result, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil)
+	result, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance to done: %v", err)
 	}
@@ -307,7 +307,7 @@ func TestAdvance_TerminalRun_ReturnsError(t *testing.T) {
 	})
 	store.UpdateStatus(ctx, id, StatusCancelled)
 
-	_, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil)
+	_, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil, nil)
 	if err != ErrTerminalRun {
 		t.Errorf("Advance(cancelled run) error = %v, want ErrTerminalRun", err)
 	}
@@ -322,9 +322,9 @@ func TestAdvance_TerminalPhase_ReturnsError(t *testing.T) {
 		Phases: []string{"start", "done"},
 	})
 	cfg := GateConfig{Priority: 4}
-	Advance(ctx, store, id, cfg, nil, nil, nil, nil) // → done (completed)
+	Advance(ctx, store, id, cfg, nil, nil, nil, nil, nil) // → done (completed)
 
-	_, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil)
+	_, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil, nil)
 	if err != ErrTerminalRun {
 		// Run is now completed, so ErrTerminalRun is expected
 		t.Errorf("Advance(done run) error = %v, want ErrTerminalRun", err)
@@ -334,7 +334,7 @@ func TestAdvance_TerminalPhase_ReturnsError(t *testing.T) {
 func TestAdvance_NotFound(t *testing.T) {
 	store, _, _, ctx := setupMachineTest(t)
 
-	_, err := Advance(ctx, store, "nonexist", GateConfig{Priority: 4}, nil, nil, nil, nil)
+	_, err := Advance(ctx, store, "nonexist", GateConfig{Priority: 4}, nil, nil, nil, nil, nil)
 	if err != ErrNotFound {
 		t.Errorf("Advance(nonexist) error = %v, want ErrNotFound", err)
 	}
@@ -360,7 +360,7 @@ func TestAdvance_FullLifecycle_Complexity3(t *testing.T) {
 
 	cfg := GateConfig{Priority: 4}
 	for i, expected := range expectedPhases {
-		result, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil)
+		result, err := Advance(ctx, store, id, cfg, nil, nil, nil, nil, nil)
 		if err != nil {
 			t.Fatalf("Advance step %d: %v", i, err)
 		}
@@ -395,7 +395,7 @@ func TestAdvance_SkipReason_RecordedInEvent(t *testing.T) {
 	result, err := Advance(ctx, store, id, GateConfig{
 		Priority:   4,
 		SkipReason: "testing reason",
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("Advance: %v", err)
 	}

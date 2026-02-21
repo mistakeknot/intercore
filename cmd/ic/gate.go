@@ -11,6 +11,7 @@ import (
 
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/portfolio"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
 )
 
@@ -68,10 +69,11 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 	store := phase.New(d.SqlDB())
 	rtStore := runtrack.New(d.SqlDB())
 	dStore := dispatch.New(d.SqlDB(), nil)
+	depStore := portfolio.NewDepStore(d.SqlDB())
 
 	result, err := phase.EvaluateGate(ctx, store, runID, phase.GateConfig{
 		Priority: priority,
-	}, rtStore, dStore, store)
+	}, rtStore, dStore, store, depStore)
 	if err != nil {
 		if errors.Is(err, phase.ErrNotFound) {
 			fmt.Fprintf(os.Stderr, "ic: gate check: not found: %s\n", runID)

@@ -11,12 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/portfolio"
 )
 
 func cmdPortfolio(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: portfolio: missing subcommand (dep, relay)\n")
+		fmt.Fprintf(os.Stderr, "ic: portfolio: missing subcommand (dep, relay, order, status)\n")
 		return 3
 	}
 
@@ -25,6 +26,10 @@ func cmdPortfolio(ctx context.Context, args []string) int {
 		return cmdPortfolioDep(ctx, args[1:])
 	case "relay":
 		return cmdPortfolioRelay(ctx, args[1:])
+	case "order":
+		return cmdPortfolioOrder(ctx, args[1:])
+	case "status":
+		return cmdPortfolioStatus(ctx, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "ic: portfolio: unknown subcommand: %s\n", args[0])
 		return 3
@@ -231,5 +236,148 @@ func cmdPortfolioRelay(ctx context.Context, args []string) int {
 	}
 
 	fmt.Fprintf(os.Stderr, "[relay] stopped\n")
+	return 0
+}
+
+func cmdPortfolioOrder(ctx context.Context, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: portfolio order: usage: ic portfolio order <portfolio-id>\n")
+		return 3
+	}
+	portfolioID := args[0]
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: portfolio order: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	depStore := portfolio.NewDepStore(d.SqlDB())
+	deps, err := depStore.List(ctx, portfolioID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: portfolio order: %v\n", err)
+		return 2
+	}
+
+	order, err := portfolio.TopologicalSort(deps)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: portfolio order: %v\n", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(order)
+	} else {
+		for i, p := range order {
+			fmt.Printf("%d\t%s\n", i+1, p)
+		}
+	}
+	return 0
+}
+
+func cmdPortfolioStatus(ctx context.Context, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: portfolio status: usage: ic portfolio status <portfolio-id>\n")
+		return 3
+	}
+	portfolioID := args[0]
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: portfolio status: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := phase.New(d.SqlDB())
+	depStore := portfolio.NewDepStore(d.SqlDB())
+
+	children, err := store.GetChildren(ctx, portfolioID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: portfolio status: %v\n", err)
+		return 2
+	}
+
+	deps, err := depStore.List(ctx, portfolioID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: portfolio status: %v\n", err)
+		return 2
+	}
+
+	// Build upstream map: project → []upstream projects
+	upstreamMap := make(map[string][]string)
+	for _, dep := range deps {
+		upstreamMap[dep.DownstreamProject] = append(upstreamMap[dep.DownstreamProject], dep.UpstreamProject)
+	}
+
+	// Index children by project dir
+	childByProject := make(map[string]*phase.Run)
+	for _, c := range children {
+		if _, exists := childByProject[c.ProjectDir]; !exists {
+			childByProject[c.ProjectDir] = c
+		}
+	}
+
+	type childStatus struct {
+		Project   string   `json:"project"`
+		Phase     string   `json:"phase"`
+		Status    string   `json:"status"`
+		Ready     bool     `json:"ready"`
+		BlockedBy []string `json:"blocked_by,omitempty"`
+	}
+
+	var statuses []childStatus
+	for _, child := range children {
+		cs := childStatus{
+			Project: child.ProjectDir,
+			Phase:   child.Phase,
+			Status:  child.Status,
+			Ready:   true,
+		}
+
+		if child.Status == phase.StatusCompleted || child.Status == phase.StatusCancelled || child.Status == phase.StatusFailed {
+			statuses = append(statuses, cs)
+			continue
+		}
+
+		childChain := phase.ResolveChain(child)
+		childIdx := phase.ChainPhaseIndex(childChain, child.Phase)
+
+		for _, upstream := range upstreamMap[child.ProjectDir] {
+			upRun, ok := childByProject[upstream]
+			if !ok {
+				continue
+			}
+			if upRun.Status == phase.StatusCompleted {
+				continue
+			}
+			upChain := phase.ResolveChain(upRun)
+			upIdx := phase.ChainPhaseIndex(upChain, upRun.Phase)
+			if upIdx < childIdx {
+				cs.Ready = false
+				cs.BlockedBy = append(cs.BlockedBy, fmt.Sprintf("%s (at %s)", upstream, upRun.Phase))
+			}
+		}
+
+		statuses = append(statuses, cs)
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(statuses)
+	} else {
+		fmt.Printf("%-40s %-20s %-12s %-6s %s\n", "PROJECT", "PHASE", "STATUS", "READY", "BLOCKED BY")
+		for _, cs := range statuses {
+			blockedBy := ""
+			if len(cs.BlockedBy) > 0 {
+				blockedBy = strings.Join(cs.BlockedBy, ", ")
+			}
+			ready := "yes"
+			if !cs.Ready {
+				ready = "no"
+			}
+			fmt.Printf("%-40s %-20s %-12s %-6s %s\n", cs.Project, cs.Phase, cs.Status, ready, blockedBy)
+		}
+	}
 	return 0
 }

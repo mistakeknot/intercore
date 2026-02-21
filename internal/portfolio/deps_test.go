@@ -152,5 +152,83 @@ func TestGetUpstream(t *testing.T) {
 	}
 }
 
+func TestAddDep_DirectCycle(t *testing.T) {
+	db := tempDB(t)
+	s := NewDepStore(db)
+	ctx := context.Background()
+
+	// A → B exists
+	if err := s.Add(ctx, "portfolio1", "/proj/a", "/proj/b"); err != nil {
+		t.Fatalf("Add A→B: %v", err)
+	}
+	// Adding B → A should fail (direct cycle)
+	err := s.Add(ctx, "portfolio1", "/proj/b", "/proj/a")
+	if err == nil {
+		t.Fatal("expected cycle detection error for B→A")
+	}
+}
+
+func TestAddDep_TransitiveCycle(t *testing.T) {
+	db := tempDB(t)
+	s := NewDepStore(db)
+	ctx := context.Background()
+
+	// A → B, B → C
+	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
+	s.Add(ctx, "portfolio1", "/proj/b", "/proj/c")
+
+	// Adding C → A should fail (transitive cycle: A→B→C→A)
+	err := s.Add(ctx, "portfolio1", "/proj/c", "/proj/a")
+	if err == nil {
+		t.Fatal("expected cycle detection error for C→A")
+	}
+}
+
+func TestAddDep_NoCycleFalsePositive(t *testing.T) {
+	db := tempDB(t)
+	s := NewDepStore(db)
+	ctx := context.Background()
+
+	// A → B, A → C (diamond top)
+	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
+	s.Add(ctx, "portfolio1", "/proj/a", "/proj/c")
+
+	// Adding C → B should succeed (no cycle — it's a diamond shape)
+	if err := s.Add(ctx, "portfolio1", "/proj/c", "/proj/b"); err != nil {
+		t.Fatalf("Add C→B should succeed (no cycle): %v", err)
+	}
+}
+
+func TestHasPath(t *testing.T) {
+	db := tempDB(t)
+	s := NewDepStore(db)
+	ctx := context.Background()
+
+	// Build graph: A → B → C
+	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
+	s.Add(ctx, "portfolio1", "/proj/b", "/proj/c")
+
+	tests := []struct {
+		from, to string
+		want     bool
+	}{
+		{"/proj/a", "/proj/c", true},  // transitive
+		{"/proj/a", "/proj/b", true},  // direct
+		{"/proj/c", "/proj/a", false}, // no reverse path
+		{"/proj/b", "/proj/a", false}, // no reverse path
+		{"/proj/a", "/proj/a", false}, // self (not in graph)
+		{"/proj/x", "/proj/y", false}, // non-existent nodes
+	}
+	for _, tt := range tests {
+		got, err := s.HasPath(ctx, "portfolio1", tt.from, tt.to)
+		if err != nil {
+			t.Fatalf("HasPath(%s, %s): %v", tt.from, tt.to, err)
+		}
+		if got != tt.want {
+			t.Errorf("HasPath(%s, %s) = %v, want %v", tt.from, tt.to, got, tt.want)
+		}
+	}
+}
+
 // Suppress unused import warning — time is used by the Dep struct in deps.go
 var _ = time.Now

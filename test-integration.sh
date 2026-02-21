@@ -895,6 +895,82 @@ pass "discovery events in unified event bus"
 
 echo "  E5 discovery tests passed"
 
+# --- E9: Portfolio Dependency Scheduling ---
+echo ""
+echo "=== E9: Portfolio Dependency Scheduling ==="
+
+# Create a portfolio run (project_dir="" signals portfolio)
+# head -1: portfolio create prints child IDs on subsequent lines
+PORTFOLIO_RUN=$(ic run create --project="" --goal="Portfolio dep test" --projects="/proj/a,/proj/b,/proj/c" --db="$TEST_DB" | head -1)
+[[ -n "$PORTFOLIO_RUN" ]] || fail "portfolio run create returned empty ID"
+pass "portfolio: create"
+
+# Add dependencies: A → B (B depends on A), A → C (C depends on A)
+ic portfolio dep add "$PORTFOLIO_RUN" --upstream="/proj/a" --downstream="/proj/b" --db="$TEST_DB" >/dev/null
+ic portfolio dep add "$PORTFOLIO_RUN" --upstream="/proj/a" --downstream="/proj/c" --db="$TEST_DB" >/dev/null
+pass "portfolio: deps added"
+
+# List deps
+dep_list=$(ic portfolio dep list "$PORTFOLIO_RUN" --json --db="$TEST_DB")
+dep_count=$(echo "$dep_list" | jq 'length')
+[[ "$dep_count" -eq 2 ]] || fail "should have 2 deps, got: $dep_count"
+pass "portfolio: dep list"
+
+# Cycle detection: B → A should fail (A already → B)
+ic portfolio dep add "$PORTFOLIO_RUN" --upstream="/proj/b" --downstream="/proj/a" --db="$TEST_DB" 2>/dev/null && fail "cycle should be rejected" || true
+pass "portfolio: cycle rejected"
+
+# Topological order
+order_out=$(ic portfolio order "$PORTFOLIO_RUN" --json --db="$TEST_DB")
+first=$(echo "$order_out" | jq -r '.[0]')
+# /proj/a should be first (it has no upstream deps)
+[[ "$first" == "/proj/a" ]] || fail "topo order first should be /proj/a, got: $first"
+pass "portfolio: topological order"
+
+# Portfolio status — children should exist from --projects flag
+status_out=$(ic portfolio status "$PORTFOLIO_RUN" --json --db="$TEST_DB")
+status_count=$(echo "$status_out" | jq 'length')
+[[ "$status_count" -eq 3 ]] || fail "portfolio status should show 3 children, got: $status_count"
+pass "portfolio: status shows children"
+
+# Find child IDs
+CHILD_A_ID=$(ic run list --db="$TEST_DB" --json | jq -r ".[] | select(.project_dir == \"/proj/a\") | .id")
+CHILD_B_ID=$(ic run list --db="$TEST_DB" --json | jq -r ".[] | select(.project_dir == \"/proj/b\") | .id")
+[[ -n "$CHILD_A_ID" ]] || fail "child A not found"
+[[ -n "$CHILD_B_ID" ]] || fail "child B not found"
+pass "portfolio: children found"
+
+# Add artifacts so artifact_exists gate doesn't block
+ic run artifact add "$CHILD_A_ID" --phase=brainstorm --path=docs/brainstorms/a.md --db="$TEST_DB" >/dev/null
+ic run artifact add "$CHILD_B_ID" --phase=brainstorm --path=docs/brainstorms/b.md --db="$TEST_DB" >/dev/null
+
+# Advance child A past brainstorm (hard priority, artifact exists so passes)
+ic run advance "$CHILD_A_ID" --priority=0 --db="$TEST_DB" >/dev/null
+
+# Gate check on child B (hard priority): artifact_exists passes (artifact added),
+# upstreams_at_phase passes (upstream A is at brainstorm-reviewed, ahead of B's target)
+gate_b=$(ic gate check "$CHILD_B_ID" --priority=0 --json --db="$TEST_DB")
+echo "$gate_b" | jq -e '.result == "pass"' >/dev/null || fail "child B gate should pass when upstream A is ahead, got: $gate_b"
+pass "portfolio: upstream gate passes when upstream is ahead"
+
+# Verify upstreams_at_phase condition is in the evidence
+echo "$gate_b" | jq -e '.evidence.conditions[] | select(.check == "upstreams_at_phase") | .result == "pass"' >/dev/null || fail "upstreams_at_phase should be pass in evidence"
+pass "portfolio: upstreams_at_phase in gate evidence"
+
+# Diamond dependency: add B → C (C now depends on both A and B)
+ic portfolio dep add "$PORTFOLIO_RUN" --upstream="/proj/b" --downstream="/proj/c" --db="$TEST_DB" >/dev/null
+pass "portfolio: diamond dep added (no cycle)"
+
+# No-dep portfolio: create one without deps, advance freely
+NODEP_PORTFOLIO=$(ic run create --project="" --goal="No-dep portfolio" --projects="/proj/x,/proj/y" --db="$TEST_DB" | head -1)
+CHILD_X_ID=$(ic run list --db="$TEST_DB" --json | jq -r ".[] | select(.project_dir == \"/proj/x\") | .id")
+ic run advance "$CHILD_X_ID" --priority=4 --db="$TEST_DB" >/dev/null
+child_x_phase=$(ic run phase "$CHILD_X_ID" --db="$TEST_DB")
+[[ "$child_x_phase" != "brainstorm" ]] || fail "no-dep child should advance freely, got: $child_x_phase"
+pass "portfolio: no-dep child advances freely"
+
+echo "  E9 portfolio dependency scheduling tests passed"
+
 # --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then

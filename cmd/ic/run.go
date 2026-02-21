@@ -14,6 +14,7 @@ import (
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/event"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
+	portfoliopkg "github.com/mistakeknot/interverse/infra/intercore/internal/portfolio"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
 )
@@ -450,11 +451,17 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		notifier.Notify(ctx, e)
 	}
 
+	// Wire DepQuerier for child runs with dependencies
+	var dq phase.DepQuerier
+	if run.ParentRunID != nil && *run.ParentRunID != "" {
+		dq = portfoliopkg.NewDepStore(d.SqlDB())
+	}
+
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
 		Priority:   priority,
 		DisableAll: disableGates,
 		SkipReason: skipReason,
-	}, rtStore, dStore, store, phaseCallback)
+	}, rtStore, dStore, store, dq, phaseCallback)
 	if err != nil {
 		if err == phase.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)

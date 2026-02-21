@@ -11,10 +11,11 @@ const EventOverride = "override"
 
 // Check type constants for gateRules.
 const (
-	CheckArtifactExists   = "artifact_exists"
-	CheckAgentsComplete   = "agents_complete"
-	CheckVerdictExists    = "verdict_exists"
-	CheckChildrenAtPhase  = "children_at_phase"
+	CheckArtifactExists    = "artifact_exists"
+	CheckAgentsComplete    = "agents_complete"
+	CheckVerdictExists     = "verdict_exists"
+	CheckChildrenAtPhase   = "children_at_phase"
+	CheckUpstreamsAtPhase  = "upstreams_at_phase"
 )
 
 // RuntrackQuerier abstracts runtrack.Store queries needed by gate evaluation.
@@ -34,6 +35,12 @@ type VerdictQuerier interface {
 // Implemented by phase.Store; tests can use stubs.
 type PortfolioQuerier interface {
 	GetChildren(ctx context.Context, runID string) ([]*Run, error)
+}
+
+// DepQuerier abstracts dependency graph queries for gate evaluation.
+// Implemented by portfolio.DepStore; tests can use stubs.
+type DepQuerier interface {
+	GetUpstream(ctx context.Context, portfolioRunID, downstream string) ([]string, error)
 }
 
 // GateCondition represents a single check within a gate evaluation.
@@ -106,7 +113,7 @@ var gateRules = map[[2]string][]gateRule{
 
 // evaluateGate checks whether a phase transition should be allowed.
 // Returns gate result, tier, structured evidence, and any error.
-func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier) (result, tier string, evidence *GateEvidence, err error) {
+func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier) (result, tier string, evidence *GateEvidence, err error) {
 	if cfg.DisableAll {
 		return GateNone, TierNone, nil, nil
 	}
@@ -131,6 +138,11 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	isPortfolio := run.ProjectDir == ""
 	if isPortfolio {
 		rules = append(rules, gateRule{check: CheckChildrenAtPhase, phase: to})
+	}
+
+	// Child runs with a parent: inject upstreams_at_phase check for every transition
+	if run.ParentRunID != nil && *run.ParentRunID != "" {
+		rules = append(rules, gateRule{check: CheckUpstreamsAtPhase, phase: to})
 	}
 
 	if len(rules) == 0 {
@@ -247,6 +259,64 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 				allPass = false
 			}
 
+		case CheckUpstreamsAtPhase:
+			if dq == nil || pq == nil {
+				cond.Result = GateFail
+				cond.Detail = "no dep/portfolio querier provided"
+				allPass = false
+				break
+			}
+			upstreams, qerr := dq.GetUpstream(ctx, *run.ParentRunID, run.ProjectDir)
+			if qerr != nil {
+				return "", "", nil, fmt.Errorf("gate check: get upstreams: %w", qerr)
+			}
+			if len(upstreams) == 0 {
+				cond.Result = GatePass
+				cond.Detail = "no upstream dependencies"
+				break
+			}
+			// Load all siblings to find upstream runs
+			siblings, qerr := pq.GetChildren(ctx, *run.ParentRunID)
+			if qerr != nil {
+				return "", "", nil, fmt.Errorf("gate check: get siblings: %w", qerr)
+			}
+			siblingByProject := make(map[string]*Run)
+			for _, s := range siblings {
+				if _, exists := siblingByProject[s.ProjectDir]; !exists {
+					siblingByProject[s.ProjectDir] = s
+				}
+			}
+			behind := 0
+			var behindDetails []string
+			for _, upstream := range upstreams {
+				upstreamRun, ok := siblingByProject[upstream]
+				if !ok {
+					continue // upstream project has no child run — not blocking
+				}
+				if upstreamRun.Status == StatusCompleted || upstreamRun.Status == StatusCancelled || upstreamRun.Status == StatusFailed {
+					continue // terminal upstreams don't block
+				}
+				upstreamChain := ResolveChain(upstreamRun)
+				targetIdx := ChainPhaseIndex(upstreamChain, rule.phase)
+				if targetIdx < 0 {
+					continue // upstream chain doesn't have this phase
+				}
+				upstreamIdx := ChainPhaseIndex(upstreamChain, upstreamRun.Phase)
+				if upstreamIdx < targetIdx {
+					behind++
+					behindDetails = append(behindDetails, fmt.Sprintf("%s at %s", upstream, upstreamRun.Phase))
+				}
+			}
+			count := behind
+			cond.Count = &count
+			if behind == 0 {
+				cond.Result = GatePass
+			} else {
+				cond.Result = GateFail
+				cond.Detail = fmt.Sprintf("upstreams behind phase %q: %v", rule.phase, behindDetails)
+				allPass = false
+			}
+
 		default:
 			cond.Result = GateFail
 			cond.Detail = fmt.Sprintf("unknown check type: %q", rule.check)
@@ -264,7 +334,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 
 // EvaluateGate performs a dry-run gate check for the next transition.
 // This is the public entry point used by `ic gate check`.
-func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier) (*GateCheckResult, error) {
+func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier) (*GateCheckResult, error) {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
@@ -282,7 +352,7 @@ func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfi
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}
-	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq, pq)
+	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq, pq, dq)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}
