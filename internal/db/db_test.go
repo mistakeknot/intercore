@@ -708,3 +708,73 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 		t.Errorf("existing artifact status = %q, want 'active'", status)
 	}
 }
+
+func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Create a v8 database with all tables up to v8 (no discovery tables)
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL, updated_at INTEGER, expires_at INTEGER, PRIMARY KEY (key, scope_id));
+		CREATE TABLE IF NOT EXISTS sentinels (name TEXT NOT NULL, scope_id TEXT NOT NULL, last_fired INTEGER, PRIMARY KEY (name, scope_id));
+		CREATE TABLE IF NOT EXISTS dispatches (id TEXT NOT NULL PRIMARY KEY, agent_type TEXT DEFAULT 'codex', status TEXT DEFAULT 'spawned', project_dir TEXT NOT NULL, prompt_file TEXT, prompt_hash TEXT, output_file TEXT, verdict_file TEXT, pid INTEGER, exit_code INTEGER, name TEXT, model TEXT, sandbox TEXT DEFAULT 'workspace-write', timeout_sec INTEGER, turns INTEGER DEFAULT 0, commands INTEGER DEFAULT 0, messages INTEGER DEFAULT 0, input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_hits INTEGER, created_at INTEGER, started_at INTEGER, completed_at INTEGER, verdict_status TEXT, verdict_summary TEXT, error_message TEXT, scope_id TEXT, parent_id TEXT);
+		CREATE TABLE IF NOT EXISTS runs (id TEXT NOT NULL PRIMARY KEY, project_dir TEXT NOT NULL, goal TEXT NOT NULL, status TEXT DEFAULT 'active', phase TEXT DEFAULT 'brainstorm', complexity INTEGER DEFAULT 3, force_full INTEGER DEFAULT 0, auto_advance INTEGER DEFAULT 1, created_at INTEGER, updated_at INTEGER, completed_at INTEGER, scope_id TEXT, metadata TEXT, phases TEXT, token_budget INTEGER, budget_warn_pct INTEGER DEFAULT 80);
+		CREATE TABLE IF NOT EXISTS phase_events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT NOT NULL REFERENCES runs(id), from_phase TEXT, to_phase TEXT, event_type TEXT DEFAULT 'advance', gate_result TEXT, gate_tier TEXT, reason TEXT, created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS run_agents (id TEXT NOT NULL PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), agent_type TEXT DEFAULT 'claude', name TEXT, status TEXT DEFAULT 'active', dispatch_id TEXT, created_at INTEGER, updated_at INTEGER);
+		CREATE TABLE IF NOT EXISTS run_artifacts (id TEXT NOT NULL PRIMARY KEY, run_id TEXT NOT NULL REFERENCES runs(id), phase TEXT NOT NULL, path TEXT NOT NULL, type TEXT DEFAULT 'file', content_hash TEXT, dispatch_id TEXT, status TEXT NOT NULL DEFAULT 'active', created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS dispatch_events (id INTEGER PRIMARY KEY AUTOINCREMENT, dispatch_id TEXT NOT NULL, run_id TEXT, from_status TEXT, to_status TEXT, event_type TEXT DEFAULT 'status_change', reason TEXT, created_at INTEGER);
+		CREATE TABLE IF NOT EXISTS interspect_events (id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, agent_name TEXT NOT NULL, event_type TEXT NOT NULL, override_reason TEXT, context_json TEXT, session_id TEXT, project_dir TEXT, created_at INTEGER NOT NULL DEFAULT (unixepoch()));
+		PRAGMA user_version = 8;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Migrate v8 → v9
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate v8→v9: %v", err)
+	}
+
+	// Verify version
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 9 {
+		t.Fatalf("expected schema version 9, got %d", v)
+	}
+
+	// Verify discoveries table exists and accepts inserts
+	_, err = d.db.Exec(`INSERT INTO discoveries (id, source, source_id, title) VALUES ('d1', 'exa', 'ext-1', 'Test Finding')`)
+	if err != nil {
+		t.Fatalf("discoveries insert failed: %v", err)
+	}
+
+	// Verify unique constraint on (source, source_id)
+	_, err = d.db.Exec(`INSERT INTO discoveries (id, source, source_id, title) VALUES ('d2', 'exa', 'ext-1', 'Duplicate')`)
+	if err == nil {
+		t.Fatal("expected UNIQUE constraint violation on (source, source_id)")
+	}
+
+	// Verify discovery_events table
+	_, err = d.db.Exec(`INSERT INTO discovery_events (discovery_id, event_type) VALUES ('d1', 'scored')`)
+	if err != nil {
+		t.Fatalf("discovery_events insert failed: %v", err)
+	}
+
+	// Verify feedback_signals table
+	_, err = d.db.Exec(`INSERT INTO feedback_signals (discovery_id, signal_type) VALUES ('d1', 'upvote')`)
+	if err != nil {
+		t.Fatalf("feedback_signals insert failed: %v", err)
+	}
+
+	// Verify interest_profile table with single-row constraint
+	_, err = d.db.Exec(`INSERT INTO interest_profile (id) VALUES (1)`)
+	if err != nil {
+		t.Fatalf("interest_profile insert failed: %v", err)
+	}
+	_, err = d.db.Exec(`INSERT INTO interest_profile (id) VALUES (2)`)
+	if err == nil {
+		t.Fatal("expected CHECK constraint violation on interest_profile.id != 1")
+	}
+}
