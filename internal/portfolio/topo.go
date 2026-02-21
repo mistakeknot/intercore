@@ -1,9 +1,13 @@
 package portfolio
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 // TopologicalSort returns projects in dependency-respecting order (upstreams first)
-// using Kahn's algorithm. Returns an error if a cycle is detected.
+// using Kahn's algorithm. The output is deterministic: ties among nodes at the
+// same topological level are broken by lexicographic sort.
 func TopologicalSort(deps []Dep) ([]string, error) {
 	// Build adjacency list and in-degree map
 	inDegree := make(map[string]int)
@@ -21,25 +25,29 @@ func TopologicalSort(deps []Dep) ([]string, error) {
 		inDegree[d.DownstreamProject]++
 	}
 
-	// Seed queue with zero-in-degree nodes
+	// Seed queue with zero-in-degree nodes (sorted for determinism)
 	var queue []string
 	for node, deg := range inDegree {
 		if deg == 0 {
 			queue = append(queue, node)
 		}
 	}
+	sort.Strings(queue)
 
 	var order []string
 	for len(queue) > 0 {
 		node := queue[0]
 		queue = queue[1:]
 		order = append(order, node)
+		var ready []string
 		for _, next := range downstream[node] {
 			inDegree[next]--
 			if inDegree[next] == 0 {
-				queue = append(queue, next)
+				ready = append(ready, next)
 			}
 		}
+		sort.Strings(ready)
+		queue = append(queue, ready...)
 	}
 
 	if len(order) != len(inDegree) {

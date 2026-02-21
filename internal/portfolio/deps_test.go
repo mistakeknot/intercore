@@ -41,6 +41,13 @@ func tempDB(t *testing.T) *sql.DB {
 	return db
 }
 
+func mustAdd(t *testing.T, s *DepStore, ctx context.Context, portfolio, upstream, downstream string) {
+	t.Helper()
+	if err := s.Add(ctx, portfolio, upstream, downstream); err != nil {
+		t.Fatalf("mustAdd(%s → %s): %v", upstream, downstream, err)
+	}
+}
+
 func TestAddDep(t *testing.T) {
 	db := tempDB(t)
 	s := NewDepStore(db)
@@ -92,7 +99,7 @@ func TestRemoveDep(t *testing.T) {
 	s := NewDepStore(db)
 	ctx := context.Background()
 
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/b")
 
 	if err := s.Remove(ctx, "portfolio1", "/proj/a", "/proj/b"); err != nil {
 		t.Fatalf("Remove: %v", err)
@@ -120,8 +127,8 @@ func TestGetDownstream(t *testing.T) {
 	s := NewDepStore(db)
 	ctx := context.Background()
 
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/c")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/b")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/c")
 
 	downstream, err := s.GetDownstream(ctx, "portfolio1", "/proj/a")
 	if err != nil {
@@ -140,8 +147,8 @@ func TestGetUpstream(t *testing.T) {
 	s := NewDepStore(db)
 	ctx := context.Background()
 
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/c")
-	s.Add(ctx, "portfolio1", "/proj/b", "/proj/c")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/c")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/b", "/proj/c")
 
 	upstream, err := s.GetUpstream(ctx, "portfolio1", "/proj/c")
 	if err != nil {
@@ -174,8 +181,8 @@ func TestAddDep_TransitiveCycle(t *testing.T) {
 	ctx := context.Background()
 
 	// A → B, B → C
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
-	s.Add(ctx, "portfolio1", "/proj/b", "/proj/c")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/b")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/b", "/proj/c")
 
 	// Adding C → A should fail (transitive cycle: A→B→C→A)
 	err := s.Add(ctx, "portfolio1", "/proj/c", "/proj/a")
@@ -190,8 +197,8 @@ func TestAddDep_NoCycleFalsePositive(t *testing.T) {
 	ctx := context.Background()
 
 	// A → B, A → C (diamond top)
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/c")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/b")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/c")
 
 	// Adding C → B should succeed (no cycle — it's a diamond shape)
 	if err := s.Add(ctx, "portfolio1", "/proj/c", "/proj/b"); err != nil {
@@ -205,8 +212,8 @@ func TestHasPath(t *testing.T) {
 	ctx := context.Background()
 
 	// Build graph: A → B → C
-	s.Add(ctx, "portfolio1", "/proj/a", "/proj/b")
-	s.Add(ctx, "portfolio1", "/proj/b", "/proj/c")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/a", "/proj/b")
+	mustAdd(t, s, ctx, "portfolio1", "/proj/b", "/proj/c")
 
 	tests := []struct {
 		from, to string

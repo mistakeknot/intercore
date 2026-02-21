@@ -341,20 +341,23 @@ func cmdPortfolioStatus(ctx context.Context, args []string) int {
 			continue
 		}
 
-		childChain := phase.ResolveChain(child)
-		childIdx := phase.ChainPhaseIndex(childChain, child.Phase)
-
 		for _, upstream := range upstreamMap[child.ProjectDir] {
 			upRun, ok := childByProject[upstream]
 			if !ok {
 				continue
 			}
-			if upRun.Status == phase.StatusCompleted {
+			if upRun.Status == phase.StatusCompleted || upRun.Status == phase.StatusCancelled || upRun.Status == phase.StatusFailed {
 				continue
 			}
+			// Check if upstream has reached child's current phase by name
+			// (not by index, since chains may differ)
 			upChain := phase.ResolveChain(upRun)
+			targetIdx := phase.ChainPhaseIndex(upChain, child.Phase)
+			if targetIdx < 0 {
+				continue // upstream chain doesn't have this phase
+			}
 			upIdx := phase.ChainPhaseIndex(upChain, upRun.Phase)
-			if upIdx < childIdx {
+			if upIdx < targetIdx {
 				cs.Ready = false
 				cs.BlockedBy = append(cs.BlockedBy, fmt.Sprintf("%s (at %s)", upstream, upRun.Phase))
 			}
