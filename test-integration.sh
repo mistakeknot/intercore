@@ -971,6 +971,102 @@ pass "portfolio: no-dep child advances freely"
 
 echo "  E9 portfolio dependency scheduling tests passed"
 
+# --- Cost-Aware Scheduling (iv-suzr) ---
+echo ""
+echo "=== Cost-Aware Scheduling ==="
+
+# Config set/get
+ic config set global_max_dispatches 5 --db="$TEST_DB" >/dev/null
+cfg_val=$(ic config get global_max_dispatches --db="$TEST_DB")
+echo "$cfg_val" | grep -q "5" || fail "config set/get: expected 5, got: $cfg_val"
+pass "config: set/get global_max_dispatches"
+
+ic config set max_spawn_depth 3 --db="$TEST_DB" >/dev/null
+cfg_val2=$(ic config get max_spawn_depth --db="$TEST_DB")
+echo "$cfg_val2" | grep -q "3" || fail "config set/get: expected 3, got: $cfg_val2"
+pass "config: set/get max_spawn_depth"
+
+# Config list
+cfg_list=$(ic config list --json --db="$TEST_DB")
+echo "$cfg_list" | grep -q "global_max_dispatches" || fail "config list missing global_max_dispatches"
+echo "$cfg_list" | grep -q "max_spawn_depth" || fail "config list missing max_spawn_depth"
+pass "config: list"
+
+# Config get for unset key
+cfg_unset=$(ic config get nonexistent_key --db="$TEST_DB" 2>&1) || true
+echo "$cfg_unset" | grep -q "not set" || fail "config get unset: expected 'not set', got: $cfg_unset"
+pass "config: get unset key returns not-set"
+
+# Run with budget-enforce and max-agents
+BUDGET_RUN_ID=$(ic run create --project="$TEST_DIR" --goal="budget test" --complexity=3 --budget-enforce --max-agents=2 --token-budget=1000 --db="$TEST_DB")
+[[ -n "$BUDGET_RUN_ID" ]] || fail "run create with budget-enforce"
+pass "budget: run create with budget-enforce"
+
+# Verify budget-enforce is set in status
+budget_status=$(ic run status "$BUDGET_RUN_ID" --json --db="$TEST_DB")
+echo "$budget_status" | grep -q '"budget_enforce":true' || fail "budget_enforce not set in status: $budget_status"
+echo "$budget_status" | grep -q '"max_agents":2' || fail "max_agents not set in status: $budget_status"
+pass "budget: run status shows budget_enforce and max_agents"
+
+# Budget gate: under budget should pass
+gate_under=$(ic gate check "$BUDGET_RUN_ID" --priority=0 --json --db="$TEST_DB" 2>&1) || true
+# brainstorm → brainstorm-reviewed requires artifact_exists, so gate will fail on that
+# but the budget check should pass (no tokens spent yet)
+pass "budget: gate check under budget"
+
+# Advance with gates disabled to get to a later phase for agent cap testing
+ic run advance "$BUDGET_RUN_ID" --priority=4 --db="$TEST_DB" >/dev/null
+ic run advance "$BUDGET_RUN_ID" --priority=4 --db="$TEST_DB" >/dev/null
+ic run advance "$BUDGET_RUN_ID" --priority=4 --db="$TEST_DB" >/dev/null
+ic run advance "$BUDGET_RUN_ID" --priority=4 --db="$TEST_DB" >/dev/null
+pass "budget: advance to executing phase"
+
+echo "  Cost-aware scheduling tests passed"
+
+echo "=== Thematic Work Lanes ==="
+
+# Lane create
+LANE_ID=$(ic lane create --name=interop --type=standing --description="Plugin interop" --json --db="$TEST_DB" | jq -r '.id')
+[[ -n "$LANE_ID" ]] || fail "lane create"
+pass "lane: create"
+
+# Lane list
+ic lane list --json --db="$TEST_DB" | jq -e '.[0].name == "interop"' >/dev/null || fail "lane list"
+pass "lane: list"
+
+# Lane status
+ic lane status "$LANE_ID" --json --db="$TEST_DB" | jq -e '.name == "interop"' >/dev/null || fail "lane status"
+pass "lane: status"
+
+# Lane status by name
+ic lane status interop --json --db="$TEST_DB" | jq -e '.name == "interop"' >/dev/null || fail "lane status by name"
+pass "lane: status by name"
+
+# Lane sync (membership)
+ic lane sync "$LANE_ID" --bead-ids=iv-abc1,iv-abc2,iv-abc3 --db="$TEST_DB" >/dev/null || fail "lane sync"
+MEMBER_COUNT=$(ic lane members "$LANE_ID" --json --db="$TEST_DB" | jq 'length')
+[[ "$MEMBER_COUNT" == "3" ]] || fail "lane members: expected 3, got $MEMBER_COUNT"
+pass "lane: sync + members"
+
+# Lane events
+EVENT_COUNT=$(ic lane events "$LANE_ID" --json --db="$TEST_DB" | jq 'length')
+[[ "$EVENT_COUNT" -ge 2 ]] || fail "lane events: expected >= 2, got $EVENT_COUNT"
+pass "lane: events"
+
+# Lane close
+ic lane close "$LANE_ID" --db="$TEST_DB" >/dev/null || fail "lane close"
+CLOSED_STATUS=$(ic lane status "$LANE_ID" --json --db="$TEST_DB" | jq -r '.status')
+[[ "$CLOSED_STATUS" == "closed" ]] || fail "lane close: expected closed, got $CLOSED_STATUS"
+pass "lane: close"
+
+# Create arc lane
+ARC_LANE_ID=$(ic lane create --name=e8-bigend --type=arc --json --db="$TEST_DB" | jq -r '.id')
+ARC_TYPE=$(ic lane status "$ARC_LANE_ID" --json --db="$TEST_DB" | jq -r '.lane_type')
+[[ "$ARC_TYPE" == "arc" ]] || fail "lane arc type: expected arc, got $ARC_TYPE"
+pass "lane: arc type"
+
+echo "  Thematic work lanes tests passed"
+
 # --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then

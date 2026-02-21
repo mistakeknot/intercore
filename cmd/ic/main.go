@@ -99,6 +99,10 @@ func main() {
 		exitCode = cmdDiscovery(ctx, subArgs)
 	case "portfolio":
 		exitCode = cmdPortfolio(ctx, subArgs)
+	case "lane":
+		exitCode = cmdLane(ctx, subArgs)
+	case "config":
+		exitCode = cmdConfig(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
 	default:
@@ -128,7 +132,7 @@ Commands:
   state delete <k> <s>          Delete state
   state list <k>                List scope_ids for a key
   state prune                   Prune expired state
-  dispatch spawn [opts]         Spawn an agent dispatch
+  dispatch spawn [opts]         Spawn an agent dispatch (--parent-dispatch=<id>)
   dispatch status <id>          Show dispatch status
   dispatch list [--active]      List dispatches
   dispatch poll <id>            Poll dispatch liveness
@@ -150,6 +154,7 @@ Commands:
   run budget <id>               Check budget thresholds (exit 1=exceeded)
   run cancel <id>               Cancel a run
   run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N]
+  run create ... [--budget-enforce] [--max-agents=N]  Enable budget enforcement
   run agent add <run> --type=<t> [--name=<n>] [--dispatch-id=<id>]
   run agent list <run>          List agents for run
   run agent update <id> --status=<s>  Update agent status
@@ -185,6 +190,9 @@ Commands:
   portfolio dep list <id>       List dependencies for portfolio
   portfolio dep remove <id> --upstream=<p> --downstream=<p>  Remove dependency
   portfolio relay <id> [--interval=2s]  Run event relay for portfolio
+  config set <key> <value>      Set a kernel config value
+  config get <key>              Get a kernel config value
+  config list [--verbose]       List kernel config values
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 

@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 11
-	maxSchemaVersion     = 11
+	currentSchemaVersion = 13
+	maxSchemaVersion     = 13
 )
 
 var (
@@ -130,11 +130,12 @@ func (d *DB) Migrate(ctx context.Context) error {
 	}
 
 	if currentVersion >= currentSchemaVersion {
-		return nil // already migrated
+		tx.Rollback() // explicit rollback — no work to commit
+		return nil    // already migrated
 	}
 
 	// v5 → v6: add new columns for configurable phase chains, token tracking, artifact hashing, budget
-	if currentVersion >= 5 {
+	if currentVersion >= 5 && currentVersion < 6 {
 		v6Stmts := []string{
 			"ALTER TABLE runs ADD COLUMN phases TEXT",
 			"ALTER TABLE runs ADD COLUMN token_budget INTEGER",
@@ -197,6 +198,35 @@ func (d *DB) Migrate(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
 				if !isDuplicateColumnError(err) {
 					return fmt.Errorf("migrate v10→v11: %w", err)
+				}
+			}
+		}
+	}
+
+	// v11 → v12: cost-aware scheduling columns
+	// Guard: runs exists from v3+, dispatches from v2+
+	if currentVersion >= 3 && currentVersion < 12 {
+		v12RunStmts := []string{
+			"ALTER TABLE runs ADD COLUMN budget_enforce INTEGER DEFAULT 0",
+			"ALTER TABLE runs ADD COLUMN max_agents INTEGER DEFAULT 0",
+		}
+		for _, stmt := range v12RunStmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v11→v12: %w", err)
+				}
+			}
+		}
+	}
+	if currentVersion >= 2 && currentVersion < 12 {
+		v12DispatchStmts := []string{
+			"ALTER TABLE dispatches ADD COLUMN spawn_depth INTEGER NOT NULL DEFAULT 0",
+			"ALTER TABLE dispatches ADD COLUMN parent_dispatch_id TEXT NOT NULL DEFAULT ''",
+		}
+		for _, stmt := range v12DispatchStmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v11→v12: %w", err)
 				}
 			}
 		}

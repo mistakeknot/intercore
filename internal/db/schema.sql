@@ -53,7 +53,9 @@ CREATE TABLE IF NOT EXISTS dispatches (
     base_repo_commit TEXT,
     retry_count      INTEGER NOT NULL DEFAULT 0,
     conflict_type    TEXT,
-    quarantine_reason TEXT
+    quarantine_reason TEXT,
+    spawn_depth       INTEGER NOT NULL DEFAULT 0,
+    parent_dispatch_id TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_dispatches_status ON dispatches(status) WHERE status IN ('spawned', 'running');
 CREATE INDEX IF NOT EXISTS idx_dispatches_scope ON dispatches(scope_id) WHERE scope_id IS NOT NULL;
@@ -94,7 +96,9 @@ CREATE TABLE IF NOT EXISTS runs (
     token_budget    INTEGER,
     budget_warn_pct INTEGER DEFAULT 80,
     parent_run_id   TEXT,
-    max_dispatches  INTEGER DEFAULT 0
+    max_dispatches  INTEGER DEFAULT 0,
+    budget_enforce  INTEGER DEFAULT 0,
+    max_agents      INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
@@ -235,3 +239,36 @@ CREATE TABLE IF NOT EXISTS project_deps (
     UNIQUE(portfolio_run_id, upstream_project, downstream_project)
 );
 CREATE INDEX IF NOT EXISTS idx_project_deps_portfolio ON project_deps(portfolio_run_id);
+
+-- v13: thematic work lanes
+CREATE TABLE IF NOT EXISTS lanes (
+    id          TEXT NOT NULL PRIMARY KEY,
+    name        TEXT NOT NULL UNIQUE,
+    lane_type   TEXT NOT NULL DEFAULT 'standing',  -- 'standing' or 'arc'
+    status      TEXT NOT NULL DEFAULT 'active',    -- 'active', 'closed', 'archived'
+    description TEXT NOT NULL DEFAULT '',
+    metadata    TEXT NOT NULL DEFAULT '{}',         -- JSON: pollard config, starvation weights
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    closed_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_lanes_status ON lanes(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_lanes_type ON lanes(lane_type);
+
+CREATE TABLE IF NOT EXISTS lane_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    lane_id     TEXT NOT NULL REFERENCES lanes(id),
+    event_type  TEXT NOT NULL,  -- 'created', 'bead_added', 'bead_removed', 'snapshot', 'closed'
+    payload     TEXT NOT NULL DEFAULT '{}',
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_lane_events_lane ON lane_events(lane_id);
+CREATE INDEX IF NOT EXISTS idx_lane_events_created ON lane_events(created_at);
+
+CREATE TABLE IF NOT EXISTS lane_members (
+    lane_id     TEXT NOT NULL REFERENCES lanes(id),
+    bead_id     TEXT NOT NULL,
+    added_at    INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (lane_id, bead_id)
+);
+CREATE INDEX IF NOT EXISTS idx_lane_members_bead ON lane_members(bead_id);

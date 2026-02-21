@@ -69,8 +69,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("SchemaVersion = %d, want 11", v)
+	if v != 13 {
+		t.Errorf("SchemaVersion = %d, want 13", v)
 	}
 
 	// Verify tables exist
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 11", v)
+	if v != 13 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 13", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 11", v)
+	if v != 13 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 13", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 11", v)
+	if v != 13 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 13", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 11", v)
+	if v != 13 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 13", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("SchemaVersion = %d, want 11", v)
+	if v != 13 {
+		t.Errorf("SchemaVersion = %d, want 13", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Errorf("SchemaVersion = %d, want 11", v)
+	if v != 13 {
+		t.Errorf("SchemaVersion = %d, want 13", v)
 	}
 }
 
@@ -682,8 +682,8 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Fatalf("expected schema version 11, got %d", v)
+	if v != 13 {
+		t.Fatalf("expected schema version 13, got %d", v)
 	}
 
 	// Verify status column exists on run_artifacts with default 'active'
@@ -740,8 +740,8 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 11 {
-		t.Fatalf("expected schema version 11, got %d", v)
+	if v != 13 {
+		t.Fatalf("expected schema version 13, got %d", v)
 	}
 
 	// Verify discoveries table exists and accepts inserts
@@ -776,5 +776,74 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	_, err = d.db.Exec(`INSERT INTO interest_profile (id) VALUES (2)`)
 	if err == nil {
 		t.Fatal("expected CHECK constraint violation on interest_profile.id != 1")
+	}
+}
+
+func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Migrate from scratch (full DDL) — verifies lanes tables exist
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 13 {
+		t.Fatalf("expected schema version 13, got %d", v)
+	}
+
+	// Verify lanes table exists with correct columns
+	rows, err := d.db.Query("SELECT id, name, lane_type, status, description, metadata, created_at, updated_at, closed_at FROM lanes LIMIT 0")
+	if err != nil {
+		t.Fatalf("lanes table missing or wrong schema: %v", err)
+	}
+	rows.Close()
+
+	// Verify lane_events table
+	rows, err = d.db.Query("SELECT id, lane_id, event_type, payload, created_at FROM lane_events LIMIT 0")
+	if err != nil {
+		t.Fatalf("lane_events table missing: %v", err)
+	}
+	rows.Close()
+
+	// Verify lane_members table
+	rows, err = d.db.Query("SELECT lane_id, bead_id, added_at FROM lane_members LIMIT 0")
+	if err != nil {
+		t.Fatalf("lane_members table missing: %v", err)
+	}
+	rows.Close()
+
+	// Verify insert works
+	_, err = d.db.Exec(`INSERT INTO lanes (id, name, lane_type) VALUES ('lane001', 'interop', 'standing')`)
+	if err != nil {
+		t.Fatalf("lanes insert failed: %v", err)
+	}
+
+	// Verify unique name constraint
+	_, err = d.db.Exec(`INSERT INTO lanes (id, name, lane_type) VALUES ('lane002', 'interop', 'arc')`)
+	if err == nil {
+		t.Fatal("expected UNIQUE constraint violation on lanes.name")
+	}
+
+	// Verify lane_events foreign key
+	_, err = d.db.Exec(`INSERT INTO lane_events (lane_id, event_type) VALUES ('lane001', 'created')`)
+	if err != nil {
+		t.Fatalf("lane_events insert failed: %v", err)
+	}
+
+	// Verify lane_members
+	_, err = d.db.Exec(`INSERT INTO lane_members (lane_id, bead_id) VALUES ('lane001', 'iv-abc1')`)
+	if err != nil {
+		t.Fatalf("lane_members insert failed: %v", err)
+	}
+
+	// Verify lane_members composite PK prevents duplicates
+	_, err = d.db.Exec(`INSERT INTO lane_members (lane_id, bead_id) VALUES ('lane001', 'iv-abc1')`)
+	if err == nil {
+		t.Fatal("expected PRIMARY KEY constraint violation on lane_members")
 	}
 }
