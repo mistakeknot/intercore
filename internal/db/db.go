@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 9
-	maxSchemaVersion     = 9
+	currentSchemaVersion = 10
+	maxSchemaVersion     = 10
 )
 
 var (
@@ -163,6 +163,22 @@ func (d *DB) Migrate(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
 				if !isDuplicateColumnError(err) {
 					return fmt.Errorf("migrate v7→v8: %w", err)
+				}
+			}
+		}
+	}
+
+	// v3–v9 → v10: portfolio orchestration columns
+	// Guard: runs table exists from v3+. For v0-v2, the DDL creates it with the columns already.
+	if currentVersion >= 3 && currentVersion < 10 {
+		v10Stmts := []string{
+			"ALTER TABLE runs ADD COLUMN parent_run_id TEXT",
+			"ALTER TABLE runs ADD COLUMN max_dispatches INTEGER DEFAULT 0",
+		}
+		for _, stmt := range v10Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v9→v10: %w", err)
 				}
 			}
 		}

@@ -72,12 +72,14 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 		INSERT INTO runs (
 			id, project_dir, goal, status, phase, complexity,
 			force_full, auto_advance, created_at, updated_at,
-			scope_id, metadata, phases, token_budget, budget_warn_pct
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			scope_id, metadata, phases, token_budget, budget_warn_pct,
+			parent_run_id, max_dispatches
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, r.ProjectDir, r.Goal, StatusActive, initialPhase,
 		r.Complexity, boolToInt(r.ForceFull), boolToInt(r.AutoAdvance),
 		now, now, r.ScopeID, r.Metadata,
 		phasesJSON, r.TokenBudget, budgetWarnPct,
+		r.ParentRunID, r.MaxDispatches,
 	)
 	if err != nil {
 		return "", fmt.Errorf("run create: %w", err)
@@ -97,6 +99,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 		phasesJSON    sql.NullString
 		tokenBudget   sql.NullInt64
 		budgetWarnPct sql.NullInt64
+		parentRunID   sql.NullString
+		maxDispatches sql.NullInt64
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -107,6 +111,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 		&r.CreatedAt, &r.UpdatedAt,
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
+		&parentRunID, &maxDispatches,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -122,6 +127,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 	r.Metadata = nullStr(metadata)
 	r.TokenBudget = nullInt64(tokenBudget)
 	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
+	r.ParentRunID = nullStr(parentRunID)
+	r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
 	phases, err := parsePhasesJSON(phasesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("run get: %w", err)
@@ -322,6 +329,9 @@ func (s *Store) Events(ctx context.Context, runID string) ([]*PhaseEvent, error)
 // Multiple active runs per project are allowed; this returns the newest.
 // Returns ErrNotFound if no active run exists.
 func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
+	if projectDir == "" {
+		return nil, fmt.Errorf("run current: empty project_dir (use GetChildren for portfolio runs)")
+	}
 	r := &Run{}
 	var (
 		completedAt   sql.NullInt64
@@ -332,6 +342,8 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		phasesJSON    sql.NullString
 		tokenBudget   sql.NullInt64
 		budgetWarnPct sql.NullInt64
+		parentRunID   sql.NullString
+		maxDispatches sql.NullInt64
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -343,6 +355,7 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		&r.CreatedAt, &r.UpdatedAt,
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
+		&parentRunID, &maxDispatches,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -358,6 +371,8 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	r.Metadata = nullStr(metadata)
 	r.TokenBudget = nullInt64(tokenBudget)
 	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
+	r.ParentRunID = nullStr(parentRunID)
+	r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
 	phases, err := parsePhasesJSON(phasesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("run current: %w", err)
@@ -365,6 +380,175 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	r.Phases = phases
 
 	return r, nil
+}
+
+// GetChildren returns all child runs of a portfolio run.
+func (s *Store) GetChildren(ctx context.Context, parentRunID string) ([]*Run, error) {
+	return s.queryRuns(ctx,
+		"SELECT "+runCols+" FROM runs WHERE parent_run_id = ? ORDER BY created_at ASC", parentRunID)
+}
+
+// IsPortfolio returns true if the run is a portfolio run (has empty project_dir).
+func (s *Store) IsPortfolio(ctx context.Context, runID string) (bool, error) {
+	var projectDir string
+	err := s.db.QueryRowContext(ctx, "SELECT project_dir FROM runs WHERE id = ?", runID).Scan(&projectDir)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, ErrNotFound
+		}
+		return false, fmt.Errorf("is portfolio: %w", err)
+	}
+	return projectDir == "", nil
+}
+
+// CreatePortfolio creates a portfolio run with children in a single transaction.
+// Returns (portfolioID, childIDs, error).
+func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []*Run) (string, []string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("create portfolio: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	portfolioID, err := generateID()
+	if err != nil {
+		return "", nil, err
+	}
+
+	initialPhase := PhaseBrainstorm
+	if len(portfolio.Phases) > 0 {
+		initialPhase = portfolio.Phases[0]
+	}
+	var phasesJSON *string
+	if portfolio.Phases != nil {
+		b, _ := json.Marshal(portfolio.Phases)
+		s := string(b)
+		phasesJSON = &s
+	}
+	budgetWarnPct := portfolio.BudgetWarnPct
+	if budgetWarnPct == 0 {
+		budgetWarnPct = 80
+	}
+	now := time.Now().Unix()
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO runs (
+			id, project_dir, goal, status, phase, complexity,
+			force_full, auto_advance, created_at, updated_at,
+			scope_id, metadata, phases, token_budget, budget_warn_pct,
+			parent_run_id, max_dispatches
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		portfolioID, "", portfolio.Goal, StatusActive, initialPhase,
+		portfolio.Complexity, boolToInt(portfolio.ForceFull), boolToInt(portfolio.AutoAdvance),
+		now, now, portfolio.ScopeID, portfolio.Metadata,
+		phasesJSON, portfolio.TokenBudget, budgetWarnPct,
+		nil, portfolio.MaxDispatches,
+	)
+	if err != nil {
+		return "", nil, fmt.Errorf("create portfolio: insert portfolio: %w", err)
+	}
+
+	childIDs := make([]string, 0, len(children))
+	for _, child := range children {
+		childID, err := generateID()
+		if err != nil {
+			return "", nil, err
+		}
+		childInitPhase := PhaseBrainstorm
+		if len(child.Phases) > 0 {
+			childInitPhase = child.Phases[0]
+		}
+		var childPhasesJSON *string
+		if child.Phases != nil {
+			b, _ := json.Marshal(child.Phases)
+			s := string(b)
+			childPhasesJSON = &s
+		}
+		childBudgetWarnPct := child.BudgetWarnPct
+		if childBudgetWarnPct == 0 {
+			childBudgetWarnPct = 80
+		}
+
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO runs (
+				id, project_dir, goal, status, phase, complexity,
+				force_full, auto_advance, created_at, updated_at,
+				scope_id, metadata, phases, token_budget, budget_warn_pct,
+				parent_run_id, max_dispatches
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			childID, child.ProjectDir, child.Goal, StatusActive, childInitPhase,
+			child.Complexity, boolToInt(child.ForceFull), boolToInt(child.AutoAdvance),
+			now, now, child.ScopeID, child.Metadata,
+			childPhasesJSON, child.TokenBudget, childBudgetWarnPct,
+			portfolioID, 0,
+		)
+		if err != nil {
+			return "", nil, fmt.Errorf("create portfolio: insert child %s: %w", child.ProjectDir, err)
+		}
+		childIDs = append(childIDs, childID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", nil, fmt.Errorf("create portfolio: commit: %w", err)
+	}
+	return portfolioID, childIDs, nil
+}
+
+// CancelPortfolio cancels a portfolio run and all its active children in a single transaction.
+func (s *Store) CancelPortfolio(ctx context.Context, portfolioRunID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("cancel portfolio: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().Unix()
+
+	// Cancel portfolio run itself
+	result, err := tx.ExecContext(ctx, `
+		UPDATE runs SET status = ?, updated_at = ?, completed_at = ?
+		WHERE id = ? AND status = ?`,
+		StatusCancelled, now, now, portfolioRunID, StatusActive,
+	)
+	if err != nil {
+		return fmt.Errorf("cancel portfolio: update portfolio: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("cancel portfolio: run %s not found or not active", portfolioRunID)
+	}
+
+	// Cancel all active children
+	_, err = tx.ExecContext(ctx, `
+		UPDATE runs SET status = ?, updated_at = ?, completed_at = ?
+		WHERE parent_run_id = ? AND status = ?`,
+		StatusCancelled, now, now, portfolioRunID, StatusActive,
+	)
+	if err != nil {
+		return fmt.Errorf("cancel portfolio: update children: %w", err)
+	}
+
+	return tx.Commit()
+}
+
+// UpdateMaxDispatches sets the max_dispatches field for a portfolio run.
+func (s *Store) UpdateMaxDispatches(ctx context.Context, id string, maxDispatches int) error {
+	now := time.Now().Unix()
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE runs SET max_dispatches = ?, updated_at = ? WHERE id = ?`,
+		maxDispatches, now, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update max dispatches: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update max dispatches: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SkipPhase marks a future phase as skipped with an audit trail.
@@ -436,7 +620,8 @@ func (s *Store) SkippedPhases(ctx context.Context, runID string) (map[string]boo
 
 const runCols = `id, project_dir, goal, status, phase, complexity,
 	force_full, auto_advance, created_at, updated_at,
-	completed_at, scope_id, metadata, phases, token_budget, budget_warn_pct`
+	completed_at, scope_id, metadata, phases, token_budget, budget_warn_pct,
+	parent_run_id, max_dispatches`
 
 func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}) ([]*Run, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -457,6 +642,8 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 			phasesJSON    sql.NullString
 			tokenBudget   sql.NullInt64
 			budgetWarnPct sql.NullInt64
+			parentRunID   sql.NullString
+			maxDispatches sql.NullInt64
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
@@ -464,6 +651,7 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 			&r.CreatedAt, &r.UpdatedAt,
 			&completedAt, &scopeID, &metadata,
 			&phasesJSON, &tokenBudget, &budgetWarnPct,
+			&parentRunID, &maxDispatches,
 		); err != nil {
 			return nil, fmt.Errorf("run list scan: %w", err)
 		}
@@ -474,6 +662,8 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 		r.Metadata = nullStr(metadata)
 		r.TokenBudget = nullInt64(tokenBudget)
 		r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
+		r.ParentRunID = nullStr(parentRunID)
+		r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
 		phases, err := parsePhasesJSON(phasesJSON)
 		if err != nil {
 			return nil, fmt.Errorf("run list: %w", err)

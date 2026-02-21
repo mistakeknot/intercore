@@ -97,6 +97,8 @@ func main() {
 		exitCode = cmdInterspect(ctx, subArgs)
 	case "discovery":
 		exitCode = cmdDiscovery(ctx, subArgs)
+	case "portfolio":
+		exitCode = cmdPortfolio(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
 	default:
@@ -134,11 +136,12 @@ Commands:
   dispatch kill <id>            Kill a dispatch
   dispatch prune --older-than=<dur>  Prune old dispatches
   run create --project=<dir> --goal=<text> [opts]  Create a run
+  run create --projects=<p1>,<p2> --goal=<text>    Create portfolio run
   run status <id>               Show run details
   run advance <id> [--priority=N]  Advance to next phase
   run phase <id>                Print current phase
   run current [--project=<dir>]  Print active run ID for project
-  run list [--active]           List runs
+  run list [--active] [--portfolio]  List runs (--portfolio = portfolio only)
   run events <id>               Show phase event audit trail
   run skip <id> <phase> --reason=<text>  Pre-skip a phase
   run rollback <id> --to-phase=<p> [--reason=<text>] [--dry-run]
@@ -146,7 +149,7 @@ Commands:
   run tokens <id>               Token aggregation across dispatches
   run budget <id>               Check budget thresholds (exit 1=exceeded)
   run cancel <id>               Cancel a run
-  run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool]
+  run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N]
   run agent add <run> --type=<t> [--name=<n>] [--dispatch-id=<id>]
   run agent list <run>          List agents for run
   run agent update <id> --status=<s>  Update agent status
@@ -178,6 +181,10 @@ Commands:
   discovery decay --rate=<0.0-1.0> [--min-age=<sec>]  Decay old scores
   discovery rollback --source=<s> --since=<ts>  Rollback source discoveries
   discovery search --embedding=@<file> [opts]  Semantic search
+  portfolio dep add <id> --upstream=<p> --downstream=<p>  Add dependency
+  portfolio dep list <id>       List dependencies for portfolio
+  portfolio dep remove <id> --upstream=<p> --downstream=<p>  Remove dependency
+  portfolio relay <id> [--interval=2s]  Run event relay for portfolio
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 

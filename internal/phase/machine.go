@@ -40,8 +40,9 @@ type PhaseEventCallback func(runID, eventType, fromPhase, toPhase, reason string
 //  8. Fire callback (if provided) for event bus notification
 //
 // rt and vq may be nil when Priority >= 4 (TierNone skips gate evaluation).
+// pq may be nil for non-portfolio runs.
 // callback may be nil — Advance checks before calling.
-func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, callback PhaseEventCallback) (*AdvanceResult, error) {
+func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, callback PhaseEventCallback) (*AdvanceResult, error) {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -112,7 +113,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 	}
 
 	// Evaluate gate
-	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, rt, vq)
+	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, rt, vq, pq)
 	if gateErr != nil {
 		return nil, fmt.Errorf("advance: %w", gateErr)
 	}

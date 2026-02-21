@@ -11,9 +11,10 @@ const EventOverride = "override"
 
 // Check type constants for gateRules.
 const (
-	CheckArtifactExists = "artifact_exists"
-	CheckAgentsComplete = "agents_complete"
-	CheckVerdictExists  = "verdict_exists"
+	CheckArtifactExists   = "artifact_exists"
+	CheckAgentsComplete   = "agents_complete"
+	CheckVerdictExists    = "verdict_exists"
+	CheckChildrenAtPhase  = "children_at_phase"
 )
 
 // RuntrackQuerier abstracts runtrack.Store queries needed by gate evaluation.
@@ -27,6 +28,12 @@ type RuntrackQuerier interface {
 // Implemented by dispatch.Store; tests can use stubs.
 type VerdictQuerier interface {
 	HasVerdict(ctx context.Context, scopeID string) (bool, error)
+}
+
+// PortfolioQuerier abstracts queries for portfolio run children.
+// Implemented by phase.Store; tests can use stubs.
+type PortfolioQuerier interface {
+	GetChildren(ctx context.Context, runID string) ([]*Run, error)
 }
 
 // GateCondition represents a single check within a gate evaluation.
@@ -99,7 +106,7 @@ var gateRules = map[[2]string][]gateRule{
 
 // evaluateGate checks whether a phase transition should be allowed.
 // Returns gate result, tier, structured evidence, and any error.
-func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier) (result, tier string, evidence *GateEvidence, err error) {
+func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier) (result, tier string, evidence *GateEvidence, err error) {
 	if cfg.DisableAll {
 		return GateNone, TierNone, nil, nil
 	}
@@ -117,6 +124,16 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	// Look up rules for this transition
 	rules, ok := gateRules[[2]string{from, to}]
 	if !ok {
+		rules = nil
+	}
+
+	// Portfolio runs: inject children_at_phase check for every transition
+	isPortfolio := run.ProjectDir == ""
+	if isPortfolio {
+		rules = append(rules, gateRule{check: CheckChildrenAtPhase, phase: to})
+	}
+
+	if len(rules) == 0 {
 		return GatePass, tier, nil, nil
 	}
 
@@ -193,6 +210,42 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 				allPass = false
 			}
 
+		case CheckChildrenAtPhase:
+			if pq == nil {
+				cond.Result = GateFail
+				cond.Detail = "no portfolio querier provided"
+				allPass = false
+				break
+			}
+			children, qerr := pq.GetChildren(ctx, run.ID)
+			if qerr != nil {
+				return "", "", nil, fmt.Errorf("gate check: %w", qerr)
+			}
+			behind := 0
+			for _, child := range children {
+				if IsTerminalStatus(child.Status) && child.Status != StatusActive {
+					continue // completed/cancelled children don't block
+				}
+				childChain := ResolveChain(child)
+				targetIdx := ChainPhaseIndex(childChain, rule.phase)
+				if targetIdx < 0 {
+					continue // child's chain doesn't have this phase — treat as past it
+				}
+				childIdx := ChainPhaseIndex(childChain, child.Phase)
+				if childIdx < targetIdx {
+					behind++
+				}
+			}
+			count := behind
+			cond.Count = &count
+			if behind == 0 {
+				cond.Result = GatePass
+			} else {
+				cond.Result = GateFail
+				cond.Detail = fmt.Sprintf("%d children behind phase %q", behind, rule.phase)
+				allPass = false
+			}
+
 		default:
 			cond.Result = GateFail
 			cond.Detail = fmt.Sprintf("unknown check type: %q", rule.check)
@@ -210,7 +263,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 
 // EvaluateGate performs a dry-run gate check for the next transition.
 // This is the public entry point used by `ic gate check`.
-func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier) (*GateCheckResult, error) {
+func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier) (*GateCheckResult, error) {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
@@ -228,7 +281,7 @@ func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfi
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}
-	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq)
+	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq, pq)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}

@@ -71,7 +71,7 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 
 	result, err := phase.EvaluateGate(ctx, store, runID, phase.GateConfig{
 		Priority: priority,
-	}, rtStore, dStore)
+	}, rtStore, dStore, store)
 	if err != nil {
 		if errors.Is(err, phase.ErrNotFound) {
 			fmt.Fprintf(os.Stderr, "ic: gate check: not found: %s\n", runID)

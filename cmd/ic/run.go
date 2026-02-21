@@ -64,15 +64,18 @@ func cmdRun(ctx context.Context, args []string) int {
 }
 
 func cmdRunCreate(ctx context.Context, args []string) int {
-	var project, goal, scopeID, phasesJSON string
+	var project, goal, scopeID, phasesJSON, projects string
 	complexity := 3
 	var tokenBudget int64
+	var maxDispatches int
 	budgetWarnPct := 80
 
 	for i := 0; i < len(args); i++ {
 		switch {
 		case strings.HasPrefix(args[i], "--project="):
 			project = strings.TrimPrefix(args[i], "--project=")
+		case strings.HasPrefix(args[i], "--projects="):
+			projects = strings.TrimPrefix(args[i], "--projects=")
 		case strings.HasPrefix(args[i], "--goal="):
 			goal = strings.TrimPrefix(args[i], "--goal=")
 		case strings.HasPrefix(args[i], "--complexity="):
@@ -103,23 +106,27 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 				return 3
 			}
 			budgetWarnPct = v
+		case strings.HasPrefix(args[i], "--max-dispatches="):
+			val := strings.TrimPrefix(args[i], "--max-dispatches=")
+			v, err := strconv.Atoi(val)
+			if err != nil || v < 0 {
+				fmt.Fprintf(os.Stderr, "ic: run create: invalid max-dispatches (non-negative integer): %s\n", val)
+				return 3
+			}
+			maxDispatches = v
 		default:
 			fmt.Fprintf(os.Stderr, "ic: run create: unknown flag: %s\n", args[i])
 			return 3
 		}
 	}
 
-	if project == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: cannot determine project dir: %v\n", err)
-			return 2
-		}
-		project = cwd
-	}
-
 	if goal == "" {
 		fmt.Fprintf(os.Stderr, "ic: run create: --goal is required\n")
+		return 3
+	}
+
+	if projects != "" && project != "" {
+		fmt.Fprintf(os.Stderr, "ic: run create: --project and --projects are mutually exclusive\n")
 		return 3
 	}
 
@@ -141,6 +148,82 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		customPhases = parsed
 	}
 
+	store := phase.New(d.SqlDB())
+
+	// Portfolio mode: create parent + children
+	if projects != "" {
+		projectPaths := strings.Split(projects, ",")
+		if len(projectPaths) < 2 {
+			fmt.Fprintf(os.Stderr, "ic: run create: --projects requires at least 2 comma-separated paths\n")
+			return 3
+		}
+		// Resolve to absolute paths
+		for i, p := range projectPaths {
+			abs, err := filepath.Abs(strings.TrimSpace(p))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ic: run create: invalid project path %q: %v\n", p, err)
+				return 3
+			}
+			projectPaths[i] = abs
+		}
+
+		portfolio := &phase.Run{
+			Goal:          goal,
+			Complexity:    complexity,
+			AutoAdvance:   true,
+			BudgetWarnPct: budgetWarnPct,
+			Phases:        customPhases,
+			MaxDispatches: maxDispatches,
+		}
+		if tokenBudget > 0 {
+			portfolio.TokenBudget = &tokenBudget
+		}
+		if scopeID != "" {
+			portfolio.ScopeID = &scopeID
+		}
+
+		children := make([]*phase.Run, len(projectPaths))
+		for i, p := range projectPaths {
+			children[i] = &phase.Run{
+				ProjectDir:    p,
+				Goal:          goal,
+				Complexity:    complexity,
+				AutoAdvance:   true,
+				BudgetWarnPct: budgetWarnPct,
+				Phases:        customPhases,
+			}
+		}
+
+		portfolioID, childIDs, err := store.CreatePortfolio(ctx, portfolio, children)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			return 2
+		}
+
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				"id":       portfolioID,
+				"children": childIDs,
+			})
+		} else {
+			fmt.Println(portfolioID)
+			for _, cid := range childIDs {
+				fmt.Printf("  child: %s\n", cid)
+			}
+		}
+		return 0
+	}
+
+	// Single project mode
+	if project == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: cannot determine project dir: %v\n", err)
+			return 2
+		}
+		project = cwd
+	}
+
 	run := &phase.Run{
 		ProjectDir:    project,
 		Goal:          goal,
@@ -156,7 +239,6 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		run.ScopeID = &scopeID
 	}
 
-	store := phase.New(d.SqlDB())
 	id, err := store.Create(ctx, run)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
@@ -198,10 +280,27 @@ func cmdRunStatus(ctx context.Context, args []string) int {
 		return 2
 	}
 
+	// Check for children (portfolio run)
+	children, _ := store.GetChildren(ctx, args[0])
+
 	if flagJSON {
-		json.NewEncoder(os.Stdout).Encode(runToMap(run))
+		m := runToMap(run)
+		if len(children) > 0 {
+			childMaps := make([]map[string]interface{}, len(children))
+			for i, c := range children {
+				childMaps[i] = runToMap(c)
+			}
+			m["children"] = childMaps
+		}
+		json.NewEncoder(os.Stdout).Encode(m)
 	} else {
 		printRun(run)
+		if len(children) > 0 {
+			fmt.Printf("\nChildren: (%d)\n", len(children))
+			for _, c := range children {
+				fmt.Printf("  %s\t%s\t%s\t%s\t%s\n", c.ID, c.Status, c.Phase, c.ProjectDir, c.Goal)
+			}
+		}
 	}
 	return 0
 }
@@ -355,7 +454,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		Priority:   priority,
 		DisableAll: disableGates,
 		SkipReason: skipReason,
-	}, rtStore, dStore, phaseCallback)
+	}, rtStore, dStore, store, phaseCallback)
 	if err != nil {
 		if err == phase.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)
@@ -474,12 +573,15 @@ func cmdRunPhase(ctx context.Context, args []string) int {
 
 func cmdRunList(ctx context.Context, args []string) int {
 	activeOnly := false
+	portfolioOnly := false
 	var scopeFilter *string
 
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--active":
 			activeOnly = true
+		case args[i] == "--portfolio":
+			portfolioOnly = true
 		case strings.HasPrefix(args[i], "--scope="):
 			s := strings.TrimPrefix(args[i], "--scope=")
 			scopeFilter = &s
@@ -504,6 +606,17 @@ func cmdRunList(ctx context.Context, args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: run list: %v\n", err)
 		return 2
+	}
+
+	// Filter to portfolio runs if requested
+	if portfolioOnly {
+		filtered := make([]*phase.Run, 0)
+		for _, r := range runs {
+			if r.ProjectDir == "" {
+				filtered = append(filtered, r)
+			}
+		}
+		runs = filtered
 	}
 
 	if flagJSON {
@@ -591,6 +704,33 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 	if phase.IsTerminalStatus(run.Status) {
 		fmt.Fprintf(os.Stderr, "ic: run cancel: run already %s\n", run.Status)
 		return 1
+	}
+
+	// Portfolio cascade: cancel portfolio + all active children atomically
+	if run.ProjectDir == "" {
+		if err := store.CancelPortfolio(ctx, args[0]); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run cancel: %v\n", err)
+			return 2
+		}
+		// Record cancel events for portfolio and children
+		store.AddEvent(ctx, &phase.PhaseEvent{
+			RunID:     args[0],
+			FromPhase: run.Phase,
+			ToPhase:   run.Phase,
+			EventType: phase.EventCancel,
+		})
+		children, _ := store.GetChildren(ctx, args[0])
+		for _, c := range children {
+			store.AddEvent(ctx, &phase.PhaseEvent{
+				RunID:     c.ID,
+				FromPhase: c.Phase,
+				ToPhase:   c.Phase,
+				EventType: phase.EventCancel,
+				Reason:    strPtr("portfolio cancelled"),
+			})
+		}
+		fmt.Printf("cancelled (portfolio + %d children)\n", len(children))
+		return 0
 	}
 
 	if err := store.UpdateStatus(ctx, args[0], phase.StatusCancelled); err != nil {
@@ -832,7 +972,7 @@ func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) 
 
 func cmdRunSet(ctx context.Context, args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "ic: run set: usage: ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool]\n")
+		fmt.Fprintf(os.Stderr, "ic: run set: usage: ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N]\n")
 		return 3
 	}
 
@@ -840,6 +980,7 @@ func cmdRunSet(ctx context.Context, args []string) int {
 	var complexity *int
 	var autoAdvance *bool
 	var forceFull *bool
+	var maxDispatches *int
 
 	for i := 1; i < len(args); i++ {
 		switch {
@@ -867,13 +1008,21 @@ func cmdRunSet(ctx context.Context, args []string) int {
 				return 3
 			}
 			forceFull = &b
+		case strings.HasPrefix(args[i], "--max-dispatches="):
+			val := strings.TrimPrefix(args[i], "--max-dispatches=")
+			v, err := strconv.Atoi(val)
+			if err != nil || v < 0 {
+				fmt.Fprintf(os.Stderr, "ic: run set: invalid max-dispatches (non-negative integer): %s\n", val)
+				return 3
+			}
+			maxDispatches = &v
 		default:
 			fmt.Fprintf(os.Stderr, "ic: run set: unknown flag: %s\n", args[i])
 			return 3
 		}
 	}
 
-	if complexity == nil && autoAdvance == nil && forceFull == nil {
+	if complexity == nil && autoAdvance == nil && forceFull == nil && maxDispatches == nil {
 		fmt.Fprintf(os.Stderr, "ic: run set: no settings to update\n")
 		return 3
 	}
@@ -898,9 +1047,23 @@ func cmdRunSet(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	if err := store.UpdateSettings(ctx, id, complexity, autoAdvance, forceFull); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run set: %v\n", err)
-		return 2
+	// --max-dispatches is only valid for portfolio runs
+	if maxDispatches != nil {
+		if run.ProjectDir != "" {
+			fmt.Fprintf(os.Stderr, "ic: run set: --max-dispatches is only valid for portfolio runs\n")
+			return 3
+		}
+		if err := store.UpdateMaxDispatches(ctx, id, *maxDispatches); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run set: %v\n", err)
+			return 2
+		}
+	}
+
+	if complexity != nil || autoAdvance != nil || forceFull != nil {
+		if err := store.UpdateSettings(ctx, id, complexity, autoAdvance, forceFull); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run set: %v\n", err)
+			return 2
+		}
 	}
 
 	// Record set event
@@ -1448,6 +1611,12 @@ func runToMap(r *phase.Run) map[string]interface{} {
 	if r.Metadata != nil {
 		m["metadata"] = *r.Metadata
 	}
+	if r.ParentRunID != nil {
+		m["parent_run_id"] = *r.ParentRunID
+	}
+	if r.MaxDispatches > 0 {
+		m["max_dispatches"] = r.MaxDispatches
+	}
 	return m
 }
 
@@ -1529,5 +1698,11 @@ func printRun(r *phase.Run) {
 	}
 	if r.TokenBudget != nil {
 		fmt.Printf("Budget:     %d tokens (warn at %d%%)\n", *r.TokenBudget, r.BudgetWarnPct)
+	}
+	if r.ParentRunID != nil {
+		fmt.Printf("Parent:     %s\n", *r.ParentRunID)
+	}
+	if r.MaxDispatches > 0 {
+		fmt.Printf("MaxDisp:    %d\n", r.MaxDispatches)
 	}
 }

@@ -71,9 +71,12 @@ CREATE TABLE IF NOT EXISTS runs (
     metadata        TEXT,
     phases          TEXT,
     token_budget    INTEGER,
-    budget_warn_pct INTEGER DEFAULT 80
+    budget_warn_pct INTEGER DEFAULT 80,
+    parent_run_id   TEXT,
+    max_dispatches  INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS phase_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -200,3 +203,14 @@ CREATE TABLE IF NOT EXISTS interest_profile (
     source_weights  TEXT NOT NULL DEFAULT '{}',
     updated_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- v10: portfolio orchestration
+CREATE TABLE IF NOT EXISTS project_deps (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    portfolio_run_id    TEXT NOT NULL REFERENCES runs(id),
+    upstream_project    TEXT NOT NULL,
+    downstream_project  TEXT NOT NULL,
+    created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE(portfolio_run_id, upstream_project, downstream_project)
+);
+CREATE INDEX IF NOT EXISTS idx_project_deps_portfolio ON project_deps(portfolio_run_id);

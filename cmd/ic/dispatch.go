@@ -104,6 +104,26 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
+	// Portfolio dispatch limit check (best-effort, relay-maintained cache)
+	if opts.ScopeID != "" {
+		phaseStore := phase.New(d.SqlDB())
+		stateStore := state.New(d.SqlDB())
+		if run, err := phaseStore.Get(ctx, opts.ScopeID); err == nil && run.ParentRunID != nil {
+			if parent, err := phaseStore.Get(ctx, *run.ParentRunID); err == nil && parent.MaxDispatches > 0 {
+				if payload, err := stateStore.Get(ctx, "active-dispatch-count", *run.ParentRunID); err == nil {
+					var countStr string
+					if json.Unmarshal(payload, &countStr) == nil {
+						if count, err := strconv.Atoi(countStr); err == nil && count >= parent.MaxDispatches {
+							fmt.Fprintf(os.Stderr, "ic: dispatch spawn: portfolio dispatch limit reached (%d/%d)\n", count, parent.MaxDispatches)
+							return 1
+						}
+					}
+				}
+				// If state entry doesn't exist (no relay running), degrade gracefully — allow spawn
+			}
+		}
+	}
+
 	store := dispatch.New(d.SqlDB(), nil)
 	result, err := dispatch.Spawn(ctx, store, opts)
 	if err != nil {

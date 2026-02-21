@@ -206,6 +206,8 @@ type Run struct {
 	Phases        []string // parsed from JSON; nil = legacy chain
 	TokenBudget   *int64
 	BudgetWarnPct int
+	ParentRunID   *string
+	MaxDispatches int
 }
 
 // PhaseEvent represents an audit log entry for a phase transition.
