@@ -30,21 +30,32 @@ type PhaseEventCallback func(runID, eventType, fromPhase, toPhase, reason string
 // Advance attempts to move a run to its next required phase.
 //
 // The lifecycle:
-//  1. Load run, check it's not terminal
-//  2. Compute target phase (respecting complexity + force_full)
-//  3. Check auto_advance (pause if disabled and no skip reason)
-//  4. Evaluate gate (hard=block, soft=warn+advance, none=advance)
-//  5. UpdatePhase with optimistic concurrency
-//  6. Record event in audit trail
-//  7. If target=done, set status=completed
-//  8. Fire callback (if provided) for event bus notification
+//  1. Begin transaction (all reads + writes are atomic)
+//  2. Load run, check it's not terminal
+//  3. Compute target phase (respecting complexity + force_full)
+//  4. Check auto_advance (pause if disabled and no skip reason)
+//  5. Evaluate gate using tx-scoped queriers (hard=block, soft=warn+advance, none=advance)
+//  6. UpdatePhase with optimistic concurrency (inside same tx)
+//  7. Record event in audit trail (inside same tx)
+//  8. If target=done, set status=completed (inside same tx)
+//  9. Commit transaction
+//  10. Fire callback (if provided) for event bus notification (outside tx)
+//
+// Gate evaluation and phase update share a single transaction to prevent
+// TOCTOU races where state changes between gate check and phase write.
 //
 // rt and vq may be nil when Priority >= 4 (TierNone skips gate evaluation).
 // pq may be nil for non-portfolio runs.
 // dq may be nil for non-child runs (runs without a parent_run_id).
 // callback may be nil — Advance checks before calling.
 func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, callback PhaseEventCallback) (*AdvanceResult, error) {
-	run, err := store.Get(ctx, runID)
+	tx, err := store.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("advance: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	run, err := store.GetQ(ctx, tx, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +80,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 	}
 
 	// Walk past pre-skipped phases
-	skipped, err := store.SkippedPhases(ctx, runID)
+	skipped, err := store.SkippedPhasesQ(ctx, tx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("advance: %w", err)
 	}
@@ -96,7 +107,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 			Reason:     "auto_advance disabled",
 			Advanced:   false,
 		}
-		if err := store.AddEvent(ctx, &PhaseEvent{
+		if err := store.AddEventQ(ctx, tx, &PhaseEvent{
 			RunID:      runID,
 			FromPhase:  fromPhase,
 			ToPhase:    toPhase,
@@ -107,14 +118,40 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		}); err != nil {
 			return nil, fmt.Errorf("advance: record pause: %w", err)
 		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("advance: commit pause: %w", err)
+		}
 		if callback != nil {
 			callback(runID, EventPause, fromPhase, toPhase, "auto_advance disabled")
 		}
 		return result, nil
 	}
 
-	// Evaluate gate
-	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, rt, vq, pq, dq)
+	// Build tx-scoped queriers for gate evaluation — all reads happen
+	// inside the same transaction as the phase update, preventing TOCTOU.
+	txRT := RuntrackQuerier(&txRuntrackQuerier{q: tx})
+	txVQ := VerdictQuerier(&txVerdictQuerier{q: tx})
+	txPQ := PortfolioQuerier(&txPortfolioQuerier{q: tx})
+	txDQ := DepQuerier(&txDepQuerier{q: tx})
+
+	// Use caller-provided queriers only when they're nil (Priority >= 4
+	// bypasses gates entirely, so tx-scoped wrappers won't be called).
+	// When gates ARE evaluated, always use tx-scoped queriers for atomicity.
+	if rt == nil {
+		txRT = nil
+	}
+	if vq == nil {
+		txVQ = nil
+	}
+	if pq == nil {
+		txPQ = nil
+	}
+	if dq == nil {
+		txDQ = nil
+	}
+
+	// Evaluate gate — reads happen inside the transaction
+	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, txRT, txVQ, txPQ, txDQ)
 	if gateErr != nil {
 		return nil, fmt.Errorf("advance: %w", gateErr)
 	}
@@ -146,7 +183,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 			Reason:     blockReason,
 			Advanced:   false,
 		}
-		if err := store.AddEvent(ctx, &PhaseEvent{
+		if err := store.AddEventQ(ctx, tx, &PhaseEvent{
 			RunID:      runID,
 			FromPhase:  fromPhase,
 			ToPhase:    toPhase,
@@ -157,19 +194,22 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		}); err != nil {
 			return nil, fmt.Errorf("advance: record block: %w", err)
 		}
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("advance: commit block: %w", err)
+		}
 		if callback != nil {
 			callback(runID, EventBlock, fromPhase, toPhase, blockReason)
 		}
 		return result, nil
 	}
 
-	// Perform the transition
-	if err := store.UpdatePhase(ctx, runID, fromPhase, toPhase); err != nil {
+	// Perform the transition — inside the same transaction as gate evaluation
+	if err := store.UpdatePhaseQ(ctx, tx, runID, fromPhase, toPhase); err != nil {
 		return nil, fmt.Errorf("advance: %w", err)
 	}
 
-	// Record event
-	if err := store.AddEvent(ctx, &PhaseEvent{
+	// Record event — inside the same transaction
+	if err := store.AddEventQ(ctx, tx, &PhaseEvent{
 		RunID:      runID,
 		FromPhase:  fromPhase,
 		ToPhase:    toPhase,
@@ -181,14 +221,19 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		return nil, fmt.Errorf("advance: record event: %w", err)
 	}
 
-	// If we reached the terminal phase, mark the run as completed
+	// If we reached the terminal phase, mark the run as completed — inside tx
 	if ChainIsTerminal(chain, toPhase) {
-		if err := store.UpdateStatus(ctx, runID, StatusCompleted); err != nil {
+		if err := store.UpdateStatusQ(ctx, tx, runID, StatusCompleted); err != nil {
 			return nil, fmt.Errorf("advance: complete run: %w", err)
 		}
 	}
 
-	// Fire event bus callback (fire-and-forget)
+	// Commit the entire atomic unit: gate check + phase update + event + status
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("advance: commit: %w", err)
+	}
+
+	// Fire event bus callback OUTSIDE transaction (fire-and-forget)
 	if callback != nil {
 		callback(runID, eventType, fromPhase, toPhase, reason)
 	}

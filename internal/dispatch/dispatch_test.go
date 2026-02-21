@@ -162,6 +162,59 @@ func TestUpdateStatusNotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateStatus_CAS_RejectsTerminalOverwrite(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Dispatch{AgentType: "codex", ProjectDir: "/tmp/test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// spawned → running → completed
+	store.UpdateStatus(ctx, id, StatusRunning, UpdateFields{"pid": 100})
+	store.UpdateStatus(ctx, id, StatusCompleted, UpdateFields{"exit_code": 0})
+
+	// Attempt completed → failed — should be rejected by CAS guard
+	err = store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{"error_message": "oops"})
+	if err != ErrStaleStatus {
+		t.Errorf("expected ErrStaleStatus, got %v", err)
+	}
+
+	// Verify status was not overwritten
+	got, _ := store.Get(ctx, id)
+	if got.Status != StatusCompleted {
+		t.Errorf("Status = %q, want %q (should not be overwritten)", got.Status, StatusCompleted)
+	}
+}
+
+func TestUpdateStatus_CAS_AllowsValidTransition(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Dispatch{AgentType: "codex", ProjectDir: "/tmp/test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// spawned → running
+	err = store.UpdateStatus(ctx, id, StatusRunning, UpdateFields{"pid": 200})
+	if err != nil {
+		t.Fatalf("spawned→running: %v", err)
+	}
+
+	// running → completed
+	err = store.UpdateStatus(ctx, id, StatusCompleted, UpdateFields{"exit_code": 0})
+	if err != nil {
+		t.Fatalf("running→completed: %v", err)
+	}
+
+	got, _ := store.Get(ctx, id)
+	if got.Status != StatusCompleted {
+		t.Errorf("Status = %q, want %q", got.Status, StatusCompleted)
+	}
+}
+
 func TestListActive(t *testing.T) {
 	store := testStore(t)
 	ctx := context.Background()

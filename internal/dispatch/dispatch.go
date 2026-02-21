@@ -15,6 +15,10 @@ const idLen = 8
 
 var ErrNotFound = errors.New("dispatch not found")
 
+// ErrStaleStatus is returned when a concurrent status change was detected.
+// The caller should re-read the dispatch and decide whether to retry.
+var ErrStaleStatus = errors.New("dispatch status changed concurrently")
+
 // Status constants for the dispatch lifecycle.
 const (
 	StatusSpawned   = "spawned"
@@ -60,6 +64,15 @@ type Dispatch struct {
 // IsTerminal returns true if the dispatch is in a final state.
 func (d *Dispatch) IsTerminal() bool {
 	switch d.Status {
+	case StatusCompleted, StatusFailed, StatusTimeout, StatusCancelled:
+		return true
+	}
+	return false
+}
+
+// isTerminalStatus returns true if the status is a final state.
+func isTerminalStatus(status string) bool {
+	switch status {
 	case StatusCompleted, StatusFailed, StatusTimeout, StatusCancelled:
 		return true
 	}
@@ -216,6 +229,11 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 		return fmt.Errorf("dispatch update: read prev: %w", err)
 	}
 
+	// Reject transitions from terminal states
+	if isTerminalStatus(prevStatus) {
+		return ErrStaleStatus
+	}
+
 	// Build dynamic SET clause (validate column names against allowlist)
 	sets := []string{"status = ?"}
 	args := []interface{}{status}
@@ -227,9 +245,9 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 		sets = append(sets, col+" = ?")
 		args = append(args, val)
 	}
-	args = append(args, id)
+	args = append(args, id, prevStatus)
 
-	query := "UPDATE dispatches SET " + joinStrings(sets, ", ") + " WHERE id = ?"
+	query := "UPDATE dispatches SET " + joinStrings(sets, ", ") + " WHERE id = ? AND status = ?"
 	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("dispatch update: %w", err)
@@ -239,7 +257,14 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 		return fmt.Errorf("dispatch update: %w", err)
 	}
 	if n == 0 {
-		return ErrNotFound
+		// Distinguish not-found from concurrent status change
+		var currentStatus string
+		rerr := tx.QueryRowContext(ctx,
+			"SELECT status FROM dispatches WHERE id = ?", id).Scan(&currentStatus)
+		if rerr != nil {
+			return ErrNotFound
+		}
+		return ErrStaleStatus
 	}
 
 	if err := tx.Commit(); err != nil {
