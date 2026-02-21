@@ -16,9 +16,10 @@ cmd/ic/main.go          CLI entry point, argument parsing, shared helpers
 cmd/ic/dispatch.go      Dispatch subcommands (spawn, status, list, poll, wait, kill, prune)
 cmd/ic/run.go           Run subcommands (create, status, advance, phase, current, agent, artifact)
 cmd/ic/gate.go          Gate subcommands (check, override, rules)
+cmd/ic/portfolio.go     Portfolio subcommands (dep add/list/remove, relay)
 cmd/ic/lock.go          Lock subcommands (acquire, release, list, stale, clean) — filesystem-only
 internal/db/db.go       SQLite connection, migration, health check
-internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, dispatch_events, run_agents, run_artifacts)
+internal/db/schema.sql  Embedded DDL (tables: state, sentinels, dispatches, runs, phase_events, dispatch_events, run_agents, run_artifacts, project_deps)
 internal/db/disk.go     Disk space check (Linux syscall)
 internal/state/         State CRUD with JSON validation and TTL
 internal/sentinel/      Atomic throttle guards with UPDATE+RETURNING
@@ -32,6 +33,11 @@ internal/phase/         Phase state machine: run lifecycle with configurable cha
   machine.go            Advance() with gate evaluation, skip-walk, auto_advance pause
   gate.go               Gate types, interfaces, rules table, evaluateGate, EvaluateGate
   errors.go             Error sentinels
+internal/portfolio/     Portfolio orchestration: cross-project coordination
+  deps.go               DepStore: project dependency CRUD with self-loop prevention
+  dbpool.go             DBPool: read-only cached handles to child project databases
+  relay.go              Relay: polls child DBs, relays events, tracks dispatch counts
+  deps_test.go          Unit tests (7 tests)
 internal/budget/        Token budget threshold checking with dedup
   budget.go             Checker, narrow interfaces, state-based dedup
 internal/lock/          Filesystem-based mutex using POSIX mkdir atomicity
@@ -105,6 +111,13 @@ ic lock release <name> <scope> [--owner=<id>]                   Release lock (ve
 ic lock list                               List all held locks
 ic lock stale [--older-than=<dur>]         List stale locks
 ic lock clean [--older-than=<dur>]         Remove stale locks (PID-liveness check)
+ic run create --projects=<p1>,<p2> --goal=<text> [--max-dispatches=N]   Create portfolio run with children
+ic run set <id> --max-dispatches=N         Set max concurrent dispatches (portfolio only)
+ic run list --portfolio                    List portfolio runs only
+ic portfolio dep add <id> --upstream=<path> --downstream=<path>   Add project dependency
+ic portfolio dep list <id>                 List dependencies for a portfolio
+ic portfolio dep remove <id> --upstream=<path> --downstream=<path>   Remove dependency
+ic portfolio relay <id> [--interval=2s]    Start event relay (blocks, SIGINT to stop)
 ic compat status                           Show legacy temp file vs DB coverage
 ic compat check <key>                      Check if key has data in DB
 ```
@@ -300,8 +313,9 @@ Gates enforce conditions before phase transitions. Each transition has a set of 
 - `artifact_exists` — requires at least one artifact recorded for the source phase
 - `agents_complete` — requires no active agents (all completed or failed)
 - `verdict_exists` — requires a non-rejected dispatch verdict (needs `scope_id` on the run)
+- `children_at_phase` — (portfolio only) requires all active children at or past target phase
 
-**Interfaces:** Gate evaluation uses `RuntrackQuerier` and `VerdictQuerier` interfaces to avoid cross-package coupling. The actual implementations live in `runtrack.Store` and `dispatch.Store`.
+**Interfaces:** Gate evaluation uses `RuntrackQuerier`, `VerdictQuerier`, and `PortfolioQuerier` interfaces to avoid cross-package coupling. The actual implementations live in `runtrack.Store`, `dispatch.Store`, and `phase.Store`.
 
 **Gate Tiers** (set by `--priority` flag):
 
@@ -404,6 +418,69 @@ ic version                                  # Verify schema version
 ```
 See `docs/solutions/patterns/intercore-schema-upgrade-deployment-20260218.md` for details.
 
+## Portfolio Orchestration Module
+
+The portfolio module (schema v10) enables cross-project coordination through parent/child run hierarchies, project dependencies, and an event relay.
+
+### Portfolio Runs
+
+A portfolio run is identified by `project_dir = ""`. It has children linked via `parent_run_id`. Created with `ic run create --projects=p1,p2`.
+
+```
+ic run create --projects=/path/a,/path/b --goal="Multi-project feature" --max-dispatches=5
+```
+
+Paths are resolved to absolute. The portfolio run and all children are created atomically in a single transaction. Cancelling a portfolio cascades to all active children.
+
+### Project Dependencies
+
+The `project_deps` table stores directed dependency edges between child projects within a portfolio. Used by the relay to emit `upstream_changed` events.
+
+```
+ic portfolio dep add <portfolio-id> --upstream=/path/a --downstream=/path/b
+```
+
+Self-loop prevention: upstream == downstream is rejected. Paths are normalized to absolute via `filepath.Abs`.
+
+### Event Relay
+
+`ic portfolio relay <id>` starts a blocking polling loop that:
+1. Opens child project databases in read-only mode (`?mode=ro`) via `DBPool`
+2. Queries `phase_events` from each child since the last cursor
+3. Inserts relay events into the portfolio's `phase_events` table
+4. Persists cursors atomically in the same transaction as relay events
+5. Counts active dispatches across all children, writes to state table
+
+Event type mapping from child to portfolio:
+- `advance`, `skip`, `set` → `child_advanced`
+- `cancel` → `child_cancelled`
+- `block`, `pause` → `child_blocked`
+- `rollback` → `child_rolledback`
+- Upstream dependency match → `upstream_changed`
+
+The relay is the only writer to the `active-dispatch-count` state entry. If the relay isn't running, the dispatch limit check degrades gracefully (allows spawn with a warning).
+
+### Portfolio Gates
+
+Portfolio runs automatically receive a `children_at_phase` gate check. This gate blocks the portfolio from advancing to phase P unless all active children have reached phase P (or later) in their own chains.
+
+- Completed and cancelled children don't block
+- Failed children DO block (intentional — portfolio should not advance past a failed child)
+- Children whose chain doesn't contain the target phase are treated as "past it"
+- Gate freshness is bounded by the relay poll interval (default 2s)
+
+The gate uses the `PortfolioQuerier` interface (`GetChildren(ctx, runID)`) to avoid cross-package coupling.
+
+### Dispatch Budget
+
+Portfolio runs can set `max_dispatches` to limit concurrent agent dispatches across all children. The relay maintains `active-dispatch-count` in the state table. The CLI checks this at spawn time.
+
+**Important:** The dispatch limit is advisory (TOCTOU-vulnerable). Concurrent spawns may exceed the limit. Document this for operators.
+
+### DBPool
+
+`DBPool` caches read-only `*sql.DB` handles keyed by absolute project directory path. Handles are opened with `?mode=ro` and `SetMaxOpenConns(1)`. Absolute path enforcement prevents relative path ambiguity.
+
 ## Security
 
 ### Path Traversal Protection
@@ -451,9 +528,9 @@ All payloads are validated before storage:
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~130 tests across 9 packages)
+go test ./...                    # Unit tests (~140 tests across 12 packages)
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (~93 tests)
+bash test-integration.sh         # Full CLI integration test (~100+ tests)
 ```
 
 ## Recovery Procedures
