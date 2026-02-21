@@ -398,11 +398,11 @@ Phase transitions use optimistic concurrency (`WHERE phase = ?`) to prevent doub
 | Coordination locks | Mutual exclusion via filesystem | Lock acquire/release/break events | v1 (current) |
 | Token usage | — | Reported counts per dispatch (self-reported by agents) | v1 (current) |
 | Sandbox contracts | — | Requested vs effective policy per dispatch | v3 (planned) |
-| Discovery autonomy | Confidence tier gates (auto/propose/log/discard) | All discoveries with scores, sources, feedback signals | v3 (planned) |
-| Backlog changes | Dedup threshold (blocks duplicate item creation) | All refinements with evidence (merge, priority shift, decay) | v3 (planned) |
-| Rollback | Phase reset validation, dispatch cancellation | All rollbacks with initiator, scope, reason, and affected records | v2 (planned) |
+| Discovery autonomy | Confidence tier gates (auto/propose/log/discard) | All discoveries with scores, sources, feedback signals | v1 (shipped, E5) |
+| Backlog changes | Dedup threshold (blocks duplicate item creation) | All refinements with evidence (merge, priority shift, decay) | v1 (shipped, E5) |
+| Rollback | Phase reset validation, dispatch cancellation | All rollbacks with initiator, scope, reason, and affected records | v1 (shipped, E6) |
 | Cross-project deps | Portfolio gate rollup (all children must pass) | Dependency change events, upstream verification triggers | v4 (planned) |
-| Cost/billing | Budget threshold events | Self-reported tokens, reconciliation discrepancies | v2 (planned) |
+| Cost/billing | Budget threshold events | Self-reported tokens, reconciliation discrepancies | v1 (tokens shipped, E1; reconciliation planned) |
 
 The kernel enforces **structural invariants** (can't skip a nonexistent phase, can't exceed spawn limits, can't advance without gate passage). It records **operational metadata** (token usage, sandbox compliance) without enforcing it — enforcement of operational concerns is the OS's responsibility.
 
@@ -780,14 +780,17 @@ The kernel's minimum viable scope — what must exist before Clavain hooks can m
 - `ic run agent add/list/update` — agent tracking within runs
 - `ic init` — database initialization with auto-migration
 
-**Does not ship in v1:**
-- Discovery subsystem (v3)
-- Rollback primitives (v2)
-- Multi-project portfolio runs (v4)
-- Lane-based scheduling (v2)
-- Sandbox spec enforcement (v3)
-- Cost reconciliation (v2)
-- Capability tokens for write-path enforcement (v3)
+**Shipped after v1 (post-wedge):**
+- `ic run skip/rollback/tokens/budget` — phase skip, workflow + code rollback, token aggregation, budget thresholds (E6)
+- `ic discovery submit/status/list/score/promote/dismiss/feedback/profile/decay/rollback/search` — full discovery pipeline with embedding search (E5)
+- `ic interspect record/query` — evidence event tracking for kernel consumers (E4)
+
+**Not yet shipped:**
+- Multi-project portfolio runs (E8)
+- Lane-based scheduling
+- Sandbox spec enforcement
+- Cost reconciliation
+- Capability tokens for write-path enforcement
 
 **The wedge test:** Can Clavain's `lib-sprint.sh` create a run, advance through phases with gate enforcement, dispatch agents, track their completion, emit events, and record artifacts — all via `ic` instead of temp files? If yes, v1 is sufficient for the hook cutover.
 
@@ -822,11 +825,10 @@ The kernel is designed for open-source adoption. Breaking changes have real cost
 
 | Horizon | Timeframe | What Success Looks Like |
 |---|---|---|
-| v1 | Current | Gates enforce real conditions. Events flow. Dispatches are tracked. The kernel is the system of record. |
-| v1.5 | 1-2 months | Big-bang hook cutover — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode (calls `ic run` alongside existing logic). Fully custom phase chains (OS provides preset templates like sprint). API stability contract established for open-source readiness. Autarch merged into Interverse monorepo. |
-| v2 | 2-4 months | Sprint skill hands over phase control to kernel (hybrid→kernel-driven). Lane-based scheduling. Token tracking per dispatch with OS-level billing verification. Discovery events flow through the kernel event bus. Scheduled scanning runs autonomously. Interspect Phase 1 (kernel event consumer). Rollback primitives for workflow state. Bigend migrated to kernel backend (read-only dashboard over `ic` state). Autarch status tool provides minimal TUI over kernel state (see [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md)). |
-| v3 | 4-8 months | Interspect Phase 2-3 (correction events, retire own DB). Sandboxing Tier 1 (tool allowlists, multi-agent isolation). Confidence-tiered autonomy gates enforce discovery → backlog policy. Backlog refinement runs as an event consumer. Code and backlog rollback. Cross-project event relay. Pollard migrated to kernel discovery pipeline. Gurgeh PRD generation backed by kernel runs. Installation guide and quickstart for community adopters. |
-| v4 | 8-14 months | Portfolio-level runs across multiple projects. Dependency graph awareness with auto-verification. Resource scheduling across competing priorities. Sandboxing Tier 2 (containers). Discovery pipeline feeds portfolio prioritization. Coldwine task orchestration backed by kernel dispatches. Full Autarch TUI suite reads kernel state as single source of truth. The kernel orchestrates a fleet and knows what it should be working on next. |
+| v1 | **Shipped** | Gates enforce real conditions. Events flow. Dispatches are tracked. The kernel is the system of record. Fully custom phase chains. API stability contract established. |
+| v1.5 | **Shipped** | Big-bang hook cutover (E3) — all Clavain hooks call `ic` instead of temp files. Sprint skill enters hybrid mode. Interspect Phase 1 as kernel event consumer (E4). Discovery pipeline with confidence-tiered autonomy gates, embedding search, feedback signals (E5). Workflow + code rollback with full audit trail (E6). Bigend migrated to kernel backend with kernel-aware dashboard, run list + detail pane (E7). Autarch merged into Interverse monorepo. |
+| v2 | Next | Multi-project portfolio runs with cross-project event relay and dependency graph (E8). Pollard hunters emit discovery events through kernel. Gurgeh spec sprint uses `ic run` lifecycle (E9). Lane-based scheduling. Cost reconciliation. |
+| v3 | Future | Sandboxing Tier 1 (tool allowlists, multi-agent isolation). Capability tokens for write-path enforcement. Coldwine task orchestration backed by kernel dispatches. Full Autarch TUI suite reads kernel state as single source of truth (E10). |
 
 ## What This Is Not
 

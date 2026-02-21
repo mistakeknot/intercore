@@ -140,6 +140,11 @@ Commands:
   run current [--project=<dir>]  Print active run ID for project
   run list [--active]           List runs
   run events <id>               Show phase event audit trail
+  run skip <id> <phase> --reason=<text>  Pre-skip a phase
+  run rollback <id> --to-phase=<p> [--reason=<text>] [--dry-run]
+  run rollback <id> --layer=code [--phase=<p>] [--format=json|text]
+  run tokens <id>               Token aggregation across dispatches
+  run budget <id>               Check budget thresholds (exit 1=exceeded)
   run cancel <id>               Cancel a run
   run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool]
   run agent add <run> --type=<t> [--name=<n>] [--dispatch-id=<id>]
