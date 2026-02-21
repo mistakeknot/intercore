@@ -27,6 +27,11 @@ internal/dispatch/      Agent dispatch lifecycle: spawn, poll, collect, wait
   dispatch.go           Store (CRUD), Dispatch struct, ID generation
   spawn.go              Process spawning, dispatch.sh resolution, prompt hashing
   collect.go            Liveness polling, verdict/summary parsing, wait loop
+  policy.go             SpawnPolicy enforcement: budget, concurrency, agent caps, spawn depth
+  conflict.go           Write-set conflict detection at dispatch merge time
+  intent.go             Intent Record pattern for SQLite+git merge coordination
+  telemetry.go          TOCTOU conflict telemetry aggregation
+  outcome.go            Dispatch outcome recording
 internal/phase/         Phase state machine: run lifecycle with configurable chains
   phase.go              Types, constants, chain operations, DefaultPhaseChain
   store.go              Run + PhaseEvent CRUD with optimistic concurrency, Current()
@@ -76,7 +81,7 @@ ic state get <key> <scope>                 Read JSON (exit 0=found, 1=not found)
 ic state delete <key> <scope>              Remove a state entry
 ic state list <key>                        List scope_ids for a key
 ic state prune                             Remove expired state entries
-ic dispatch spawn [flags]                  Spawn an agent dispatch (prints ID)
+ic dispatch spawn [flags]                  Spawn an agent dispatch (prints ID, --parent-dispatch=<id> for nesting)
 ic dispatch status <id>                    Show dispatch details
 ic dispatch list [--active] [--scope=<s>]  List dispatches
 ic dispatch poll <id>                      Check liveness, update stats
@@ -84,7 +89,7 @@ ic dispatch wait <id> [--timeout=<dur>]    Block until terminal or timeout
 ic dispatch kill <id>                      SIGTERM → SIGKILL a dispatch
 ic dispatch tokens <id> --set --in=N --out=N [--cache=N]   Update token counts
 ic dispatch prune --older-than=<dur>       Remove old terminal dispatches
-ic run create --project=<dir> --goal=<text> [--complexity=N] [--scope-id=S] [--phases='[...]'] [--token-budget=N] [--budget-warn-pct=N]
+ic run create --project=<dir> --goal=<text> [--complexity=N] [--scope-id=S] [--phases='[...]'] [--token-budget=N] [--budget-warn-pct=N] [--budget-enforce] [--max-agents=N]
 ic run status <id>                         Show run details
 ic run advance <id> [--priority=N] [--disable-gates] [--skip-reason=S]
 ic run phase <id>                          Print current phase (scripting)
@@ -120,6 +125,9 @@ ic portfolio dep add <id> --upstream=<path> --downstream=<path>   Add project de
 ic portfolio dep list <id>                 List dependencies for a portfolio
 ic portfolio dep remove <id> --upstream=<path> --downstream=<path>   Remove dependency
 ic portfolio relay <id> [--interval=2s]    Start event relay (blocks, SIGINT to stop)
+ic config set <key> <value>               Set kernel config (global_max_dispatches, max_spawn_depth)
+ic config get <key>                       Get kernel config value
+ic config list [--verbose]                List all kernel config values
 ic portfolio order <id>                   Print topological build order (deterministic)
 ic portfolio status <id>                  Show per-child readiness with blocked-by details
 ic compat status                           Show legacy temp file vs DB coverage
@@ -195,6 +203,7 @@ The run tracking module (schema v4) adds agent and artifact tracking within runs
 
 - `run_agents` — tracks agents within a run (FK: `run_id → runs.id`)
 - `run_artifacts` — tracks files produced during a run (FK: `run_id → runs.id`)
+- `phase_actions` — registered actions per phase (FK: `run_id → runs.id`, UNIQUE: `run_id, phase, command`)
 
 Foreign keys are enforced (`PRAGMA foreign_keys = ON` set in `db.Open()`).
 
@@ -221,7 +230,19 @@ intercore_run_budget <run_id>                              # Budget check (JSON,
 intercore_dispatch_tokens <id> <in> <out> [cache]          # Update dispatch token counts
 intercore_gate_check <run_id>                              # Gate check (0=pass, 1=fail, 2+=error)
 intercore_gate_override <run_id> <reason>                  # Force-advance past failed gate
+intercore_run_advance <run_id> [priority]                  # Advance phase (JSON with actions)
+intercore_run_action_add <run_id> <phase> <cmd> [mode] [args]  # Register action
+intercore_run_action_list <run_id> [phase]                 # List actions (JSON)
+intercore_run_action_delete <run_id> <phase> <cmd>         # Remove action
 ```
+
+### Phase Actions (Event-Driven Advancement)
+
+Phase actions map phase transitions to commands. Registered at run creation via `--actions` flag or individually via `ic run action add`. Template variables (`${artifact:<type>}`, `${run_id}`, `${project_dir}`) are resolved at advance time.
+
+When `ic run advance` succeeds, the JSON output includes an `actions` array with resolved actions for the destination phase. `sprint_next_step()` in lib-sprint.sh queries the kernel first, falling back to the static routing table.
+
+**Action fields:** `phase`, `command` (slash command), `args` (JSON array with placeholders), `mode` (interactive|autonomous|both), `priority` (ordering), `action_type` (command|spawn|hook).
 
 ## Lock Module
 
@@ -460,6 +481,29 @@ Child runs with upstream dependencies also receive `upstreams_at_phase` (see Dep
 Portfolio runs can set `max_dispatches` to limit concurrent agent dispatches across all children. The relay maintains `active-dispatch-count` in the state table. The CLI checks this at spawn time.
 
 **Important:** The dispatch limit is advisory (TOCTOU-vulnerable). Concurrent spawns may exceed the limit. Document this for operators.
+
+### Cost-Aware Agent Scheduling
+
+Runs can opt into enforcement with `--budget-enforce` and `--max-agents=N` at creation time. When enabled:
+
+**Spawn policy** (`dispatch/policy.go`) — checked before every `dispatch spawn`:
+- **Budget enforcement**: if `budget_enforce=true` and budget is exceeded, spawn is rejected
+- **Per-run concurrency**: active dispatches for the run vs `max_dispatches`
+- **Global concurrency**: all active dispatches vs `kernel.global_max_dispatches` config
+- **Agent cap**: total dispatches (lifetime) for the run vs `max_agents`
+- **Spawn depth**: nested dispatch depth vs `kernel.max_spawn_depth` config
+
+Rejected spawns return exit code 1 with a structured error including `current` and `limit` values.
+
+**Budget gate** (`phase/gate.go`): when `budget_enforce=true`, phase advancement checks `budget_not_exceeded` alongside artifact/agent gates. A hard gate blocks advancement; can be overridden with `ic gate override`.
+
+**Global config** (`ic config`): kernel-level limits stored in the state table under `kernel.*` scope:
+```bash
+ic config set global_max_dispatches 10   # limit concurrent dispatches
+ic config set max_spawn_depth 3          # limit dispatch nesting
+```
+
+**TOCTOU note:** Concurrency checks are advisory — concurrent spawns may briefly exceed limits before the database is updated. Same trade-off as `max_dispatches`.
 
 ### DBPool
 

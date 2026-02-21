@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/interverse/infra/intercore/internal/action"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/budget"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/event"
@@ -23,7 +24,7 @@ import (
 
 func cmdRun(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, tokens, budget)\n")
+		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, action, tokens, budget)\n")
 		return 3
 	}
 
@@ -54,6 +55,8 @@ func cmdRun(ctx context.Context, args []string) int {
 		return cmdRunAgent(ctx, args[1:])
 	case "artifact":
 		return cmdRunArtifact(ctx, args[1:])
+	case "action":
+		return cmdRunAction(ctx, args[1:])
 	case "tokens":
 		return cmdRunTokens(ctx, args[1:])
 	case "budget":
@@ -65,10 +68,11 @@ func cmdRun(ctx context.Context, args []string) int {
 }
 
 func cmdRunCreate(ctx context.Context, args []string) int {
-	var project, goal, scopeID, phasesJSON, projects string
+	var project, goal, scopeID, phasesJSON, projects, actionsJSON string
 	complexity := 3
 	var tokenBudget int64
-	var maxDispatches int
+	var maxDispatches, maxAgents int
+	var budgetEnforce bool
 	budgetWarnPct := 80
 
 	for i := 0; i < len(args); i++ {
@@ -115,6 +119,18 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 				return 3
 			}
 			maxDispatches = v
+		case args[i] == "--budget-enforce":
+			budgetEnforce = true
+		case strings.HasPrefix(args[i], "--max-agents="):
+			val := strings.TrimPrefix(args[i], "--max-agents=")
+			v, err := strconv.Atoi(val)
+			if err != nil || v < 0 {
+				fmt.Fprintf(os.Stderr, "ic: run create: invalid max-agents (non-negative integer): %s\n", val)
+				return 3
+			}
+			maxAgents = v
+		case strings.HasPrefix(args[i], "--actions="):
+			actionsJSON = strings.TrimPrefix(args[i], "--actions=")
 		default:
 			fmt.Fprintf(os.Stderr, "ic: run create: unknown flag: %s\n", args[i])
 			return 3
@@ -175,6 +191,8 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			BudgetWarnPct: budgetWarnPct,
 			Phases:        customPhases,
 			MaxDispatches: maxDispatches,
+			BudgetEnforce: budgetEnforce,
+			MaxAgents:     maxAgents,
 		}
 		if tokenBudget > 0 {
 			portfolio.TokenBudget = &tokenBudget
@@ -232,6 +250,8 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		AutoAdvance:   true,
 		BudgetWarnPct: budgetWarnPct,
 		Phases:        customPhases,
+		BudgetEnforce: budgetEnforce,
+		MaxAgents:     maxAgents,
 	}
 	if tokenBudget > 0 {
 		run.TokenBudget = &tokenBudget
@@ -240,10 +260,44 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		run.ScopeID = &scopeID
 	}
 
+	// Parse --actions JSON before creating the run (fail-fast, no orphaned runs)
+	var actionBatch map[string]*action.Action
+	if actionsJSON != "" {
+		var actionMap map[string]struct {
+			Command string  `json:"command"`
+			Args    *string `json:"args,omitempty"`
+			Mode    string  `json:"mode,omitempty"`
+			Type    string  `json:"type,omitempty"`
+		}
+		if err := json.Unmarshal([]byte(actionsJSON), &actionMap); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: invalid --actions JSON: %v\n", err)
+			return 2
+		}
+		actionBatch = make(map[string]*action.Action, len(actionMap))
+		for aPhase, spec := range actionMap {
+			a := &action.Action{
+				Command:    spec.Command,
+				ActionType: spec.Type,
+				Mode:       spec.Mode,
+				Args:       spec.Args,
+			}
+			actionBatch[aPhase] = a
+		}
+	}
+
 	id, err := store.Create(ctx, run)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
 		return 2
+	}
+
+	// Register phase actions after run creation (JSON already validated above)
+	if actionBatch != nil {
+		aStore := action.New(d.SqlDB())
+		if err := aStore.AddBatch(ctx, id, actionBatch); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: register actions: %v\n", err)
+			return 2
+		}
 	}
 
 	if flagJSON {
@@ -457,11 +511,19 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		dq = portfoliopkg.NewDepStore(d.SqlDB())
 	}
 
+	// Budget gate querier: only needed if run has budget enforcement
+	var bq phase.BudgetQuerier
+	if run.BudgetEnforce {
+		sStore := state.New(d.SqlDB())
+		checker := budget.New(store, dStore, sStore, nil)
+		bq = &cliBudgetQuerier{checker: checker}
+	}
+
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
 		Priority:   priority,
 		DisableAll: disableGates,
 		SkipReason: skipReason,
-	}, rtStore, dStore, store, dq, phaseCallback)
+	}, rtStore, dStore, store, dq, bq, phaseCallback)
 	if err != nil {
 		if err == phase.ErrNotFound {
 			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)
@@ -475,8 +537,19 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		return 2
 	}
 
+	// Resolve actions for the destination phase
+	var resolvedActions []*action.Action
+	if result.Advanced {
+		aStore := action.New(d.SqlDB())
+		var actErr error
+		resolvedActions, actErr = aStore.ListForPhaseResolved(ctx, id, result.ToPhase, run.ProjectDir)
+		if actErr != nil {
+			fmt.Fprintf(os.Stderr, "ic: run advance: warning: action resolution failed: %v\n", actErr)
+		}
+	}
+
 	if flagJSON {
-		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+		out := map[string]interface{}{
 			"from_phase":  result.FromPhase,
 			"to_phase":    result.ToPhase,
 			"event_type":  result.EventType,
@@ -484,10 +557,25 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			"gate_tier":   result.GateTier,
 			"advanced":    result.Advanced,
 			"reason":      result.Reason,
-		})
+		}
+		if len(resolvedActions) > 0 {
+			items := make([]map[string]interface{}, len(resolvedActions))
+			for i, a := range resolvedActions {
+				items[i] = actionToMap(a)
+			}
+			out["actions"] = items
+		}
+		json.NewEncoder(os.Stdout).Encode(out)
 	} else {
 		if result.Advanced {
 			fmt.Printf("%s → %s\n", result.FromPhase, result.ToPhase)
+			for _, a := range resolvedActions {
+				argsStr := ""
+				if a.Args != nil {
+					argsStr = " " + *a.Args
+				}
+				fmt.Printf("  → %s%s  [%s]\n", a.Command, argsStr, a.Mode)
+			}
 		} else {
 			fmt.Printf("%s (blocked: %s)\n", result.FromPhase, result.EventType)
 		}
@@ -1626,6 +1714,12 @@ func runToMap(r *phase.Run) map[string]interface{} {
 	}
 	if r.MaxDispatches > 0 {
 		m["max_dispatches"] = r.MaxDispatches
+	}
+	if r.BudgetEnforce {
+		m["budget_enforce"] = true
+	}
+	if r.MaxAgents > 0 {
+		m["max_agents"] = r.MaxAgents
 	}
 	return m
 }

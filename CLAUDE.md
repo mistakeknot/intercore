@@ -17,6 +17,7 @@ bash test-integration.sh    # Run integration tests (builds ic, creates temp DB)
 ```bash
 # Spawn a codex agent
 ic dispatch spawn --prompt-file=<f> --project=<dir> --name=<label> --output=<path>
+ic dispatch spawn ... --parent-dispatch=<id>    # Nested dispatch (spawn depth tracking)
 
 # Check status / poll liveness / wait for completion
 ic dispatch status <id> --json
@@ -39,6 +40,7 @@ ic dispatch prune --older-than=24h
 ic run create --project=. --goal="Implement feature X" --complexity=3
 ic run create --project=. --goal="Quick fix" --phases='["plan","execute","done"]'
 ic run create --project=. --goal="Big feature" --token-budget=500000 --budget-warn-pct=80
+ic run create --project=. --goal="Enforced" --budget-enforce --max-agents=5
 ic run advance <id>              # Advance to next phase
 ic run phase <id>                # Print current phase
 ic run current --project=.       # Print active run ID for project
@@ -61,6 +63,13 @@ ic run agent list <run>
 ic run agent update <id> --status=completed
 ic run artifact add <run> --phase=brainstorm --path=docs/brainstorms/x.md
 ic run artifact list <run> --phase=brainstorm
+
+# Phase actions (event-driven advancement)
+ic run action add <run> --phase=planned --command=/interflux:flux-drive --args='["plan.md"]' --mode=interactive
+ic run action list <run> [--phase=planned]
+ic run action update <run> --phase=planned --command=/interflux:flux-drive --args='["new.md"]'
+ic run action delete <run> --phase=planned --command=/interflux:flux-drive
+ic run create --project=. --goal="..." --actions='{"planned":{"command":"/clavain:work","mode":"interactive"}}'
 ```
 
 ## Lock Quick Reference
@@ -84,6 +93,15 @@ Lock commands are **filesystem-only** (no SQLite) — they work even when the DB
 ic gate check <run_id> [--priority=N]      # Dry-run gate eval (exit 0=pass, 1=fail)
 ic gate override <run_id> --reason=<text>   # Force-advance past failed gate
 ic gate rules [--phase=<p>]                 # Display gate rules table
+```
+
+## Config Quick Reference
+
+```bash
+ic config set global_max_dispatches 10  # Max active dispatches across all runs
+ic config set max_spawn_depth 3         # Max dispatch nesting depth
+ic config get <key>                     # Get a config value
+ic config list [--verbose]              # List all config values
 ```
 
 ## Event Bus Quick Reference

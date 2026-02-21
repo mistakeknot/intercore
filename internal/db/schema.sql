@@ -272,3 +272,20 @@ CREATE TABLE IF NOT EXISTS lane_members (
     PRIMARY KEY (lane_id, bead_id)
 );
 CREATE INDEX IF NOT EXISTS idx_lane_members_bead ON lane_members(bead_id);
+
+-- v14: phase actions (event-driven advancement)
+CREATE TABLE IF NOT EXISTS phase_actions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id      TEXT NOT NULL REFERENCES runs(id),
+    phase       TEXT NOT NULL,
+    action_type TEXT NOT NULL DEFAULT 'command',
+    command     TEXT NOT NULL,
+    args        TEXT,
+    mode        TEXT NOT NULL DEFAULT 'interactive',
+    priority    INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
+    UNIQUE(run_id, phase, command)
+);
+CREATE INDEX IF NOT EXISTS idx_phase_actions_run ON phase_actions(run_id);
+CREATE INDEX IF NOT EXISTS idx_phase_actions_phase ON phase_actions(run_id, phase);

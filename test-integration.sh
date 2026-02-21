@@ -1067,6 +1067,75 @@ pass "lane: arc type"
 
 echo "  Thematic work lanes tests passed"
 
+# --- Phase Actions (Event-Driven Advancement) ---
+echo ""
+echo "=== Phase Actions ==="
+
+# Create a run for action tests
+ACT_RUN=$(ic --db="$TEST_DB" run create --project="$TEST_DIR" --goal="Action test")
+pass "create run for actions"
+
+# Add an action
+ADD_OUT=$(ic --db="$TEST_DB" --json run action add "$ACT_RUN" --phase=planned --command=/clavain:work --args='["plan.md"]' --mode=interactive)
+ACT_ID=$(echo "$ADD_OUT" | jq -r '.id')
+[[ "$ACT_ID" != "null" && "$ACT_ID" != "" ]] || fail "action add: no id returned"
+pass "action add"
+
+# Add second action for a different phase
+ic --db="$TEST_DB" run action add "$ACT_RUN" --phase=executing --command=/clavain:quality-gates --mode=both >/dev/null
+pass "action add (second phase)"
+
+# List actions for a specific phase
+LIST_OUT=$(ic --db="$TEST_DB" --json run action list "$ACT_RUN" --phase=planned)
+LIST_COUNT=$(echo "$LIST_OUT" | jq 'length')
+[[ "$LIST_COUNT" == "1" ]] || fail "action list: expected 1 action for planned, got $LIST_COUNT"
+LIST_CMD=$(echo "$LIST_OUT" | jq -r '.[0].command')
+[[ "$LIST_CMD" == "/clavain:work" ]] || fail "action list: expected /clavain:work, got $LIST_CMD"
+pass "action list (by phase)"
+
+# List all actions for run
+LIST_ALL=$(ic --db="$TEST_DB" --json run action list "$ACT_RUN")
+ALL_COUNT=$(echo "$LIST_ALL" | jq 'length')
+[[ "$ALL_COUNT" == "2" ]] || fail "action list all: expected 2, got $ALL_COUNT"
+pass "action list (all)"
+
+# Update an action
+ic --db="$TEST_DB" run action update "$ACT_RUN" --phase=planned --command=/clavain:work --args='["updated.md"]' >/dev/null
+UPD_OUT=$(ic --db="$TEST_DB" --json run action list "$ACT_RUN" --phase=planned)
+UPD_ARGS=$(echo "$UPD_OUT" | jq -r '.[0].args[0]')
+[[ "$UPD_ARGS" == "updated.md" ]] || fail "action update: expected updated.md, got $UPD_ARGS"
+pass "action update"
+
+# Duplicate detection
+DUP_OUT=$(ic --db="$TEST_DB" run action add "$ACT_RUN" --phase=planned --command=/clavain:work 2>&1) && fail "action add duplicate: should have failed" || true
+pass "action add duplicate rejected"
+
+# Delete an action
+ic --db="$TEST_DB" run action delete "$ACT_RUN" --phase=planned --command=/clavain:work >/dev/null
+DEL_OUT=$(ic --db="$TEST_DB" --json run action list "$ACT_RUN" --phase=planned)
+DEL_COUNT=$(echo "$DEL_OUT" | jq 'length')
+[[ "$DEL_COUNT" == "0" ]] || fail "action delete: expected 0, got $DEL_COUNT"
+pass "action delete"
+
+# Actions in advance output — register action for destination phase, advance, check output
+# Run starts at brainstorm; advancing goes to brainstorm-reviewed
+ic --db="$TEST_DB" run action add "$ACT_RUN" --phase=brainstorm-reviewed --command=/clavain:strategy --mode=interactive >/dev/null
+ADV_OUT=$(ic --db="$TEST_DB" --json run advance "$ACT_RUN" --priority=4)
+ADV_ACTIONS=$(echo "$ADV_OUT" | jq '.actions // [] | length')
+[[ "$ADV_ACTIONS" -ge 1 ]] || fail "advance: expected actions in output, got $ADV_ACTIONS"
+ADV_CMD=$(echo "$ADV_OUT" | jq -r '.actions[0].command')
+[[ "$ADV_CMD" == "/clavain:strategy" ]] || fail "advance: expected /clavain:strategy, got $ADV_CMD"
+pass "advance includes resolved actions"
+
+# Batch add via --actions on create
+BATCH_RUN=$(ic --db="$TEST_DB" run create --project="$TEST_DIR" --goal="Batch action test" --actions='{"planned":{"command":"/interflux:flux-drive","args":"[\"plan.md\"]","mode":"interactive"},"executing":{"command":"/clavain:work","mode":"both"}}')
+BATCH_LIST=$(ic --db="$TEST_DB" --json run action list "$BATCH_RUN")
+BATCH_COUNT=$(echo "$BATCH_LIST" | jq 'length')
+[[ "$BATCH_COUNT" == "2" ]] || fail "batch action: expected 2, got $BATCH_COUNT"
+pass "batch action registration via --actions"
+
+echo "  Phase actions tests passed"
+
 # --- Version sync check ---
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then
