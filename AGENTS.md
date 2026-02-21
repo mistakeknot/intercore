@@ -161,13 +161,6 @@ ic dispatch collect → read .verdict + .summary sidecars → UPDATE final resul
 spawned → running → completed | failed | timeout | cancelled
 ```
 
-### dispatch.sh Resolution (spawn)
-
-1. `--dispatch-sh=<path>` flag
-2. `CLAVAIN_DISPATCH_SH` env var
-3. Walk up from CWD for `hub/clavain/scripts/dispatch.sh`
-4. Fallback: bare `codex exec` (no JSONL, no verdict)
-
 ### Spawn Flags
 
 ```
@@ -181,15 +174,8 @@ spawned → running → completed | failed | timeout | cancelled
 --timeout=<dur>       Agent timeout
 --scope-id=<id>       Grouping scope
 --parent-id=<id>      Parent dispatch ID (fan-out tracking)
---dispatch-sh=<path>  Explicit dispatch.sh path
+--dispatch-sh=<path>  Explicit dispatch.sh path (else CLAVAIN_DISPATCH_SH, else walk-up)
 ```
-
-### Reparented Process Handling
-
-When `ic dispatch spawn` exits after forking, dispatch.sh gets reparented to init. Later `ic dispatch poll` can't `waitpid()` it, so liveness uses three convergent signals:
-- `kill(pid, 0)` returning ESRCH (process gone)
-- State file (`/tmp/clavain-dispatch-{pid}.json`) disappearing
-- `.verdict` and `.summary` sidecars appearing
 
 ### Bash Wrappers (lib-intercore.sh)
 
@@ -386,28 +372,7 @@ intercore_events_cursor_reset <consumer>      # Reset cursor
 
 ### Event Reactor Pattern
 
-The kernel emits events but does not react to them. OS components (Clavain, Interspect, custom scripts) subscribe as event consumers using `ic events tail -f`.
-
-```bash
-# Start a consumer (long-running, cursor-persisted)
-ic events tail --all -f --consumer=my-reactor --poll-interval=1s
-
-# One-shot read (no cursor, all events)
-ic events tail --all
-
-# Filter by run
-ic events tail <run-id> -f --consumer=my-reactor
-
-# Manage cursors
-ic events cursor list
-ic events cursor reset <consumer-name>
-```
-
-**Consumer guidelines:**
-- Always use `--consumer=<name>` for durability (cursor survives restarts)
-- Consumers MUST be idempotent — events are at-least-once
-- Use `--poll-interval` to control CPU (500ms–2s recommended)
-- See `docs/event-reactor-pattern.md` for full patterns, examples, and lifecycle management
+The kernel emits events but does not react to them. Consumers subscribe via `ic events tail -f --consumer=<name>`. Consumers MUST be idempotent (at-least-once delivery). See `docs/event-reactor-pattern.md` for full patterns.
 
 ### Optimistic Concurrency
 
@@ -488,11 +453,7 @@ Portfolio runs automatically receive a `children_at_phase` gate check. This gate
 
 The gate uses the `PortfolioQuerier` interface (`GetChildren(ctx, runID)`) to avoid cross-package coupling.
 
-**Child dependency gates:** Child runs with upstream dependencies automatically receive an `upstreams_at_phase` gate check in addition to standard gates. This gate blocks the child from advancing to phase P unless all upstream projects have reached phase P. The gate uses the `DepQuerier` interface (`GetUpstream(ctx, portfolioRunID, project)`) — only injected for child runs that have a `parent_run_id`.
-
-- Terminal upstreams (completed, cancelled, failed) don't block
-- Upstream chains that don't contain the target phase are treated as "past it"
-- If no upstream dependencies exist, the gate passes immediately
+Child runs with upstream dependencies also receive `upstreams_at_phase` (see Dependency Scheduling below). The `DepQuerier` interface is only injected for child runs that have a `parent_run_id`.
 
 ### Dispatch Budget
 
