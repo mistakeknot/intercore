@@ -110,7 +110,7 @@ The kernel provides **mechanism, not policy**. It says "a gate can block a trans
 | **Events** | Typed event bus | Append-only log with consumer cursors |
 | **Discovery** | Scored discoveries | Confidence-tiered autonomy gates for research intake and backlog generation |
 | **State** | Scoped key-value | TTL-based storage with namespace isolation (`_kernel/*`, `os/*`, `app/*`) |
-| **Coordination** | Locks + Sentinels | Mutual exclusion and time-based throttling |
+| **Coordination** | Locks + Sentinels | Mutual exclusion, time-based throttling, and prevention of TOCTOU race conditions during parallel agent execution via atomic SQLite transactions |
 | **Run Tracking** | Agents + Artifacts | What agents are active, what files were produced |
 | **Rollback** | State reset + audit trail | Phase rewind, dispatch cancellation, discovery revert — preserving history |
 | **Portfolio** | Cross-project runs | Multi-project run grouping with composite gate evaluation |
@@ -156,11 +156,11 @@ This has important implications:
 
 **No background event loop.** The kernel does not poll, watch, or react on its own. Event consumption is **pull-based**: consumers call `ic events tail --consumer=<name>` to retrieve events since their last cursor position. The kernel writes events; consumers decide when to read them.
 
-**Consumer patterns:** OS-level event reactors, TUI event tails, and one-off analysis scripts all use the same cursor-based API (`ic events tail --consumer=<name>`). The kernel is stateless between calls — consumers decide when and how to poll. For the OS event reactor lifecycle (who starts it, crash behavior, gate failure handling), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Track A3 section.
+**Consumer patterns:** OS-level event reactors, TUI event tails, and one-off analysis scripts all use the same cursor-based API (`ic events tail --consumer=<name>`). The kernel is stateless between calls — consumers decide when and how to poll. For the OS event reactor lifecycle (who starts it, crash behavior, gate failure handling), see the [Clavain vision doc](../../../../os/clavain/docs/clavain-vision.md) Track A3 section.
 
 **Why not a daemon?** Daemons add operational complexity — process management, health monitoring, restart policies, port conflicts. A CLI binary is zero-ops: it works when called, requires no lifecycle management, and has no background process that can crash or become stale between calls. If `ic` crashes *during* a call, SQLite's transaction semantics ensure either the full operation committed or nothing did (see Recovery Semantics below). The SQLite database is the persistent state; the binary is stateless.
 
-**Future consideration:** If event-driven reactions (Level 2 on the autonomy ladder) require sub-second latency, a lightweight daemon or socket-activated service could be introduced. The kernel's API surface (CLI commands) would remain the same — the daemon would be an optimization, not a new architecture. This is explicitly deferred until pull-based polling proves insufficient. The durable event log remains the source of truth; any real-time projection layer would be an app-layer concern (see the [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md) Signal Architecture section).
+**Future consideration:** If event-driven reactions (Level 2 on the autonomy ladder) require sub-second latency, a lightweight daemon or socket-activated service could be introduced. The kernel's API surface (CLI commands) would remain the same — the daemon would be an optimization, not a new architecture. This is explicitly deferred until pull-based polling proves insufficient. The durable event log remains the source of truth; any real-time projection layer would be an app-layer concern (see the [Autarch vision doc](../../../../apps/autarch/docs/autarch-vision.md) Signal Architecture section).
 
 ## Design Principles
 
@@ -202,43 +202,49 @@ The kernel never silently swallows failures. It records them, emits events about
 
 ## The Autonomy Ladder
 
-Intercore enables increasing levels of autonomous operation. Each level builds on the one below.
+Intercore enables increasing levels of autonomous operation. Each level tracks a single dimension: how much human intervention does a sprint require? The human's role is fixed (set objectives, make tradeoffs, approve deployments); what changes is how often they need to exercise it.
 
 ### Level 0: Record
 
-The kernel records what happened. Runs, phases, dispatches, artifacts — all tracked. A human drives everything. The kernel is a logbook.
+The kernel records what happened. Runs, phases, dispatches, artifacts — all tracked. A human drives everything. The kernel is a logbook. *(Shipped.)*
 
 *This is where intercore started: replacing temp files with a proper database.*
 
 ### Level 1: Enforce
 
-Gates evaluate real conditions. A run cannot advance from `planned` to `executing` without a plan artifact. The kernel enforces discipline that humans and LLMs might skip under pressure.
+Gates evaluate real conditions. A run cannot advance from `planned` to `executing` without a plan artifact. The kernel enforces discipline that humans and LLMs might skip under pressure. *(Shipped.)*
 
 *This is the gates milestone — the system says "no" when preconditions aren't met.*
 
 ### Level 2: React
 
-Events trigger automatic reactions. When a run advances to `review`, the kernel emits an event. The OS tails the event log and spawns review agents. When all agents complete, the OS advances the phase. The human observes and intervenes only on exceptions.
+Events trigger automatic reactions. When a run advances to `review`, the kernel emits an event. The OS tails the event log and spawns review agents. When all agents complete, the OS advances the phase. The human observes and intervenes only on exceptions. *(Shipped.)*
 
 *This is the event bus milestone — the system does the next obvious thing.*
 
-### Level 3: Adapt
+### Level 3: Auto-remediate
 
-Interspect reads kernel events and correlates them with outcomes. Agents that consistently produce false positives get downweighted. Phases that never produce useful artifacts get skipped by default. Gate rules tighten or relax based on evidence.
+The system retries failed gates, substitutes agents, and adjusts parameters without human intervention. The human is notified of remediations but only intervenes when the system exhausts its options. *(Planned.)*
 
-The kernel supports this by recording structured evidence with enough dimensionality for meaningful analysis. Gate evaluations include not just pass/fail but the specific conditions checked and the artifacts examined. Dispatch outcomes include verdict quality, token cost, and wall-clock time. Over many runs, this evidence enables weighted confidence scoring across multiple dimensions — completeness, consistency, cost-effectiveness — following the pattern of Autarch's `ConfidenceScore` (see [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md) for the scoring model) to produce an actionable composite score rather than a binary judgment.
+*This is resilient execution — the system recovers from failures autonomously.*
 
-The profiler proposes changes. The OS applies them as overlays. The kernel enforces the updated rules. The human reviews proposals and maintains veto power.
+### Level 4: Auto-ship
 
-*This is evidence-based self-improvement — the system learns from its own history.*
+The system merges and deploys when confidence thresholds are met. The human approves shipping policy (which thresholds, which repos), not individual changes. *(Future.)*
 
-### Level 4: Orchestrate
+*This is policy-governed deployment — the system ships when evidence says it's safe.*
 
-The kernel manages a portfolio of concurrent runs across multiple projects. Resource scheduling allocates agents, tokens, and compute across competing priorities. The OS defines priority rules. The kernel enforces them.
+No level is self-promoting. The system advances only when outcome data justifies it, and any level can be revoked if the evidence stops supporting it.
 
-An urgent hotfix preempts a routine refactor. A high-complexity feature gets more review agents than a documentation update. Token budgets prevent runaway costs. A change in one project automatically triggers verification in downstream dependents.
+### Capability Tracks (orthogonal to autonomy)
 
-*This is fleet management — the system balances competing demands across projects.*
+Three capabilities cut across the autonomy ladder rather than sitting on it. Each operates at any autonomy level and provides kernel primitives that the OS consumes.
+
+**Adaptation.** Interspect reads kernel events, correlates with outcomes, and proposes configuration changes. Agents that produce false positives get downweighted. Gate rules evolve based on evidence. The kernel supports this by recording structured evidence with enough dimensionality for meaningful analysis — gate evaluations include the specific conditions checked and artifacts examined; dispatch outcomes include verdict quality, token cost, and wall-clock time. Over many runs, this evidence enables weighted confidence scoring across multiple dimensions — completeness, consistency, cost-effectiveness — following the pattern of Autarch's `ConfidenceScore` (see [Autarch vision doc](../../../../apps/autarch/docs/autarch-vision.md) for the scoring model). The profiler proposes changes. The OS applies them as overlays. The kernel enforces the updated rules. *(In progress, the current frontier.)*
+
+**Discovery.** The pipeline that finds work before it can be recorded. The kernel provides discovery primitives (scored records, confidence gates, events); the OS provides the pipeline workflow. *(Shipped, kernel primitives landed.)*
+
+**Portfolio orchestration.** The kernel manages concurrent runs across multiple projects. Resource scheduling allocates agents, tokens, and compute across competing priorities. An urgent hotfix preempts a routine refactor. Token budgets prevent runaway costs. Changes in one project trigger verification in dependents. *(Shipped, portfolio primitives landed.)*
 
 ## Kernel Subsystems
 
@@ -258,11 +264,13 @@ The kernel provides a `SkipPhase(run_id, phase_id, reason, actor)` primitive tha
 
 Gates are conditions evaluated at phase transitions. The kernel provides the evaluation mechanism. The OS provides the rules.
 
-Gate rules are data, not code — stored as configuration that maps transitions to check types. Check types are kernel-provided primitives:
+Gate rules map (from_phase, to_phase) pairs to check types. Check types are kernel-provided primitives:
 
 - `artifact_exists` — does an artifact exist for a given phase?
 - `agents_complete` — are all active agents finished?
 - `verdict_exists` — does a non-rejected dispatch verdict exist?
+
+> **Current state vs target.** Today, the gate rules map is compiled into the kernel binary (a Go map keyed by `[2]string{from, to}` phase pairs). Transitions not in this map have no gate requirements — they pass through. This means the kernel only enforces gates for transitions whose phase names exactly match the map keys. When the OS creates runs with custom phase names (e.g., `plan-reviewed`, `shipping`) that differ from the kernel's DefaultPhaseChain (`review`, `polish`), those transitions bypass kernel gates. The OS compensates with its own gate enforcement via agency specs, but this is policy-level enforcement, not kernel-enforced invariants. The target design is for gate rules to be runtime-configurable data supplied at run creation time (alongside the phase chain), making kernel gate enforcement work with any phase naming. See [glossary](../../../../docs/glossary.md) for the full phase mapping table.
 
 **Gate tiers.** Each gate rule has a tier that controls enforcement behavior:
 
@@ -598,7 +606,7 @@ Interspect currently operates with its own SQLite database and hook-based eviden
 
 ## Apps Layer (Autarch)
 
-Autarch provides the interactive TUI surfaces for kernel state — Bigend (monitoring), Gurgeh (PRD generation), Coldwine (task orchestration), and Pollard (research intelligence). Each tool is migrating from its own backend to the kernel as the shared state layer. For full details on the four tools, `pkg/tui`, and the migration plan, see the [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md).
+Autarch provides the interactive TUI surfaces for kernel state — Bigend (monitoring), Gurgeh (PRD generation), Coldwine (task orchestration), and Pollard (research intelligence). Each tool is migrating from its own backend to the kernel as the shared state layer. For full details on the four tools, `pkg/tui`, and the migration plan, see the [Autarch vision doc](../../../../apps/autarch/docs/autarch-vision.md).
 
 ## Autonomous Research and Backlog Intelligence
 
@@ -621,16 +629,16 @@ The kernel provides primitives for tracking discoveries, scoring confidence, and
 
 The kernel enforces a confidence-gated autonomy model. Each discovery is scored and assigned to a tier. The tier determines what the system can do without human approval.
 
-| Tier | Score Range | Kernel Event | Horizon |
+| Tier | Score Range | Kernel Event | Status |
 |---|---|---|---|
-| **High** | ≥ 0.8 | `discovery.promoted` | v3 |
-| **Medium** | 0.5 – 0.8 | `discovery.proposed` | v3 |
-| **Low** | 0.3 – 0.5 | `discovery.scored` | v3 |
-| **Discard** | < 0.3 | Recorded with `discarded` status | v3 |
+| **High** | ≥ 0.8 | `discovery.promoted` | Shipped (E5) |
+| **Medium** | 0.5 – 0.8 | `discovery.proposed` | Shipped (E5) |
+| **Low** | 0.3 – 0.5 | `discovery.scored` | Shipped (E5) |
+| **Discard** | < 0.3 | Recorded with `discarded` status | Shipped (E5) |
 
-The kernel enforces tier boundaries as gate invariants — the scoring model produces a number, the tier boundaries are configuration, and the kernel rejects promotions that violate tier constraints. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal. For the OS-level actions at each tier (work item creation, briefing docs, inbox notifications), see the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) Discovery → Backlog Pipeline section.
+The kernel enforces tier boundaries as gate invariants — the scoring model produces a number, the tier boundaries are configuration, and the kernel rejects promotions that violate tier constraints. The human can always override (promote a low-scoring discovery manually), and that override is recorded as a feedback signal. For the OS-level actions at each tier (work item creation, briefing docs, inbox notifications), see the [Clavain vision doc](../../../../os/clavain/docs/clavain-vision.md) Discovery → Backlog Pipeline section.
 
-> **Horizon note:** The discovery subsystem is planned for product horizon v3 (see Success at Each Horizon table). The `discoveries` table, confidence scoring, and tier enforcement do not exist in the current database schema (schema revision 5, tracked via `PRAGMA user_version`). These are different version axes: product horizons (v1–v4) describe feature milestones; schema revisions (1–N) track database migrations. The table above describes the target design.
+> **Status note:** The kernel discovery primitives are shipped (E5, schema v9): `discoveries` table, confidence scoring, tier enforcement, embedding search, feedback ingestion, decay, and rollback. The full `ic discovery` CLI surface is operational. What remains unshipped is the **OS-level pipeline integration**: interject source adapters emitting kernel events, event-driven scan triggers, and automated backlog refinement. The kernel provides the mechanism; the OS pipeline that consumes it is planned.
 
 ### Backlog Refinement Primitives
 
@@ -640,7 +648,7 @@ The kernel provides two backlog enforcement mechanisms:
 
 **Staleness decay mechanism.** Discovery records that are never promoted and receive no activity can be decayed. The kernel provides a `decay` operation that the OS invokes with a rate parameter — decay is computed lazily at query time (virtual priority), not by a background process. The OS decides when to decay, at what rate, and whether fresh evidence reverses it.
 
-Additional backlog refinement (priority escalation, dependency suggestion, weekly digests, feedback loops) is OS-level policy. See the [Clavain vision doc](../../../../hub/clavain/docs/clavain-vision.md) for the full discovery → backlog pipeline workflow, including source configuration, trigger modes, and backlog refinement rules.
+Additional backlog refinement (priority escalation, dependency suggestion, weekly digests, feedback loops) is OS-level policy. See the [Clavain vision doc](../../../../os/clavain/docs/clavain-vision.md) for the full discovery → backlog pipeline workflow, including source configuration, trigger modes, and backlog refinement rules.
 
 ### What the OS Provides (Policy)
 
@@ -667,7 +675,7 @@ Existing agent orchestration systems address parts of this problem. Understandin
 
 **Durable execution engines** (Temporal, Restate) provide crash-proof workflows with state captured at each step, retry policies, and saga patterns. Temporal is the closest conceptual relative to Intercore's durability story. The key differences are deployment model and domain specialization (see "Why not Temporal?" below).
 
-**Autarch** (merged into the Interverse monorepo) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Autarch is merging into the Interverse monorepo as the apps/TUI layer, with its tools progressively migrating from their own YAML/SQLite backends to intercore's kernel as the shared state backend (see [Autarch vision doc](../../../../hub/autarch/docs/autarch-vision.md)).
+**Autarch** (merged into the Interverse monorepo) is a tool-first approach to the same problem space — four Go TUI tools (PRD generation, task orchestration, research intelligence, mission control) sharing a `pkg/contract` entity model, `pkg/events` event spine, and `pkg/db` SQLite helper. Autarch and Intercore share the same SQLite driver (`modernc.org/sqlite`), the same WAL/NORMAL/MaxOpenConns(1) configuration, and overlapping domain concepts (runs, artifacts, dispatches). Intercore adopts several Autarch patterns directly: the fluent `EventFilter` and `Replay()` API for event consumption, the fingerprint-based reconciliation engine for detecting state drift, the `DispatchConfig` struct for agent spawn parameters, and the `ConfidenceScore` model for weighted evidence quality analysis. Autarch is merging into the Interverse monorepo as the apps/TUI layer, with its tools progressively migrating from their own YAML/SQLite backends to intercore's kernel as the shared state backend (see [Autarch vision doc](../../../../apps/autarch/docs/autarch-vision.md)).
 
 ### Where Intercore Contributes
 
