@@ -289,3 +289,22 @@ CREATE TABLE IF NOT EXISTS phase_actions (
 );
 CREATE INDEX IF NOT EXISTS idx_phase_actions_run ON phase_actions(run_id);
 CREATE INDEX IF NOT EXISTS idx_phase_actions_phase ON phase_actions(run_id, phase);
+
+-- v15: tamper-evident audit trail
+CREATE TABLE IF NOT EXISTS audit_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT NOT NULL,
+    event_type   TEXT NOT NULL,
+    actor        TEXT NOT NULL,
+    target       TEXT NOT NULL DEFAULT '',
+    payload      TEXT NOT NULL DEFAULT '{}',
+    metadata     TEXT NOT NULL DEFAULT '{}',
+    prev_hash    TEXT NOT NULL DEFAULT '',
+    checksum     TEXT NOT NULL,
+    sequence_num INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id, sequence_num);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
