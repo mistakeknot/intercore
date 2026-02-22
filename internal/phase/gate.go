@@ -11,11 +11,12 @@ const EventOverride = "override"
 
 // Check type constants for gateRules.
 const (
-	CheckArtifactExists    = "artifact_exists"
-	CheckAgentsComplete    = "agents_complete"
-	CheckVerdictExists     = "verdict_exists"
-	CheckChildrenAtPhase   = "children_at_phase"
-	CheckUpstreamsAtPhase  = "upstreams_at_phase"
+	CheckArtifactExists      = "artifact_exists"
+	CheckAgentsComplete      = "agents_complete"
+	CheckVerdictExists       = "verdict_exists"
+	CheckChildrenAtPhase     = "children_at_phase"
+	CheckUpstreamsAtPhase    = "upstreams_at_phase"
+	CheckBudgetNotExceeded   = "budget_not_exceeded"
 )
 
 // RuntrackQuerier abstracts runtrack.Store queries needed by gate evaluation.
@@ -41,6 +42,12 @@ type PortfolioQuerier interface {
 // Implemented by portfolio.DepStore; tests can use stubs.
 type DepQuerier interface {
 	GetUpstream(ctx context.Context, portfolioRunID, downstream string) ([]string, error)
+}
+
+// BudgetQuerier abstracts budget checking for gate evaluation.
+// Implemented by budget.Checker via an adapter; tests can use stubs.
+type BudgetQuerier interface {
+	IsBudgetExceeded(ctx context.Context, runID string) (bool, error)
 }
 
 // GateCondition represents a single check within a gate evaluation.
@@ -80,6 +87,7 @@ type GateCheckResult struct {
 type gateRule struct {
 	check string // CheckArtifactExists, CheckAgentsComplete, CheckVerdictExists
 	phase string // which phase's artifacts to check (empty = not applicable)
+	tier  string // "hard" or "soft" — per-rule tier override (empty = use cfg.Priority)
 }
 
 // gateRules maps (from, to) phase pairs to their required checks.
@@ -113,7 +121,7 @@ var gateRules = map[[2]string][]gateRule{
 
 // evaluateGate checks whether a phase transition should be allowed.
 // Returns gate result, tier, structured evidence, and any error.
-func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier) (result, tier string, evidence *GateEvidence, err error) {
+func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier) (result, tier string, evidence *GateEvidence, err error) {
 	if cfg.DisableAll {
 		return GateNone, TierNone, nil, nil
 	}
@@ -128,10 +136,15 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 		return GateNone, TierNone, nil, nil
 	}
 
-	// Look up rules for this transition
-	rules, ok := gateRules[[2]string{from, to}]
-	if !ok {
-		rules = nil
+	// Look up rules for this transition.
+	// Spec rules (from agency specs) take precedence; hardcoded rules are the fallback.
+	var rules []gateRule
+	if len(cfg.SpecRules) > 0 {
+		for _, sr := range cfg.SpecRules {
+			rules = append(rules, gateRule{check: sr.Check, phase: sr.Phase, tier: sr.Tier})
+		}
+	} else if hr, ok := gateRules[[2]string{from, to}]; ok {
+		rules = hr
 	}
 
 	// Portfolio runs: inject children_at_phase check for every transition
@@ -145,8 +158,25 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 		rules = append(rules, gateRule{check: CheckUpstreamsAtPhase, phase: to})
 	}
 
+	// Budget enforcement: inject budget check for runs with budget_enforce=true
+	if run.BudgetEnforce {
+		rules = append(rules, gateRule{check: CheckBudgetNotExceeded})
+	}
+
 	if len(rules) == 0 {
 		return GatePass, tier, nil, nil
+	}
+
+	// Per-rule tier overrides: escalate overall tier if any rule is stricter.
+	// "hard" > "soft" > "" (default from cfg.Priority).
+	for _, rule := range rules {
+		if rule.tier == TierHard {
+			tier = TierHard
+			break // can't escalate further
+		}
+		if rule.tier == TierSoft && tier != TierHard {
+			tier = TierSoft
+		}
 	}
 
 	evidence = &GateEvidence{}
@@ -317,6 +347,24 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 				allPass = false
 			}
 
+		case CheckBudgetNotExceeded:
+			if bq == nil {
+				cond.Result = GatePass
+				cond.Detail = "no budget querier provided, skipping"
+				break
+			}
+			exceeded, qerr := bq.IsBudgetExceeded(ctx, run.ID)
+			if qerr != nil {
+				return "", "", nil, fmt.Errorf("gate check: budget: %w", qerr)
+			}
+			if !exceeded {
+				cond.Result = GatePass
+			} else {
+				cond.Result = GateFail
+				cond.Detail = "token budget exceeded"
+				allPass = false
+			}
+
 		default:
 			cond.Result = GateFail
 			cond.Detail = fmt.Sprintf("unknown check type: %q", rule.check)
@@ -334,7 +382,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 
 // EvaluateGate performs a dry-run gate check for the next transition.
 // This is the public entry point used by `ic gate check`.
-func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier) (*GateCheckResult, error) {
+func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier) (*GateCheckResult, error) {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
@@ -352,7 +400,7 @@ func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfi
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}
-	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq, pq, dq)
+	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq, pq, dq, bq)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}

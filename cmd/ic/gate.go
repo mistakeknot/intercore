@@ -9,10 +9,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mistakeknot/interverse/infra/intercore/internal/budget"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/portfolio"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
 )
 
 func cmdGate(ctx context.Context, args []string) int {
@@ -71,9 +73,45 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 	dStore := dispatch.New(d.SqlDB(), nil)
 	depStore := portfolio.NewDepStore(d.SqlDB())
 
+	// Budget querier: check if run has budget enforcement
+	var bq phase.BudgetQuerier
+	run, runErr := store.Get(ctx, runID)
+	if runErr == nil && run.BudgetEnforce {
+		sStore := state.New(d.SqlDB())
+		checker := budget.New(store, dStore, sStore, nil)
+		bq = &cliBudgetQuerier{checker: checker}
+	}
+
+	// Resolve spec-defined gate rules from agency specs (if loaded)
+	var specRules []phase.SpecGateRule
+	if run != nil {
+		sStore := state.New(d.SqlDB())
+		gateKey := fmt.Sprintf("agency.gates.%s", run.Phase)
+		gateJSON, gerr := sStore.Get(ctx, gateKey, runID)
+		if gerr == nil && gateJSON != nil {
+			var specGates struct {
+				Exit []struct {
+					Check string `json:"check"`
+					Phase string `json:"phase,omitempty"`
+					Tier  string `json:"tier"`
+				} `json:"exit"`
+			}
+			if json.Unmarshal(gateJSON, &specGates) == nil {
+				for _, sg := range specGates.Exit {
+					specRules = append(specRules, phase.SpecGateRule{
+						Check: sg.Check,
+						Phase: sg.Phase,
+						Tier:  sg.Tier,
+					})
+				}
+			}
+		}
+	}
+
 	result, err := phase.EvaluateGate(ctx, store, runID, phase.GateConfig{
-		Priority: priority,
-	}, rtStore, dStore, store, depStore)
+		Priority:  priority,
+		SpecRules: specRules,
+	}, rtStore, dStore, store, depStore, bq)
 	if err != nil {
 		if errors.Is(err, phase.ErrNotFound) {
 			fmt.Fprintf(os.Stderr, "ic: gate check: not found: %s\n", runID)

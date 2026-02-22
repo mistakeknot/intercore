@@ -15,17 +15,20 @@ import (
 
 // SpawnOptions configures a dispatch spawn.
 type SpawnOptions struct {
-	AgentType  string // "codex" (default)
-	ProjectDir string // required: working directory for the agent
-	PromptFile string // required: path to prompt file
-	OutputFile string // optional: path for agent output
-	Name       string // optional: human label
-	Model      string // optional: codex model
-	Sandbox    string // optional: sandbox mode (default: "workspace-write")
-	TimeoutSec int    // optional: agent timeout in seconds
-	ScopeID    string // optional: grouping scope
-	ParentID   string // optional: parent dispatch ID
-	DispatchSH string // optional: explicit path to dispatch.sh
+	AgentType        string // "codex" (default)
+	ProjectDir       string // required: working directory for the agent
+	PromptFile       string // required: path to prompt file
+	OutputFile       string // optional: path for agent output
+	Name             string // optional: human label
+	Model            string // optional: codex model
+	Sandbox          string // optional: sandbox mode (default: "workspace-write")
+	TimeoutSec       int    // optional: agent timeout in seconds
+	ScopeID          string // optional: grouping scope
+	ParentID         string // optional: parent dispatch ID
+	DispatchSH       string // optional: explicit path to dispatch.sh
+	ParentDispatchID string // optional: parent dispatch for spawn depth tracking
+	Policy           *SpawnPolicy   // optional: spawn policy to enforce
+	BudgetQuerier    BudgetQuerier  // optional: budget checker (required if Policy.BudgetEnforce)
 }
 
 // SpawnResult holds the result of a spawn operation.
@@ -95,6 +98,23 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	}
 	if baseCommit != "" {
 		d.BaseRepoCommit = &baseCommit
+	}
+
+	// Compute spawn depth from parent dispatch
+	if opts.ParentDispatchID != "" {
+		d.ParentDispatchID = opts.ParentDispatchID
+		parent, err := store.Get(ctx, opts.ParentDispatchID)
+		if err == nil {
+			d.SpawnDepth = parent.SpawnDepth + 1
+		}
+		// If parent not found, depth stays 0 (best-effort)
+	}
+
+	// Check spawn policy before creating the record
+	if opts.Policy != nil {
+		if err := CheckPolicy(ctx, store, opts.BudgetQuerier, *opts.Policy, d); err != nil {
+			return nil, err
+		}
 	}
 
 	id, err := store.Create(ctx, d)

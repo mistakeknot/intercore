@@ -519,10 +519,37 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		bq = &cliBudgetQuerier{checker: checker}
 	}
 
+	// Resolve spec-defined gate rules from agency specs (if loaded)
+	var specRules []phase.SpecGateRule
+	{
+		sStore := state.New(d.SqlDB())
+		gateKey := fmt.Sprintf("agency.gates.%s", run.Phase)
+		gateJSON, gerr := sStore.Get(ctx, gateKey, id)
+		if gerr == nil && gateJSON != nil {
+			var specGates struct {
+				Exit []struct {
+					Check string `json:"check"`
+					Phase string `json:"phase,omitempty"`
+					Tier  string `json:"tier"`
+				} `json:"exit"`
+			}
+			if json.Unmarshal(gateJSON, &specGates) == nil {
+				for _, sg := range specGates.Exit {
+					specRules = append(specRules, phase.SpecGateRule{
+						Check: sg.Check,
+						Phase: sg.Phase,
+						Tier:  sg.Tier,
+					})
+				}
+			}
+		}
+	}
+
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
 		Priority:   priority,
 		DisableAll: disableGates,
 		SkipReason: skipReason,
+		SpecRules:  specRules,
 	}, rtStore, dStore, store, dq, bq, phaseCallback)
 	if err != nil {
 		if err == phase.ErrNotFound {

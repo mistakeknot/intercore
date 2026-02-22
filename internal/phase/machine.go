@@ -5,11 +5,19 @@ import (
 	"fmt"
 )
 
+// SpecGateRule is a gate rule from an agency spec, injected into gate evaluation.
+type SpecGateRule struct {
+	Check string // CheckArtifactExists, CheckAgentsComplete, etc.
+	Phase string // which phase's artifacts to check (empty = not applicable)
+	Tier  string // "hard" or "soft" — per-rule tier override
+}
+
 // GateConfig controls gate evaluation for an advance attempt.
 type GateConfig struct {
-	Priority   int    // 0-1 = hard, 2-3 = soft, 4+ = none
-	DisableAll bool   // skip all gate checks
-	SkipReason string // reason for manual skip/override
+	Priority   int            // 0-1 = hard, 2-3 = soft, 4+ = none
+	DisableAll bool           // skip all gate checks
+	SkipReason string         // reason for manual skip/override
+	SpecRules  []SpecGateRule // rules from agency specs (merged with hardcoded rules)
 }
 
 // AdvanceResult describes what happened during an advance attempt.
@@ -48,7 +56,7 @@ type PhaseEventCallback func(runID, eventType, fromPhase, toPhase, reason string
 // pq may be nil for non-portfolio runs.
 // dq may be nil for non-child runs (runs without a parent_run_id).
 // callback may be nil — Advance checks before calling.
-func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, callback PhaseEventCallback) (*AdvanceResult, error) {
+func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier, callback PhaseEventCallback) (*AdvanceResult, error) {
 	tx, err := store.BeginTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("advance: begin: %w", err)
@@ -151,7 +159,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 	}
 
 	// Evaluate gate — reads happen inside the transaction
-	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, txRT, txVQ, txPQ, txDQ)
+	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, txRT, txVQ, txPQ, txDQ, bq)
 	if gateErr != nil {
 		return nil, fmt.Errorf("advance: %w", gateErr)
 	}

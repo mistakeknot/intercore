@@ -115,16 +115,18 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 	for rows.Next() {
 		r := &Run{}
 		var (
-			completedAt   sql.NullInt64
-			scopeID       sql.NullString
-			metadata      sql.NullString
-			forceFull     int
-			autoAdvance   int
-			phasesJSON    sql.NullString
-			tokenBudget   sql.NullInt64
-			budgetWarnPct sql.NullInt64
-			parentRunID   sql.NullString
-			maxDispatches sql.NullInt64
+			completedAt    sql.NullInt64
+			scopeID        sql.NullString
+			metadata       sql.NullString
+			forceFull      int
+			autoAdvance    int
+			phasesJSON     sql.NullString
+			tokenBudget    sql.NullInt64
+			budgetWarnPct  sql.NullInt64
+			parentRunID    sql.NullString
+			maxDispatches  sql.NullInt64
+			budgetEnforce  sql.NullInt64
+			maxAgents      sql.NullInt64
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
@@ -133,6 +135,7 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 			&completedAt, &scopeID, &metadata,
 			&phasesJSON, &tokenBudget, &budgetWarnPct,
 			&parentRunID, &maxDispatches,
+			&budgetEnforce, &maxAgents,
 		); err != nil {
 			return nil, fmt.Errorf("scan run: %w", err)
 		}
@@ -145,6 +148,8 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 		r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
 		r.ParentRunID = nullStr(parentRunID)
 		r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
+		r.BudgetEnforce = nullInt64OrDefault(budgetEnforce, 0) != 0
+		r.MaxAgents = int(nullInt64OrDefault(maxAgents, 0))
 		phases, err := parsePhasesJSON(phasesJSON)
 		if err != nil {
 			return nil, err
@@ -161,16 +166,18 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 	r := &Run{}
 	var (
-		completedAt   sql.NullInt64
-		scopeID       sql.NullString
-		metadata      sql.NullString
-		forceFull     int
-		autoAdvance   int
-		phasesJSON    sql.NullString
-		tokenBudget   sql.NullInt64
-		budgetWarnPct sql.NullInt64
-		parentRunID   sql.NullString
-		maxDispatches sql.NullInt64
+		completedAt    sql.NullInt64
+		scopeID        sql.NullString
+		metadata       sql.NullString
+		forceFull      int
+		autoAdvance    int
+		phasesJSON     sql.NullString
+		tokenBudget    sql.NullInt64
+		budgetWarnPct  sql.NullInt64
+		parentRunID    sql.NullString
+		maxDispatches  sql.NullInt64
+		budgetEnforce  sql.NullInt64
+		maxAgents      sql.NullInt64
 	)
 
 	err := q.QueryRowContext(ctx, `
@@ -182,6 +189,7 @@ func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
 		&parentRunID, &maxDispatches,
+		&budgetEnforce, &maxAgents,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -199,6 +207,8 @@ func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
 	r.ParentRunID = nullStr(parentRunID)
 	r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
+	r.BudgetEnforce = nullInt64OrDefault(budgetEnforce, 0) != 0
+	r.MaxAgents = int(nullInt64OrDefault(maxAgents, 0))
 	phases, err := parsePhasesJSON(phasesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("run get: %w", err)

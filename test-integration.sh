@@ -1137,6 +1137,63 @@ pass "batch action registration via --actions"
 echo "  Phase actions tests passed"
 
 # --- Version sync check ---
+# --- Agency Specs ---
+echo "## Agency Specs"
+
+AGENCY_SPEC_DIR="$SCRIPT_DIR/../../hub/clavain/config/agency"
+if [[ -d "$AGENCY_SPEC_DIR" ]]; then
+
+# Validate all spec files
+ic agency validate --all --spec-dir="$AGENCY_SPEC_DIR" >/dev/null 2>&1 && pass "agency validate --all" || fail "agency validate --all"
+
+# Validate a single spec
+ic agency validate "$AGENCY_SPEC_DIR/build.yaml" >/dev/null 2>&1 && pass "agency validate single file" || fail "agency validate single file"
+
+# Create a run for agency loading
+AGENCY_RUN=$(ic --json run create --project="$TEST_DIR" --goal="agency test" | jq -r '.id')
+[[ -n "$AGENCY_RUN" ]] && pass "agency: create test run ($AGENCY_RUN)" || fail "agency: create test run"
+
+# Load build stage
+ic agency load build --run="$AGENCY_RUN" --spec-dir="$AGENCY_SPEC_DIR" >/dev/null 2>&1 && pass "agency load build" || fail "agency load build"
+
+# Verify phase_actions were registered
+ACTION_COUNT=$(ic --json run action list "$AGENCY_RUN" --phase=planned 2>/dev/null | jq 'length')
+[[ "$ACTION_COUNT" -ge 1 ]] && pass "agency: planned phase has $ACTION_COUNT actions" || fail "agency: planned phase has 0 actions"
+
+EXEC_COUNT=$(ic --json run action list "$AGENCY_RUN" --phase=executing 2>/dev/null | jq 'length')
+[[ "$EXEC_COUNT" -ge 2 ]] && pass "agency: executing phase has $EXEC_COUNT actions" || fail "agency: executing phase has $EXEC_COUNT actions (expected >= 2)"
+
+# Verify model overrides stored in state
+MODEL_JSON=$(ic state get "agency.models.planned" "$AGENCY_RUN" 2>/dev/null)
+MODEL_DEFAULT=$(echo "$MODEL_JSON" | jq -r '.default' 2>/dev/null)
+[[ "$MODEL_DEFAULT" == "sonnet" ]] && pass "agency: model override stored (default=sonnet)" || fail "agency: model override not found (got $MODEL_DEFAULT)"
+
+MODEL_CAT=$(echo "$MODEL_JSON" | jq -r '.categories.review' 2>/dev/null)
+[[ "$MODEL_CAT" == "opus" ]] && pass "agency: model category stored (review=opus)" || fail "agency: model category not found (got $MODEL_CAT)"
+
+# Verify gate rules stored in state
+GATE_JSON=$(ic state get "agency.gates.planned" "$AGENCY_RUN" 2>/dev/null)
+GATE_CHECK=$(echo "$GATE_JSON" | jq -r '.entry[0].check' 2>/dev/null)
+[[ "$GATE_CHECK" == "artifact_exists" ]] && pass "agency: gate rules stored" || fail "agency: gate rules not found (got $GATE_CHECK)"
+
+# Load all stages
+AGENCY_RUN2=$(ic --json run create --project="$TEST_DIR" --goal="agency all test" | jq -r '.id')
+ic agency load all --run="$AGENCY_RUN2" --spec-dir="$AGENCY_SPEC_DIR" >/dev/null 2>&1 && pass "agency load all" || fail "agency load all"
+
+# Verify capabilities stored
+CAPS_JSON=$(ic agency capabilities "$AGENCY_RUN2" 2>/dev/null)
+CAPS_BUILD=$(echo "$CAPS_JSON" | jq -r '.build' 2>/dev/null)
+[[ "$CAPS_BUILD" != "null" && -n "$CAPS_BUILD" ]] && pass "agency: capabilities stored" || fail "agency: capabilities not found"
+
+# Show a spec as JSON
+SHOW_JSON=$(ic agency show build --spec-dir="$AGENCY_SPEC_DIR" 2>/dev/null)
+SHOW_STAGE=$(echo "$SHOW_JSON" | jq -r '.meta.stage' 2>/dev/null)
+[[ "$SHOW_STAGE" == "build" ]] && pass "agency show build" || fail "agency show (stage=$SHOW_STAGE)"
+
+else
+echo "  SKIP: agency spec dir not found"
+fi
+
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then
     CLAVAIN_VER=$(grep '^INTERCORE_WRAPPER_VERSION=' "$CLAVAIN_LIB" | cut -d'"' -f2)

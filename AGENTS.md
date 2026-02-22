@@ -32,6 +32,11 @@ internal/dispatch/      Agent dispatch lifecycle: spawn, poll, collect, wait
   intent.go             Intent Record pattern for SQLite+git merge coordination
   telemetry.go          TOCTOU conflict telemetry aggregation
   outcome.go            Dispatch outcome recording
+internal/agency/        Agency spec parser: YAML schema, validation, stage→phase mapping
+  agency.go             Types (Spec, AgentEntry, ModelConfig, GateConfig, etc.)
+  parser.go             ParseFile/ParseBytes (yaml.v3)
+  validate.go           Validate against known phases + structural checks
+cmd/ic/agency.go        Agency subcommands (load, validate, show, capabilities)
 internal/phase/         Phase state machine: run lifecycle with configurable chains
   phase.go              Types, constants, chain operations, DefaultPhaseChain
   store.go              Run + PhaseEvent CRUD with optimistic concurrency, Current()

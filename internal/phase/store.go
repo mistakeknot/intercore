@@ -73,13 +73,14 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 			id, project_dir, goal, status, phase, complexity,
 			force_full, auto_advance, created_at, updated_at,
 			scope_id, metadata, phases, token_budget, budget_warn_pct,
-			parent_run_id, max_dispatches
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			parent_run_id, max_dispatches, budget_enforce, max_agents
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, r.ProjectDir, r.Goal, StatusActive, initialPhase,
 		r.Complexity, boolToInt(r.ForceFull), boolToInt(r.AutoAdvance),
 		now, now, r.ScopeID, r.Metadata,
 		phasesJSON, r.TokenBudget, budgetWarnPct,
 		r.ParentRunID, r.MaxDispatches,
+		boolToInt(r.BudgetEnforce), r.MaxAgents,
 	)
 	if err != nil {
 		return "", fmt.Errorf("run create: %w", err)
@@ -91,16 +92,18 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 	r := &Run{}
 	var (
-		completedAt   sql.NullInt64
-		scopeID       sql.NullString
-		metadata      sql.NullString
-		forceFull     int
-		autoAdvance   int
-		phasesJSON    sql.NullString
-		tokenBudget   sql.NullInt64
-		budgetWarnPct sql.NullInt64
-		parentRunID   sql.NullString
-		maxDispatches sql.NullInt64
+		completedAt    sql.NullInt64
+		scopeID        sql.NullString
+		metadata       sql.NullString
+		forceFull      int
+		autoAdvance    int
+		phasesJSON     sql.NullString
+		tokenBudget    sql.NullInt64
+		budgetWarnPct  sql.NullInt64
+		parentRunID    sql.NullString
+		maxDispatches  sql.NullInt64
+		budgetEnforce  sql.NullInt64
+		maxAgents      sql.NullInt64
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -112,6 +115,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
 		&parentRunID, &maxDispatches,
+		&budgetEnforce, &maxAgents,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -129,6 +133,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
 	r.ParentRunID = nullStr(parentRunID)
 	r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
+	r.BudgetEnforce = nullInt64OrDefault(budgetEnforce, 0) != 0
+	r.MaxAgents = int(nullInt64OrDefault(maxAgents, 0))
 	phases, err := parsePhasesJSON(phasesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("run get: %w", err)
@@ -334,16 +340,18 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	}
 	r := &Run{}
 	var (
-		completedAt   sql.NullInt64
-		scopeID       sql.NullString
-		metadata      sql.NullString
-		forceFull     int
-		autoAdvance   int
-		phasesJSON    sql.NullString
-		tokenBudget   sql.NullInt64
-		budgetWarnPct sql.NullInt64
-		parentRunID   sql.NullString
-		maxDispatches sql.NullInt64
+		completedAt    sql.NullInt64
+		scopeID        sql.NullString
+		metadata       sql.NullString
+		forceFull      int
+		autoAdvance    int
+		phasesJSON     sql.NullString
+		tokenBudget    sql.NullInt64
+		budgetWarnPct  sql.NullInt64
+		parentRunID    sql.NullString
+		maxDispatches  sql.NullInt64
+		budgetEnforce  sql.NullInt64
+		maxAgents      sql.NullInt64
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -356,6 +364,7 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
 		&parentRunID, &maxDispatches,
+		&budgetEnforce, &maxAgents,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -373,6 +382,8 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
 	r.ParentRunID = nullStr(parentRunID)
 	r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
+	r.BudgetEnforce = nullInt64OrDefault(budgetEnforce, 0) != 0
+	r.MaxAgents = int(nullInt64OrDefault(maxAgents, 0))
 	phases, err := parsePhasesJSON(phasesJSON)
 	if err != nil {
 		return nil, fmt.Errorf("run current: %w", err)
@@ -439,13 +450,14 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 			id, project_dir, goal, status, phase, complexity,
 			force_full, auto_advance, created_at, updated_at,
 			scope_id, metadata, phases, token_budget, budget_warn_pct,
-			parent_run_id, max_dispatches
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			parent_run_id, max_dispatches, budget_enforce, max_agents
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		portfolioID, "", portfolio.Goal, StatusActive, initialPhase,
 		portfolio.Complexity, boolToInt(portfolio.ForceFull), boolToInt(portfolio.AutoAdvance),
 		now, now, portfolio.ScopeID, portfolio.Metadata,
 		phasesJSON, portfolio.TokenBudget, budgetWarnPct,
 		nil, portfolio.MaxDispatches,
+		boolToInt(portfolio.BudgetEnforce), portfolio.MaxAgents,
 	)
 	if err != nil {
 		return "", nil, fmt.Errorf("create portfolio: insert portfolio: %w", err)
@@ -480,13 +492,14 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 				id, project_dir, goal, status, phase, complexity,
 				force_full, auto_advance, created_at, updated_at,
 				scope_id, metadata, phases, token_budget, budget_warn_pct,
-				parent_run_id, max_dispatches
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				parent_run_id, max_dispatches, budget_enforce, max_agents
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			childID, child.ProjectDir, child.Goal, StatusActive, childInitPhase,
 			child.Complexity, boolToInt(child.ForceFull), boolToInt(child.AutoAdvance),
 			now, now, child.ScopeID, child.Metadata,
 			childPhasesJSON, child.TokenBudget, childBudgetWarnPct,
 			portfolioID, 0,
+			boolToInt(child.BudgetEnforce), child.MaxAgents,
 		)
 		if err != nil {
 			return "", nil, fmt.Errorf("create portfolio: insert child %s: %w", child.ProjectDir, err)
@@ -630,7 +643,7 @@ func (s *Store) SkippedPhases(ctx context.Context, runID string) (map[string]boo
 const runCols = `id, project_dir, goal, status, phase, complexity,
 	force_full, auto_advance, created_at, updated_at,
 	completed_at, scope_id, metadata, phases, token_budget, budget_warn_pct,
-	parent_run_id, max_dispatches`
+	parent_run_id, max_dispatches, budget_enforce, max_agents`
 
 func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}) ([]*Run, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -643,16 +656,18 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 	for rows.Next() {
 		r := &Run{}
 		var (
-			completedAt   sql.NullInt64
-			scopeID       sql.NullString
-			metadata      sql.NullString
-			forceFull     int
-			autoAdvance   int
-			phasesJSON    sql.NullString
-			tokenBudget   sql.NullInt64
-			budgetWarnPct sql.NullInt64
-			parentRunID   sql.NullString
-			maxDispatches sql.NullInt64
+			completedAt    sql.NullInt64
+			scopeID        sql.NullString
+			metadata       sql.NullString
+			forceFull      int
+			autoAdvance    int
+			phasesJSON     sql.NullString
+			tokenBudget    sql.NullInt64
+			budgetWarnPct  sql.NullInt64
+			parentRunID    sql.NullString
+			maxDispatches  sql.NullInt64
+			budgetEnforce  sql.NullInt64
+			maxAgents      sql.NullInt64
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
@@ -661,6 +676,7 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 			&completedAt, &scopeID, &metadata,
 			&phasesJSON, &tokenBudget, &budgetWarnPct,
 			&parentRunID, &maxDispatches,
+			&budgetEnforce, &maxAgents,
 		); err != nil {
 			return nil, fmt.Errorf("run list scan: %w", err)
 		}
@@ -673,6 +689,8 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 		r.BudgetWarnPct = int(nullInt64OrDefault(budgetWarnPct, 80))
 		r.ParentRunID = nullStr(parentRunID)
 		r.MaxDispatches = int(nullInt64OrDefault(maxDispatches, 0))
+		r.BudgetEnforce = nullInt64OrDefault(budgetEnforce, 0) != 0
+		r.MaxAgents = int(nullInt64OrDefault(maxAgents, 0))
 		phases, err := parsePhasesJSON(phasesJSON)
 		if err != nil {
 			return nil, fmt.Errorf("run list: %w", err)

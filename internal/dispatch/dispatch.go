@@ -57,12 +57,14 @@ type Dispatch struct {
 	VerdictStatus *string
 	VerdictSummary *string
 	ErrorMessage  *string
-	ScopeID          *string
-	ParentID         *string
-	BaseRepoCommit   *string
-	RetryCount       int
-	ConflictType     *string
-	QuarantineReason *string
+	ScopeID            *string
+	ParentID           *string
+	BaseRepoCommit     *string
+	RetryCount         int
+	ConflictType       *string
+	QuarantineReason   *string
+	SpawnDepth         int
+	ParentDispatchID   string
 }
 
 // IsTerminal returns true if the dispatch is in a final state.
@@ -123,12 +125,14 @@ func (s *Store) Create(ctx context.Context, d *Dispatch) (string, error) {
 		INSERT INTO dispatches (
 			id, agent_type, status, project_dir, prompt_file, prompt_hash,
 			output_file, verdict_file, name, model, sandbox, timeout_sec,
-			scope_id, parent_id, base_repo_commit
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			scope_id, parent_id, base_repo_commit,
+			spawn_depth, parent_dispatch_id
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, d.AgentType, StatusSpawned, d.ProjectDir,
 		d.PromptFile, d.PromptHash, d.OutputFile, d.VerdictFile,
 		d.Name, d.Model, d.Sandbox, d.TimeoutSec,
 		d.ScopeID, d.ParentID, d.BaseRepoCommit,
+		d.SpawnDepth, d.ParentDispatchID,
 	)
 	if err != nil {
 		return "", fmt.Errorf("dispatch create: %w", err)
@@ -175,6 +179,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 		&verdictStatus, &verdictSummary, &errorMessage,
 		&scopeID, &parentID,
 		&baseRepoCommit, &d.RetryCount, &conflictType, &quarantineReason,
+		&d.SpawnDepth, &d.ParentDispatchID,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -334,6 +339,41 @@ func (s *Store) ListActive(ctx context.Context) ([]*Dispatch, error) {
 		"SELECT "+dispatchCols+" FROM dispatches WHERE status IN ('spawned', 'running') ORDER BY created_at DESC")
 }
 
+// CountActiveByScope returns the number of active (non-terminal) dispatches for a scope.
+func (s *Store) CountActiveByScope(ctx context.Context, scopeID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dispatches WHERE scope_id = ? AND status IN ('spawned', 'running')`,
+		scopeID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("dispatch count active by scope: %w", err)
+	}
+	return count, nil
+}
+
+// CountActiveGlobal returns the total number of active (non-terminal) dispatches.
+func (s *Store) CountActiveGlobal(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dispatches WHERE status IN ('spawned', 'running')`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("dispatch count active global: %w", err)
+	}
+	return count, nil
+}
+
+// CountTotalByScope returns the total number of dispatches ever created for a scope.
+func (s *Store) CountTotalByScope(ctx context.Context, scopeID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dispatches WHERE scope_id = ?`,
+		scopeID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("dispatch count total by scope: %w", err)
+	}
+	return count, nil
+}
+
 // List returns dispatches with optional scope filter.
 func (s *Store) List(ctx context.Context, scopeID *string) ([]*Dispatch, error) {
 	if scopeID != nil {
@@ -427,7 +467,8 @@ const dispatchCols = `id, agent_type, status, project_dir, prompt_file, prompt_h
 	timeout_sec, turns, commands, messages, input_tokens, output_tokens,
 	cache_hits, created_at, started_at, completed_at, verdict_status,
 	verdict_summary, error_message, scope_id, parent_id,
-	base_repo_commit, retry_count, conflict_type, quarantine_reason`
+	base_repo_commit, retry_count, conflict_type, quarantine_reason,
+	spawn_depth, parent_dispatch_id`
 
 func (s *Store) queryDispatches(ctx context.Context, query string, args ...interface{}) ([]*Dispatch, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -473,6 +514,7 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 			&verdictStatus, &verdictSummary, &errorMessage,
 			&scopeID, &parentID,
 			&baseRepoCommit, &d.RetryCount, &conflictType, &quarantineReason,
+			&d.SpawnDepth, &d.ParentDispatchID,
 		); err != nil {
 			return nil, fmt.Errorf("dispatch list scan: %w", err)
 		}

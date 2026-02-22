@@ -104,6 +104,24 @@ ic config get <key>                     # Get a config value
 ic config list [--verbose]              # List all config values
 ```
 
+## Agency Specs Quick Reference
+
+```bash
+# Load agency specs for a run
+ic agency load <stage|all> --run=<id> --spec-dir=<path>
+ic agency load all --run=abc123 --spec-dir=config/agency/
+
+# Validate spec files
+ic agency validate <file>                          # Single file
+ic agency validate --all --spec-dir=config/agency/  # All specs
+
+# Inspect
+ic agency show <stage> --spec-dir=<path>    # Show spec as JSON
+ic agency capabilities <run-id>              # Show declared capabilities
+```
+
+Agency specs are YAML files (one per macro-stage: discover, design, build, ship, reflect) that declare agents, models, tools, artifacts, gates, budget, and capabilities. Loaded at sprint creation via `intercore_agency_load()`.
+
 ## Event Bus Quick Reference
 
 ```bash

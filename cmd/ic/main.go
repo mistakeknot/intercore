@@ -103,6 +103,8 @@ func main() {
 		exitCode = cmdLane(ctx, subArgs)
 	case "config":
 		exitCode = cmdConfig(ctx, subArgs)
+	case "agency":
+		exitCode = cmdAgency(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
 	default:
