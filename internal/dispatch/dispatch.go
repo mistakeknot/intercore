@@ -43,8 +43,10 @@ type Dispatch struct {
 	ExitCode      *int
 	Name          *string
 	Model         *string
-	Sandbox       *string
-	TimeoutSec    *int
+	Sandbox          *string
+	SandboxSpec      *string // JSON: requested sandbox contract
+	SandboxEffective *string // JSON: effective sandbox at completion
+	TimeoutSec       *int
 	Turns         int
 	Commands      int
 	Messages      int
@@ -124,14 +126,14 @@ func (s *Store) Create(ctx context.Context, d *Dispatch) (string, error) {
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO dispatches (
 			id, agent_type, status, project_dir, prompt_file, prompt_hash,
-			output_file, verdict_file, name, model, sandbox, timeout_sec,
-			scope_id, parent_id, base_repo_commit,
+			output_file, verdict_file, name, model, sandbox, sandbox_spec,
+			timeout_sec, scope_id, parent_id, base_repo_commit,
 			spawn_depth, parent_dispatch_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, d.AgentType, StatusSpawned, d.ProjectDir,
 		d.PromptFile, d.PromptHash, d.OutputFile, d.VerdictFile,
-		d.Name, d.Model, d.Sandbox, d.TimeoutSec,
-		d.ScopeID, d.ParentID, d.BaseRepoCommit,
+		d.Name, d.Model, d.Sandbox, d.SandboxSpec,
+		d.TimeoutSec, d.ScopeID, d.ParentID, d.BaseRepoCommit,
 		d.SpawnDepth, d.ParentDispatchID,
 	)
 	if err != nil {
@@ -151,16 +153,18 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 		verdictFile    sql.NullString
 		pid            sql.NullInt64
 		exitCode       sql.NullInt64
-		name           sql.NullString
-		model          sql.NullString
-		sandbox        sql.NullString
-		timeoutSec     sql.NullInt64
-		cacheHits      sql.NullInt64
-		startedAt      sql.NullInt64
-		completedAt    sql.NullInt64
-		verdictStatus  sql.NullString
-		verdictSummary sql.NullString
-		errorMessage   sql.NullString
+		name             sql.NullString
+		model            sql.NullString
+		sandbox          sql.NullString
+		sandboxSpec      sql.NullString
+		sandboxEffective sql.NullString
+		timeoutSec       sql.NullInt64
+		cacheHits        sql.NullInt64
+		startedAt        sql.NullInt64
+		completedAt      sql.NullInt64
+		verdictStatus    sql.NullString
+		verdictSummary   sql.NullString
+		errorMessage     sql.NullString
 		scopeID          sql.NullString
 		parentID         sql.NullString
 		baseRepoCommit   sql.NullString
@@ -173,6 +177,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 		&d.ID, &d.AgentType, &d.Status, &d.ProjectDir,
 		&promptFile, &promptHash, &outputFile, &verdictFile,
 		&pid, &exitCode, &name, &model, &sandbox,
+		&sandboxSpec, &sandboxEffective,
 		&timeoutSec, &d.Turns, &d.Commands, &d.Messages,
 		&d.InputTokens, &d.OutputTokens, &cacheHits,
 		&d.CreatedAt, &startedAt, &completedAt,
@@ -197,6 +202,8 @@ func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 	d.Name = nullStr(name)
 	d.Model = nullStr(model)
 	d.Sandbox = nullStr(sandbox)
+	d.SandboxSpec = nullStr(sandboxSpec)
+	d.SandboxEffective = nullStr(sandboxEffective)
 	d.TimeoutSec = nullInt(timeoutSec)
 	d.CacheHits = nullInt(cacheHits)
 	d.StartedAt = nullInt64(startedAt)
@@ -223,6 +230,7 @@ var allowedUpdateCols = map[string]bool{
 	"input_tokens": true, "output_tokens": true, "cache_hits": true,
 	"verdict_status": true, "verdict_summary": true, "error_message": true,
 	"retry_count": true, "conflict_type": true, "quarantine_reason": true,
+	"sandbox_effective": true,
 }
 
 // UpdateStatus transitions a dispatch to a new status with optional field updates.
@@ -464,6 +472,7 @@ func (s *Store) CancelByRun(ctx context.Context, runID string) (int64, error) {
 
 const dispatchCols = `id, agent_type, status, project_dir, prompt_file, prompt_hash,
 	output_file, verdict_file, pid, exit_code, name, model, sandbox,
+	sandbox_spec, sandbox_effective,
 	timeout_sec, turns, commands, messages, input_tokens, output_tokens,
 	cache_hits, created_at, started_at, completed_at, verdict_status,
 	verdict_summary, error_message, scope_id, parent_id,
@@ -490,6 +499,8 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 			name             sql.NullString
 			model            sql.NullString
 			sandbox          sql.NullString
+			sandboxSpec      sql.NullString
+			sandboxEffective sql.NullString
 			timeoutSec       sql.NullInt64
 			cacheHits        sql.NullInt64
 			startedAt        sql.NullInt64
@@ -508,6 +519,7 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 			&d.ID, &d.AgentType, &d.Status, &d.ProjectDir,
 			&promptFile, &promptHash, &outputFile, &verdictFile,
 			&pid, &exitCode, &name, &model, &sandbox,
+			&sandboxSpec, &sandboxEffective,
 			&timeoutSec, &d.Turns, &d.Commands, &d.Messages,
 			&d.InputTokens, &d.OutputTokens, &cacheHits,
 			&d.CreatedAt, &startedAt, &completedAt,
@@ -528,6 +540,8 @@ func (s *Store) queryDispatches(ctx context.Context, query string, args ...inter
 		d.Name = nullStr(name)
 		d.Model = nullStr(model)
 		d.Sandbox = nullStr(sandbox)
+		d.SandboxSpec = nullStr(sandboxSpec)
+		d.SandboxEffective = nullStr(sandboxEffective)
 		d.TimeoutSec = nullInt(timeoutSec)
 		d.CacheHits = nullInt(cacheHits)
 		d.StartedAt = nullInt64(startedAt)

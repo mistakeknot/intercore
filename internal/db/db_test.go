@@ -69,8 +69,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Errorf("SchemaVersion = %d, want 17", v)
+	if v != 18 {
+		t.Errorf("SchemaVersion = %d, want 18", v)
 	}
 
 	// Verify tables exist
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 17", v)
+	if v != 18 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 18", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 17", v)
+	if v != 18 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 18", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 17", v)
+	if v != 18 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 18", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 17", v)
+	if v != 18 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 18", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Errorf("SchemaVersion = %d, want 17", v)
+	if v != 18 {
+		t.Errorf("SchemaVersion = %d, want 18", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Errorf("SchemaVersion = %d, want 17", v)
+	if v != 18 {
+		t.Errorf("SchemaVersion = %d, want 18", v)
 	}
 }
 
@@ -682,8 +682,8 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Fatalf("expected schema version 17, got %d", v)
+	if v != 18 {
+		t.Fatalf("expected schema version 18, got %d", v)
 	}
 
 	// Verify status column exists on run_artifacts with default 'active'
@@ -740,8 +740,8 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Fatalf("expected schema version 17, got %d", v)
+	if v != 18 {
+		t.Fatalf("expected schema version 18, got %d", v)
 	}
 
 	// Verify discoveries table exists and accepts inserts
@@ -792,8 +792,8 @@ func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Fatalf("expected schema version 17, got %d", v)
+	if v != 18 {
+		t.Fatalf("expected schema version 18, got %d", v)
 	}
 
 	// Verify lanes table exists with correct columns
@@ -861,8 +861,8 @@ func TestMigrate_V16ToV17_CostReconciliations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 17 {
-		t.Fatalf("expected schema version 17, got %d", v)
+	if v != 18 {
+		t.Fatalf("expected schema version 18, got %d", v)
 	}
 
 	// Verify cost_reconciliations table exists with correct columns
@@ -892,5 +892,64 @@ func TestMigrate_V16ToV17_CostReconciliations(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("expected 2 rows, got %d", count)
+	}
+}
+
+func TestMigrate_V17ToV18_SandboxSpec(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 18 {
+		t.Fatalf("expected schema version 18, got %d", v)
+	}
+
+	// Verify sandbox_spec and sandbox_effective columns exist on dispatches
+	rows, err := d.db.Query("SELECT sandbox_spec, sandbox_effective FROM dispatches LIMIT 0")
+	if err != nil {
+		t.Fatalf("sandbox columns missing: %v", err)
+	}
+	rows.Close()
+
+	// Verify insert with sandbox spec
+	spec := `{"tools_allowed":["Read","Grep"],"access_mode":"workspace-write"}`
+	_, err = d.db.Exec(`INSERT INTO dispatches (id, project_dir, sandbox_spec) VALUES ('test-sb', '/tmp/test', ?)`, spec)
+	if err != nil {
+		t.Fatalf("insert with sandbox_spec failed: %v", err)
+	}
+
+	// Verify round-trip
+	var gotSpec, gotEff *string
+	err = d.db.QueryRow("SELECT sandbox_spec, sandbox_effective FROM dispatches WHERE id = 'test-sb'").Scan(&gotSpec, &gotEff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSpec == nil || *gotSpec != spec {
+		t.Errorf("sandbox_spec = %v, want %q", gotSpec, spec)
+	}
+	if gotEff != nil {
+		t.Errorf("sandbox_effective = %v, want nil", gotEff)
+	}
+
+	// Verify sandbox_effective can be updated
+	eff := `{"tools_used":["Read"]}`
+	_, err = d.db.Exec(`UPDATE dispatches SET sandbox_effective = ? WHERE id = 'test-sb'`, eff)
+	if err != nil {
+		t.Fatalf("update sandbox_effective failed: %v", err)
+	}
+
+	err = d.db.QueryRow("SELECT sandbox_effective FROM dispatches WHERE id = 'test-sb'").Scan(&gotEff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotEff == nil || *gotEff != eff {
+		t.Errorf("sandbox_effective = %v, want %q", gotEff, eff)
 	}
 }

@@ -478,6 +478,141 @@ func TestAggregateTokensEmpty(t *testing.T) {
 	}
 }
 
+func TestSandboxSpec(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	spec := `{"tools_allowed":["Read","Grep"],"access_mode":"workspace-write"}`
+
+	// Create dispatch with sandbox spec
+	d := &Dispatch{
+		AgentType:   "codex",
+		ProjectDir:  "/tmp/test-sandbox",
+		SandboxSpec: &spec,
+	}
+	id, err := store.Create(ctx, d)
+	if err != nil {
+		t.Fatalf("Create with sandbox spec: %v", err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.SandboxSpec == nil || *got.SandboxSpec != spec {
+		t.Errorf("SandboxSpec = %v, want %q", got.SandboxSpec, spec)
+	}
+	if got.SandboxEffective != nil {
+		t.Errorf("SandboxEffective = %v, want nil", got.SandboxEffective)
+	}
+
+	// Set sandbox_effective at completion via UpdateStatus
+	eff := `{"tools_used":["Read"],"turns_used":5}`
+	err = store.UpdateStatus(ctx, id, StatusRunning, UpdateFields{
+		"pid":        999,
+		"started_at": 1,
+	})
+	if err != nil {
+		t.Fatalf("UpdateStatus to running: %v", err)
+	}
+	err = store.UpdateStatus(ctx, id, StatusCompleted, UpdateFields{
+		"completed_at":      2,
+		"sandbox_effective": eff,
+	})
+	if err != nil {
+		t.Fatalf("UpdateStatus to completed: %v", err)
+	}
+
+	got, _ = store.Get(ctx, id)
+	if got.SandboxEffective == nil || *got.SandboxEffective != eff {
+		t.Errorf("SandboxEffective = %v, want %q", got.SandboxEffective, eff)
+	}
+	// Verify sandbox_spec is still unchanged (immutable)
+	if got.SandboxSpec == nil || *got.SandboxSpec != spec {
+		t.Errorf("SandboxSpec changed after update: %v, want %q", got.SandboxSpec, spec)
+	}
+}
+
+func TestSandboxSpec_UpdateRejected(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	d := &Dispatch{
+		AgentType:  "codex",
+		ProjectDir: "/tmp/test-reject",
+	}
+	id, err := store.Create(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempt to update sandbox_spec via UpdateStatus — should be rejected
+	err = store.UpdateStatus(ctx, id, StatusRunning, UpdateFields{
+		"sandbox_spec": `{"tools_allowed":["Bash"]}`,
+	})
+	if err == nil {
+		t.Fatal("expected error updating sandbox_spec via UpdateStatus, got nil")
+	}
+}
+
+func TestSandboxSpec_NilBackwardCompat(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create dispatch without sandbox spec (backward compat)
+	d := &Dispatch{
+		AgentType:  "codex",
+		ProjectDir: "/tmp/test-compat",
+	}
+	id, err := store.Create(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SandboxSpec != nil {
+		t.Errorf("SandboxSpec = %v, want nil for backward compat", got.SandboxSpec)
+	}
+	if got.SandboxEffective != nil {
+		t.Errorf("SandboxEffective = %v, want nil for backward compat", got.SandboxEffective)
+	}
+}
+
+func TestSandboxSpec_ListRoundTrip(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	spec := `{"tools_allowed":["Bash"]}`
+	d := &Dispatch{
+		AgentType:   "codex",
+		ProjectDir:  "/tmp/test-list",
+		SandboxSpec: &spec,
+	}
+	_, err := store.Create(ctx, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify sandbox_spec survives the List (queryDispatches) path
+	dispatches, err := store.List(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, disp := range dispatches {
+		if disp.SandboxSpec != nil && *disp.SandboxSpec == spec {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("SandboxSpec not found in List results")
+	}
+}
+
 func TestGenerateID(t *testing.T) {
 	seen := make(map[string]bool)
 	for i := 0; i < 100; i++ {

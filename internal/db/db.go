@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 17
-	maxSchemaVersion     = 17
+	currentSchemaVersion = 18
+	maxSchemaVersion     = 18
 )
 
 var (
@@ -227,6 +227,21 @@ func (d *DB) Migrate(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
 				if !isDuplicateColumnError(err) {
 					return fmt.Errorf("migrate v11→v12: %w", err)
+				}
+			}
+		}
+	}
+
+	// v17 → v18: sandbox specification columns
+	if currentVersion >= 2 && currentVersion < 18 {
+		v18Stmts := []string{
+			"ALTER TABLE dispatches ADD COLUMN sandbox_spec TEXT",
+			"ALTER TABLE dispatches ADD COLUMN sandbox_effective TEXT",
+		}
+		for _, stmt := range v18Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v17→v18: %w", err)
 				}
 			}
 		}

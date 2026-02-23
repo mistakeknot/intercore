@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS dispatches (
     name            TEXT,
     model           TEXT,
     sandbox         TEXT DEFAULT 'workspace-write',
+    sandbox_spec    TEXT,
+    sandbox_effective TEXT,
     timeout_sec     INTEGER,
     turns           INTEGER DEFAULT 0,
     commands        INTEGER DEFAULT 0,

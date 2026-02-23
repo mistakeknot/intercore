@@ -65,6 +65,8 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 			opts.Model = strings.TrimPrefix(args[i], "--model=")
 		case strings.HasPrefix(args[i], "--sandbox="):
 			opts.Sandbox = strings.TrimPrefix(args[i], "--sandbox=")
+		case strings.HasPrefix(args[i], "--sandbox-spec="):
+			opts.SandboxSpec = strings.TrimPrefix(args[i], "--sandbox-spec=")
 		case strings.HasPrefix(args[i], "--timeout="):
 			val := strings.TrimPrefix(args[i], "--timeout=")
 			dur, err := time.ParseDuration(val)
@@ -523,6 +525,12 @@ func dispatchToMap(d *dispatch.Dispatch) map[string]interface{} {
 	if d.CacheHits != nil {
 		m["cache_hits"] = *d.CacheHits
 	}
+	if d.SandboxSpec != nil {
+		m["sandbox_spec"] = json.RawMessage(*d.SandboxSpec)
+	}
+	if d.SandboxEffective != nil {
+		m["sandbox_effective"] = json.RawMessage(*d.SandboxEffective)
+	}
 	if d.ScopeID != nil {
 		m["scope_id"] = *d.ScopeID
 	}
@@ -564,6 +572,12 @@ func printDispatch(d *dispatch.Dispatch) {
 	}
 	if d.VerdictSummary != nil {
 		fmt.Printf("Summary: %s\n", *d.VerdictSummary)
+	}
+	if d.SandboxSpec != nil {
+		fmt.Printf("Sandbox Spec: %s\n", *d.SandboxSpec)
+	}
+	if d.SandboxEffective != nil {
+		fmt.Printf("Sandbox Eff:  %s\n", *d.SandboxEffective)
 	}
 	if d.ExitCode != nil {
 		fmt.Printf("Exit:    %d\n", *d.ExitCode)

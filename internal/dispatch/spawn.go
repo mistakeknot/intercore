@@ -22,6 +22,7 @@ type SpawnOptions struct {
 	Name             string // optional: human label
 	Model            string // optional: codex model
 	Sandbox          string // optional: sandbox mode (default: "workspace-write")
+	SandboxSpec      string // optional: JSON sandbox specification
 	TimeoutSec       int    // optional: agent timeout in seconds
 	ScopeID          string // optional: grouping scope
 	ParentID         string // optional: parent dispatch ID
@@ -86,6 +87,9 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	}
 	if opts.Sandbox != "" {
 		d.Sandbox = &opts.Sandbox
+	}
+	if opts.SandboxSpec != "" {
+		d.SandboxSpec = &opts.SandboxSpec
 	}
 	if opts.TimeoutSec > 0 {
 		d.TimeoutSec = &opts.TimeoutSec
