@@ -13,6 +13,7 @@ import (
 	"github.com/mistakeknot/interverse/infra/intercore/internal/budget"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
+	"github.com/mistakeknot/interverse/infra/intercore/internal/scheduler"
 	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
 )
 
@@ -49,8 +50,14 @@ func cmdDispatch(ctx context.Context, args []string) int {
 
 func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	opts := dispatch.SpawnOptions{}
+	var scheduled bool
+	var schedulerSession string
 	for i := 0; i < len(args); i++ {
 		switch {
+		case args[i] == "--scheduled":
+			scheduled = true
+		case strings.HasPrefix(args[i], "--scheduler-session="):
+			schedulerSession = strings.TrimPrefix(args[i], "--scheduler-session=")
 		case strings.HasPrefix(args[i], "--type="):
 			opts.AgentType = strings.TrimPrefix(args[i], "--type=")
 		case strings.HasPrefix(args[i], "--prompt-file="):
@@ -106,6 +113,41 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 		return 2
 	}
 	defer d.Close()
+
+	// --scheduled: submit to scheduler instead of direct exec.
+	if scheduled {
+		spawnJSON, err := scheduler.MarshalSpawnOpts(opts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: marshal opts: %v\n", err)
+			return 2
+		}
+
+		agentType := opts.AgentType
+		if agentType == "" {
+			agentType = "codex"
+		}
+
+		job := scheduler.NewSpawnJob("", scheduler.JobTypeDispatch, schedulerSession)
+		job.AgentType = agentType
+		job.ProjectDir = opts.ProjectDir
+		job.SpawnOpts = spawnJSON
+
+		schedStore := scheduler.NewStore(d.SqlDB())
+		if err := schedStore.Create(ctx, job); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: scheduler submit: %v\n", err)
+			return 2
+		}
+
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				"job_id":    job.ID,
+				"scheduled": true,
+			})
+		} else {
+			fmt.Println(job.ID)
+		}
+		return 0
+	}
 
 	// Portfolio dispatch limit check (best-effort, relay-maintained cache).
 	// Note: this is advisory, not atomic — concurrent spawns may exceed the limit.

@@ -33,6 +33,23 @@ ic dispatch kill <id>
 ic dispatch prune --older-than=24h
 ```
 
+## Scheduler Quick Reference
+
+```bash
+# Submit a job to the scheduler queue
+ic scheduler submit --prompt-file=<f> --project=<dir> --type=codex --session=<name>
+ic scheduler status <job-id>          # Check job status
+ic scheduler stats                    # Queue stats by status
+ic scheduler list [--status=pending]  # List jobs
+ic scheduler cancel <job-id>          # Cancel a job
+ic scheduler pause                    # Pause processing
+ic scheduler resume                   # Resume processing
+ic scheduler prune --older-than=24h   # Clean completed jobs
+
+# Or use --scheduled flag on dispatch spawn (creates scheduler job instead of direct exec)
+ic dispatch spawn --scheduled --prompt-file=<f> --project=<dir>
+```
+
 ## Run Quick Reference
 
 ```bash
