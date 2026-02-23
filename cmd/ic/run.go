@@ -69,6 +69,7 @@ func cmdRun(ctx context.Context, args []string) int {
 
 func cmdRunCreate(ctx context.Context, args []string) int {
 	var project, goal, scopeID, phasesJSON, projects, actionsJSON string
+	var gatesJSON, gatesFile string
 	complexity := 3
 	var tokenBudget int64
 	var maxDispatches, maxAgents int
@@ -131,6 +132,10 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			maxAgents = v
 		case strings.HasPrefix(args[i], "--actions="):
 			actionsJSON = strings.TrimPrefix(args[i], "--actions=")
+		case strings.HasPrefix(args[i], "--gates="):
+			gatesJSON = strings.TrimPrefix(args[i], "--gates=")
+		case strings.HasPrefix(args[i], "--gates-file="):
+			gatesFile = strings.TrimPrefix(args[i], "--gates-file=")
 		default:
 			fmt.Fprintf(os.Stderr, "ic: run create: unknown flag: %s\n", args[i])
 			return 3
@@ -145,6 +150,30 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	if projects != "" && project != "" {
 		fmt.Fprintf(os.Stderr, "ic: run create: --project and --projects are mutually exclusive\n")
 		return 3
+	}
+
+	if gatesJSON != "" && gatesFile != "" {
+		fmt.Fprintf(os.Stderr, "ic: run create: --gates and --gates-file are mutually exclusive\n")
+		return 3
+	}
+
+	// Parse gate rules (fail-fast before DB)
+	var gateRules map[string][]phase.SpecGateRule
+	if gatesFile != "" {
+		data, err := os.ReadFile(gatesFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: read gates file: %v\n", err)
+			return 2
+		}
+		gatesJSON = string(data)
+	}
+	if gatesJSON != "" {
+		var err error
+		gateRules, err = phase.ParseGateRules(gatesJSON)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			return 3
+		}
 	}
 
 	d, err := openDB()
@@ -193,6 +222,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			MaxDispatches: maxDispatches,
 			BudgetEnforce: budgetEnforce,
 			MaxAgents:     maxAgents,
+			GateRules:     gateRules,
 		}
 		if tokenBudget > 0 {
 			portfolio.TokenBudget = &tokenBudget
@@ -252,6 +282,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		Phases:        customPhases,
 		BudgetEnforce: budgetEnforce,
 		MaxAgents:     maxAgents,
+		GateRules:     gateRules,
 	}
 	if tokenBudget > 0 {
 		run.TokenBudget = &tokenBudget
@@ -1747,6 +1778,9 @@ func runToMap(r *phase.Run) map[string]interface{} {
 	}
 	if r.MaxAgents > 0 {
 		m["max_agents"] = r.MaxAgents
+	}
+	if r.GateRules != nil {
+		m["gate_rules"] = r.GateRules
 	}
 	return m
 }

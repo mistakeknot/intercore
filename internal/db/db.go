@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 15
-	maxSchemaVersion     = 15
+	currentSchemaVersion = 16
+	maxSchemaVersion     = 16
 )
 
 var (
@@ -227,6 +227,20 @@ func (d *DB) Migrate(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
 				if !isDuplicateColumnError(err) {
 					return fmt.Errorf("migrate v11→v12: %w", err)
+				}
+			}
+		}
+	}
+
+	// v3–v15 → v16: runtime-configurable gate rules
+	if currentVersion >= 3 && currentVersion < 16 {
+		v16Stmts := []string{
+			"ALTER TABLE runs ADD COLUMN gate_rules TEXT",
+		}
+		for _, stmt := range v16Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v15→v16: %w", err)
 				}
 			}
 		}

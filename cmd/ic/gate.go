@@ -82,9 +82,10 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 		bq = &cliBudgetQuerier{checker: checker}
 	}
 
-	// Resolve spec-defined gate rules from agency specs (if loaded)
+	// Resolve spec-defined gate rules from agency specs (if loaded).
+	// Per-run gate rules (run.GateRules) take precedence — skip spec lookup when set.
 	var specRules []phase.SpecGateRule
-	if run != nil {
+	if run != nil && run.GateRules == nil {
 		sStore := state.New(d.SqlDB())
 		gateKey := fmt.Sprintf("agency.gates.%s", run.Phase)
 		gateJSON, gerr := sStore.Get(ctx, gateKey, runID)
@@ -263,14 +264,40 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 }
 
 func cmdGateRules(ctx context.Context, args []string) int {
-	var phaseFilter string
+	var phaseFilter, runID string
 	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--phase=") {
+		switch {
+		case strings.HasPrefix(args[i], "--phase="):
 			phaseFilter = strings.TrimPrefix(args[i], "--phase=")
+		case strings.HasPrefix(args[i], "--run="):
+			runID = strings.TrimPrefix(args[i], "--run=")
 		}
 	}
 
+	// If --run is specified, show per-run rules (or defaults if no custom gates)
+	if runID != "" {
+		d, err := openDB()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: gate rules: %v\n", err)
+			return 2
+		}
+		defer d.Close()
+
+		store := phase.New(d.SqlDB())
+		run, err := store.Get(ctx, runID)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: gate rules: %v\n", err)
+			return 1
+		}
+
+		if run.GateRules != nil {
+			return printRunGateRules(run.GateRules, phaseFilter, "run")
+		}
+		// Fall through to show defaults
+	}
+
 	rules := phase.GateRulesInfo()
+	source := "default"
 
 	if flagJSON {
 		var out []map[string]interface{}
@@ -289,6 +316,7 @@ func cmdGateRules(ctx context.Context, args []string) int {
 				"from":   r.From,
 				"to":     r.To,
 				"checks": checks,
+				"source": source,
 			})
 		}
 		json.NewEncoder(os.Stdout).Encode(out)
@@ -309,6 +337,75 @@ func cmdGateRules(ctx context.Context, args []string) int {
 	return 0
 }
 
+func printRunGateRules(rules map[string][]phase.SpecGateRule, phaseFilter, source string) int {
+	if flagJSON {
+		var out []map[string]interface{}
+		for key, ruleList := range rules {
+			parts := strings.SplitN(key, "→", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			from, to := parts[0], parts[1]
+			if phaseFilter != "" && from != phaseFilter {
+				continue
+			}
+			checks := make([]map[string]string, len(ruleList))
+			for i, r := range ruleList {
+				checks[i] = map[string]string{"check": r.Check}
+				if r.Phase != "" {
+					checks[i]["phase"] = r.Phase
+				}
+				if r.Tier != "" {
+					checks[i]["tier"] = r.Tier
+				}
+			}
+			out = append(out, map[string]interface{}{
+				"from":   from,
+				"to":     to,
+				"checks": checks,
+				"source": source,
+			})
+		}
+		json.NewEncoder(os.Stdout).Encode(out)
+	} else {
+		for key, ruleList := range rules {
+			parts := strings.SplitN(key, "→", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			from, to := parts[0], parts[1]
+			if phaseFilter != "" && from != phaseFilter {
+				continue
+			}
+			for _, r := range ruleList {
+				phaseCol := ""
+				if r.Phase != "" {
+					phaseCol = " (phase: " + r.Phase + ")"
+				}
+				tierCol := ""
+				if r.Tier != "" {
+					tierCol = " [" + r.Tier + "]"
+				}
+				fmt.Printf("%s → %s\t%s%s%s\n", from, to, r.Check, phaseCol, tierCol)
+			}
+		}
+	}
+	return 0
+}
+
 func strPtr(s string) *string {
 	return &s
+}
+
+// cliBudgetQuerier adapts budget.Checker to the phase.BudgetQuerier interface.
+type cliBudgetQuerier struct {
+	checker *budget.Checker
+}
+
+func (q *cliBudgetQuerier) IsBudgetExceeded(ctx context.Context, runID string) (bool, error) {
+	result, err := q.checker.Check(ctx, runID)
+	if err != nil {
+		return false, err
+	}
+	return result.Exceeded, nil
 }

@@ -406,3 +406,125 @@ func TestGateEvidence_String(t *testing.T) {
 		t.Errorf("String() = %q, expected to contain artifact_exists", s)
 	}
 }
+
+// --- Per-run gate rules tests ---
+
+func TestGate_PerRunRules_Override(t *testing.T) {
+	store, rtStore, sqlDB, ctx := setupMachineTest(t)
+	vqStore := dispatch.New(sqlDB, nil)
+
+	// Create run with custom gate rules that require verdict_exists for brainstorm→brainstorm-reviewed
+	// (instead of the default artifact_exists)
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test per-run gates",
+		Complexity:  3,
+		AutoAdvance: true,
+		GateRules: map[string][]SpecGateRule{
+			"brainstorm→brainstorm-reviewed": {
+				{Check: CheckVerdictExists, Tier: "hard"},
+			},
+		},
+	})
+
+	// Add an artifact (would pass the default artifact_exists rule)
+	rtStore.AddArtifact(ctx, &runtrack.Artifact{
+		RunID: id, Phase: PhaseBrainstorm, Path: "brainstorm.md", Type: "file",
+	})
+
+	// Should block: per-run rule requires verdict_exists, not artifact_exists.
+	// No verdict exists, so the per-run rule should fail.
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, vqStore, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if result.Advanced {
+		t.Error("Expected per-run rule (verdict_exists) to block, but advance succeeded")
+	}
+	if result.GateResult != GateFail {
+		t.Errorf("GateResult = %q, want %q", result.GateResult, GateFail)
+	}
+}
+
+func TestGate_PerRunRules_Pass(t *testing.T) {
+	store, rtStore, _, ctx := setupMachineTest(t)
+
+	// Create run with per-run rules requiring artifact_exists
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test per-run gates pass",
+		Complexity:  3,
+		AutoAdvance: true,
+		GateRules: map[string][]SpecGateRule{
+			"brainstorm→brainstorm-reviewed": {
+				{Check: CheckArtifactExists, Phase: PhaseBrainstorm, Tier: "hard"},
+			},
+		},
+	})
+
+	// Add the required artifact
+	rtStore.AddArtifact(ctx, &runtrack.Artifact{
+		RunID: id, Phase: PhaseBrainstorm, Path: "brainstorm.md", Type: "file",
+	})
+
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if !result.Advanced {
+		t.Error("Expected per-run rule to pass with artifact present")
+	}
+}
+
+func TestGate_PerRunRules_TakesPrecedenceOverSpecRules(t *testing.T) {
+	store, rtStore, _, ctx := setupMachineTest(t)
+
+	// Per-run rules: no checks for brainstorm→brainstorm-reviewed (empty array = pass-through)
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test precedence",
+		Complexity:  3,
+		AutoAdvance: true,
+		GateRules: map[string][]SpecGateRule{
+			"brainstorm→brainstorm-reviewed": {}, // empty = no gate
+		},
+	})
+
+	// SpecRules would require artifact_exists, but per-run rules take precedence
+	cfg := GateConfig{
+		Priority: 0,
+		SpecRules: []SpecGateRule{
+			{Check: CheckArtifactExists, Phase: PhaseBrainstorm, Tier: "hard"},
+		},
+	}
+
+	// No artifact added — would fail with spec rules, but per-run empty array means no checks
+	result, err := Advance(ctx, store, id, cfg, rtStore, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if !result.Advanced {
+		t.Error("Expected per-run empty rules to pass (no checks), but was blocked")
+	}
+}
+
+func TestGate_NoPerRunRules_FallsBackToDefaults(t *testing.T) {
+	store, rtStore, _, ctx := setupMachineTest(t)
+
+	// No per-run rules — should use hardcoded defaults
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test fallback",
+		Complexity:  3,
+		AutoAdvance: true,
+	})
+
+	// No artifact — should block via hardcoded rule
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if result.Advanced {
+		t.Error("Expected hardcoded default to block without artifact")
+	}
+}

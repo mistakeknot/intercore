@@ -137,9 +137,16 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	}
 
 	// Look up rules for this transition.
-	// Spec rules (from agency specs) take precedence; hardcoded rules are the fallback.
+	// Precedence: per-run stored rules > agency spec rules > hardcoded defaults.
 	var rules []gateRule
-	if len(cfg.SpecRules) > 0 {
+	key := from + "→" + to
+	if run.GateRules != nil {
+		if rr, ok := run.GateRules[key]; ok {
+			for _, r := range rr {
+				rules = append(rules, gateRule{check: r.Check, phase: r.Phase, tier: r.Tier})
+			}
+		}
+	} else if len(cfg.SpecRules) > 0 {
 		for _, sr := range cfg.SpecRules {
 			rules = append(rules, gateRule{check: sr.Check, phase: sr.Phase, tier: sr.Tier})
 		}

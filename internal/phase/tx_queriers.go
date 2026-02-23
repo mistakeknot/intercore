@@ -178,6 +178,7 @@ func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 		maxDispatches  sql.NullInt64
 		budgetEnforce  sql.NullInt64
 		maxAgents      sql.NullInt64
+		gateRulesJSON  sql.NullString
 	)
 
 	err := q.QueryRowContext(ctx, `
@@ -190,6 +191,7 @@ func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
 		&parentRunID, &maxDispatches,
 		&budgetEnforce, &maxAgents,
+		&gateRulesJSON,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -214,6 +216,11 @@ func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 		return nil, fmt.Errorf("run get: %w", err)
 	}
 	r.Phases = phases
+	gr, err := parseGateRulesJSON(gateRulesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("run get: %w", err)
+	}
+	r.GateRules = gr
 
 	return r, nil
 }

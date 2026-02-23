@@ -210,6 +210,7 @@ type Run struct {
 	MaxDispatches  int
 	BudgetEnforce  bool
 	MaxAgents      int
+	GateRules      map[string][]SpecGateRule // parsed from JSON; nil = use defaults
 }
 
 // PhaseEvent represents an audit log entry for a phase transition.

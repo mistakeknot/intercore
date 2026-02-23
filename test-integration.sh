@@ -501,6 +501,75 @@ intercore_gate_check "$GATE_RUN" || wrapper_rc=$?
 [[ $wrapper_rc -eq 1 ]] || fail "wrapper gate check should return 1 (fail), got: $wrapper_rc"
 pass "wrapper: gate check"
 
+echo ""
+echo "=== Per-Run Gate Rules (iv-yfck) ==="
+
+# Create run with inline --gates JSON
+GATES_JSON='{"brainstorm→brainstorm-reviewed":[{"check":"artifact_exists","phase":"brainstorm","tier":"hard"}],"planned→executing":[{"check":"artifact_exists","phase":"planned","tier":"soft"},{"check":"budget_not_exceeded","tier":"hard"}]}'
+GATES_RUN=$(ic run create --project="$TEST_DIR" --goal="per-run gates test" --gates="$GATES_JSON" --db="$TEST_DB")
+[[ -n "$GATES_RUN" ]] || fail "per-run gates: create returned empty ID"
+pass "per-run gates: create with --gates"
+
+# Verify gate_rules round-trips in ic run status --json
+gates_status=$(ic run status "$GATES_RUN" --json --db="$TEST_DB")
+echo "$gates_status" | jq -e '.gate_rules' >/dev/null || fail "per-run gates: gate_rules missing from status JSON"
+gates_count=$(echo "$gates_status" | jq '.gate_rules | length')
+[[ "$gates_count" -eq 2 ]] || fail "per-run gates: expected 2 transitions in gate_rules, got: $gates_count"
+pass "per-run gates: status --json includes gate_rules"
+
+# ic gate rules --run=ID should show per-run rules
+run_rules=$(ic gate rules --run="$GATES_RUN" --json --db="$TEST_DB")
+echo "$run_rules" | jq -e '.[0].source == "run"' >/dev/null || fail "per-run gates: gate rules source should be 'run', got: $run_rules"
+pass "per-run gates: ic gate rules --run shows per-run rules"
+
+# Gate check should evaluate per-run rules (artifact_exists for brainstorm)
+ic gate check "$GATES_RUN" --priority=0 --db="$TEST_DB" 2>/dev/null && fail "per-run gates: should fail without artifact" || true
+pass "per-run gates: gate check fails without artifact"
+
+# Add brainstorm artifact, gate should pass
+ic run artifact add "$GATES_RUN" --phase=brainstorm --path=docs/brainstorms/gates-test.md --db="$TEST_DB" >/dev/null
+gates_check=$(ic gate check "$GATES_RUN" --priority=0 --json --db="$TEST_DB")
+echo "$gates_check" | jq -e '.result == "pass"' >/dev/null || fail "per-run gates: should pass with artifact, got: $gates_check"
+pass "per-run gates: gate check passes with artifact"
+
+# Create run with --gates-file
+GATES_FILE="$TEST_DIR/test-gates.json"
+echo "$GATES_JSON" > "$GATES_FILE"
+GATES_FILE_RUN=$(ic run create --project="$TEST_DIR" --goal="gates-file test" --gates-file="$GATES_FILE" --db="$TEST_DB")
+[[ -n "$GATES_FILE_RUN" ]] || fail "per-run gates: create with --gates-file returned empty ID"
+file_rules=$(ic run status "$GATES_FILE_RUN" --json --db="$TEST_DB" | jq '.gate_rules | length')
+[[ "$file_rules" -eq 2 ]] || fail "per-run gates: --gates-file should store 2 transitions, got: $file_rules"
+pass "per-run gates: create with --gates-file"
+
+# Mutual exclusion: --gates and --gates-file together should fail
+ic run create --project="$TEST_DIR" --goal="both flags" --gates="$GATES_JSON" --gates-file="$GATES_FILE" --db="$TEST_DB" 2>/dev/null && fail "per-run gates: --gates + --gates-file should fail" || true
+pass "per-run gates: --gates + --gates-file mutual exclusion"
+
+# Invalid JSON in --gates should fail
+ic run create --project="$TEST_DIR" --goal="bad json" --gates='not-json' --db="$TEST_DB" 2>/dev/null && fail "per-run gates: invalid JSON should fail" || true
+pass "per-run gates: invalid --gates JSON rejected"
+
+# Invalid check type should fail
+ic run create --project="$TEST_DIR" --goal="bad check" --gates='{"a→b":[{"check":"nonexistent"}]}' --db="$TEST_DB" 2>/dev/null && fail "per-run gates: unknown check should fail" || true
+pass "per-run gates: unknown check type rejected"
+
+# Run without --gates should have no gate_rules in status
+NO_GATES_RUN=$(ic run create --project="$TEST_DIR" --goal="no gates" --db="$TEST_DB")
+no_gates_status=$(ic run status "$NO_GATES_RUN" --json --db="$TEST_DB")
+echo "$no_gates_status" | jq -e '.gate_rules' >/dev/null 2>&1 && fail "per-run gates: gate_rules should be absent when not set" || true
+pass "per-run gates: no gate_rules when not specified"
+
+# ic gate rules without --run shows defaults (regression)
+default_rules=$(ic gate rules --json --db="$TEST_DB")
+echo "$default_rules" | jq -e '.[0].source == "default"' >/dev/null || fail "per-run gates: default rules should have source=default"
+pass "per-run gates: default rules unaffected"
+
+# Portfolio run with --gates: parent gets gates
+PORTFOLIO_GATES_RUN=$(ic run create --projects="$TEST_DIR/p1,$TEST_DIR/p2" --goal="portfolio gates" --gates="$GATES_JSON" --json --db="$TEST_DB" | jq -r '.id')
+portfolio_gates_status=$(ic run status "$PORTFOLIO_GATES_RUN" --json --db="$TEST_DB")
+echo "$portfolio_gates_status" | jq -e '.gate_rules' >/dev/null || fail "per-run gates: portfolio parent should have gate_rules"
+pass "per-run gates: portfolio parent inherits --gates"
+
 echo "=== Version Sync Check ==="
 # Verify Clavain's copy is in sync (if present in monorepo)
 # --- Lock tests (filesystem-only, no DB) ---

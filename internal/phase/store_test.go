@@ -646,3 +646,129 @@ func TestNullHelpers(t *testing.T) {
 		t.Errorf("nullInt64(42) = %v, want 42", got)
 	}
 }
+
+func TestParseGateRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{
+			name:  "valid single rule",
+			input: `{"brainstorm→brainstorm-reviewed":[{"Check":"artifact_exists","Phase":"brainstorm","Tier":"hard"}]}`,
+		},
+		{
+			name:  "valid multiple transitions",
+			input: `{"brainstorm→brainstorm-reviewed":[{"Check":"artifact_exists","Phase":"brainstorm","Tier":"hard"}],"planned→executing":[{"Check":"artifact_exists","Phase":"planned","Tier":"soft"}]}`,
+		},
+		{
+			name:  "valid empty tier",
+			input: `{"brainstorm→brainstorm-reviewed":[{"Check":"artifact_exists","Phase":"brainstorm","Tier":""}]}`,
+		},
+		{
+			name:  "empty map is valid",
+			input: `{}`,
+		},
+		{
+			name:    "invalid JSON",
+			input:   `{bad`,
+			wantErr: true,
+		},
+		{
+			name:    "unknown check type",
+			input:   `{"a→b":[{"Check":"does_not_exist","Phase":"","Tier":"hard"}]}`,
+			wantErr: true,
+		},
+		{
+			name:    "invalid tier",
+			input:   `{"a→b":[{"Check":"artifact_exists","Phase":"","Tier":"medium"}]}`,
+			wantErr: true,
+		},
+		{
+			name:    "empty transition key",
+			input:   `{"":[{"Check":"artifact_exists","Phase":"","Tier":"hard"}]}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseGateRules(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseGateRules(%s) = %v, want error", tt.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseGateRules(%s) error: %v", tt.input, err)
+			}
+		})
+	}
+}
+
+func TestStore_CreateAndGetWithGateRules(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	rules := map[string][]SpecGateRule{
+		"brainstorm→brainstorm-reviewed": {
+			{Check: CheckArtifactExists, Phase: "brainstorm", Tier: "hard"},
+		},
+		"planned→executing": {
+			{Check: CheckArtifactExists, Phase: "planned", Tier: "soft"},
+			{Check: CheckAgentsComplete, Tier: "hard"},
+		},
+	}
+
+	id, err := store.Create(ctx, &Run{
+		ProjectDir: "/test",
+		Goal:       "test gate rules",
+		GateRules:  rules,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.GateRules == nil {
+		t.Fatal("GateRules is nil after round-trip")
+	}
+	if len(got.GateRules) != 2 {
+		t.Errorf("GateRules has %d transitions, want 2", len(got.GateRules))
+	}
+	br := got.GateRules["brainstorm→brainstorm-reviewed"]
+	if len(br) != 1 || br[0].Check != CheckArtifactExists {
+		t.Errorf("brainstorm rules = %v, want 1 artifact_exists", br)
+	}
+	pe := got.GateRules["planned→executing"]
+	if len(pe) != 2 {
+		t.Errorf("planned→executing rules = %v, want 2 rules", pe)
+	}
+}
+
+func TestStore_CreateWithoutGateRules(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.Create(ctx, &Run{
+		ProjectDir: "/test",
+		Goal:       "no gate rules",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got.GateRules != nil {
+		t.Errorf("GateRules = %v, want nil for run without custom gates", got.GateRules)
+	}
+}

@@ -67,20 +67,32 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 		budgetWarnPct = 80 // default
 	}
 
+	// Marshal gate rules to JSON if set
+	var gateRulesJSON *string
+	if r.GateRules != nil {
+		b, err := json.Marshal(r.GateRules)
+		if err != nil {
+			return "", fmt.Errorf("run create: marshal gate_rules: %w", err)
+		}
+		s := string(b)
+		gateRulesJSON = &s
+	}
+
 	now := time.Now().Unix()
 	_, err = s.db.ExecContext(ctx, `
 		INSERT INTO runs (
 			id, project_dir, goal, status, phase, complexity,
 			force_full, auto_advance, created_at, updated_at,
 			scope_id, metadata, phases, token_budget, budget_warn_pct,
-			parent_run_id, max_dispatches, budget_enforce, max_agents
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			parent_run_id, max_dispatches, budget_enforce, max_agents, gate_rules
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, r.ProjectDir, r.Goal, StatusActive, initialPhase,
 		r.Complexity, boolToInt(r.ForceFull), boolToInt(r.AutoAdvance),
 		now, now, r.ScopeID, r.Metadata,
 		phasesJSON, r.TokenBudget, budgetWarnPct,
 		r.ParentRunID, r.MaxDispatches,
 		boolToInt(r.BudgetEnforce), r.MaxAgents,
+		gateRulesJSON,
 	)
 	if err != nil {
 		return "", fmt.Errorf("run create: %w", err)
@@ -104,6 +116,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 		maxDispatches  sql.NullInt64
 		budgetEnforce  sql.NullInt64
 		maxAgents      sql.NullInt64
+		gateRulesJSON  sql.NullString
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -116,6 +129,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
 		&parentRunID, &maxDispatches,
 		&budgetEnforce, &maxAgents,
+		&gateRulesJSON,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -140,6 +154,11 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 		return nil, fmt.Errorf("run get: %w", err)
 	}
 	r.Phases = phases
+	gr, err := parseGateRulesJSON(gateRulesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("run get: %w", err)
+	}
+	r.GateRules = gr
 
 	return r, nil
 }
@@ -352,6 +371,7 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		maxDispatches  sql.NullInt64
 		budgetEnforce  sql.NullInt64
 		maxAgents      sql.NullInt64
+		gateRulesJSON  sql.NullString
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -365,6 +385,7 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
 		&parentRunID, &maxDispatches,
 		&budgetEnforce, &maxAgents,
+		&gateRulesJSON,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -389,6 +410,11 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		return nil, fmt.Errorf("run current: %w", err)
 	}
 	r.Phases = phases
+	gr, err := parseGateRulesJSON(gateRulesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("run current: %w", err)
+	}
+	r.GateRules = gr
 
 	return r, nil
 }
@@ -445,19 +471,31 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 	}
 	now := time.Now().Unix()
 
+	// Marshal gate rules to JSON if set
+	var portfolioGateRulesJSON *string
+	if portfolio.GateRules != nil {
+		b, err := json.Marshal(portfolio.GateRules)
+		if err != nil {
+			return "", nil, fmt.Errorf("create portfolio: marshal gate_rules: %w", err)
+		}
+		s := string(b)
+		portfolioGateRulesJSON = &s
+	}
+
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO runs (
 			id, project_dir, goal, status, phase, complexity,
 			force_full, auto_advance, created_at, updated_at,
 			scope_id, metadata, phases, token_budget, budget_warn_pct,
-			parent_run_id, max_dispatches, budget_enforce, max_agents
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			parent_run_id, max_dispatches, budget_enforce, max_agents, gate_rules
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		portfolioID, "", portfolio.Goal, StatusActive, initialPhase,
 		portfolio.Complexity, boolToInt(portfolio.ForceFull), boolToInt(portfolio.AutoAdvance),
 		now, now, portfolio.ScopeID, portfolio.Metadata,
 		phasesJSON, portfolio.TokenBudget, budgetWarnPct,
 		nil, portfolio.MaxDispatches,
 		boolToInt(portfolio.BudgetEnforce), portfolio.MaxAgents,
+		portfolioGateRulesJSON,
 	)
 	if err != nil {
 		return "", nil, fmt.Errorf("create portfolio: insert portfolio: %w", err)
@@ -643,7 +681,7 @@ func (s *Store) SkippedPhases(ctx context.Context, runID string) (map[string]boo
 const runCols = `id, project_dir, goal, status, phase, complexity,
 	force_full, auto_advance, created_at, updated_at,
 	completed_at, scope_id, metadata, phases, token_budget, budget_warn_pct,
-	parent_run_id, max_dispatches, budget_enforce, max_agents`
+	parent_run_id, max_dispatches, budget_enforce, max_agents, gate_rules`
 
 func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}) ([]*Run, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -668,6 +706,7 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 			maxDispatches  sql.NullInt64
 			budgetEnforce  sql.NullInt64
 			maxAgents      sql.NullInt64
+			gateRulesJSON  sql.NullString
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
@@ -677,6 +716,7 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 			&phasesJSON, &tokenBudget, &budgetWarnPct,
 			&parentRunID, &maxDispatches,
 			&budgetEnforce, &maxAgents,
+			&gateRulesJSON,
 		); err != nil {
 			return nil, fmt.Errorf("run list scan: %w", err)
 		}
@@ -696,6 +736,11 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 			return nil, fmt.Errorf("run list: %w", err)
 		}
 		r.Phases = phases
+		gr, err := parseGateRulesJSON(gateRulesJSON)
+		if err != nil {
+			return nil, fmt.Errorf("run list: %w", err)
+		}
+		r.GateRules = gr
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
@@ -727,6 +772,54 @@ func parsePhasesJSON(ns sql.NullString) ([]string, error) {
 		return nil, fmt.Errorf("decode phases JSON: %w", err)
 	}
 	return chain, nil
+}
+
+// parseGateRulesJSON decodes a nullable JSON gate_rules column.
+// Returns nil, nil if the column is NULL.
+func parseGateRulesJSON(ns sql.NullString) (map[string][]SpecGateRule, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	var rules map[string][]SpecGateRule
+	if err := json.Unmarshal([]byte(ns.String), &rules); err != nil {
+		return nil, fmt.Errorf("decode gate_rules JSON: %w", err)
+	}
+	return rules, nil
+}
+
+// ParseGateRules parses and validates a JSON gate rules string.
+// Keys are "from→to" transition pairs, values are arrays of gate checks.
+// Valid check types: artifact_exists, agents_complete, verdict_exists, budget_not_exceeded.
+// Valid tiers: "hard", "soft", or empty (inherit from priority).
+func ParseGateRules(jsonStr string) (map[string][]SpecGateRule, error) {
+	var rules map[string][]SpecGateRule
+	if err := json.Unmarshal([]byte(jsonStr), &rules); err != nil {
+		return nil, fmt.Errorf("parse gate rules: %w", err)
+	}
+
+	validChecks := map[string]bool{
+		CheckArtifactExists:    true,
+		CheckAgentsComplete:    true,
+		CheckVerdictExists:     true,
+		CheckBudgetNotExceeded: true,
+	}
+	validTiers := map[string]bool{"hard": true, "soft": true, "": true}
+
+	for key, ruleList := range rules {
+		if key == "" {
+			return nil, fmt.Errorf("parse gate rules: empty transition key")
+		}
+		for i, r := range ruleList {
+			if !validChecks[r.Check] {
+				return nil, fmt.Errorf("parse gate rules: %s[%d]: unknown check %q", key, i, r.Check)
+			}
+			if !validTiers[r.Tier] {
+				return nil, fmt.Errorf("parse gate rules: %s[%d]: invalid tier %q (want hard, soft, or empty)", key, i, r.Tier)
+			}
+		}
+	}
+
+	return rules, nil
 }
 
 func nullInt64OrDefault(ni sql.NullInt64, def int64) int64 {

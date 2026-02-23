@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS runs (
     parent_run_id   TEXT,
     max_dispatches  INTEGER DEFAULT 0,
     budget_enforce  INTEGER DEFAULT 0,
-    max_agents      INTEGER DEFAULT 0
+    max_agents      INTEGER DEFAULT 0,
+    gate_rules      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
