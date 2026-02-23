@@ -5,9 +5,18 @@ package scheduler
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"sync"
 	"time"
 )
+
+// generateJobID generates a random hex ID for scheduler jobs.
+func generateJobID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
 
 // JobType represents the type of scheduled operation.
 type JobType string
@@ -115,6 +124,9 @@ type SpawnJob struct {
 
 // NewSpawnJob creates a new spawn job with sensible defaults.
 func NewSpawnJob(id string, jobType JobType, sessionName string) *SpawnJob {
+	if id == "" {
+		id = generateJobID()
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &SpawnJob{
 		ID:          id,

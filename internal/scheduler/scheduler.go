@@ -5,8 +5,6 @@ package scheduler
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -227,7 +225,7 @@ func (s *Scheduler) Submit(job *SpawnJob) error {
 	}
 
 	if job.ID == "" {
-		job.ID = generateID()
+		job.ID = generateJobID()
 	}
 	if job.MaxRetries == 0 {
 		job.MaxRetries = s.config.DefaultRetries
@@ -269,7 +267,7 @@ func (s *Scheduler) SubmitBatch(jobs []*SpawnJob) (string, error) {
 		return "", nil
 	}
 
-	batchID := generateID()
+	batchID := generateJobID()
 	for _, job := range jobs {
 		job.BatchID = batchID
 		if err := s.Submit(job); err != nil {
@@ -671,9 +669,3 @@ func (s *Scheduler) addToCompleted(job *SpawnJob) {
 	s.mu.Unlock()
 }
 
-// generateID generates a random hex ID.
-func generateID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
-}

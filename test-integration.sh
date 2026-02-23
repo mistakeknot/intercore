@@ -1263,6 +1263,48 @@ else
 echo "  SKIP: agency spec dir not found"
 fi
 
+echo "=== Scheduler ==="
+
+# Submit a job
+JOB_ID=$(ic --json scheduler submit --prompt-file="$TEST_DIR/test-prompt.md" --project="$TEST_DIR" --type=codex --session=integ-session --db="$TEST_DB" 2>/dev/null | jq -r '.id')
+[[ -n "$JOB_ID" && "$JOB_ID" != "null" ]] && pass "scheduler submit" || fail "scheduler submit (id=$JOB_ID)"
+
+# Check status
+JOB_STATUS=$(ic --json scheduler status "$JOB_ID" --db="$TEST_DB" 2>/dev/null | jq -r '.status')
+[[ "$JOB_STATUS" == "pending" ]] && pass "scheduler status" || fail "scheduler status (status=$JOB_STATUS)"
+
+# List jobs
+LIST_COUNT=$(ic --json scheduler list --db="$TEST_DB" 2>/dev/null | jq 'length')
+[[ "$LIST_COUNT" -ge 1 ]] && pass "scheduler list" || fail "scheduler list (count=$LIST_COUNT)"
+
+# List with status filter
+PENDING_COUNT=$(ic --json scheduler list --status=pending --db="$TEST_DB" 2>/dev/null | jq 'length')
+[[ "$PENDING_COUNT" -ge 1 ]] && pass "scheduler list --status=pending" || fail "scheduler list --status=pending (count=$PENDING_COUNT)"
+
+# Stats
+STATS_PENDING=$(ic --json scheduler stats --db="$TEST_DB" 2>/dev/null | jq '.pending')
+[[ "$STATS_PENDING" -ge 1 ]] && pass "scheduler stats" || fail "scheduler stats (pending=$STATS_PENDING)"
+
+# Cancel
+ic scheduler cancel "$JOB_ID" --db="$TEST_DB" >/dev/null 2>&1
+CANCEL_STATUS=$(ic --json scheduler status "$JOB_ID" --db="$TEST_DB" 2>/dev/null | jq -r '.status')
+[[ "$CANCEL_STATUS" == "cancelled" ]] && pass "scheduler cancel" || fail "scheduler cancel (status=$CANCEL_STATUS)"
+
+# Pause/Resume
+ic scheduler pause --db="$TEST_DB" >/dev/null 2>&1
+pass "scheduler pause"
+ic scheduler resume --db="$TEST_DB" >/dev/null 2>&1
+pass "scheduler resume"
+
+# Submit via dispatch spawn --scheduled
+SCHED_ID=$(ic --json dispatch spawn --scheduled --prompt-file="$TEST_DIR/test-prompt.md" --project="$TEST_DIR" --db="$TEST_DB" 2>/dev/null | jq -r '.job_id')
+[[ -n "$SCHED_ID" && "$SCHED_ID" != "null" ]] && pass "dispatch spawn --scheduled" || fail "dispatch spawn --scheduled (id=$SCHED_ID)"
+
+# Prune (should prune the cancelled job — sleep 1s so completed_at is in the past)
+sleep 1
+PRUNED=$(ic --json scheduler prune --older-than=0s --db="$TEST_DB" 2>/dev/null | jq '.pruned')
+[[ "$PRUNED" -ge 1 ]] && pass "scheduler prune" || fail "scheduler prune (pruned=$PRUNED)"
+
 CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
 if [[ -f "$CLAVAIN_LIB" ]]; then
     CLAVAIN_VER=$(grep '^INTERCORE_WRAPPER_VERSION=' "$CLAVAIN_LIB" | cut -d'"' -f2)

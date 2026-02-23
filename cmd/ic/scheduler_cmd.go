@@ -318,6 +318,7 @@ func cmdSchedulerCancel(ctx context.Context, args []string) int {
 	}
 
 	job.Status = scheduler.StatusCancelled
+	job.CompletedAt = time.Now()
 	if err := store.Update(ctx, job); err != nil {
 		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: %v\n", err)
 		return 2
