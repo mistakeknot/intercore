@@ -69,8 +69,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Errorf("SchemaVersion = %d, want 16", v)
+	if v != 17 {
+		t.Errorf("SchemaVersion = %d, want 17", v)
 	}
 
 	// Verify tables exist
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 16", v)
+	if v != 17 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 17", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 16", v)
+	if v != 17 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 17", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 16", v)
+	if v != 17 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 17", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 16", v)
+	if v != 17 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 17", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Errorf("SchemaVersion = %d, want 16", v)
+	if v != 17 {
+		t.Errorf("SchemaVersion = %d, want 17", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Errorf("SchemaVersion = %d, want 16", v)
+	if v != 17 {
+		t.Errorf("SchemaVersion = %d, want 17", v)
 	}
 }
 
@@ -682,8 +682,8 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Fatalf("expected schema version 15, got %d", v)
+	if v != 17 {
+		t.Fatalf("expected schema version 17, got %d", v)
 	}
 
 	// Verify status column exists on run_artifacts with default 'active'
@@ -740,8 +740,8 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Fatalf("expected schema version 15, got %d", v)
+	if v != 17 {
+		t.Fatalf("expected schema version 17, got %d", v)
 	}
 
 	// Verify discoveries table exists and accepts inserts
@@ -792,8 +792,8 @@ func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 16 {
-		t.Fatalf("expected schema version 15, got %d", v)
+	if v != 17 {
+		t.Fatalf("expected schema version 17, got %d", v)
 	}
 
 	// Verify lanes table exists with correct columns
@@ -845,5 +845,52 @@ func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
 	_, err = d.db.Exec(`INSERT INTO lane_members (lane_id, bead_id) VALUES ('lane001', 'iv-abc1')`)
 	if err == nil {
 		t.Fatal("expected PRIMARY KEY constraint violation on lane_members")
+	}
+}
+
+func TestMigrate_V16ToV17_CostReconciliations(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Migrate from scratch — verifies cost_reconciliations table exists
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 17 {
+		t.Fatalf("expected schema version 17, got %d", v)
+	}
+
+	// Verify cost_reconciliations table exists with correct columns
+	rows, err := d.db.Query("SELECT id, run_id, dispatch_id, reported_in, reported_out, billed_in, billed_out, delta_in, delta_out, source, created_at FROM cost_reconciliations LIMIT 0")
+	if err != nil {
+		t.Fatalf("cost_reconciliations table missing or wrong schema: %v", err)
+	}
+	rows.Close()
+
+	// Verify insert works
+	_, err = d.db.Exec(`INSERT INTO cost_reconciliations (run_id, reported_in, reported_out, billed_in, billed_out, delta_in, delta_out, source) VALUES ('run001', 1000, 500, 1100, 500, 100, 0, 'manual')`)
+	if err != nil {
+		t.Fatalf("cost_reconciliations insert failed: %v", err)
+	}
+
+	// Verify dispatch-level insert with dispatch_id
+	_, err = d.db.Exec(`INSERT INTO cost_reconciliations (run_id, dispatch_id, reported_in, reported_out, billed_in, billed_out, delta_in, delta_out, source) VALUES ('run001', 'disp001', 500, 200, 500, 200, 0, 0, 'anthropic')`)
+	if err != nil {
+		t.Fatalf("cost_reconciliations dispatch-level insert failed: %v", err)
+	}
+
+	// Verify we can query by run_id
+	var count int
+	err = d.db.QueryRow("SELECT COUNT(*) FROM cost_reconciliations WHERE run_id = 'run001'").Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 rows, got %d", count)
 	}
 }

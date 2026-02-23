@@ -107,6 +107,8 @@ func main() {
 		exitCode = cmdAgency(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
+	case "cost":
+		exitCode = cmdCost(ctx, subArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "ic: unknown command: %s\n", subcommand)
 		printUsage()
@@ -195,6 +197,8 @@ Commands:
   config set <key> <value>      Set a kernel config value
   config get <key>              Get a kernel config value
   config list [--verbose]       List kernel config values
+  cost reconcile <run> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
+  cost list <run> [--limit=N]   List past reconciliations
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 

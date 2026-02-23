@@ -153,6 +153,19 @@ ic run rollback <id> --layer=code --phase=executing   # Single phase
 ic run rollback <id> --layer=code --format=text       # Human-readable
 ```
 
+## Cost Quick Reference
+
+```bash
+# Reconcile billed vs self-reported tokens for a run
+ic cost reconcile <run_id> --billed-in=N --billed-out=N [--source=manual]
+ic cost reconcile <run_id> --billed-in=N --billed-out=N --dispatch=<id>  # Per-dispatch
+
+# List past reconciliations
+ic cost list <run_id> [--limit=N]
+```
+
+Cost reconciliation compares billing API data against self-reported dispatch tokens. Exit 0 = tokens match, exit 1 = discrepancy found. Discrepancies emit `cost.reconciliation_discrepancy` events to the event bus.
+
 ## Discovery Quick Reference
 
 ```bash
