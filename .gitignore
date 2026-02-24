@@ -10,4 +10,4 @@
 
 # Runtime
 *.db.backup-*
-ic
+/ic
