@@ -466,3 +466,17 @@ func GateRulesInfo() []struct {
 	}
 	return rules
 }
+
+// GateChecksForTransition returns the check names required for a specific
+// phase transition. Returns nil if no gates are defined for this transition.
+func GateChecksForTransition(from, to string) []string {
+	gr, ok := gateRules[[2]string{from, to}]
+	if !ok {
+		return nil
+	}
+	checks := make([]string, len(gr))
+	for i, r := range gr {
+		checks[i] = r.check
+	}
+	return checks
+}

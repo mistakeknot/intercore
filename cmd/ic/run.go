@@ -606,6 +606,26 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		}
 	}
 
+	// Enrich response with context about the destination phase.
+	var activeAgentCount int
+	var nextGateRequirements []string
+	if result.Advanced {
+		// Count active agents
+		agents, agentErr := rtStore.ListAgents(ctx, id)
+		if agentErr == nil {
+			for _, ag := range agents {
+				if ag.Status == "active" || ag.Status == "running" {
+					activeAgentCount++
+				}
+			}
+		}
+
+		// Get gate requirements for the next transition from the new phase
+		if nextPhase, err := phase.ChainNextPhase(phase.ResolveChain(run), result.ToPhase); err == nil {
+			nextGateRequirements = phase.GateChecksForTransition(result.ToPhase, nextPhase)
+		}
+	}
+
 	if flagJSON {
 		out := map[string]interface{}{
 			"from_phase":  result.FromPhase,
@@ -615,6 +635,12 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			"gate_tier":   result.GateTier,
 			"advanced":    result.Advanced,
 			"reason":      result.Reason,
+		}
+		if result.Advanced {
+			out["active_agent_count"] = activeAgentCount
+			if len(nextGateRequirements) > 0 {
+				out["next_gate_requirements"] = nextGateRequirements
+			}
 		}
 		if len(resolvedActions) > 0 {
 			items := make([]map[string]interface{}, len(resolvedActions))
