@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/action"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/agency"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
+	"github.com/mistakeknot/intercore/internal/action"
+	"github.com/mistakeknot/intercore/internal/agency"
+	"github.com/mistakeknot/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 func cmdAgency(ctx context.Context, args []string) int {

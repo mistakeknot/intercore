@@ -10,7 +10,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/db"
 )
 
 func setupTestDB(t *testing.T) *sql.DB {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
+	"github.com/mistakeknot/intercore/internal/dispatch"
+	"github.com/mistakeknot/intercore/internal/runtrack"
 )
 
 // --- Gate evaluation tests ---

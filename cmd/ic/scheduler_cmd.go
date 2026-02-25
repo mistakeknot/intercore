@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/scheduler"
+	"github.com/mistakeknot/intercore/internal/scheduler"
 )
 
 func cmdScheduler(ctx context.Context, args []string) int {

@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
+	"github.com/mistakeknot/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/dispatch"
+	"github.com/mistakeknot/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 func setupBudgetTest(t *testing.T) (*phase.Store, *dispatch.Store, *state.Store, context.Context) {

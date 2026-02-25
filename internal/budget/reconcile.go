@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
+	"github.com/mistakeknot/intercore/internal/dispatch"
 )
 
 // EventCostDiscrepancy is emitted when billed tokens differ from self-reported tokens.

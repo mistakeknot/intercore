@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/portfolio"
+	"github.com/mistakeknot/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/portfolio"
 )
 
 func cmdPortfolio(ctx context.Context, args []string) int {

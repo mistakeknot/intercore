@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/budget"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/portfolio"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
+	"github.com/mistakeknot/intercore/internal/budget"
+	"github.com/mistakeknot/intercore/internal/dispatch"
+	"github.com/mistakeknot/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/portfolio"
+	"github.com/mistakeknot/intercore/internal/runtrack"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 func cmdGate(ctx context.Context, args []string) int {

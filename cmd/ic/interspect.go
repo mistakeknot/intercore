@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/event"
+	"github.com/mistakeknot/intercore/internal/event"
 )
 
 func cmdInterspect(ctx context.Context, args []string) int {

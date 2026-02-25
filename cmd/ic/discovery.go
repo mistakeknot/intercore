@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/discovery"
+	"github.com/mistakeknot/intercore/internal/discovery"
 )
 
 func cmdDiscovery(ctx context.Context, args []string) int {

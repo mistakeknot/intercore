@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
+	"github.com/mistakeknot/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 // Event type constants for portfolio relay events.

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/dispatch"
+	"github.com/mistakeknot/intercore/internal/phase"
 )
 
 func setupReconcileTest(t *testing.T) (*dispatch.Store, *ReconcileStore, *phase.Store, context.Context) {

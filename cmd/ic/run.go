@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/action"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/budget"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/dispatch"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/event"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/phase"
-	portfoliopkg "github.com/mistakeknot/interverse/infra/intercore/internal/portfolio"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
+	"github.com/mistakeknot/intercore/internal/action"
+	"github.com/mistakeknot/intercore/internal/budget"
+	"github.com/mistakeknot/intercore/internal/dispatch"
+	"github.com/mistakeknot/intercore/internal/event"
+	"github.com/mistakeknot/intercore/internal/phase"
+	portfoliopkg "github.com/mistakeknot/intercore/internal/portfolio"
+	"github.com/mistakeknot/intercore/internal/runtrack"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 // --- Run Commands ---

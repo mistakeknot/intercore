@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/db"
 )
 
 func testStore(t *testing.T) *Store {

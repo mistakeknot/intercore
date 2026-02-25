@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/runtrack"
+	"github.com/mistakeknot/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/runtrack"
 )
 
 func setupMachineTest(t *testing.T) (*Store, *runtrack.Store, *sql.DB, context.Context) {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/event"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
+	"github.com/mistakeknot/intercore/internal/event"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 func cmdEvents(ctx context.Context, args []string) int {

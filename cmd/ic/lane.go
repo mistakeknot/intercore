@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/lane"
+	"github.com/mistakeknot/intercore/internal/lane"
 )
 
 func cmdLane(ctx context.Context, args []string) int {

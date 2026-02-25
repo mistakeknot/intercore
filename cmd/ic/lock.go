@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/lock"
+	"github.com/mistakeknot/intercore/internal/lock"
 )
 
 // --- Lock Commands ---

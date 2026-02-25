@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/redaction"
+	"github.com/mistakeknot/intercore/internal/redaction"
 )
 
 // EventType represents the type of audit event.

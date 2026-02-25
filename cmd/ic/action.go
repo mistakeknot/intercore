@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/action"
+	"github.com/mistakeknot/intercore/internal/action"
 )
 
 func cmdRunAction(ctx context.Context, args []string) int {

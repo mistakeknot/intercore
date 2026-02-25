@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/redaction"
+	"github.com/mistakeknot/intercore/internal/redaction"
 	_ "modernc.org/sqlite"
 )
 

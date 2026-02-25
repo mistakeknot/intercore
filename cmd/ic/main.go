@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/sentinel"
-	"github.com/mistakeknot/interverse/infra/intercore/internal/state"
+	"github.com/mistakeknot/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/sentinel"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 const version = "0.3.0"

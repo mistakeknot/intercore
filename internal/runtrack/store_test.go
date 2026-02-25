@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mistakeknot/interverse/infra/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/db"
 )
 
 func setupTestStore(t *testing.T) (*Store, *db.DB) {
