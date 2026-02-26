@@ -9,17 +9,20 @@ import (
 	"strings"
 
 	"github.com/mistakeknot/intercore/internal/budget"
+	costpkg "github.com/mistakeknot/intercore/internal/cost"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/event"
 )
 
 func cmdCost(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: cost: usage: ic cost <reconcile|list>\n")
+		fmt.Fprintf(os.Stderr, "ic: cost: usage: ic cost <baseline|reconcile|list>\n")
 		return 3
 	}
 
 	switch args[0] {
+	case "baseline":
+		return cmdCostBaseline(ctx, args[1:])
 	case "reconcile":
 		return cmdCostReconcile(ctx, args[1:])
 	case "list":
@@ -28,6 +31,56 @@ func cmdCost(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "ic: cost: unknown subcommand: %s\n", args[0])
 		return 3
 	}
+}
+
+func cmdCostBaseline(ctx context.Context, args []string) int {
+	opts := costpkg.BaselineOpts{
+		LastN: 50,
+		Days:  30,
+	}
+
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--last="):
+			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--last="))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ic: cost baseline: invalid --last: %v\n", err)
+				return 3
+			}
+			opts.LastN = v
+		case strings.HasPrefix(arg, "--days="):
+			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--days="))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ic: cost baseline: invalid --days: %v\n", err)
+				return 3
+			}
+			opts.Days = v
+		case arg == "--by-phase":
+			opts.ByPhase = true
+		case arg == "--by-agent":
+			opts.ByAgent = true
+		case strings.HasPrefix(arg, "--script="):
+			opts.InterstatScript = strings.TrimPrefix(arg, "--script=")
+		default:
+			fmt.Fprintf(os.Stderr, "ic: cost baseline: unknown flag: %s\n", arg)
+			return 3
+		}
+	}
+
+	opts.JSON = flagJSON
+
+	result, err := costpkg.ComputeBaseline(ctx, opts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: cost baseline: %v\n", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(result)
+	} else {
+		fmt.Print(costpkg.FormatText(result))
+	}
+	return 0
 }
 
 func cmdCostReconcile(ctx context.Context, args []string) int {

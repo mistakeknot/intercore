@@ -173,6 +173,12 @@ ic run rollback <id> --layer=code --format=text       # Human-readable
 ## Cost Quick Reference
 
 ```bash
+# Cost-per-landable-change baseline
+ic cost baseline                                       # Last 50 beads, 30 days
+ic cost baseline --days=7 --last=10                    # Narrow window
+ic cost baseline --by-phase --by-agent                 # With breakdowns
+ic --json cost baseline                                # JSON output
+
 # Reconcile billed vs self-reported tokens for a run
 ic cost reconcile <run_id> --billed-in=N --billed-out=N [--source=manual]
 ic cost reconcile <run_id> --billed-in=N --billed-out=N --dispatch=<id>  # Per-dispatch
@@ -180,6 +186,8 @@ ic cost reconcile <run_id> --billed-in=N --billed-out=N --dispatch=<id>  # Per-d
 # List past reconciliations
 ic cost list <run_id> [--limit=N]
 ```
+
+`ic cost baseline` queries interstat (via `cost-query.sh` interface) for token data correlated with shipped beads (via `bd`). Shows p50/p90/p95/mean tokens per landed change. Requires both `bd` and the interstat plugin.
 
 Cost reconciliation compares billing API data against self-reported dispatch tokens. Exit 0 = tokens match, exit 1 = discrepancy found. Discrepancies emit `cost.reconciliation_discrepancy` events to the event bus.
 
