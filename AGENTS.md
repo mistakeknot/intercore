@@ -15,49 +15,9 @@ In the three-layer architecture, Intercore sits beneath the OS (Clavain, Layer 2
 ## Architecture
 
 ```
-cmd/ic/
-  main.go             CLI entry point, global flag parsing, command routing
-  run.go              Run subcommands (create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, action, tokens, budget)
-  dispatch.go         Dispatch subcommands (spawn, status, list, poll, wait, kill, tokens, prune)
-  gate.go             Gate subcommands (check, override, rules)
-  portfolio.go        Portfolio subcommands (dep add/list/remove, relay, order, status)
-  lock.go             Lock subcommands (acquire, release, list, stale, clean)
-  events.go           Event subcommands (tail, cursor list/reset)
-  coordination.go     Coordination subcommands (reserve, release, check, list, sweep, transfer)
-  scheduler_cmd.go    Scheduler subcommands (submit, status, stats, pause, resume, list, cancel, prune)
-  lane.go             Lane subcommands (create, list, status, close, events, sync, members, velocity)
-  discovery.go        Discovery subcommands (submit, status, list, score, promote, dismiss, feedback, profile, decay, rollback, search)
-  cost.go             Cost subcommands (reconcile, list)
-  interspect.go       Interspect subcommands (record, query)
-  agency.go           Agency subcommands (load, validate, show, capabilities)
-  action.go           Run action subcommands (add, list, update, delete)
-  config.go           Config subcommands (set, get, list)
-
-internal/
-  db/                 SQLite connection, migration (embedded DDL), health, disk check
-  state/              State CRUD with JSON validation and TTL
-  sentinel/           Atomic throttle guards with UPDATE+RETURNING
-  dispatch/           Agent dispatch lifecycle: spawn, poll, collect, wait, policy, conflict, intent, telemetry, outcome
-  phase/              Phase state machine: run lifecycle with configurable chains, gate evaluation
-  event/              Event bus: 5 sources (phase, dispatch, interspect, discovery, coordination), notifier, handlers
-  runtrack/           Agent and artifact tracking within runs
-  portfolio/          Cross-project coordination: deps (cycle detection), topo sort, relay, dbpool
-  budget/             Token budget checking with dedup, cost reconciliation, composition
-  lock/               Filesystem-based mutex using POSIX mkdir atomicity
-  action/             Phase action store (event-driven advancement)
-  agency/             Agency spec parser: YAML schema, validation, stage-to-phase mapping
-  coordination/       Unified file reservations, named locks, write-sets (SQLite-backed, glob overlap detection)
-  scheduler/          Fair spawn scheduler: priority queue, rate limiting, backoff, per-agent caps
-  lane/               Thematic work lanes: standing/arc types, membership, velocity scoring, starvation detection
-  discovery/          Research discovery pipeline: submit, score, promote, decay, semantic search, dedup
-  scoring/            Multi-factor agent-task assignment scoring (type bonus, tag affinity, file overlap, context penalty)
-  lifecycle/          Agent state machine: waiting/generating/thinking/idle/stalled/error/completed with stall detection
-  handoff/            Structured session handoff format for context preservation across rotations
-  audit/              Tamper-evident audit trail: SHA-256 hash chain, per-session sequence numbers, auto-redaction
-  redaction/          Secret scanning: pattern matching with 4 modes (off/warn/redact/block), category allowlists
-
-lib-intercore.sh      Bash wrappers for hooks (45 functions)
-test-integration.sh   End-to-end CLI integration test (1320 lines)
+cmd/ic/          CLI entry point + 15 subcommand files (run, dispatch, gate, lock, events, coordination, scheduler, lane, discovery, portfolio, cost, interspect, agency, action, config)
+internal/        22 packages — key ones: db/, state/, dispatch/, phase/, event/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, audit/, redaction/
+lib-intercore.sh Bash wrappers for hooks (45 functions)
 ```
 
 ## CLI Commands
