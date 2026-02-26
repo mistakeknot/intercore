@@ -93,8 +93,8 @@ func (s *Store) Reserve(ctx context.Context, lock Lock) (*ReserveResult, error) 
 	if err != nil {
 		return nil, fmt.Errorf("query conflicts: %w", err)
 	}
-	defer rows.Close()
 
+	var conflict *ConflictInfo
 	for rows.Next() {
 		var existing struct {
 			id, owner, pattern string
@@ -102,6 +102,7 @@ func (s *Store) Reserve(ctx context.Context, lock Lock) (*ReserveResult, error) 
 			exclusive          bool
 		}
 		if err := rows.Scan(&existing.id, &existing.owner, &existing.pattern, &existing.reason, &existing.exclusive); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		// Skip shared+shared
@@ -110,21 +111,32 @@ func (s *Store) Reserve(ctx context.Context, lock Lock) (*ReserveResult, error) 
 		}
 		overlap, err := PatternsOverlap(lock.Pattern, existing.pattern)
 		if err != nil {
+			rows.Close()
 			return nil, fmt.Errorf("overlap check: %w", err)
 		}
 		if overlap {
-			conflict := &ConflictInfo{
+			conflict = &ConflictInfo{
 				BlockerID:      existing.id,
 				BlockerOwner:   existing.owner,
 				BlockerPattern: existing.pattern,
 				BlockerReason:  existing.reason.String,
 			}
-			s.emitEvent(ctx, "coordination.conflict", lock.ID, lock.Owner, lock.Pattern, lock.Scope, existing.owner, lock.RunID)
-			return &ReserveResult{Conflict: conflict}, nil
+			break
 		}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
+	}
+	rows.Close()
+
+	if conflict != nil {
+		// Rollback the transaction BEFORE emitting events to avoid deadlock.
+		// Event emission writes to the same SQLite DB via a separate connection,
+		// which would block forever if the write lock is still held.
+		tx.Rollback()
+		s.emitEvent(ctx, "coordination.conflict", lock.ID, lock.Owner, lock.Pattern, lock.Scope, conflict.BlockerOwner, lock.RunID)
+		return &ReserveResult{Conflict: conflict}, nil
 	}
 
 	// Insert the lock
