@@ -113,6 +113,8 @@ func main() {
 		exitCode = cmdScheduler(ctx, subArgs)
 	case "coordination":
 		exitCode = cmdCoordination(ctx, subArgs)
+	case "publish":
+		exitCode = cmdPublish(ctx, subArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "ic: unknown command: %s\n", subcommand)
 		printUsage()
@@ -203,6 +205,12 @@ Commands:
   config list [--verbose]       List kernel config values
   cost reconcile <run> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
   cost list <run> [--limit=N]   List past reconciliations
+  publish <ver>                  Publish plugin (bump + push + sync)
+  publish --patch                Auto-increment patch version
+  publish doctor [--fix]         Detect/fix drift and health issues
+  publish clean                  Prune orphaned cache dirs
+  publish status [--all]         Show publish health
+  publish init                   Register new plugin in marketplace
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 
@@ -758,14 +766,14 @@ func cmdCompat(ctx context.Context, args []string) int {
 
 // legacyPatterns maps intercore keys to their legacy temp file glob patterns.
 var legacyPatterns = map[string]string{
-	"dispatch":         "/tmp/clavain-dispatch-*.json",
-	"stop":             "/tmp/clavain-stop-*",
+	"dispatch":          "/tmp/clavain-dispatch-*.json",
+	"stop":              "/tmp/clavain-stop-*",
 	"compound_throttle": "/tmp/clavain-compound-last-*",
-	"drift_throttle":   "/tmp/clavain-drift-last-*",
-	"handoff":          "/tmp/clavain-handoff-*",
-	"autopub":          "/tmp/clavain-autopub*.lock",
-	"catalog_remind":   "/tmp/clavain-catalog-remind-*.lock",
-	"discovery_brief":  "/tmp/clavain-discovery-brief-*.cache",
+	"drift_throttle":    "/tmp/clavain-drift-last-*",
+	"handoff":           "/tmp/clavain-handoff-*",
+	"autopub":           "/tmp/clavain-autopub*.lock",
+	"catalog_remind":    "/tmp/clavain-catalog-remind-*.lock",
+	"discovery_brief":   "/tmp/clavain-discovery-brief-*.cache",
 }
 
 func cmdCompatStatus(ctx context.Context) int {
