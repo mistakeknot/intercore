@@ -1,0 +1,15 @@
+# Synthetic test fixtures in redaction engine tests — not real secrets
+# These are deliberately crafted fake tokens used to verify secret detection works
+f127495eb5a8259cf32fdc58a89ff66d748797cc:internal/redaction/redaction_test.go:jwt:84
+f127495eb5a8259cf32fdc58a89ff66d748797cc:internal/redaction/redaction_test.go:generic-api-key:116
+
+# Synthetic test fixtures in state payload validation tests — not real secrets
+# These fake keys verify that ValidatePayload rejects payloads containing secrets
+164ae2607cc928b6c0786311ab1372381ce2ae57:test-integration.sh:generic-api-key:65
+164ae2607cc928b6c0786311ab1372381ce2ae57:internal/state/state_test.go:generic-api-key:254
+164ae2607cc928b6c0786311ab1372381ce2ae57:internal/state/state_test.go:github-pat:255
+164ae2607cc928b6c0786311ab1372381ce2ae57:internal/state/state_test.go:generic-api-key:256
+164ae2607cc928b6c0786311ab1372381ce2ae57:internal/state/state_test.go:jwt:257
+
+# Quoted API key in research doc — not a live credential
+541bc24f845600f27da30964ffe45a2bc3504478:docs/research/fd-safety-review-interspect.md:generic-api-key:159
