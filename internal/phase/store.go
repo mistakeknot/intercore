@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -809,6 +811,9 @@ func ParseGateRules(jsonStr string) (map[string][]SpecGateRule, error) {
 		if key == "" {
 			return nil, fmt.Errorf("parse gate rules: empty transition key")
 		}
+		if _, _, ok := parseTransitionKey(key); !ok {
+			return nil, fmt.Errorf("parse gate rules: invalid transition key %q (want from→to)", key)
+		}
 		for i, r := range ruleList {
 			if !validChecks[r.Check] {
 				return nil, fmt.Errorf("parse gate rules: %s[%d]: unknown check %q", key, i, r.Check)
@@ -820,6 +825,61 @@ func ParseGateRules(jsonStr string) (map[string][]SpecGateRule, error) {
 	}
 
 	return rules, nil
+}
+
+// ValidateGateRulesForChain ensures custom gate rules are valid for the active phase chain.
+// Every adjacent transition in the chain must be present in rules.
+// Use an explicit empty rule list ([]) to declare an ungated transition.
+func ValidateGateRulesForChain(chain []string, rules map[string][]SpecGateRule) error {
+	if rules == nil {
+		return nil
+	}
+	if len(chain) < 2 {
+		return fmt.Errorf("validate gate rules: active phase chain must contain at least 2 phases")
+	}
+
+	adjacent := make(map[string]struct{}, len(chain)-1)
+	for i := 0; i < len(chain)-1; i++ {
+		adjacent[chain[i]+"→"+chain[i+1]] = struct{}{}
+	}
+
+	for key := range rules {
+		from, to, ok := parseTransitionKey(key)
+		if !ok {
+			return fmt.Errorf("validate gate rules: invalid transition key %q (want from→to)", key)
+		}
+		if _, ok := adjacent[key]; ok {
+			continue
+		}
+		if ChainContains(chain, from) && ChainContains(chain, to) {
+			return fmt.Errorf("validate gate rules: transition %q is not adjacent in active phase chain", key)
+		}
+		return fmt.Errorf("validate gate rules: transition %q not present in active phase chain", key)
+	}
+
+	missing := make([]string, 0, len(adjacent))
+	for key := range adjacent {
+		if _, ok := rules[key]; !ok {
+			missing = append(missing, key)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing)
+		return fmt.Errorf("validate gate rules: missing transitions for active phase chain: %s (use explicit [] to mark ungated)", strings.Join(missing, ", "))
+	}
+
+	return nil
+}
+
+func parseTransitionKey(key string) (string, string, bool) {
+	if strings.Count(key, "→") != 1 {
+		return "", "", false
+	}
+	parts := strings.SplitN(key, "→", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", false
+	}
+	return parts[0], parts[1], true
 }
 
 func nullInt64OrDefault(ni sql.NullInt64, def int64) int64 {

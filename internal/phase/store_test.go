@@ -689,6 +689,11 @@ func TestParseGateRules(t *testing.T) {
 			input:   `{"":[{"Check":"artifact_exists","Phase":"","Tier":"hard"}]}`,
 			wantErr: true,
 		},
+		{
+			name:    "invalid transition key format",
+			input:   `{"brainstorm->brainstorm-reviewed":[{"Check":"artifact_exists","Phase":"brainstorm","Tier":"hard"}]}`,
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -705,6 +710,71 @@ func TestParseGateRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateGateRulesForChain(t *testing.T) {
+	chain := []string{"brainstorm", "plan-reviewed", "shipping"}
+
+	t.Run("full coverage with explicit ungated transition", func(t *testing.T) {
+		rules := map[string][]SpecGateRule{
+			"brainstorm→plan-reviewed": {
+				{Check: CheckArtifactExists, Phase: "brainstorm", Tier: "hard"},
+			},
+			"plan-reviewed→shipping": {},
+		}
+		if err := ValidateGateRulesForChain(chain, rules); err != nil {
+			t.Fatalf("ValidateGateRulesForChain: %v", err)
+		}
+	})
+
+	t.Run("missing transition fails", func(t *testing.T) {
+		rules := map[string][]SpecGateRule{
+			"brainstorm→plan-reviewed": {
+				{Check: CheckArtifactExists, Phase: "brainstorm", Tier: "hard"},
+			},
+		}
+		err := ValidateGateRulesForChain(chain, rules)
+		if err == nil {
+			t.Fatal("expected error for missing transition coverage")
+		}
+		if !strings.Contains(err.Error(), "missing transitions") {
+			t.Fatalf("error = %v, want missing transitions message", err)
+		}
+	})
+
+	t.Run("non-adjacent transition fails", func(t *testing.T) {
+		rules := map[string][]SpecGateRule{
+			"brainstorm→plan-reviewed": {
+				{Check: CheckArtifactExists, Phase: "brainstorm", Tier: "hard"},
+			},
+			"plan-reviewed→shipping": {},
+			"brainstorm→shipping": {},
+		}
+		err := ValidateGateRulesForChain(chain, rules)
+		if err == nil {
+			t.Fatal("expected error for non-adjacent transition")
+		}
+		if !strings.Contains(err.Error(), "not adjacent") {
+			t.Fatalf("error = %v, want not adjacent message", err)
+		}
+	})
+
+	t.Run("transition not in chain fails", func(t *testing.T) {
+		rules := map[string][]SpecGateRule{
+			"brainstorm→plan-reviewed": {
+				{Check: CheckArtifactExists, Phase: "brainstorm", Tier: "hard"},
+			},
+			"plan-reviewed→shipping": {},
+			"review→done": {},
+		}
+		err := ValidateGateRulesForChain(chain, rules)
+		if err == nil {
+			t.Fatal("expected error for transition outside chain")
+		}
+		if !strings.Contains(err.Error(), "not present in active phase chain") {
+			t.Fatalf("error = %v, want not present message", err)
+		}
+	})
 }
 
 func TestStore_CreateAndGetWithGateRules(t *testing.T) {

@@ -193,6 +193,16 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		}
 		customPhases = parsed
 	}
+	activeChain := phase.DefaultPhaseChain
+	if len(customPhases) > 0 {
+		activeChain = customPhases
+	}
+	if gateRules != nil {
+		if err := phase.ValidateGateRulesForChain(activeChain, gateRules); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			return 3
+		}
+	}
 
 	store := phase.New(d.SqlDB())
 
