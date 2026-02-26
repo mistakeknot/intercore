@@ -329,6 +329,44 @@ CREATE TABLE IF NOT EXISTS cost_reconciliations (
 CREATE INDEX IF NOT EXISTS idx_cost_recon_run ON cost_reconciliations(run_id);
 CREATE INDEX IF NOT EXISTS idx_cost_recon_dispatch ON cost_reconciliations(dispatch_id) WHERE dispatch_id IS NOT NULL;
 
+-- v20: coordination locks (unified file reservations, named locks, write-sets)
+CREATE TABLE IF NOT EXISTS coordination_locks (
+    id           TEXT PRIMARY KEY,
+    type         TEXT NOT NULL CHECK(type IN ('file_reservation', 'named_lock', 'write_set')),
+    owner        TEXT NOT NULL,
+    scope        TEXT NOT NULL,
+    pattern      TEXT NOT NULL,
+    exclusive    INTEGER NOT NULL DEFAULT 1,
+    reason       TEXT,
+    ttl_seconds  INTEGER,
+    created_at   INTEGER NOT NULL,
+    expires_at   INTEGER,
+    released_at  INTEGER,
+    dispatch_id  TEXT,
+    run_id       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_coord_active ON coordination_locks(scope, type)
+    WHERE released_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_coord_owner ON coordination_locks(owner)
+    WHERE released_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_coord_expires ON coordination_locks(expires_at)
+    WHERE released_at IS NULL AND expires_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS coordination_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    lock_id    TEXT NOT NULL,
+    run_id     TEXT,
+    event_type TEXT NOT NULL,
+    owner      TEXT NOT NULL,
+    pattern    TEXT NOT NULL,
+    scope      TEXT NOT NULL,
+    reason     TEXT,
+    created_at INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_coord_events_run ON coordination_events(run_id)
+    WHERE run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_coord_events_scope ON coordination_events(scope);
+
 -- v19: scheduler job queue
 CREATE TABLE IF NOT EXISTS scheduler_jobs (
     id          TEXT PRIMARY KEY,

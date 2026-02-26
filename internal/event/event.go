@@ -4,10 +4,11 @@ import "time"
 
 // Source identifies the origin subsystem.
 const (
-	SourcePhase      = "phase"
-	SourceDispatch   = "dispatch"
-	SourceInterspect = "interspect"
-	SourceDiscovery  = "discovery"
+	SourcePhase        = "phase"
+	SourceDispatch     = "dispatch"
+	SourceInterspect   = "interspect"
+	SourceDiscovery    = "discovery"
+	SourceCoordination = "coordination"
 )
 
 // InterspectEvent represents a human correction or agent dispatch signal.

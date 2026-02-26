@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 19
-	maxSchemaVersion     = 19
+	currentSchemaVersion = 20
+	maxSchemaVersion     = 20
 )
 
 var (
@@ -258,6 +258,38 @@ func (d *DB) Migrate(ctx context.Context) error {
 					return fmt.Errorf("migrate v15→v16: %w", err)
 				}
 			}
+		}
+	}
+
+	// v19 → v20: coordination locks + events
+	if currentVersion >= 19 && currentVersion < 20 {
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS coordination_locks (
+			id TEXT PRIMARY KEY,
+			type TEXT NOT NULL CHECK(type IN ('file_reservation','named_lock','write_set')),
+			owner TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			pattern TEXT NOT NULL,
+			exclusive INTEGER NOT NULL DEFAULT 1,
+			reason TEXT,
+			ttl_seconds INTEGER,
+			created_at INTEGER NOT NULL,
+			expires_at INTEGER,
+			released_at INTEGER,
+			dispatch_id TEXT,
+			run_id TEXT)`); err != nil {
+			return fmt.Errorf("v20 coordination_locks: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS coordination_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			lock_id TEXT NOT NULL,
+			run_id TEXT,
+			event_type TEXT NOT NULL,
+			owner TEXT NOT NULL,
+			pattern TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			reason TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()))`); err != nil {
+			return fmt.Errorf("v20 coordination_events: %w", err)
 		}
 	}
 

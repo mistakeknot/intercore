@@ -69,12 +69,12 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
-		t.Errorf("SchemaVersion = %d, want 19", v)
+	if v != 20 {
+		t.Errorf("SchemaVersion = %d, want 20", v)
 	}
 
 	// Verify tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events", "interspect_events", "merge_intents"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events", "interspect_events", "merge_intents", "coordination_locks", "coordination_events"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 19", v)
+	if v != 20 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 20", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 19", v)
+	if v != 20 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 20", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 19", v)
+	if v != 20 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 20", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 19", v)
+	if v != 20 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 20", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
-		t.Errorf("SchemaVersion = %d, want 19", v)
+	if v != 20 {
+		t.Errorf("SchemaVersion = %d, want 20", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
-		t.Errorf("SchemaVersion = %d, want 19", v)
+	if v != 20 {
+		t.Errorf("SchemaVersion = %d, want 20", v)
 	}
 }
 
@@ -682,7 +682,7 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
+	if v != 20 {
 		t.Fatalf("expected schema version 19, got %d", v)
 	}
 
@@ -740,7 +740,7 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
+	if v != 20 {
 		t.Fatalf("expected schema version 19, got %d", v)
 	}
 
@@ -792,7 +792,7 @@ func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
+	if v != 20 {
 		t.Fatalf("expected schema version 19, got %d", v)
 	}
 
@@ -861,7 +861,7 @@ func TestMigrate_V16ToV17_CostReconciliations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
+	if v != 20 {
 		t.Fatalf("expected schema version 19, got %d", v)
 	}
 
@@ -907,7 +907,7 @@ func TestMigrate_V17ToV18_SandboxSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 19 {
+	if v != 20 {
 		t.Fatalf("expected schema version 19, got %d", v)
 	}
 

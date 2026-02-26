@@ -31,8 +31,9 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 }
 
 // ListEvents returns unified events for a run, merging phase_events,
-// dispatch_events, and discovery_events, ordered by timestamp. Uses separate
-// per-table cursors to avoid conflating independent AUTOINCREMENT ID spaces.
+// dispatch_events, coordination_events, and discovery_events, ordered by
+// timestamp. Uses separate per-table cursors to avoid conflating independent
+// AUTOINCREMENT ID spaces.
 func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
@@ -52,10 +53,16 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 			from_status, to_status, COALESCE(reason, '') AS reason, created_at
 		FROM dispatch_events
 		WHERE (run_id = ? OR ? = '') AND id > ?
+		UNION ALL
+		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
+			owner, pattern, COALESCE(reason, '') AS reason, created_at
+		FROM coordination_events
+		WHERE (run_id = ? OR ? = '') AND id > 0
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
 		runID, sincePhaseID,
 		runID, runID, sinceDispatchID,
+		runID, runID,
 		limit,
 	)
 	if err != nil {
@@ -66,7 +73,7 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 	return scanEvents(rows)
 }
 
-// ListAllEvents returns events across all runs, merging all three tables.
+// ListAllEvents returns events across all runs, merging all four event tables.
 func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
@@ -88,6 +95,11 @@ func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID
 			from_status, to_status, COALESCE(payload, '{}') AS reason, created_at
 		FROM discovery_events
 		WHERE id > ?
+		UNION ALL
+		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
+			owner, pattern, COALESCE(reason, '') AS reason, created_at
+		FROM coordination_events
+		WHERE id > 0
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
 		sincePhaseID, sinceDispatchID, sinceDiscoveryID, limit,
@@ -130,6 +142,32 @@ func (s *Store) MaxDispatchEventID(ctx context.Context) (int64, error) {
 func (s *Store) MaxDiscoveryEventID(ctx context.Context) (int64, error) {
 	var id sql.NullInt64
 	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM discovery_events").Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if !id.Valid {
+		return 0, nil
+	}
+	return id.Int64, nil
+}
+
+// AddCoordinationEvent records a coordination lock lifecycle event.
+func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, owner, pattern, scope, reason, runID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO coordination_events (lock_id, run_id, event_type, owner, pattern, scope, reason)
+		VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''))`,
+		lockID, runID, eventType, owner, pattern, scope, reason,
+	)
+	if err != nil {
+		return fmt.Errorf("add coordination event: %w", err)
+	}
+	return nil
+}
+
+// MaxCoordinationEventID returns the highest coordination_events.id (for cursor tracking).
+func (s *Store) MaxCoordinationEventID(ctx context.Context) (int64, error) {
+	var id sql.NullInt64
+	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM coordination_events").Scan(&id)
 	if err != nil {
 		return 0, err
 	}

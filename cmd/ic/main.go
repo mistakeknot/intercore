@@ -111,6 +111,8 @@ func main() {
 		exitCode = cmdCost(ctx, subArgs)
 	case "scheduler":
 		exitCode = cmdScheduler(ctx, subArgs)
+	case "coordination":
+		exitCode = cmdCoordination(ctx, subArgs)
 	default:
 		fmt.Fprintf(os.Stderr, "ic: unknown command: %s\n", subcommand)
 		printUsage()
