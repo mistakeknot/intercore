@@ -69,6 +69,16 @@ func cmdCostBaseline(ctx context.Context, args []string) int {
 
 	opts.JSON = flagJSON
 
+	// Resolve interstat script at CLI layer (avoids L1→L3 coupling in internal/)
+	if opts.InterstatScript == "" {
+		opts.InterstatScript = costpkg.FindInterstatScript()
+		if opts.InterstatScript == "" {
+			fmt.Fprintf(os.Stderr, "ic: cost baseline: interstat cost-query.sh not found\n")
+			fmt.Fprintf(os.Stderr, "  Hint: install interstat plugin or use --script=<path>\n")
+			return 2
+		}
+	}
+
 	result, err := costpkg.ComputeBaseline(ctx, opts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: cost baseline: %v\n", err)

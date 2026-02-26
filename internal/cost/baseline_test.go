@@ -229,6 +229,42 @@ func TestSortedKeys(t *testing.T) {
 	}
 }
 
+func TestParseVersion(t *testing.T) {
+	tests := []struct {
+		in   string
+		want [3]int
+	}{
+		{"0.2.6", [3]int{0, 2, 6}},
+		{"0.10.0", [3]int{0, 10, 0}},
+		{"1.0.0", [3]int{1, 0, 0}},
+		{"abc", [3]int{}},
+		{"1.2", [3]int{}},
+		{"", [3]int{}},
+	}
+	for _, tt := range tests {
+		got := parseVersion(tt.in)
+		if got != tt.want {
+			t.Errorf("parseVersion(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestFindInPluginCache_SemverSort(t *testing.T) {
+	// Create mock plugin cache with versions that sort differently lexicographically vs semver
+	tmp := t.TempDir()
+	for _, v := range []string{"0.6.83", "0.10.0", "0.2.6"} {
+		dir := filepath.Join(tmp, v, "scripts")
+		os.MkdirAll(dir, 0755)
+		os.WriteFile(filepath.Join(dir, "cost-query.sh"), []byte("#!/bin/bash\necho '[]'"), 0755)
+	}
+
+	got := findInPluginCache(tmp)
+	want := filepath.Join(tmp, "0.10.0", "scripts", "cost-query.sh")
+	if got != want {
+		t.Errorf("findInPluginCache picked %q, want %q (highest semver)", got, want)
+	}
+}
+
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsStr(s, sub))
 }

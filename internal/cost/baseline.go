@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -110,13 +111,10 @@ func ComputeBaseline(ctx context.Context, opts BaselineOpts) (*BaselineResult, e
 		beadIDs[b.ID] = true
 	}
 
-	// 2. Query interstat token data
+	// 2. Query interstat token data (script path must be set by caller)
 	scriptPath := opts.InterstatScript
 	if scriptPath == "" {
-		scriptPath = findInterstatScript()
-	}
-	if scriptPath == "" {
-		return nil, fmt.Errorf("interstat cost-query.sh not found (set InterstatScript or install interstat plugin)")
+		return nil, fmt.Errorf("InterstatScript is required (caller must resolve cost-query.sh path)")
 	}
 
 	result := &BaselineResult{
@@ -341,7 +339,7 @@ func computeStats(values []int64, inputTotal, outputTotal int64) TokenStats {
 	}
 
 	return TokenStats{
-		P50:         sorted[n*50/100],
+		P50:         sorted[min(n*50/100, n-1)],
 		P90:         sorted[min(n*90/100, n-1)],
 		P95:         sorted[min(n*95/100, n-1)],
 		Mean:        total / int64(n),
@@ -352,10 +350,11 @@ func computeStats(values []int64, inputTotal, outputTotal int64) TokenStats {
 	}
 }
 
-// findInterstatScript searches standard locations for cost-query.sh.
-func findInterstatScript() string {
+// FindInterstatScript searches standard locations for cost-query.sh.
+// Lives at the CLI layer (exported for cmd/ic) to avoid L1→L3 coupling.
+func FindInterstatScript() string {
 	candidates := []string{
-		// Monorepo location
+		// Monorepo location (relative to ic binary)
 		findRelativeToSelf("../../interverse/interstat/scripts/cost-query.sh"),
 		// Plugin cache location
 		filepath.Join(os.Getenv("HOME"), ".claude/plugins/cache/interagency-marketplace/interstat"),
@@ -367,15 +366,9 @@ func findInterstatScript() string {
 		}
 		// For plugin cache, look for the script inside any version dir
 		if strings.Contains(c, "plugins/cache") {
-			entries, err := os.ReadDir(c)
-			if err != nil {
-				continue
-			}
-			for i := len(entries) - 1; i >= 0; i-- {
-				p := filepath.Join(c, entries[i].Name(), "scripts", "cost-query.sh")
-				if _, err := os.Stat(p); err == nil {
-					return p
-				}
+			script := findInPluginCache(c)
+			if script != "" {
+				return script
 			}
 			continue
 		}
@@ -384,6 +377,65 @@ func findInterstatScript() string {
 		}
 	}
 	return ""
+}
+
+// findInPluginCache finds cost-query.sh in the highest semver version directory.
+func findInPluginCache(cacheDir string) string {
+	entries, err := os.ReadDir(cacheDir)
+	if err != nil {
+		return ""
+	}
+
+	// Sort by semver (not lexicographic) to pick highest version
+	type versioned struct {
+		name  string
+		parts [3]int
+	}
+	var versions []versioned
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		v := parseVersion(e.Name())
+		if v != [3]int{} {
+			versions = append(versions, versioned{name: e.Name(), parts: v})
+		}
+	}
+	sort.Slice(versions, func(i, j int) bool {
+		a, b := versions[i].parts, versions[j].parts
+		if a[0] != b[0] {
+			return a[0] > b[0]
+		}
+		if a[1] != b[1] {
+			return a[1] > b[1]
+		}
+		return a[2] > b[2]
+	})
+
+	for _, v := range versions {
+		p := filepath.Join(cacheDir, v.name, "scripts", "cost-query.sh")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// parseVersion extracts major.minor.patch from a version string like "0.2.6".
+func parseVersion(s string) [3]int {
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return [3]int{}
+	}
+	var v [3]int
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return [3]int{}
+		}
+		v[i] = n
+	}
+	return v
 }
 
 // findRelativeToSelf resolves a path relative to the ic binary's location.
