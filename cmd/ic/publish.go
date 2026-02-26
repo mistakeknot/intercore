@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -77,26 +78,23 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 	}
 
 	// Open DB for state tracking (optional — publish works without it)
-	var db *publish.Store
+	var engine *publish.Engine
 	d, err := openDB()
 	if err == nil {
 		defer d.Close()
-		engine := publish.NewEngine(d.SqlDB(), opts)
-		if err := engine.Publish(ctx); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: publish: %v\n", err)
-			return 2
-		}
-		return 0
+		engine = publish.NewEngine(d.SqlDB(), opts)
+	} else {
+		engine = publish.NewEngine(nil, opts)
 	}
 
-	// No DB — run without state tracking
-	_ = db
-	engine := publish.NewEngine(nil, opts)
 	if err := engine.Publish(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish: %v\n", err)
-		if err == publish.ErrVersionMatch {
+		if errors.Is(err, publish.ErrVersionMatch) {
+			if !opts.Auto {
+				fmt.Fprintf(os.Stderr, "ic: publish: %v\n", err)
+			}
 			return 0 // not an error
 		}
+		fmt.Fprintf(os.Stderr, "ic: publish: %v\n", err)
 		return 2
 	}
 	return 0

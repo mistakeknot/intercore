@@ -62,19 +62,39 @@ func (e *Engine) Publish(ctx context.Context) error {
 		return err
 	}
 
-	// Determine target version
-	targetVersion, err := e.resolveTargetVersion(plugin.Version)
-	if err != nil {
-		return err
+	// In auto mode, check if the developer already bumped (marketplace is stale).
+	// If plugin.json version > marketplace version, skip bump and just sync.
+	syncOnly := false
+	if e.opts.Auto {
+		mktVer, _ := ReadMarketplaceVersion(marketRoot, plugin.Name)
+		if mktVer != "" && mktVer != plugin.Version && CompareVersions(plugin.Version, mktVer) > 0 {
+			// Developer already bumped — just sync marketplace + local
+			syncOnly = true
+		}
 	}
 
-	if targetVersion == plugin.Version {
-		return ErrVersionMatch
+	// Determine target version
+	var targetVersion string
+	if syncOnly {
+		targetVersion = plugin.Version
+	} else {
+		targetVersion, err = e.resolveTargetVersion(plugin.Version)
+		if err != nil {
+			return err
+		}
+
+		if targetVersion == plugin.Version {
+			return ErrVersionMatch
+		}
 	}
 
 	derived := DiscoverVersionFiles(pluginRoot)
 
-	e.out("Publishing %s: %s → %s\n", plugin.Name, plugin.Version, targetVersion)
+	if syncOnly {
+		e.out("Syncing %s v%s to marketplace\n", plugin.Name, targetVersion)
+	} else {
+		e.out("Publishing %s: %s → %s\n", plugin.Name, plugin.Version, targetVersion)
+	}
 	if e.opts.DryRun {
 		e.out("  Plugin root:  %s\n", pluginRoot)
 		e.out("  Marketplace:  %s\n", marketRoot)
@@ -142,109 +162,111 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 	}
 
-	// Phase 2: Validation
-	setPhase(PhaseValidation)
-	e.out("  Validating...\n")
+	if !syncOnly {
+		// Phase 2: Validation
+		setPhase(PhaseValidation)
+		e.out("  Validating...\n")
 
-	clean, err := GitStatus(pluginRoot)
-	if err != nil {
-		setError(PhaseValidation, err)
-		return fmt.Errorf("check plugin worktree: %w", err)
-	}
-	if !clean {
-		err := ErrDirtyWorktree
-		setError(PhaseValidation, err)
-		return fmt.Errorf("plugin repo: %w", err)
-	}
-
-	clean, err = GitStatus(marketRoot)
-	if err != nil {
-		setError(PhaseValidation, err)
-		return fmt.Errorf("check marketplace worktree: %w", err)
-	}
-	if !clean {
-		err := fmt.Errorf("marketplace repo: %w", ErrDirtyWorktree)
-		setError(PhaseValidation, err)
-		return err
-	}
-
-	if err := GitRemoteReachable(pluginRoot); err != nil {
-		setError(PhaseValidation, err)
-		return err
-	}
-	if err := GitRemoteReachable(marketRoot); err != nil {
-		setError(PhaseValidation, err)
-		return err
-	}
-
-	// Run post-bump hook if present (legacy: runs before bump despite the name)
-	postBump := filepath.Join(pluginRoot, "scripts", "post-bump.sh")
-	if _, err := os.Stat(postBump); err == nil {
-		e.out("  Running post-bump hook...\n")
-		if err := runHook(postBump, targetVersion); err != nil {
-			setError(PhaseValidation, err)
-			return fmt.Errorf("post-bump hook: %w", err)
-		}
-	}
-
-	// Phase 3: Bump
-	setPhase(PhaseBump)
-	e.out("  Bumping versions...\n")
-
-	if err := WritePluginVersion(plugin.PluginJSON, targetVersion); err != nil {
-		setError(PhaseBump, err)
-		return fmt.Errorf("write plugin.json: %w", err)
-	}
-
-	if err := WriteDerivedVersions(derived, targetVersion); err != nil {
-		setError(PhaseBump, err)
-		return fmt.Errorf("write derived versions: %w", err)
-	}
-
-	// Verify
-	mismatches := VerifyVersions(plugin.PluginJSON, derived, targetVersion)
-	if len(mismatches) > 0 {
-		err := fmt.Errorf("version verification failed:\n  %s", strings.Join(mismatches, "\n  "))
-		setError(PhaseBump, err)
-		return err
-	}
-
-	// Phase 4: Commit plugin
-	setPhase(PhaseCommitPlugin)
-	e.out("  Committing plugin...\n")
-
-	filesToAdd := []string{filepath.Join(".claude-plugin", "plugin.json")}
-	for _, d := range derived {
-		rel, err := filepath.Rel(pluginRoot, d.Path)
+		clean, err := GitStatus(pluginRoot)
 		if err != nil {
-			continue
+			setError(PhaseValidation, err)
+			return fmt.Errorf("check plugin worktree: %w", err)
 		}
-		filesToAdd = append(filesToAdd, rel)
-	}
+		if !clean {
+			err := ErrDirtyWorktree
+			setError(PhaseValidation, err)
+			return fmt.Errorf("plugin repo: %w", err)
+		}
 
-	if err := GitAdd(pluginRoot, filesToAdd...); err != nil {
-		setError(PhaseCommitPlugin, err)
-		return err
-	}
+		clean, err = GitStatus(marketRoot)
+		if err != nil {
+			setError(PhaseValidation, err)
+			return fmt.Errorf("check marketplace worktree: %w", err)
+		}
+		if !clean {
+			err := fmt.Errorf("marketplace repo: %w", ErrDirtyWorktree)
+			setError(PhaseValidation, err)
+			return err
+		}
 
-	commitMsg := fmt.Sprintf("chore: bump version to %s", targetVersion)
-	if err := GitCommit(pluginRoot, commitMsg); err != nil {
-		setError(PhaseCommitPlugin, err)
-		return err
-	}
+		if err := GitRemoteReachable(pluginRoot); err != nil {
+			setError(PhaseValidation, err)
+			return err
+		}
+		if err := GitRemoteReachable(marketRoot); err != nil {
+			setError(PhaseValidation, err)
+			return err
+		}
 
-	if err := GitPullRebase(pluginRoot); err != nil {
-		setError(PhaseCommitPlugin, err)
-		return fmt.Errorf("pull --rebase (plugin): %w", err)
-	}
+		// Run post-bump hook if present (legacy: runs before bump despite the name)
+		postBump := filepath.Join(pluginRoot, "scripts", "post-bump.sh")
+		if _, err := os.Stat(postBump); err == nil {
+			e.out("  Running post-bump hook...\n")
+			if err := runHook(postBump, targetVersion); err != nil {
+				setError(PhaseValidation, err)
+				return fmt.Errorf("post-bump hook: %w", err)
+			}
+		}
 
-	// Phase 5: Push plugin
-	setPhase(PhasePushPlugin)
-	e.out("  Pushing plugin...\n")
+		// Phase 3: Bump
+		setPhase(PhaseBump)
+		e.out("  Bumping versions...\n")
 
-	if err := GitPush(pluginRoot); err != nil {
-		setError(PhasePushPlugin, err)
-		return err
+		if err := WritePluginVersion(plugin.PluginJSON, targetVersion); err != nil {
+			setError(PhaseBump, err)
+			return fmt.Errorf("write plugin.json: %w", err)
+		}
+
+		if err := WriteDerivedVersions(derived, targetVersion); err != nil {
+			setError(PhaseBump, err)
+			return fmt.Errorf("write derived versions: %w", err)
+		}
+
+		// Verify
+		mismatches := VerifyVersions(plugin.PluginJSON, derived, targetVersion)
+		if len(mismatches) > 0 {
+			err := fmt.Errorf("version verification failed:\n  %s", strings.Join(mismatches, "\n  "))
+			setError(PhaseBump, err)
+			return err
+		}
+
+		// Phase 4: Commit plugin
+		setPhase(PhaseCommitPlugin)
+		e.out("  Committing plugin...\n")
+
+		filesToAdd := []string{filepath.Join(".claude-plugin", "plugin.json")}
+		for _, d := range derived {
+			rel, err := filepath.Rel(pluginRoot, d.Path)
+			if err != nil {
+				continue
+			}
+			filesToAdd = append(filesToAdd, rel)
+		}
+
+		if err := GitAdd(pluginRoot, filesToAdd...); err != nil {
+			setError(PhaseCommitPlugin, err)
+			return err
+		}
+
+		commitMsg := fmt.Sprintf("chore: bump version to %s", targetVersion)
+		if err := GitCommit(pluginRoot, commitMsg); err != nil {
+			setError(PhaseCommitPlugin, err)
+			return err
+		}
+
+		if err := GitPullRebase(pluginRoot); err != nil {
+			setError(PhaseCommitPlugin, err)
+			return fmt.Errorf("pull --rebase (plugin): %w", err)
+		}
+
+		// Phase 5: Push plugin
+		setPhase(PhasePushPlugin)
+		e.out("  Pushing plugin...\n")
+
+		if err := GitPush(pluginRoot); err != nil {
+			setError(PhasePushPlugin, err)
+			return err
+		}
 	}
 
 	// Phase 6: Update marketplace
@@ -318,7 +340,11 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.store.Complete(ctx, stateID)
 	}
 
-	e.out("  Published %s v%s\n", plugin.Name, targetVersion)
+	if syncOnly {
+		e.out("  Synced %s v%s to marketplace\n", plugin.Name, targetVersion)
+	} else {
+		e.out("  Published %s v%s\n", plugin.Name, targetVersion)
+	}
 	e.out("  Restart Claude Code sessions to pick up the new version.\n")
 	return nil
 }
