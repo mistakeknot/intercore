@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/gate-evidence.json",
+  "properties": {
+    "conditions": {
+      "items": {
+        "properties": {
+          "check": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "check",
+          "result"
+        ]
+      },
+      "type": "array"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "conditions"
+  ]
+}

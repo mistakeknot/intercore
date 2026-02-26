@@ -99,6 +99,24 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("run create: %w", err)
 	}
+
+	idPayload, merr := json.Marshal(map[string]string{"generated_id": id})
+	if merr == nil {
+		artifactRef := "run:" + id
+		if err := insertReplayInput(
+			ctx,
+			s.db.ExecContext,
+			id,
+			"random",
+			"run_id",
+			string(idPayload),
+			artifactRef,
+			"run_create",
+			nil,
+		); err != nil {
+			return "", fmt.Errorf("run create: replay input: %w", err)
+		}
+	}
 	return id, nil
 }
 
@@ -310,7 +328,7 @@ func (s *Store) AddEvent(ctx context.Context, e *PhaseEvent) error {
 		envelopeJSON = defaultPhaseEnvelopeJSON(e.RunID, e.EventType, e.FromPhase, e.ToPhase)
 	}
 
-	_, err := s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO phase_events (
 			run_id, from_phase, to_phase, event_type,
 			gate_result, gate_tier, reason, envelope_json
@@ -320,6 +338,26 @@ func (s *Store) AddEvent(ctx context.Context, e *PhaseEvent) error {
 	)
 	if err != nil {
 		return fmt.Errorf("event add: %w", err)
+	}
+
+	var eventIDPtr *int64
+	artifactRef := ""
+	if eventID, idErr := res.LastInsertId(); idErr == nil && eventID > 0 {
+		eventIDPtr = &eventID
+		artifactRef = fmt.Sprintf("phase_event:%d", eventID)
+	}
+	if err := insertReplayInput(
+		ctx,
+		s.db.ExecContext,
+		e.RunID,
+		"time",
+		"phase_transition",
+		phaseReplayPayload(e),
+		artifactRef,
+		"phase",
+		eventIDPtr,
+	); err != nil {
+		return fmt.Errorf("event add replay input: %w", err)
 	}
 	return nil
 }

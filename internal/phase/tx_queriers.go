@@ -283,7 +283,7 @@ func (s *Store) AddEventQ(ctx context.Context, q Querier, e *PhaseEvent) error {
 		envelopeJSON = defaultPhaseEnvelopeJSON(e.RunID, e.EventType, e.FromPhase, e.ToPhase)
 	}
 
-	_, err := q.ExecContext(ctx, `
+	res, err := q.ExecContext(ctx, `
 		INSERT INTO phase_events (
 			run_id, from_phase, to_phase, event_type,
 			gate_result, gate_tier, reason, envelope_json
@@ -293,6 +293,26 @@ func (s *Store) AddEventQ(ctx context.Context, q Querier, e *PhaseEvent) error {
 	)
 	if err != nil {
 		return fmt.Errorf("event add: %w", err)
+	}
+
+	var eventIDPtr *int64
+	artifactRef := ""
+	if eventID, idErr := res.LastInsertId(); idErr == nil && eventID > 0 {
+		eventIDPtr = &eventID
+		artifactRef = fmt.Sprintf("phase_event:%d", eventID)
+	}
+	if err := insertReplayInput(
+		ctx,
+		q.ExecContext,
+		e.RunID,
+		"time",
+		"phase_transition",
+		phaseReplayPayload(e),
+		artifactRef,
+		"phase",
+		eventIDPtr,
+	); err != nil {
+		return fmt.Errorf("event add replay input: %w", err)
 	}
 	return nil
 }

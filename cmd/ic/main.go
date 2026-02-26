@@ -160,6 +160,9 @@ Commands:
   run skip <id> <phase> --reason=<text>  Pre-skip a phase
   run rollback <id> --to-phase=<p> [--reason=<text>] [--dry-run]
   run rollback <id> --layer=code [--phase=<p>] [--format=json|text]
+  run replay <id> [--mode=simulate|reexecute] [--allow-live] [--limit=N]
+  run replay inputs <id> [--limit=N]   List recorded nondeterministic inputs
+  run replay record <id> --kind=<kind> [--key=<k>] [--payload=<json>] [--artifact-ref=<ref>]
   run tokens <id>               Token aggregation across dispatches
   run budget <id>               Check budget thresholds (exit 1=exceeded)
   run cancel <id>               Cancel a run

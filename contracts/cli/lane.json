@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/lane.json",
+  "properties": {
+    "ID": {
+      "type": "string"
+    },
+    "Name": {
+      "type": "string"
+    },
+    "LaneType": {
+      "type": "string"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "Description": {
+      "type": "string"
+    },
+    "Metadata": {
+      "type": "string"
+    },
+    "CreatedAt": {
+      "type": "integer"
+    },
+    "UpdatedAt": {
+      "type": "integer"
+    },
+    "ClosedAt": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ID",
+    "Name",
+    "LaneType",
+    "Status",
+    "Description",
+    "Metadata",
+    "CreatedAt",
+    "UpdatedAt",
+    "ClosedAt"
+  ]
+}

@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/dispatch.json",
+  "properties": {
+    "ID": {
+      "type": "string"
+    },
+    "AgentType": {
+      "type": "string"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "ProjectDir": {
+      "type": "string"
+    },
+    "PromptFile": {
+      "type": "string"
+    },
+    "PromptHash": {
+      "type": "string"
+    },
+    "OutputFile": {
+      "type": "string"
+    },
+    "VerdictFile": {
+      "type": "string"
+    },
+    "PID": {
+      "type": "integer"
+    },
+    "ExitCode": {
+      "type": "integer"
+    },
+    "Name": {
+      "type": "string"
+    },
+    "Model": {
+      "type": "string"
+    },
+    "Sandbox": {
+      "type": "string"
+    },
+    "SandboxSpec": {
+      "type": "string"
+    },
+    "SandboxEffective": {
+      "type": "string"
+    },
+    "TimeoutSec": {
+      "type": "integer"
+    },
+    "Turns": {
+      "type": "integer"
+    },
+    "Commands": {
+      "type": "integer"
+    },
+    "Messages": {
+      "type": "integer"
+    },
+    "InputTokens": {
+      "type": "integer"
+    },
+    "OutputTokens": {
+      "type": "integer"
+    },
+    "CacheHits": {
+      "type": "integer"
+    },
+    "CreatedAt": {
+      "type": "integer"
+    },
+    "StartedAt": {
+      "type": "integer"
+    },
+    "CompletedAt": {
+      "type": "integer"
+    },
+    "VerdictStatus": {
+      "type": "string"
+    },
+    "VerdictSummary": {
+      "type": "string"
+    },
+    "ErrorMessage": {
+      "type": "string"
+    },
+    "ScopeID": {
+      "type": "string"
+    },
+    "ParentID": {
+      "type": "string"
+    },
+    "BaseRepoCommit": {
+      "type": "string"
+    },
+    "RetryCount": {
+      "type": "integer"
+    },
+    "ConflictType": {
+      "type": "string"
+    },
+    "QuarantineReason": {
+      "type": "string"
+    },
+    "SpawnDepth": {
+      "type": "integer"
+    },
+    "ParentDispatchID": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ID",
+    "AgentType",
+    "Status",
+    "ProjectDir",
+    "PromptFile",
+    "PromptHash",
+    "OutputFile",
+    "VerdictFile",
+    "PID",
+    "ExitCode",
+    "Name",
+    "Model",
+    "Sandbox",
+    "SandboxSpec",
+    "SandboxEffective",
+    "TimeoutSec",
+    "Turns",
+    "Commands",
+    "Messages",
+    "InputTokens",
+    "OutputTokens",
+    "CacheHits",
+    "CreatedAt",
+    "StartedAt",
+    "CompletedAt",
+    "VerdictStatus",
+    "VerdictSummary",
+    "ErrorMessage",
+    "ScopeID",
+    "ParentID",
+    "BaseRepoCommit",
+    "RetryCount",
+    "ConflictType",
+    "QuarantineReason",
+    "SpawnDepth",
+    "ParentDispatchID"
+  ]
+}

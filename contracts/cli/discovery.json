@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/discovery.json",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "url": {
+      "type": "string"
+    },
+    "raw_metadata": {
+      "type": "string"
+    },
+    "relevance_score": {
+      "type": "number"
+    },
+    "confidence_tier": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "bead_id": {
+      "type": "string"
+    },
+    "discovered_at": {
+      "type": "integer"
+    },
+    "promoted_at": {
+      "type": "integer"
+    },
+    "reviewed_at": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "source",
+    "source_id",
+    "title",
+    "relevance_score",
+    "confidence_tier",
+    "status",
+    "discovered_at"
+  ]
+}

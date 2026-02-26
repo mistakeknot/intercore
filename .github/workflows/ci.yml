@@ -17,3 +17,37 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Run migration tests
+        run: go test -race -v ./internal/db/ -run TestMigrator
+
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Regenerate schemas
+        run: go generate ./contracts/...
+      - name: Check for schema drift
+        run: |
+          if [ -n "$(ls contracts/overrides/*.md 2>/dev/null)" ]; then
+            echo "Override file(s) found — schema changes are authorized this cycle:"
+            ls contracts/overrides/*.md
+            exit 0
+          fi
+          if ! git diff --exit-code contracts/cli/ contracts/events/; then
+            echo ""
+            echo "ERROR: Schema snapshots are out of date."
+            echo ""
+            echo "If this is an intentional breaking change:"
+            echo "  1. Create contracts/overrides/$(date +%Y-%m-%d)-<description>.md"
+            echo "  2. Document the change and migration notes for consumers"
+            echo "  3. Re-run CI"
+            echo ""
+            echo "If this is unintentional, your code changed a CLI output struct."
+            echo "Run 'go generate ./contracts/...' locally and commit the updated schemas."
+            exit 1
+          fi
+          echo "Schemas are up to date."

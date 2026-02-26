@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/lane-event.json",
+  "properties": {
+    "ID": {
+      "type": "integer"
+    },
+    "LaneID": {
+      "type": "string"
+    },
+    "EventType": {
+      "type": "string"
+    },
+    "Payload": {
+      "type": "string"
+    },
+    "CreatedAt": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ID",
+    "LaneID",
+    "EventType",
+    "Payload",
+    "CreatedAt"
+  ]
+}

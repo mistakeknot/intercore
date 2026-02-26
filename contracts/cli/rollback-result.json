@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/rollback-result.json",
+  "properties": {
+    "FromPhase": {
+      "type": "string"
+    },
+    "ToPhase": {
+      "type": "string"
+    },
+    "RolledBackPhases": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "Reason": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "FromPhase",
+    "ToPhase",
+    "RolledBackPhases",
+    "Reason"
+  ]
+}

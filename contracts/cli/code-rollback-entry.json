@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/code-rollback-entry.json",
+  "properties": {
+    "dispatch_id": {
+      "type": "string"
+    },
+    "dispatch_name": {
+      "type": "string"
+    },
+    "phase": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "content_hash": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "dispatch_id",
+    "dispatch_name",
+    "phase",
+    "path",
+    "content_hash",
+    "type",
+    "status"
+  ]
+}

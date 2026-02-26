@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/dispatch-token-aggregation.json",
+  "properties": {
+    "TotalIn": {
+      "type": "integer"
+    },
+    "TotalOut": {
+      "type": "integer"
+    },
+    "TotalCache": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "TotalIn",
+    "TotalOut",
+    "TotalCache"
+  ]
+}

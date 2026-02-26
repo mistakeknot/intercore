@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/events/event.json",
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "from_state": {
+      "type": "string"
+    },
+    "to_state": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "envelope": {
+      "properties": {
+        "policy_version": {
+          "type": "string"
+        },
+        "caller_identity": {
+          "type": "string"
+        },
+        "capability_scope": {
+          "type": "string"
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "span_id": {
+          "type": "string"
+        },
+        "parent_span_id": {
+          "type": "string"
+        },
+        "input_artifact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "output_artifact_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requested_sandbox": {
+          "type": "string"
+        },
+        "effective_sandbox": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "run_id",
+    "source",
+    "type",
+    "from_state",
+    "to_state",
+    "timestamp"
+  ]
+}

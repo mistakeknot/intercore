@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/feedback-signal.json",
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "discovery_id": {
+      "type": "string"
+    },
+    "signal_type": {
+      "type": "string"
+    },
+    "signal_data": {
+      "type": "string"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "discovery_id",
+    "signal_type",
+    "actor",
+    "created_at"
+  ]
+}

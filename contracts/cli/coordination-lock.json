@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/coordination-lock.json",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "pattern": {
+      "type": "string"
+    },
+    "exclusive": {
+      "type": "boolean"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "ttl_seconds": {
+      "type": "integer"
+    },
+    "created_at": {
+      "type": "integer"
+    },
+    "expires_at": {
+      "type": "integer"
+    },
+    "released_at": {
+      "type": "integer"
+    },
+    "dispatch_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "owner",
+    "scope",
+    "pattern",
+    "exclusive",
+    "created_at"
+  ]
+}

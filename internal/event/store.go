@@ -28,7 +28,7 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 		return fmt.Errorf("add dispatch event: marshal envelope: %w", err)
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO dispatch_events (
 			dispatch_id, run_id, from_status, to_status, event_type, reason, envelope_json
 		) VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?)`,
@@ -36,6 +36,26 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 	)
 	if err != nil {
 		return fmt.Errorf("add dispatch event: %w", err)
+	}
+
+	var eventIDPtr *int64
+	artifactRef := ""
+	if eventID, idErr := res.LastInsertId(); idErr == nil && eventID > 0 {
+		eventIDPtr = &eventID
+		artifactRef = fmt.Sprintf("dispatch_event:%d", eventID)
+	}
+	if err := insertReplayInput(
+		ctx,
+		s.db.ExecContext,
+		runID,
+		"external",
+		"dispatch_transition",
+		dispatchReplayPayload(dispatchID, fromStatus, toStatus, eventType, reason, envelope),
+		artifactRef,
+		"dispatch",
+		eventIDPtr,
+	); err != nil {
+		return fmt.Errorf("add dispatch event replay input: %w", err)
 	}
 	return nil
 }
@@ -171,7 +191,7 @@ func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, own
 		return fmt.Errorf("add coordination event: marshal envelope: %w", err)
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO coordination_events (
 			lock_id, run_id, event_type, owner, pattern, scope, reason, envelope_json
 		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''), ?)`,
@@ -179,6 +199,26 @@ func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, own
 	)
 	if err != nil {
 		return fmt.Errorf("add coordination event: %w", err)
+	}
+
+	var eventIDPtr *int64
+	artifactRef := ""
+	if eventID, idErr := res.LastInsertId(); idErr == nil && eventID > 0 {
+		eventIDPtr = &eventID
+		artifactRef = fmt.Sprintf("coordination_event:%d", eventID)
+	}
+	if err := insertReplayInput(
+		ctx,
+		s.db.ExecContext,
+		runID,
+		"external",
+		"coordination_transition",
+		coordinationReplayPayload(eventType, lockID, owner, pattern, scope, reason, envelope),
+		artifactRef,
+		"coordination",
+		eventIDPtr,
+	); err != nil {
+		return fmt.Errorf("add coordination event replay input: %w", err)
 	}
 	return nil
 }

@@ -1,7 +1,10 @@
+-- Migration 020: baseline schema (captures v20 state)
+-- Applied to new (empty) databases only. Existing databases use additive migrations.
+
 -- intercore schema v1
 -- Schema version tracked via PRAGMA user_version (no separate table)
 
-CREATE TABLE IF NOT EXISTS state (
+CREATE TABLE state (
     key         TEXT NOT NULL,
     scope_id    TEXT NOT NULL,
     payload     TEXT NOT NULL,
@@ -10,10 +13,10 @@ CREATE TABLE IF NOT EXISTS state (
     PRIMARY KEY (key, scope_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_state_scope ON state(scope_id, key);
-CREATE INDEX IF NOT EXISTS idx_state_expires ON state(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX idx_state_scope ON state(scope_id, key);
+CREATE INDEX idx_state_expires ON state(expires_at) WHERE expires_at IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS sentinels (
+CREATE TABLE sentinels (
     name        TEXT NOT NULL,
     scope_id    TEXT NOT NULL,
     last_fired  INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -21,7 +24,7 @@ CREATE TABLE IF NOT EXISTS sentinels (
 );
 
 -- v2: dispatch tracking
-CREATE TABLE IF NOT EXISTS dispatches (
+CREATE TABLE dispatches (
     id              TEXT NOT NULL PRIMARY KEY,
     agent_type      TEXT NOT NULL DEFAULT 'codex',
     status          TEXT NOT NULL DEFAULT 'spawned',
@@ -59,11 +62,11 @@ CREATE TABLE IF NOT EXISTS dispatches (
     spawn_depth       INTEGER NOT NULL DEFAULT 0,
     parent_dispatch_id TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX IF NOT EXISTS idx_dispatches_status ON dispatches(status) WHERE status IN ('spawned', 'running');
-CREATE INDEX IF NOT EXISTS idx_dispatches_scope ON dispatches(scope_id) WHERE scope_id IS NOT NULL;
+CREATE INDEX idx_dispatches_status ON dispatches(status) WHERE status IN ('spawned', 'running');
+CREATE INDEX idx_dispatches_scope ON dispatches(scope_id) WHERE scope_id IS NOT NULL;
 
 -- v11: merge intent records (transactional outbox for git+SQLite coordination)
-CREATE TABLE IF NOT EXISTS merge_intents (
+CREATE TABLE merge_intents (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     dispatch_id     TEXT NOT NULL,
     run_id          TEXT,
@@ -76,11 +79,11 @@ CREATE TABLE IF NOT EXISTS merge_intents (
     created_at      INTEGER NOT NULL DEFAULT (unixepoch()),
     completed_at    INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_merge_intents_status ON merge_intents(status) WHERE status = 'pending';
-CREATE INDEX IF NOT EXISTS idx_merge_intents_dispatch ON merge_intents(dispatch_id);
+CREATE INDEX idx_merge_intents_status ON merge_intents(status) WHERE status = 'pending';
+CREATE INDEX idx_merge_intents_dispatch ON merge_intents(dispatch_id);
 
 -- v3: phase state machine (runs + events)
-CREATE TABLE IF NOT EXISTS runs (
+CREATE TABLE runs (
     id              TEXT NOT NULL PRIMARY KEY,
     project_dir     TEXT NOT NULL,
     goal            TEXT NOT NULL,
@@ -103,10 +106,10 @@ CREATE TABLE IF NOT EXISTS runs (
     max_agents      INTEGER DEFAULT 0,
     gate_rules      TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status) WHERE status = 'active';
-CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
+CREATE INDEX idx_runs_status ON runs(status) WHERE status = 'active';
+CREATE INDEX idx_runs_parent ON runs(parent_run_id) WHERE parent_run_id IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS phase_events (
+CREATE TABLE phase_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id          TEXT NOT NULL REFERENCES runs(id),
     from_phase      TEXT NOT NULL,
@@ -118,10 +121,10 @@ CREATE TABLE IF NOT EXISTS phase_events (
     envelope_json   TEXT,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_phase_events_run ON phase_events(run_id);
+CREATE INDEX idx_phase_events_run ON phase_events(run_id);
 
 -- v4: run tracking (agents + artifacts)
-CREATE TABLE IF NOT EXISTS run_agents (
+CREATE TABLE run_agents (
     id          TEXT NOT NULL PRIMARY KEY,
     run_id      TEXT NOT NULL REFERENCES runs(id),
     agent_type  TEXT NOT NULL DEFAULT 'claude',
@@ -131,10 +134,10 @@ CREATE TABLE IF NOT EXISTS run_agents (
     created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at  INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_run_agents_run ON run_agents(run_id);
-CREATE INDEX IF NOT EXISTS idx_run_agents_status ON run_agents(status) WHERE status = 'active';
+CREATE INDEX idx_run_agents_run ON run_agents(run_id);
+CREATE INDEX idx_run_agents_status ON run_agents(status) WHERE status = 'active';
 
-CREATE TABLE IF NOT EXISTS run_artifacts (
+CREATE TABLE run_artifacts (
     id          TEXT NOT NULL PRIMARY KEY,
     run_id      TEXT NOT NULL REFERENCES runs(id),
     phase       TEXT NOT NULL,
@@ -145,11 +148,11 @@ CREATE TABLE IF NOT EXISTS run_artifacts (
     status      TEXT NOT NULL DEFAULT 'active',
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_run_artifacts_run ON run_artifacts(run_id);
-CREATE INDEX IF NOT EXISTS idx_run_artifacts_phase ON run_artifacts(run_id, phase);
+CREATE INDEX idx_run_artifacts_run ON run_artifacts(run_id);
+CREATE INDEX idx_run_artifacts_phase ON run_artifacts(run_id, phase);
 
 -- v5: dispatch events (event bus)
-CREATE TABLE IF NOT EXISTS dispatch_events (
+CREATE TABLE dispatch_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     dispatch_id     TEXT NOT NULL,
     run_id          TEXT,
@@ -160,12 +163,12 @@ CREATE TABLE IF NOT EXISTS dispatch_events (
     envelope_json   TEXT,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_dispatch_events_dispatch ON dispatch_events(dispatch_id);
-CREATE INDEX IF NOT EXISTS idx_dispatch_events_run ON dispatch_events(run_id) WHERE run_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_dispatch_events_created ON dispatch_events(created_at);
+CREATE INDEX idx_dispatch_events_dispatch ON dispatch_events(dispatch_id);
+CREATE INDEX idx_dispatch_events_run ON dispatch_events(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_dispatch_events_created ON dispatch_events(created_at);
 
 -- v7: interspect evidence events
-CREATE TABLE IF NOT EXISTS interspect_events (
+CREATE TABLE interspect_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id          TEXT,
     agent_name      TEXT NOT NULL,
@@ -176,12 +179,12 @@ CREATE TABLE IF NOT EXISTS interspect_events (
     project_dir     TEXT,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_interspect_events_agent ON interspect_events(agent_name);
-CREATE INDEX IF NOT EXISTS idx_interspect_events_created ON interspect_events(created_at);
-CREATE INDEX IF NOT EXISTS idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX idx_interspect_events_agent ON interspect_events(agent_name);
+CREATE INDEX idx_interspect_events_created ON interspect_events(created_at);
+CREATE INDEX idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;
 
 -- v9: discovery pipeline
-CREATE TABLE IF NOT EXISTS discoveries (
+CREATE TABLE discoveries (
     id              TEXT PRIMARY KEY,
     source          TEXT NOT NULL,
     source_id       TEXT NOT NULL,
@@ -200,11 +203,11 @@ CREATE TABLE IF NOT EXISTS discoveries (
     reviewed_at     INTEGER,
     UNIQUE(source, source_id)
 );
-CREATE INDEX IF NOT EXISTS idx_discoveries_source ON discoveries(source);
-CREATE INDEX IF NOT EXISTS idx_discoveries_status ON discoveries(status) WHERE status NOT IN ('dismissed');
-CREATE INDEX IF NOT EXISTS idx_discoveries_tier ON discoveries(confidence_tier);
+CREATE INDEX idx_discoveries_source ON discoveries(source);
+CREATE INDEX idx_discoveries_status ON discoveries(status) WHERE status NOT IN ('dismissed');
+CREATE INDEX idx_discoveries_tier ON discoveries(confidence_tier);
 
-CREATE TABLE IF NOT EXISTS discovery_events (
+CREATE TABLE discovery_events (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     discovery_id    TEXT NOT NULL,
     event_type      TEXT NOT NULL,
@@ -213,10 +216,10 @@ CREATE TABLE IF NOT EXISTS discovery_events (
     payload         TEXT NOT NULL DEFAULT '{}',
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_discovery_events_discovery ON discovery_events(discovery_id);
-CREATE INDEX IF NOT EXISTS idx_discovery_events_created ON discovery_events(created_at);
+CREATE INDEX idx_discovery_events_discovery ON discovery_events(discovery_id);
+CREATE INDEX idx_discovery_events_created ON discovery_events(created_at);
 
-CREATE TABLE IF NOT EXISTS feedback_signals (
+CREATE TABLE feedback_signals (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     discovery_id    TEXT NOT NULL,
     signal_type     TEXT NOT NULL,
@@ -224,9 +227,9 @@ CREATE TABLE IF NOT EXISTS feedback_signals (
     actor           TEXT NOT NULL DEFAULT 'system',
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_feedback_signals_discovery ON feedback_signals(discovery_id);
+CREATE INDEX idx_feedback_signals_discovery ON feedback_signals(discovery_id);
 
-CREATE TABLE IF NOT EXISTS interest_profile (
+CREATE TABLE interest_profile (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
     topic_vector    BLOB,
     keyword_weights TEXT NOT NULL DEFAULT '{}',
@@ -235,7 +238,7 @@ CREATE TABLE IF NOT EXISTS interest_profile (
 );
 
 -- v10: portfolio orchestration
-CREATE TABLE IF NOT EXISTS project_deps (
+CREATE TABLE project_deps (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     portfolio_run_id    TEXT NOT NULL REFERENCES runs(id),
     upstream_project    TEXT NOT NULL,
@@ -243,10 +246,10 @@ CREATE TABLE IF NOT EXISTS project_deps (
     created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
     UNIQUE(portfolio_run_id, upstream_project, downstream_project)
 );
-CREATE INDEX IF NOT EXISTS idx_project_deps_portfolio ON project_deps(portfolio_run_id);
+CREATE INDEX idx_project_deps_portfolio ON project_deps(portfolio_run_id);
 
 -- v13: thematic work lanes
-CREATE TABLE IF NOT EXISTS lanes (
+CREATE TABLE lanes (
     id          TEXT NOT NULL PRIMARY KEY,
     name        TEXT NOT NULL UNIQUE,
     lane_type   TEXT NOT NULL DEFAULT 'standing',  -- 'standing' or 'arc'
@@ -257,29 +260,29 @@ CREATE TABLE IF NOT EXISTS lanes (
     updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
     closed_at   INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_lanes_status ON lanes(status) WHERE status = 'active';
-CREATE INDEX IF NOT EXISTS idx_lanes_type ON lanes(lane_type);
+CREATE INDEX idx_lanes_status ON lanes(status) WHERE status = 'active';
+CREATE INDEX idx_lanes_type ON lanes(lane_type);
 
-CREATE TABLE IF NOT EXISTS lane_events (
+CREATE TABLE lane_events (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     lane_id     TEXT NOT NULL REFERENCES lanes(id),
     event_type  TEXT NOT NULL,  -- 'created', 'bead_added', 'bead_removed', 'snapshot', 'closed'
     payload     TEXT NOT NULL DEFAULT '{}',
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_lane_events_lane ON lane_events(lane_id);
-CREATE INDEX IF NOT EXISTS idx_lane_events_created ON lane_events(created_at);
+CREATE INDEX idx_lane_events_lane ON lane_events(lane_id);
+CREATE INDEX idx_lane_events_created ON lane_events(created_at);
 
-CREATE TABLE IF NOT EXISTS lane_members (
+CREATE TABLE lane_members (
     lane_id     TEXT NOT NULL REFERENCES lanes(id),
     bead_id     TEXT NOT NULL,
     added_at    INTEGER NOT NULL DEFAULT (unixepoch()),
     PRIMARY KEY (lane_id, bead_id)
 );
-CREATE INDEX IF NOT EXISTS idx_lane_members_bead ON lane_members(bead_id);
+CREATE INDEX idx_lane_members_bead ON lane_members(bead_id);
 
 -- v14: phase actions (event-driven advancement)
-CREATE TABLE IF NOT EXISTS phase_actions (
+CREATE TABLE phase_actions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id      TEXT NOT NULL REFERENCES runs(id),
     phase       TEXT NOT NULL,
@@ -292,11 +295,11 @@ CREATE TABLE IF NOT EXISTS phase_actions (
     updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
     UNIQUE(run_id, phase, command)
 );
-CREATE INDEX IF NOT EXISTS idx_phase_actions_run ON phase_actions(run_id);
-CREATE INDEX IF NOT EXISTS idx_phase_actions_phase ON phase_actions(run_id, phase);
+CREATE INDEX idx_phase_actions_run ON phase_actions(run_id);
+CREATE INDEX idx_phase_actions_phase ON phase_actions(run_id, phase);
 
 -- v15: tamper-evident audit trail
-CREATE TABLE IF NOT EXISTS audit_log (
+CREATE TABLE audit_log (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id   TEXT NOT NULL,
     event_type   TEXT NOT NULL,
@@ -309,13 +312,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
     sequence_num INTEGER NOT NULL,
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id, sequence_num);
-CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
-CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor);
-CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+CREATE INDEX idx_audit_log_session ON audit_log(session_id, sequence_num);
+CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX idx_audit_log_actor ON audit_log(actor);
+CREATE INDEX idx_audit_log_created ON audit_log(created_at);
 
 -- v17: cost reconciliation records
-CREATE TABLE IF NOT EXISTS cost_reconciliations (
+CREATE TABLE cost_reconciliations (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id          TEXT NOT NULL,
     dispatch_id     TEXT,
@@ -328,11 +331,11 @@ CREATE TABLE IF NOT EXISTS cost_reconciliations (
     source          TEXT NOT NULL DEFAULT 'manual',
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_cost_recon_run ON cost_reconciliations(run_id);
-CREATE INDEX IF NOT EXISTS idx_cost_recon_dispatch ON cost_reconciliations(dispatch_id) WHERE dispatch_id IS NOT NULL;
+CREATE INDEX idx_cost_recon_run ON cost_reconciliations(run_id);
+CREATE INDEX idx_cost_recon_dispatch ON cost_reconciliations(dispatch_id) WHERE dispatch_id IS NOT NULL;
 
 -- v20: coordination locks (unified file reservations, named locks, write-sets)
-CREATE TABLE IF NOT EXISTS coordination_locks (
+CREATE TABLE coordination_locks (
     id           TEXT PRIMARY KEY,
     type         TEXT NOT NULL CHECK(type IN ('file_reservation', 'named_lock', 'write_set')),
     owner        TEXT NOT NULL,
@@ -347,14 +350,14 @@ CREATE TABLE IF NOT EXISTS coordination_locks (
     dispatch_id  TEXT,
     run_id       TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_coord_active ON coordination_locks(scope, type)
+CREATE INDEX idx_coord_active ON coordination_locks(scope, type)
     WHERE released_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_coord_owner ON coordination_locks(owner)
+CREATE INDEX idx_coord_owner ON coordination_locks(owner)
     WHERE released_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_coord_expires ON coordination_locks(expires_at)
+CREATE INDEX idx_coord_expires ON coordination_locks(expires_at)
     WHERE released_at IS NULL AND expires_at IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS coordination_events (
+CREATE TABLE coordination_events (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     lock_id    TEXT NOT NULL,
     run_id     TEXT,
@@ -366,12 +369,12 @@ CREATE TABLE IF NOT EXISTS coordination_events (
     envelope_json TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_coord_events_run ON coordination_events(run_id)
+CREATE INDEX idx_coord_events_run ON coordination_events(run_id)
     WHERE run_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_coord_events_scope ON coordination_events(scope);
+CREATE INDEX idx_coord_events_scope ON coordination_events(scope);
 
 -- v19: scheduler job queue
-CREATE TABLE IF NOT EXISTS scheduler_jobs (
+CREATE TABLE scheduler_jobs (
     id          TEXT PRIMARY KEY,
     status      TEXT NOT NULL DEFAULT 'pending',
     priority    INTEGER NOT NULL DEFAULT 2,
@@ -388,11 +391,11 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
     completed_at INTEGER,
     FOREIGN KEY (dispatch_id) REFERENCES dispatches(id)
 );
-CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_status ON scheduler_jobs(status);
-CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_session ON scheduler_jobs(session_name);
+CREATE INDEX idx_scheduler_jobs_status ON scheduler_jobs(status);
+CREATE INDEX idx_scheduler_jobs_session ON scheduler_jobs(session_name);
 
 -- v22: replay input capture for deterministic run replay
-CREATE TABLE IF NOT EXISTS run_replay_inputs (
+CREATE TABLE run_replay_inputs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id       TEXT NOT NULL REFERENCES runs(id),
     kind         TEXT NOT NULL,
@@ -403,7 +406,7 @@ CREATE TABLE IF NOT EXISTS run_replay_inputs (
     event_id     INTEGER,
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_created
+CREATE INDEX idx_replay_inputs_run_created
     ON run_replay_inputs(run_id, created_at, id);
-CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_kind
+CREATE INDEX idx_replay_inputs_run_kind
     ON run_replay_inputs(run_id, kind, created_at, id);

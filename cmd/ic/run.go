@@ -16,6 +16,7 @@ import (
 	"github.com/mistakeknot/intercore/internal/event"
 	"github.com/mistakeknot/intercore/internal/phase"
 	portfoliopkg "github.com/mistakeknot/intercore/internal/portfolio"
+	"github.com/mistakeknot/intercore/internal/replay"
 	"github.com/mistakeknot/intercore/internal/runtrack"
 	"github.com/mistakeknot/intercore/internal/state"
 )
@@ -24,7 +25,7 @@ import (
 
 func cmdRun(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, action, tokens, budget)\n")
+		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, action, tokens, budget, replay)\n")
 		return 3
 	}
 
@@ -61,6 +62,8 @@ func cmdRun(ctx context.Context, args []string) int {
 		return cmdRunTokens(ctx, args[1:])
 	case "budget":
 		return cmdRunBudget(ctx, args[1:])
+	case "replay":
+		return cmdRunReplay(ctx, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "ic: run: unknown subcommand: %s\n", args[0])
 		return 3
@@ -1628,6 +1631,277 @@ func cmdRunBudget(ctx context.Context, args []string) int {
 
 	if result.Exceeded {
 		return 1
+	}
+	return 0
+}
+
+type replayGate struct {
+	Allowed bool   `json:"allowed"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type replayOutput struct {
+	RunID     string            `json:"run_id"`
+	Mode      string            `json:"mode"`
+	RunStatus string            `json:"run_status"`
+	Decisions []replay.Decision `json:"decisions"`
+	Inputs    []*replay.Input   `json:"inputs"`
+	Reexecute replayGate        `json:"reexecute"`
+}
+
+func cmdRunReplay(ctx context.Context, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "ic: run replay: usage: ic run replay <run_id> [--mode=simulate|reexecute] [--allow-live] [--limit=N]\n")
+		fmt.Fprintf(os.Stderr, "                ic run replay inputs <run_id> [--limit=N]\n")
+		fmt.Fprintf(os.Stderr, "                ic run replay record <run_id> --kind=<kind> [--key=<k>] [--payload=<json>] [--artifact-ref=<ref>] [--event-source=<src>] [--event-id=<id>]\n")
+		return 3
+	}
+
+	switch args[0] {
+	case "inputs":
+		return cmdRunReplayInputs(ctx, args[1:])
+	case "record":
+		return cmdRunReplayRecord(ctx, args[1:])
+	}
+
+	runID := args[0]
+	mode := "simulate"
+	allowLive := false
+	limit := 2000
+
+	for _, arg := range args[1:] {
+		switch {
+		case strings.HasPrefix(arg, "--mode="):
+			mode = strings.TrimPrefix(arg, "--mode=")
+		case arg == "--allow-live":
+			allowLive = true
+		case strings.HasPrefix(arg, "--limit="):
+			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+			if err != nil || v <= 0 {
+				fmt.Fprintf(os.Stderr, "ic: run replay: invalid --limit: %s\n", strings.TrimPrefix(arg, "--limit="))
+				return 3
+			}
+			limit = v
+		default:
+			fmt.Fprintf(os.Stderr, "ic: run replay: unknown flag: %s\n", arg)
+			return 3
+		}
+	}
+
+	if mode != "simulate" && mode != "reexecute" {
+		fmt.Fprintf(os.Stderr, "ic: run replay: invalid --mode (simulate|reexecute): %s\n", mode)
+		return 3
+	}
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run replay: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	pStore := phase.New(d.SqlDB())
+	run, err := pStore.Get(ctx, runID)
+	if err != nil {
+		if err == phase.ErrNotFound {
+			fmt.Fprintf(os.Stderr, "ic: run replay: run not found: %s\n", runID)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "ic: run replay: %v\n", err)
+		return 2
+	}
+
+	if run.Status != phase.StatusCompleted {
+		fmt.Fprintf(os.Stderr, "ic: run replay: run must be completed for deterministic replay (status=%s)\n", run.Status)
+		return 1
+	}
+
+	evStore := event.NewStore(d.SqlDB())
+	events, err := evStore.ListEvents(ctx, runID, 0, 0, 0, limit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run replay: list events: %v\n", err)
+		return 2
+	}
+
+	replayStore := replay.New(d.SqlDB())
+	inputs, err := replayStore.ListInputs(ctx, runID, limit*2)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run replay: list inputs: %v\n", err)
+		return 2
+	}
+
+	out := replayOutput{
+		RunID:     runID,
+		Mode:      mode,
+		RunStatus: run.Status,
+		Inputs:    inputs,
+		Reexecute: replayGate{
+			Allowed: false,
+		},
+	}
+	out.Decisions = replay.BuildTimeline(events, inputs)
+
+	if mode == "simulate" {
+		out.Reexecute.Reason = "simulate mode has no side effects"
+	} else {
+		if !allowLive {
+			out.Reexecute.Reason = "live reexecute is gated: pass --allow-live to request it"
+		} else {
+			out.Reexecute.Reason = "live reexecute is currently disallowed by kernel policy"
+		}
+	}
+
+	if flagJSON {
+		if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run replay: write: %v\n", err)
+			return 2
+		}
+	} else {
+		fmt.Printf("Run: %s (%s)\n", out.RunID, out.RunStatus)
+		fmt.Printf("Mode: %s\n", out.Mode)
+		fmt.Printf("Decisions: %d\n", len(out.Decisions))
+		fmt.Printf("Recorded inputs: %d\n", len(out.Inputs))
+		for _, d := range out.Decisions {
+			fmt.Printf("  [%s#%d] %s %s -> %s\n", d.Source, d.EventID, d.Type, d.FromState, d.ToState)
+		}
+		fmt.Printf("Reexecute: allowed=%t (%s)\n", out.Reexecute.Allowed, out.Reexecute.Reason)
+	}
+
+	if mode == "reexecute" {
+		return 1
+	}
+	return 0
+}
+
+func cmdRunReplayInputs(ctx context.Context, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: run replay inputs: usage: ic run replay inputs <run_id> [--limit=N]\n")
+		return 3
+	}
+	runID := args[0]
+	limit := 1000
+	for _, arg := range args[1:] {
+		switch {
+		case strings.HasPrefix(arg, "--limit="):
+			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+			if err != nil || v <= 0 {
+				fmt.Fprintf(os.Stderr, "ic: run replay inputs: invalid --limit: %s\n", strings.TrimPrefix(arg, "--limit="))
+				return 3
+			}
+			limit = v
+		default:
+			fmt.Fprintf(os.Stderr, "ic: run replay inputs: unknown flag: %s\n", arg)
+			return 3
+		}
+	}
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run replay inputs: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	replayStore := replay.New(d.SqlDB())
+	inputs, err := replayStore.ListInputs(ctx, runID, limit)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run replay inputs: %v\n", err)
+		return 2
+	}
+
+	if flagJSON {
+		if err := json.NewEncoder(os.Stdout).Encode(inputs); err != nil {
+			fmt.Fprintf(os.Stderr, "ic: run replay inputs: write: %v\n", err)
+			return 2
+		}
+	} else {
+		for _, in := range inputs {
+			fmt.Printf("%d\t%s\t%s\t%s\n", in.ID, in.Kind, in.Key, in.Payload)
+		}
+	}
+	return 0
+}
+
+func cmdRunReplayRecord(ctx context.Context, args []string) int {
+	if len(args) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: run replay record: usage: ic run replay record <run_id> --kind=<kind> [--key=<k>] [--payload=<json>] [--artifact-ref=<ref>] [--event-source=<src>] [--event-id=<id>]\n")
+		return 3
+	}
+	runID := args[0]
+	var (
+		kind, key, payload, artifactRef, eventSource string
+		eventID                                      *int64
+	)
+	for _, arg := range args[1:] {
+		switch {
+		case strings.HasPrefix(arg, "--kind="):
+			kind = strings.TrimPrefix(arg, "--kind=")
+		case strings.HasPrefix(arg, "--key="):
+			key = strings.TrimPrefix(arg, "--key=")
+		case strings.HasPrefix(arg, "--payload="):
+			payload = strings.TrimPrefix(arg, "--payload=")
+		case strings.HasPrefix(arg, "--artifact-ref="):
+			artifactRef = strings.TrimPrefix(arg, "--artifact-ref=")
+		case strings.HasPrefix(arg, "--event-source="):
+			eventSource = strings.TrimPrefix(arg, "--event-source=")
+		case strings.HasPrefix(arg, "--event-id="):
+			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--event-id="), 10, 64)
+			if err != nil || v <= 0 {
+				fmt.Fprintf(os.Stderr, "ic: run replay record: invalid --event-id: %s\n", strings.TrimPrefix(arg, "--event-id="))
+				return 3
+			}
+			eventID = &v
+		default:
+			fmt.Fprintf(os.Stderr, "ic: run replay record: unknown flag: %s\n", arg)
+			return 3
+		}
+	}
+	if kind == "" {
+		fmt.Fprintf(os.Stderr, "ic: run replay record: --kind is required\n")
+		return 3
+	}
+	if payload == "" {
+		payload = "{}"
+	}
+
+	d, err := openDB()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run replay record: %v\n", err)
+		return 2
+	}
+	defer d.Close()
+
+	pStore := phase.New(d.SqlDB())
+	if _, err := pStore.Get(ctx, runID); err != nil {
+		if err == phase.ErrNotFound {
+			fmt.Fprintf(os.Stderr, "ic: run replay record: run not found: %s\n", runID)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "ic: run replay record: %v\n", err)
+		return 2
+	}
+
+	replayStore := replay.New(d.SqlDB())
+	in := &replay.Input{
+		RunID:       runID,
+		Kind:        kind,
+		Key:         key,
+		Payload:     payload,
+		EventSource: eventSource,
+		EventID:     eventID,
+	}
+	if artifactRef != "" {
+		in.ArtifactRef = &artifactRef
+	}
+	id, err := replayStore.AddInput(ctx, in)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: run replay record: %v\n", err)
+		return 2
+	}
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"id": id})
+	} else {
+		fmt.Printf("%d\n", id)
 	}
 	return 0
 }

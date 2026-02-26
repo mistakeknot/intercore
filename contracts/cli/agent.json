@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/agent.json",
+  "properties": {
+    "ID": {
+      "type": "string"
+    },
+    "RunID": {
+      "type": "string"
+    },
+    "AgentType": {
+      "type": "string"
+    },
+    "Name": {
+      "type": "string"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "DispatchID": {
+      "type": "string"
+    },
+    "CreatedAt": {
+      "type": "integer"
+    },
+    "UpdatedAt": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ID",
+    "RunID",
+    "AgentType",
+    "Name",
+    "Status",
+    "DispatchID",
+    "CreatedAt",
+    "UpdatedAt"
+  ]
+}

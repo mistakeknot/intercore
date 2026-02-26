@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 21
-	maxSchemaVersion     = 21
+	currentSchemaVersion = 22
+	maxSchemaVersion     = 22
 )
 
 var (
@@ -313,6 +313,31 @@ func (d *DB) Migrate(ctx context.Context) error {
 			if !isDuplicateColumnError(err) {
 				return fmt.Errorf("migrate v20→v21 coordination_events: %w", err)
 			}
+		}
+	}
+
+	// v21 → v22: replay input capture table for deterministic run replay
+	if currentVersion >= 3 && currentVersion < 22 {
+		if _, err := tx.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS run_replay_inputs (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id       TEXT NOT NULL REFERENCES runs(id),
+			kind         TEXT NOT NULL,
+			input_key    TEXT,
+			payload      TEXT NOT NULL DEFAULT '{}',
+			artifact_ref TEXT,
+			event_source TEXT,
+			event_id     INTEGER,
+			created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+		)`); err != nil {
+			return fmt.Errorf("migrate v21→v22 run_replay_inputs: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_created
+			ON run_replay_inputs(run_id, created_at, id)`); err != nil {
+			return fmt.Errorf("migrate v21→v22 idx_replay_inputs_run_created: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_kind
+			ON run_replay_inputs(run_id, kind, created_at, id)`); err != nil {
+			return fmt.Errorf("migrate v21→v22 idx_replay_inputs_run_kind: %w", err)
 		}
 	}
 

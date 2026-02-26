@@ -1,0 +1,246 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/scheduler-stats.json",
+  "properties": {
+    "total_submitted": {
+      "type": "integer"
+    },
+    "total_completed": {
+      "type": "integer"
+    },
+    "total_failed": {
+      "type": "integer"
+    },
+    "total_retried": {
+      "type": "integer"
+    },
+    "current_queue_size": {
+      "type": "integer"
+    },
+    "current_running": {
+      "type": "integer"
+    },
+    "avg_queue_time": {
+      "type": "integer"
+    },
+    "avg_execution_time": {
+      "type": "integer"
+    },
+    "is_paused": {
+      "type": "boolean"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "uptime": {
+      "type": "integer"
+    },
+    "limiter_stats": {
+      "properties": {
+        "total_requests": {
+          "type": "integer"
+        },
+        "allowed_requests": {
+          "type": "integer"
+        },
+        "waited_requests": {
+          "type": "integer"
+        },
+        "denied_requests": {
+          "type": "integer"
+        },
+        "total_wait_time": {
+          "type": "integer"
+        },
+        "max_wait_time": {
+          "type": "integer"
+        },
+        "avg_wait_time": {
+          "type": "integer"
+        },
+        "current_tokens": {
+          "type": "number"
+        },
+        "waiting": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "total_requests",
+        "allowed_requests",
+        "waited_requests",
+        "denied_requests",
+        "total_wait_time",
+        "max_wait_time",
+        "avg_wait_time",
+        "current_tokens",
+        "waiting"
+      ]
+    },
+    "queue_stats": {
+      "properties": {
+        "total_enqueued": {
+          "type": "integer"
+        },
+        "total_dequeued": {
+          "type": "integer"
+        },
+        "current_size": {
+          "type": "integer"
+        },
+        "max_size": {
+          "type": "integer"
+        },
+        "by_priority": {
+          "patternProperties": {
+            "^[0-9]+$": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object"
+        },
+        "by_type": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "type": "object"
+        },
+        "avg_wait_time": {
+          "type": "integer"
+        },
+        "max_wait_time": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "total_enqueued",
+        "total_dequeued",
+        "current_size",
+        "max_size",
+        "by_priority",
+        "by_type",
+        "avg_wait_time",
+        "max_wait_time"
+      ]
+    },
+    "backoff_stats": {
+      "properties": {
+        "total_backoffs": {
+          "type": "integer"
+        },
+        "total_retries": {
+          "type": "integer"
+        },
+        "total_exhausted": {
+          "type": "integer"
+        },
+        "max_consecutive": {
+          "type": "integer"
+        },
+        "total_backoff_time": {
+          "type": "integer"
+        },
+        "last_backoff_reason": {
+          "type": "string"
+        },
+        "last_backoff_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "total_backoffs",
+        "total_retries",
+        "total_exhausted",
+        "max_consecutive",
+        "total_backoff_time"
+      ]
+    },
+    "caps_stats": {
+      "properties": {
+        "per_agent": {
+          "additionalProperties": {
+            "properties": {
+              "running": {
+                "type": "integer"
+              },
+              "current_cap": {
+                "type": "integer"
+              },
+              "max_cap": {
+                "type": "integer"
+              },
+              "waiting": {
+                "type": "integer"
+              },
+              "in_ramp_up": {
+                "type": "boolean"
+              },
+              "in_cooldown": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "running",
+              "current_cap",
+              "max_cap",
+              "waiting",
+              "in_ramp_up",
+              "in_cooldown"
+            ]
+          },
+          "type": "object"
+        },
+        "total_running": {
+          "type": "integer"
+        },
+        "total_waiting": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "per_agent",
+        "total_running",
+        "total_waiting"
+      ]
+    },
+    "in_global_backoff": {
+      "type": "boolean"
+    },
+    "remaining_backoff": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "total_submitted",
+    "total_completed",
+    "total_failed",
+    "total_retried",
+    "current_queue_size",
+    "current_running",
+    "avg_queue_time",
+    "avg_execution_time",
+    "is_paused",
+    "started_at",
+    "uptime",
+    "limiter_stats",
+    "queue_stats",
+    "backoff_stats",
+    "caps_stats",
+    "in_global_backoff"
+  ]
+}

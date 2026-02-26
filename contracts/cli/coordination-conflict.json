@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/coordination-conflict.json",
+  "properties": {
+    "blocker_id": {
+      "type": "string"
+    },
+    "blocker_owner": {
+      "type": "string"
+    },
+    "blocker_pattern": {
+      "type": "string"
+    },
+    "blocker_reason": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "blocker_id",
+    "blocker_owner",
+    "blocker_pattern"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/events/interspect-event.json",
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "agent_name": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "override_reason": {
+      "type": "string"
+    },
+    "context_json": {
+      "type": "string"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "project_dir": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "agent_name",
+    "event_type",
+    "timestamp"
+  ]
+}

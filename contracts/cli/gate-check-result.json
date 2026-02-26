@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/gate-check-result.json",
+  "properties": {
+    "RunID": {
+      "type": "string"
+    },
+    "FromPhase": {
+      "type": "string"
+    },
+    "ToPhase": {
+      "type": "string"
+    },
+    "Result": {
+      "type": "string"
+    },
+    "Tier": {
+      "type": "string"
+    },
+    "Evidence": {
+      "properties": {
+        "conditions": {
+          "items": {
+            "properties": {
+              "check": {
+                "type": "string"
+              },
+              "phase": {
+                "type": "string"
+              },
+              "result": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer"
+              },
+              "detail": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "check",
+              "result"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "conditions"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "RunID",
+    "FromPhase",
+    "ToPhase",
+    "Result",
+    "Tier",
+    "Evidence"
+  ]
+}

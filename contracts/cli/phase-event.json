@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/phase-event.json",
+  "properties": {
+    "ID": {
+      "type": "integer"
+    },
+    "RunID": {
+      "type": "string"
+    },
+    "FromPhase": {
+      "type": "string"
+    },
+    "ToPhase": {
+      "type": "string"
+    },
+    "EventType": {
+      "type": "string"
+    },
+    "GateResult": {
+      "type": "string"
+    },
+    "GateTier": {
+      "type": "string"
+    },
+    "Reason": {
+      "type": "string"
+    },
+    "EnvelopeJSON": {
+      "type": "string"
+    },
+    "CreatedAt": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ID",
+    "RunID",
+    "FromPhase",
+    "ToPhase",
+    "EventType",
+    "GateResult",
+    "GateTier",
+    "Reason",
+    "EnvelopeJSON",
+    "CreatedAt"
+  ]
+}

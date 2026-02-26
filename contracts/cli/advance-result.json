@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/advance-result.json",
+  "properties": {
+    "FromPhase": {
+      "type": "string"
+    },
+    "ToPhase": {
+      "type": "string"
+    },
+    "EventType": {
+      "type": "string"
+    },
+    "GateResult": {
+      "type": "string"
+    },
+    "GateTier": {
+      "type": "string"
+    },
+    "Reason": {
+      "type": "string"
+    },
+    "Advanced": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "FromPhase",
+    "ToPhase",
+    "EventType",
+    "GateResult",
+    "GateTier",
+    "Reason",
+    "Advanced"
+  ]
+}

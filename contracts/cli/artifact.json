@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/artifact.json",
+  "properties": {
+    "ID": {
+      "type": "string"
+    },
+    "RunID": {
+      "type": "string"
+    },
+    "Phase": {
+      "type": "string"
+    },
+    "Path": {
+      "type": "string"
+    },
+    "Type": {
+      "type": "string"
+    },
+    "ContentHash": {
+      "type": "string"
+    },
+    "DispatchID": {
+      "type": "string"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "CreatedAt": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ID",
+    "RunID",
+    "Phase",
+    "Path",
+    "Type",
+    "ContentHash",
+    "DispatchID",
+    "Status",
+    "CreatedAt"
+  ]
+}

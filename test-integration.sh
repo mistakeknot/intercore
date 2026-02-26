@@ -663,6 +663,43 @@ pass "events after cursor reset"
 
 echo "  Event bus tests passed"
 
+# --- Replay Tests ---
+echo ""
+echo "=== Replay Mode ==="
+
+REPLAY_RUN=$(ic run create --project="$TEST_DIR" --goal="replay simulate test" --phases='["brainstorm","executing","done"]' --db="$TEST_DB")
+ic run advance "$REPLAY_RUN" --disable-gates --db="$TEST_DB" >/dev/null
+ic run advance "$REPLAY_RUN" --disable-gates --db="$TEST_DB" >/dev/null
+pass "replay: completed run created"
+
+# Manual recording path for LLM/external snapshots
+REPLAY_INPUT_ID=$(ic run replay record "$REPLAY_RUN" --kind=llm --key=response_snapshot --payload='{"model":"claude","completion":"ok"}' --db="$TEST_DB")
+[[ -n "$REPLAY_INPUT_ID" ]] || fail "replay: record returned empty id"
+pass "replay: manual nondeterministic input recording"
+
+REPLAY_INPUTS=$(ic run replay inputs "$REPLAY_RUN" --json --db="$TEST_DB")
+echo "$REPLAY_INPUTS" | jq -e 'map(select(.kind=="llm")) | length > 0' >/dev/null || fail "replay: recorded llm input not queryable"
+pass "replay: recorded inputs queryable"
+
+REPLAY_SIM_1=$(ic run replay "$REPLAY_RUN" --mode=simulate --json --db="$TEST_DB")
+REPLAY_SIM_2=$(ic run replay "$REPLAY_RUN" --mode=simulate --json --db="$TEST_DB")
+echo "$REPLAY_SIM_1" | jq -e '.decisions | length > 0' >/dev/null || fail "replay simulate: no reconstructed decisions"
+[[ "$(echo "$REPLAY_SIM_1" | jq -S '.')" == "$(echo "$REPLAY_SIM_2" | jq -S '.')" ]] || fail "replay simulate: non-deterministic output across repeated runs"
+pass "replay simulate: deterministic decision reconstruction"
+
+set +e
+REPLAY_REEXEC=$(ic run replay "$REPLAY_RUN" --mode=reexecute --json --db="$TEST_DB")
+REPLAY_REEXEC_RC=$?
+set -e
+[[ "$REPLAY_REEXEC_RC" -eq 1 ]] || fail "replay reexecute: expected exit 1 (gated), got $REPLAY_REEXEC_RC"
+echo "$REPLAY_REEXEC" | jq -e '.reexecute.allowed == false' >/dev/null || fail "replay reexecute: expected allowed=false"
+echo "$REPLAY_REEXEC" | jq -e '.reexecute.reason | test("gated|disallowed")' >/dev/null || fail "replay reexecute: missing explicit gating reason"
+pass "replay reexecute: explicit gated output"
+
+ACTIVE_REPLAY_RUN=$(ic run create --project="$TEST_DIR" --goal="replay active run guard" --db="$TEST_DB")
+ic run replay "$ACTIVE_REPLAY_RUN" --mode=simulate --db="$TEST_DB" 2>/dev/null && fail "replay simulate should reject non-completed run" || true
+pass "replay simulate: completed-run guard"
+
 # --- E1: Kernel Primitives Integration Tests ---
 echo ""
 echo "=== E1: Custom Phase Chain ==="

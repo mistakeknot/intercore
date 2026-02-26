@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/spawn-job.json",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "type": {
+      "type": "string"
+    },
+    "priority": {
+      "type": "integer"
+    },
+    "session_name": {
+      "type": "string"
+    },
+    "agent_type": {
+      "type": "string"
+    },
+    "project_dir": {
+      "type": "string"
+    },
+    "spawn_opts": {
+      "type": "string"
+    },
+    "dispatch_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "scheduled_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "error": {
+      "type": "string"
+    },
+    "retry_count": {
+      "type": "integer"
+    },
+    "max_retries": {
+      "type": "integer"
+    },
+    "retry_delay": {
+      "type": "integer"
+    },
+    "batch_id": {
+      "type": "string"
+    },
+    "parent_job_id": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "priority",
+    "session_name",
+    "status",
+    "created_at",
+    "retry_count",
+    "max_retries"
+  ]
+}

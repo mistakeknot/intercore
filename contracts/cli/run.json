@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/run.json",
+  "properties": {
+    "ID": {
+      "type": "string"
+    },
+    "ProjectDir": {
+      "type": "string"
+    },
+    "Goal": {
+      "type": "string"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "Phase": {
+      "type": "string"
+    },
+    "Complexity": {
+      "type": "integer"
+    },
+    "ForceFull": {
+      "type": "boolean"
+    },
+    "AutoAdvance": {
+      "type": "boolean"
+    },
+    "CreatedAt": {
+      "type": "integer"
+    },
+    "UpdatedAt": {
+      "type": "integer"
+    },
+    "CompletedAt": {
+      "type": "integer"
+    },
+    "ScopeID": {
+      "type": "string"
+    },
+    "Metadata": {
+      "type": "string"
+    },
+    "Phases": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "TokenBudget": {
+      "type": "integer"
+    },
+    "BudgetWarnPct": {
+      "type": "integer"
+    },
+    "ParentRunID": {
+      "type": "string"
+    },
+    "MaxDispatches": {
+      "type": "integer"
+    },
+    "BudgetEnforce": {
+      "type": "boolean"
+    },
+    "MaxAgents": {
+      "type": "integer"
+    },
+    "GateRules": {
+      "additionalProperties": {
+        "items": {
+          "properties": {
+            "Check": {
+              "type": "string"
+            },
+            "Phase": {
+              "type": "string"
+            },
+            "Tier": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "type": "object",
+          "required": [
+            "Check",
+            "Phase",
+            "Tier"
+          ]
+        },
+        "type": "array"
+      },
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "ID",
+    "ProjectDir",
+    "Goal",
+    "Status",
+    "Phase",
+    "Complexity",
+    "ForceFull",
+    "AutoAdvance",
+    "CreatedAt",
+    "UpdatedAt",
+    "CompletedAt",
+    "ScopeID",
+    "Metadata",
+    "Phases",
+    "TokenBudget",
+    "BudgetWarnPct",
+    "ParentRunID",
+    "MaxDispatches",
+    "BudgetEnforce",
+    "MaxAgents",
+    "GateRules"
+  ]
+}

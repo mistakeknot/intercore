@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/interest-profile.json",
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "keyword_weights": {
+      "type": "string"
+    },
+    "source_weights": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "keyword_weights",
+    "source_weights",
+    "updated_at"
+  ]
+}
