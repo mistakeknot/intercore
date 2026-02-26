@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS phase_events (
     gate_result     TEXT,
     gate_tier       TEXT,
     reason          TEXT,
+    envelope_json   TEXT,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_phase_events_run ON phase_events(run_id);
@@ -156,6 +157,7 @@ CREATE TABLE IF NOT EXISTS dispatch_events (
     to_status       TEXT NOT NULL,
     event_type      TEXT NOT NULL DEFAULT 'status_change',
     reason          TEXT,
+    envelope_json   TEXT,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_dispatch_events_dispatch ON dispatch_events(dispatch_id);
@@ -361,6 +363,7 @@ CREATE TABLE IF NOT EXISTS coordination_events (
     pattern    TEXT NOT NULL,
     scope      TEXT NOT NULL,
     reason     TEXT,
+    envelope_json TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_coord_events_run ON coordination_events(run_id)

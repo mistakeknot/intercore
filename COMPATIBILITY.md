@@ -25,6 +25,15 @@
 - New event types may be added. Existing event types are never renamed or removed without a major version bump.
 - Event payload fields may gain new optional fields. Existing fields are never removed or type-changed without a major version bump.
 - Consumers should ignore unknown event types and unknown fields (forward-compatible parsing).
+- Event envelope `envelope` is additive and optional. New optional envelope fields may be introduced in minor versions.
+
+Current optional envelope fields (v2):
+- `policy_version`
+- `caller_identity`
+- `capability_scope`
+- `trace_id`, `span_id`, `parent_span_id`
+- `input_artifact_refs`, `output_artifact_refs`
+- `requested_sandbox`, `effective_sandbox`
 
 ## Database Schema (migration-safe)
 

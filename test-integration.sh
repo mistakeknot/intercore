@@ -504,8 +504,9 @@ pass "wrapper: gate check"
 echo ""
 echo "=== Per-Run Gate Rules (iv-yfck) ==="
 
-# Create run with inline --gates JSON
-GATES_JSON='{"brainstorm→brainstorm-reviewed":[{"check":"artifact_exists","phase":"brainstorm","tier":"hard"}],"planned→executing":[{"check":"artifact_exists","phase":"planned","tier":"soft"},{"check":"budget_not_exceeded","tier":"hard"}]}'
+# Create run with inline --gates JSON.
+# Every transition in the active chain must be present; [] marks explicit ungated transitions.
+GATES_JSON='{"brainstorm→brainstorm-reviewed":[{"check":"artifact_exists","phase":"brainstorm","tier":"hard"}],"brainstorm-reviewed→strategized":[],"strategized→planned":[],"planned→executing":[{"check":"artifact_exists","phase":"planned","tier":"soft"},{"check":"budget_not_exceeded","tier":"hard"}],"executing→review":[],"review→polish":[],"polish→reflect":[],"reflect→done":[]}'
 GATES_RUN=$(ic run create --project="$TEST_DIR" --goal="per-run gates test" --gates="$GATES_JSON" --db="$TEST_DB")
 [[ -n "$GATES_RUN" ]] || fail "per-run gates: create returned empty ID"
 pass "per-run gates: create with --gates"
@@ -514,7 +515,7 @@ pass "per-run gates: create with --gates"
 gates_status=$(ic run status "$GATES_RUN" --json --db="$TEST_DB")
 echo "$gates_status" | jq -e '.gate_rules' >/dev/null || fail "per-run gates: gate_rules missing from status JSON"
 gates_count=$(echo "$gates_status" | jq '.gate_rules | length')
-[[ "$gates_count" -eq 2 ]] || fail "per-run gates: expected 2 transitions in gate_rules, got: $gates_count"
+[[ "$gates_count" -eq 8 ]] || fail "per-run gates: expected 8 transitions in gate_rules, got: $gates_count"
 pass "per-run gates: status --json includes gate_rules"
 
 # ic gate rules --run=ID should show per-run rules
@@ -538,7 +539,7 @@ echo "$GATES_JSON" > "$GATES_FILE"
 GATES_FILE_RUN=$(ic run create --project="$TEST_DIR" --goal="gates-file test" --gates-file="$GATES_FILE" --db="$TEST_DB")
 [[ -n "$GATES_FILE_RUN" ]] || fail "per-run gates: create with --gates-file returned empty ID"
 file_rules=$(ic run status "$GATES_FILE_RUN" --json --db="$TEST_DB" | jq '.gate_rules | length')
-[[ "$file_rules" -eq 2 ]] || fail "per-run gates: --gates-file should store 2 transitions, got: $file_rules"
+[[ "$file_rules" -eq 8 ]] || fail "per-run gates: --gates-file should store 8 transitions, got: $file_rules"
 pass "per-run gates: create with --gates-file"
 
 # Mutual exclusion: --gates and --gates-file together should fail
@@ -630,6 +631,13 @@ pass "advance run for events"
 EVT_OUTPUT=$(ic --db="$TEST_DB" events tail "$EVT_RUN")
 echo "$EVT_OUTPUT" | grep -q '"source":"phase"' || fail "events tail: no phase events"
 pass "events tail returns phase events"
+echo "$EVT_OUTPUT" | jq -e --arg run "$EVT_RUN" 'select(.source=="phase") | .envelope.trace_id == $run' >/dev/null || fail "events tail: missing phase envelope trace_id"
+echo "$EVT_OUTPUT" | jq -e 'select(.source=="phase") | (.envelope.input_artifact_refs | type == "array") and (.envelope.output_artifact_refs | type == "array")' >/dev/null || fail "events tail: missing phase artifact refs"
+pass "events tail includes envelope provenance"
+
+RUN_EVENTS_JSON=$(ic --db="$TEST_DB" run events "$EVT_RUN" --json)
+echo "$RUN_EVENTS_JSON" | jq -e --arg run "$EVT_RUN" 'map(select(.envelope.trace_id == $run)) | length > 0' >/dev/null || fail "run events --json: envelope not exposed"
+pass "run events --json includes envelope"
 
 # Tail --all should also work
 ic --db="$TEST_DB" events tail --all | grep -q '"source":"phase"' || fail "events tail --all: no events"

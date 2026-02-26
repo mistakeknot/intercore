@@ -56,7 +56,7 @@ func coordStore(ctx context.Context) (*coordination.Store, func(), int) {
 	evStore := event.NewStore(d.SqlDB())
 	notifier := event.NewNotifier()
 	store.SetEventFunc(func(ctx context.Context, eventType, lockID, owner, pattern, scope, reason, runID string) error {
-		if err := evStore.AddCoordinationEvent(ctx, eventType, lockID, owner, pattern, scope, reason, runID); err != nil {
+		if err := evStore.AddCoordinationEvent(ctx, eventType, lockID, owner, pattern, scope, reason, runID, nil); err != nil {
 			return err
 		}
 		return notifier.Notify(ctx, event.Event{

@@ -106,19 +106,19 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 	r := &Run{}
 	var (
-		completedAt    sql.NullInt64
-		scopeID        sql.NullString
-		metadata       sql.NullString
-		forceFull      int
-		autoAdvance    int
-		phasesJSON     sql.NullString
-		tokenBudget    sql.NullInt64
-		budgetWarnPct  sql.NullInt64
-		parentRunID    sql.NullString
-		maxDispatches  sql.NullInt64
-		budgetEnforce  sql.NullInt64
-		maxAgents      sql.NullInt64
-		gateRulesJSON  sql.NullString
+		completedAt   sql.NullInt64
+		scopeID       sql.NullString
+		metadata      sql.NullString
+		forceFull     int
+		autoAdvance   int
+		phasesJSON    sql.NullString
+		tokenBudget   sql.NullInt64
+		budgetWarnPct sql.NullInt64
+		parentRunID   sql.NullString
+		maxDispatches sql.NullInt64
+		budgetEnforce sql.NullInt64
+		maxAgents     sql.NullInt64
+		gateRulesJSON sql.NullString
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -305,13 +305,18 @@ func (s *Store) List(ctx context.Context, scopeID *string) ([]*Run, error) {
 
 // AddEvent inserts a phase event audit record.
 func (s *Store) AddEvent(ctx context.Context, e *PhaseEvent) error {
+	envelopeJSON := e.EnvelopeJSON
+	if envelopeJSON == nil {
+		envelopeJSON = defaultPhaseEnvelopeJSON(e.RunID, e.EventType, e.FromPhase, e.ToPhase)
+	}
+
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO phase_events (
 			run_id, from_phase, to_phase, event_type,
-			gate_result, gate_tier, reason
-		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			gate_result, gate_tier, reason, envelope_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.RunID, e.FromPhase, e.ToPhase, e.EventType,
-		e.GateResult, e.GateTier, e.Reason,
+		e.GateResult, e.GateTier, e.Reason, envelopeJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("event add: %w", err)
@@ -323,7 +328,7 @@ func (s *Store) AddEvent(ctx context.Context, e *PhaseEvent) error {
 func (s *Store) Events(ctx context.Context, runID string) ([]*PhaseEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, run_id, from_phase, to_phase, event_type,
-			gate_result, gate_tier, reason, created_at
+			gate_result, gate_tier, reason, envelope_json, created_at
 		FROM phase_events WHERE run_id = ? ORDER BY id ASC`, runID)
 	if err != nil {
 		return nil, fmt.Errorf("events list: %w", err)
@@ -334,19 +339,21 @@ func (s *Store) Events(ctx context.Context, runID string) ([]*PhaseEvent, error)
 	for rows.Next() {
 		e := &PhaseEvent{}
 		var (
-			gateResult sql.NullString
-			gateTier   sql.NullString
-			reason     sql.NullString
+			gateResult   sql.NullString
+			gateTier     sql.NullString
+			reason       sql.NullString
+			envelopeJSON sql.NullString
 		)
 		if err := rows.Scan(
 			&e.ID, &e.RunID, &e.FromPhase, &e.ToPhase, &e.EventType,
-			&gateResult, &gateTier, &reason, &e.CreatedAt,
+			&gateResult, &gateTier, &reason, &envelopeJSON, &e.CreatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("events scan: %w", err)
 		}
 		e.GateResult = nullStr(gateResult)
 		e.GateTier = nullStr(gateTier)
 		e.Reason = nullStr(reason)
+		e.EnvelopeJSON = nullStr(envelopeJSON)
 		events = append(events, e)
 	}
 	return events, rows.Err()
@@ -361,19 +368,19 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 	}
 	r := &Run{}
 	var (
-		completedAt    sql.NullInt64
-		scopeID        sql.NullString
-		metadata       sql.NullString
-		forceFull      int
-		autoAdvance    int
-		phasesJSON     sql.NullString
-		tokenBudget    sql.NullInt64
-		budgetWarnPct  sql.NullInt64
-		parentRunID    sql.NullString
-		maxDispatches  sql.NullInt64
-		budgetEnforce  sql.NullInt64
-		maxAgents      sql.NullInt64
-		gateRulesJSON  sql.NullString
+		completedAt   sql.NullInt64
+		scopeID       sql.NullString
+		metadata      sql.NullString
+		forceFull     int
+		autoAdvance   int
+		phasesJSON    sql.NullString
+		tokenBudget   sql.NullInt64
+		budgetWarnPct sql.NullInt64
+		parentRunID   sql.NullString
+		maxDispatches sql.NullInt64
+		budgetEnforce sql.NullInt64
+		maxAgents     sql.NullInt64
+		gateRulesJSON sql.NullString
 	)
 
 	err := s.db.QueryRowContext(ctx, `
@@ -696,19 +703,19 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 	for rows.Next() {
 		r := &Run{}
 		var (
-			completedAt    sql.NullInt64
-			scopeID        sql.NullString
-			metadata       sql.NullString
-			forceFull      int
-			autoAdvance    int
-			phasesJSON     sql.NullString
-			tokenBudget    sql.NullInt64
-			budgetWarnPct  sql.NullInt64
-			parentRunID    sql.NullString
-			maxDispatches  sql.NullInt64
-			budgetEnforce  sql.NullInt64
-			maxAgents      sql.NullInt64
-			gateRulesJSON  sql.NullString
+			completedAt   sql.NullInt64
+			scopeID       sql.NullString
+			metadata      sql.NullString
+			forceFull     int
+			autoAdvance   int
+			phasesJSON    sql.NullString
+			tokenBudget   sql.NullInt64
+			budgetWarnPct sql.NullInt64
+			parentRunID   sql.NullString
+			maxDispatches sql.NullInt64
+			budgetEnforce sql.NullInt64
+			maxAgents     sql.NullInt64
+			gateRulesJSON sql.NullString
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,

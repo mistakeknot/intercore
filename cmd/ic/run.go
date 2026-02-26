@@ -470,7 +470,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			ToState:   toStatus,
 			Timestamp: time.Now(),
 		}
-		if err := evStore.AddDispatchEvent(ctx, dispatchID, runID, fromStatus, toStatus, "status_change", ""); err != nil {
+		if err := evStore.AddDispatchEvent(ctx, dispatchID, runID, fromStatus, toStatus, "status_change", "", nil); err != nil {
 			fmt.Fprintf(os.Stderr, "[event] dispatch event: %v\n", err)
 		}
 		notifier.Notify(ctx, e)
@@ -1537,11 +1537,11 @@ func cmdRunTokens(ctx context.Context, args []string) int {
 
 	if flagJSON {
 		out := map[string]interface{}{
-			"run_id":       runID,
-			"input_tokens": agg.TotalIn,
+			"run_id":        runID,
+			"input_tokens":  agg.TotalIn,
 			"output_tokens": agg.TotalOut,
-			"cache_hits":   agg.TotalCache,
-			"total_tokens": total,
+			"cache_hits":    agg.TotalCache,
+			"total_tokens":  total,
 		}
 		if agg.TotalIn > 0 || agg.TotalCache > 0 {
 			out["cache_ratio"] = cacheRatio
@@ -1604,13 +1604,13 @@ func cmdRunBudget(ctx context.Context, args []string) int {
 
 	if flagJSON {
 		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-			"run_id":      result.RunID,
-			"budget":      result.Budget,
-			"used":        result.Used,
-			"warn_pct":    result.WarnPct,
-			"usage_pct":   pct,
-			"warning":     result.Warning,
-			"exceeded":    result.Exceeded,
+			"run_id":    result.RunID,
+			"budget":    result.Budget,
+			"used":      result.Used,
+			"warn_pct":  result.WarnPct,
+			"usage_pct": pct,
+			"warning":   result.Warning,
+			"exceeded":  result.Exceeded,
 		})
 	} else {
 		fmt.Printf("Run: %s\n", result.RunID)
@@ -1838,6 +1838,12 @@ func eventToMap(e *phase.PhaseEvent) map[string]interface{} {
 	}
 	if e.Reason != nil {
 		m["reason"] = *e.Reason
+	}
+	if e.EnvelopeJSON != nil && *e.EnvelopeJSON != "" {
+		var envelope map[string]interface{}
+		if err := json.Unmarshal([]byte(*e.EnvelopeJSON), &envelope); err == nil {
+			m["envelope"] = envelope
+		}
 	}
 	return m
 }

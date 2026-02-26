@@ -69,8 +69,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Errorf("SchemaVersion = %d, want 20", v)
+	if v != 21 {
+		t.Errorf("SchemaVersion = %d, want 21", v)
 	}
 
 	// Verify tables exist
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 20", v)
+	if v != 21 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 21", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 20", v)
+	if v != 21 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 21", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 20", v)
+	if v != 21 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 21", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 20", v)
+	if v != 21 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 21", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Errorf("SchemaVersion = %d, want 20", v)
+	if v != 21 {
+		t.Errorf("SchemaVersion = %d, want 21", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Errorf("SchemaVersion = %d, want 20", v)
+	if v != 21 {
+		t.Errorf("SchemaVersion = %d, want 21", v)
 	}
 }
 
@@ -682,8 +682,8 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Fatalf("expected schema version 19, got %d", v)
+	if v != 21 {
+		t.Fatalf("expected schema version 21, got %d", v)
 	}
 
 	// Verify status column exists on run_artifacts with default 'active'
@@ -740,8 +740,8 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Fatalf("expected schema version 19, got %d", v)
+	if v != 21 {
+		t.Fatalf("expected schema version 21, got %d", v)
 	}
 
 	// Verify discoveries table exists and accepts inserts
@@ -792,8 +792,8 @@ func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Fatalf("expected schema version 19, got %d", v)
+	if v != 21 {
+		t.Fatalf("expected schema version 21, got %d", v)
 	}
 
 	// Verify lanes table exists with correct columns
@@ -861,8 +861,8 @@ func TestMigrate_V16ToV17_CostReconciliations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Fatalf("expected schema version 19, got %d", v)
+	if v != 21 {
+		t.Fatalf("expected schema version 21, got %d", v)
 	}
 
 	// Verify cost_reconciliations table exists with correct columns
@@ -907,8 +907,8 @@ func TestMigrate_V17ToV18_SandboxSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 20 {
-		t.Fatalf("expected schema version 19, got %d", v)
+	if v != 21 {
+		t.Fatalf("expected schema version 21, got %d", v)
 	}
 
 	// Verify sandbox_spec and sandbox_effective columns exist on dispatches
@@ -951,5 +951,102 @@ func TestMigrate_V17ToV18_SandboxSpec(t *testing.T) {
 	}
 	if gotEff == nil || *gotEff != eff {
 		t.Errorf("sandbox_effective = %v, want %q", gotEff, eff)
+	}
+}
+
+func TestMigrate_V20ToV21_EventEnvelopeColumns(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	_, err := d.db.Exec(`
+		CREATE TABLE IF NOT EXISTS state (
+			key TEXT NOT NULL, scope_id TEXT NOT NULL, payload TEXT NOT NULL,
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()), expires_at INTEGER,
+			PRIMARY KEY (key, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS sentinels (
+			name TEXT NOT NULL, scope_id TEXT NOT NULL,
+			last_fired INTEGER NOT NULL DEFAULT (unixepoch()),
+			PRIMARY KEY (name, scope_id)
+		);
+		CREATE TABLE IF NOT EXISTS dispatches (
+			id TEXT NOT NULL PRIMARY KEY,
+			status TEXT NOT NULL DEFAULT 'spawned',
+			project_dir TEXT NOT NULL,
+			scope_id TEXT
+		);
+		CREATE TABLE IF NOT EXISTS runs (
+			id TEXT NOT NULL PRIMARY KEY,
+			project_dir TEXT NOT NULL,
+			goal TEXT NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active',
+			phase TEXT NOT NULL DEFAULT 'brainstorm',
+			complexity INTEGER NOT NULL DEFAULT 3,
+			force_full INTEGER NOT NULL DEFAULT 0,
+			auto_advance INTEGER NOT NULL DEFAULT 1,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			parent_run_id TEXT
+		);
+		CREATE TABLE IF NOT EXISTS phase_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id TEXT NOT NULL,
+			from_phase TEXT NOT NULL,
+			to_phase TEXT NOT NULL,
+			event_type TEXT NOT NULL DEFAULT 'advance',
+			gate_result TEXT,
+			gate_tier TEXT,
+			reason TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		CREATE TABLE IF NOT EXISTS dispatch_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			dispatch_id TEXT NOT NULL,
+			run_id TEXT,
+			from_status TEXT NOT NULL,
+			to_status TEXT NOT NULL,
+			event_type TEXT NOT NULL DEFAULT 'status_change',
+			reason TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		CREATE TABLE IF NOT EXISTS coordination_events (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			lock_id TEXT NOT NULL,
+			run_id TEXT,
+			event_type TEXT NOT NULL,
+			owner TEXT NOT NULL,
+			pattern TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			reason TEXT,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		);
+		PRAGMA user_version = 20;
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate v20→v21: %v", err)
+	}
+
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 21 {
+		t.Fatalf("expected schema version 21, got %d", v)
+	}
+
+	for _, q := range []string{
+		"SELECT envelope_json FROM phase_events LIMIT 0",
+		"SELECT envelope_json FROM dispatch_events LIMIT 0",
+		"SELECT envelope_json FROM coordination_events LIMIT 0",
+	} {
+		rows, err := d.db.Query(q)
+		if err != nil {
+			t.Fatalf("expected migrated column for query %q: %v", q, err)
+		}
+		rows.Close()
 	}
 }

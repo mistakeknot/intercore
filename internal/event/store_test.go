@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/phase"
 )
 
 func setupTestStore(t *testing.T) (*Store, *db.DB) {
@@ -41,7 +42,7 @@ func TestAddDispatchEvent(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	err := store.AddDispatchEvent(ctx, "disp001", "run001", "spawned", "running", "status_change", "")
+	err := store.AddDispatchEvent(ctx, "disp001", "run001", "spawned", "running", "status_change", "", nil)
 	if err != nil {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
@@ -52,6 +53,45 @@ func TestAddDispatchEvent(t *testing.T) {
 	}
 	if maxID < 1 {
 		t.Errorf("MaxDispatchEventID = %d, want >= 1", maxID)
+	}
+}
+
+func TestAddDispatchEvent_DefaultEnvelope(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+
+	_, err := d.SqlDB().ExecContext(ctx, `
+		INSERT INTO dispatches (id, project_dir, sandbox_spec, sandbox_effective)
+		VALUES ('disp-env', '/tmp', '{"mode":"workspace-write"}', '{"mode":"workspace-read"}')`)
+	if err != nil {
+		t.Fatalf("insert dispatch: %v", err)
+	}
+
+	err = store.AddDispatchEvent(ctx, "disp-env", "run-env", "spawned", "running", "status_change", "", nil)
+	if err != nil {
+		t.Fatalf("AddDispatchEvent: %v", err)
+	}
+
+	events, err := store.ListEvents(ctx, "run-env", 0, 0, 0, 10)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+
+	got := events[0]
+	if got.Envelope == nil {
+		t.Fatal("expected envelope on dispatch event")
+	}
+	if got.Envelope.TraceID != "run-env" {
+		t.Errorf("trace_id = %q, want run-env", got.Envelope.TraceID)
+	}
+	if got.Envelope.RequestedSandbox == "" {
+		t.Error("requested_sandbox should be populated from dispatch row")
+	}
+	if got.Envelope.EffectiveSandbox == "" {
+		t.Error("effective_sandbox should be populated from dispatch row")
 	}
 }
 
@@ -70,7 +110,7 @@ func TestListEvents_MergesPhaseAndDispatch(t *testing.T) {
 	}
 
 	// Insert a dispatch event
-	err = store.AddDispatchEvent(ctx, "disp001", "run001", "spawned", "running", "status_change", "started")
+	err = store.AddDispatchEvent(ctx, "disp001", "run001", "spawned", "running", "status_change", "started", nil)
 	if err != nil {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
@@ -93,6 +133,66 @@ func TestListEvents_MergesPhaseAndDispatch(t *testing.T) {
 	}
 	if !sources["dispatch"] {
 		t.Error("missing dispatch event")
+	}
+}
+
+func TestListEvents_CausalReconstructionByTraceID(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+
+	pStore := phase.New(d.SqlDB())
+	runID, err := pStore.Create(ctx, &phase.Run{
+		ProjectDir: "/tmp",
+		Goal:       "causal reconstruction",
+		Complexity: 3,
+	})
+	if err != nil {
+		t.Fatalf("phase create run: %v", err)
+	}
+
+	if err := pStore.AddEvent(ctx, &phase.PhaseEvent{
+		RunID:     runID,
+		FromPhase: phase.PhaseBrainstorm,
+		ToPhase:   phase.PhaseBrainstormReviewed,
+		EventType: phase.EventAdvance,
+	}); err != nil {
+		t.Fatalf("phase add event: %v", err)
+	}
+
+	_, err = d.SqlDB().ExecContext(ctx, `
+		INSERT INTO dispatches (id, project_dir, sandbox_spec)
+		VALUES ('disp-causal', '/tmp', '{"mode":"workspace-write"}')`)
+	if err != nil {
+		t.Fatalf("insert dispatch: %v", err)
+	}
+	err = store.AddDispatchEvent(ctx, "disp-causal", runID, "spawned", "running", "status_change", "", nil)
+	if err != nil {
+		t.Fatalf("AddDispatchEvent: %v", err)
+	}
+
+	events, err := store.ListEvents(ctx, runID, 0, 0, 0, 100)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+
+	seenPhase := false
+	seenDispatch := false
+	for _, e := range events {
+		if e.Envelope == nil {
+			t.Fatalf("event %s/%d missing envelope", e.Source, e.ID)
+		}
+		if e.Envelope.TraceID != runID {
+			t.Fatalf("event %s/%d trace_id=%q want %q", e.Source, e.ID, e.Envelope.TraceID, runID)
+		}
+		if e.Source == SourcePhase {
+			seenPhase = true
+		}
+		if e.Source == SourceDispatch {
+			seenDispatch = true
+		}
+	}
+	if !seenPhase || !seenDispatch {
+		t.Fatalf("expected both phase and dispatch events, got phase=%v dispatch=%v", seenPhase, seenDispatch)
 	}
 }
 
@@ -147,7 +247,7 @@ func TestListEvents_DualCursorsIndependent(t *testing.T) {
 		}
 	}
 	for i := 0; i < 2; i++ {
-		err := store.AddDispatchEvent(ctx, "disp"+string(rune('a'+i)), "run003", "spawned", "running", "status_change", "")
+		err := store.AddDispatchEvent(ctx, "disp"+string(rune('a'+i)), "run003", "spawned", "running", "status_change", "", nil)
 		if err != nil {
 			t.Fatalf("AddDispatchEvent: %v", err)
 		}
@@ -185,7 +285,7 @@ func TestListAllEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = store.AddDispatchEvent(ctx, "disp001", "runB", "spawned", "running", "status_change", "")
+	err = store.AddDispatchEvent(ctx, "disp001", "runB", "spawned", "running", "status_change", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

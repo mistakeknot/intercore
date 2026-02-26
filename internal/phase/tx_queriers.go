@@ -115,18 +115,18 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 	for rows.Next() {
 		r := &Run{}
 		var (
-			completedAt    sql.NullInt64
-			scopeID        sql.NullString
-			metadata       sql.NullString
-			forceFull      int
-			autoAdvance    int
-			phasesJSON     sql.NullString
-			tokenBudget    sql.NullInt64
-			budgetWarnPct  sql.NullInt64
-			parentRunID    sql.NullString
-			maxDispatches  sql.NullInt64
-			budgetEnforce  sql.NullInt64
-			maxAgents      sql.NullInt64
+			completedAt   sql.NullInt64
+			scopeID       sql.NullString
+			metadata      sql.NullString
+			forceFull     int
+			autoAdvance   int
+			phasesJSON    sql.NullString
+			tokenBudget   sql.NullInt64
+			budgetWarnPct sql.NullInt64
+			parentRunID   sql.NullString
+			maxDispatches sql.NullInt64
+			budgetEnforce sql.NullInt64
+			maxAgents     sql.NullInt64
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
@@ -166,19 +166,19 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 	r := &Run{}
 	var (
-		completedAt    sql.NullInt64
-		scopeID        sql.NullString
-		metadata       sql.NullString
-		forceFull      int
-		autoAdvance    int
-		phasesJSON     sql.NullString
-		tokenBudget    sql.NullInt64
-		budgetWarnPct  sql.NullInt64
-		parentRunID    sql.NullString
-		maxDispatches  sql.NullInt64
-		budgetEnforce  sql.NullInt64
-		maxAgents      sql.NullInt64
-		gateRulesJSON  sql.NullString
+		completedAt   sql.NullInt64
+		scopeID       sql.NullString
+		metadata      sql.NullString
+		forceFull     int
+		autoAdvance   int
+		phasesJSON    sql.NullString
+		tokenBudget   sql.NullInt64
+		budgetWarnPct sql.NullInt64
+		parentRunID   sql.NullString
+		maxDispatches sql.NullInt64
+		budgetEnforce sql.NullInt64
+		maxAgents     sql.NullInt64
+		gateRulesJSON sql.NullString
 	)
 
 	err := q.QueryRowContext(ctx, `
@@ -278,13 +278,18 @@ func (s *Store) UpdateStatusQ(ctx context.Context, q Querier, id, status string)
 
 // AddEventQ inserts a phase event using the provided querier.
 func (s *Store) AddEventQ(ctx context.Context, q Querier, e *PhaseEvent) error {
+	envelopeJSON := e.EnvelopeJSON
+	if envelopeJSON == nil {
+		envelopeJSON = defaultPhaseEnvelopeJSON(e.RunID, e.EventType, e.FromPhase, e.ToPhase)
+	}
+
 	_, err := q.ExecContext(ctx, `
 		INSERT INTO phase_events (
 			run_id, from_phase, to_phase, event_type,
-			gate_result, gate_tier, reason
-		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			gate_result, gate_tier, reason, envelope_json
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.RunID, e.FromPhase, e.ToPhase, e.EventType,
-		e.GateResult, e.GateTier, e.Reason,
+		e.GateResult, e.GateTier, e.Reason, envelopeJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("event add: %w", err)

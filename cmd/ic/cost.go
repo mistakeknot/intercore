@@ -86,7 +86,7 @@ func cmdCostReconcile(ctx context.Context, args []string) int {
 	rStore := budget.NewReconcileStore(d.SqlDB(), dStore)
 
 	recorder := func(ctx context.Context, runID, eventType, reason string) error {
-		return eStore.AddDispatchEvent(ctx, "", runID, "", "", eventType, reason)
+		return eStore.AddDispatchEvent(ctx, "", runID, "", "", eventType, reason, nil)
 	}
 
 	rec, err := rStore.Reconcile(ctx, runID, dispatchID, billedIn, billedOut, source, recorder)

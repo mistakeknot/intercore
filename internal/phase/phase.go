@@ -29,11 +29,11 @@ const (
 
 // Event type constants.
 const (
-	EventAdvance = "advance"
-	EventSkip    = "skip"
-	EventPause   = "pause"
-	EventBlock   = "block"
-	EventCancel  = "cancel"
+	EventAdvance  = "advance"
+	EventSkip     = "skip"
+	EventPause    = "pause"
+	EventBlock    = "block"
+	EventCancel   = "cancel"
 	EventSet      = "set"
 	EventRollback = "rollback"
 )
@@ -206,24 +206,25 @@ type Run struct {
 	Phases        []string // parsed from JSON; nil = legacy chain
 	TokenBudget   *int64
 	BudgetWarnPct int
-	ParentRunID    *string
-	MaxDispatches  int
-	BudgetEnforce  bool
-	MaxAgents      int
-	GateRules      map[string][]SpecGateRule // parsed from JSON; nil = use defaults
+	ParentRunID   *string
+	MaxDispatches int
+	BudgetEnforce bool
+	MaxAgents     int
+	GateRules     map[string][]SpecGateRule // parsed from JSON; nil = use defaults
 }
 
 // PhaseEvent represents an audit log entry for a phase transition.
 type PhaseEvent struct {
-	ID         int64
-	RunID      string
-	FromPhase  string
-	ToPhase    string
-	EventType  string
-	GateResult *string
-	GateTier   *string
-	Reason     *string
-	CreatedAt  int64
+	ID           int64
+	RunID        string
+	FromPhase    string
+	ToPhase      string
+	EventType    string
+	GateResult   *string
+	GateTier     *string
+	Reason       *string
+	EnvelopeJSON *string
+	CreatedAt    int64
 }
 
 // strPtr returns a pointer to s.

@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -18,11 +19,20 @@ func NewStore(db *sql.DB) *Store {
 }
 
 // AddDispatchEvent records a dispatch lifecycle event.
-func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromStatus, toStatus, eventType, reason string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO dispatch_events (dispatch_id, run_id, from_status, to_status, event_type, reason)
-		VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''))`,
-		dispatchID, runID, fromStatus, toStatus, eventType, reason,
+func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromStatus, toStatus, eventType, reason string, envelope *EventEnvelope) error {
+	if envelope == nil {
+		envelope = s.defaultDispatchEnvelope(ctx, dispatchID, runID, fromStatus, toStatus)
+	}
+	envelopeJSON, err := MarshalEnvelopeJSON(envelope)
+	if err != nil {
+		return fmt.Errorf("add dispatch event: marshal envelope: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO dispatch_events (
+			dispatch_id, run_id, from_status, to_status, event_type, reason, envelope_json
+		) VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?)`,
+		dispatchID, runID, fromStatus, toStatus, eventType, reason, envelopeJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("add dispatch event: %w", err)
@@ -45,17 +55,17 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 	// to keep the signature aligned with ListAllEvents.
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
-			COALESCE(reason, '') AS reason, created_at
+			COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM phase_events
 		WHERE run_id = ? AND id > ?
 		UNION ALL
 		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
-			from_status, to_status, COALESCE(reason, '') AS reason, created_at
+			from_status, to_status, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM dispatch_events
 		WHERE (run_id = ? OR ? = '') AND id > ?
 		UNION ALL
 		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
-			owner, pattern, COALESCE(reason, '') AS reason, created_at
+			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM coordination_events
 		WHERE (run_id = ? OR ? = '') AND id > 0
 		ORDER BY created_at ASC, source ASC, id ASC
@@ -81,23 +91,23 @@ func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
-			COALESCE(reason, '') AS reason, created_at
+			COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM phase_events
 		WHERE id > ?
 		UNION ALL
 		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
-			from_status, to_status, COALESCE(reason, '') AS reason, created_at
+			from_status, to_status, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM dispatch_events
 		WHERE id > ?
 		UNION ALL
 		-- discovery_events: discovery_id AS run_id is for column alignment only
 		SELECT id, COALESCE(discovery_id, '') AS run_id, 'discovery' AS source, event_type,
-			from_status, to_status, COALESCE(payload, '{}') AS reason, created_at
+			from_status, to_status, COALESCE(payload, '{}') AS reason, '' AS envelope_json, created_at
 		FROM discovery_events
 		WHERE id > ?
 		UNION ALL
 		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
-			owner, pattern, COALESCE(reason, '') AS reason, created_at
+			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM coordination_events
 		WHERE id > 0
 		ORDER BY created_at ASC, source ASC, id ASC
@@ -152,11 +162,20 @@ func (s *Store) MaxDiscoveryEventID(ctx context.Context) (int64, error) {
 }
 
 // AddCoordinationEvent records a coordination lock lifecycle event.
-func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, owner, pattern, scope, reason, runID string) error {
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO coordination_events (lock_id, run_id, event_type, owner, pattern, scope, reason)
-		VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''))`,
-		lockID, runID, eventType, owner, pattern, scope, reason,
+func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, owner, pattern, scope, reason, runID string, envelope *EventEnvelope) error {
+	if envelope == nil {
+		envelope = defaultCoordinationEnvelope(eventType, lockID, pattern, scope, runID)
+	}
+	envelopeJSON, err := MarshalEnvelopeJSON(envelope)
+	if err != nil {
+		return fmt.Errorf("add coordination event: marshal envelope: %w", err)
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO coordination_events (
+			lock_id, run_id, event_type, owner, pattern, scope, reason, envelope_json
+		) VALUES (?, NULLIF(?, ''), ?, ?, ?, ?, NULLIF(?, ''), ?)`,
+		lockID, runID, eventType, owner, pattern, scope, reason, envelopeJSON,
 	)
 	if err != nil {
 		return fmt.Errorf("add coordination event: %w", err)
@@ -263,13 +282,86 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 	var events []Event
 	for rows.Next() {
 		var e Event
+		var envelopeJSON string
 		var createdAt int64
 		if err := rows.Scan(&e.ID, &e.RunID, &e.Source, &e.Type,
-			&e.FromState, &e.ToState, &e.Reason, &createdAt); err != nil {
+			&e.FromState, &e.ToState, &e.Reason, &envelopeJSON, &createdAt); err != nil {
 			return nil, fmt.Errorf("events scan: %w", err)
+		}
+		if envelopeJSON != "" {
+			envelope, err := ParseEnvelopeJSON(envelopeJSON)
+			if err == nil {
+				e.Envelope = envelope
+			}
 		}
 		e.Timestamp = time.Unix(createdAt, 0)
 		events = append(events, e)
 	}
 	return events, rows.Err()
+}
+
+func (s *Store) defaultDispatchEnvelope(ctx context.Context, dispatchID, runID, fromStatus, toStatus string) *EventEnvelope {
+	traceID := runID
+	if traceID == "" {
+		traceID = dispatchID
+	}
+	capability := ""
+	if runID != "" {
+		capability = "run:" + runID
+	} else if dispatchID != "" {
+		capability = "dispatch:" + dispatchID
+	}
+
+	envelope := &EventEnvelope{
+		PolicyVersion:      "dispatch-lifecycle/v2",
+		CallerIdentity:     "dispatch.store",
+		CapabilityScope:    capability,
+		TraceID:            traceID,
+		SpanID:             fmt.Sprintf("dispatch:%s:%d", dispatchID, time.Now().UnixNano()),
+		InputArtifactRefs:  statusRef(fromStatus),
+		OutputArtifactRefs: statusRef(toStatus),
+	}
+
+	if dispatchID == "" {
+		return envelope
+	}
+
+	var requested, effective sql.NullString
+	err := s.db.QueryRowContext(ctx,
+		"SELECT sandbox_spec, sandbox_effective FROM dispatches WHERE id = ?",
+		dispatchID,
+	).Scan(&requested, &effective)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return envelope
+	}
+	if requested.Valid {
+		envelope.RequestedSandbox = requested.String
+	}
+	if effective.Valid {
+		envelope.EffectiveSandbox = effective.String
+	}
+	return envelope
+}
+
+func defaultCoordinationEnvelope(eventType, lockID, pattern, scope, runID string) *EventEnvelope {
+	traceID := runID
+	if traceID == "" {
+		traceID = lockID
+	}
+	return &EventEnvelope{
+		PolicyVersion:      "coordination/v1",
+		CallerIdentity:     "coordination.store",
+		CapabilityScope:    "scope:" + scope,
+		TraceID:            traceID,
+		SpanID:             fmt.Sprintf("coordination:%s:%d", eventType, time.Now().UnixNano()),
+		InputArtifactRefs:  statusRef(pattern),
+		OutputArtifactRefs: statusRef(lockID),
+	}
+}
+
+func statusRef(v string) []string {
+	if v == "" {
+		return nil
+	}
+	return []string{v}
 }

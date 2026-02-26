@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 20
-	maxSchemaVersion     = 20
+	currentSchemaVersion = 21
+	maxSchemaVersion     = 21
 )
 
 var (
@@ -290,6 +290,29 @@ func (d *DB) Migrate(ctx context.Context) error {
 			reason TEXT,
 			created_at INTEGER NOT NULL DEFAULT (unixepoch()))`); err != nil {
 			return fmt.Errorf("v20 coordination_events: %w", err)
+		}
+	}
+
+	// v20 → v21: event envelope metadata columns (provenance/capability/trace)
+	if currentVersion >= 3 && currentVersion < 21 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE phase_events ADD COLUMN envelope_json TEXT"); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migrate v20→v21 phase_events: %w", err)
+			}
+		}
+	}
+	if currentVersion >= 5 && currentVersion < 21 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE dispatch_events ADD COLUMN envelope_json TEXT"); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migrate v20→v21 dispatch_events: %w", err)
+			}
+		}
+	}
+	if currentVersion >= 19 && currentVersion < 21 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE coordination_events ADD COLUMN envelope_json TEXT"); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migrate v20→v21 coordination_events: %w", err)
+			}
 		}
 	}
 

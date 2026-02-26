@@ -300,6 +300,9 @@ func TestStore_AddEventAndEvents(t *testing.T) {
 	if e.EventType != EventAdvance {
 		t.Errorf("EventType = %q, want %q", e.EventType, EventAdvance)
 	}
+	if e.EnvelopeJSON == nil || *e.EnvelopeJSON == "" {
+		t.Error("EnvelopeJSON should be populated for phase events")
+	}
 }
 
 func TestStore_Events_Ordered(t *testing.T) {
@@ -748,7 +751,7 @@ func TestValidateGateRulesForChain(t *testing.T) {
 				{Check: CheckArtifactExists, Phase: "brainstorm", Tier: "hard"},
 			},
 			"plan-reviewed→shipping": {},
-			"brainstorm→shipping": {},
+			"brainstorm→shipping":    {},
 		}
 		err := ValidateGateRulesForChain(chain, rules)
 		if err == nil {
@@ -765,7 +768,7 @@ func TestValidateGateRulesForChain(t *testing.T) {
 				{Check: CheckArtifactExists, Phase: "brainstorm", Tier: "hard"},
 			},
 			"plan-reviewed→shipping": {},
-			"review→done": {},
+			"review→done":            {},
 		}
 		err := ValidateGateRulesForChain(chain, rules)
 		if err == nil {
