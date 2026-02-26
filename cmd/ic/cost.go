@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -28,7 +29,7 @@ func cmdCost(ctx context.Context, args []string) int {
 	case "list":
 		return cmdCostList(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: cost: unknown subcommand: %s\n", args[0])
+		slog.Error("cost: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -44,14 +45,14 @@ func cmdCostBaseline(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--last="):
 			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--last="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: cost baseline: invalid --last: %v\n", err)
+				slog.Error("cost baseline: invalid --last", "error", err)
 				return 3
 			}
 			opts.LastN = v
 		case strings.HasPrefix(arg, "--days="):
 			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--days="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: cost baseline: invalid --days: %v\n", err)
+				slog.Error("cost baseline: invalid --days", "error", err)
 				return 3
 			}
 			opts.Days = v
@@ -62,7 +63,7 @@ func cmdCostBaseline(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--script="):
 			opts.InterstatScript = strings.TrimPrefix(arg, "--script=")
 		default:
-			fmt.Fprintf(os.Stderr, "ic: cost baseline: unknown flag: %s\n", arg)
+			slog.Error("cost baseline: unknown flag", "value", arg)
 			return 3
 		}
 	}
@@ -73,15 +74,14 @@ func cmdCostBaseline(ctx context.Context, args []string) int {
 	if opts.InterstatScript == "" {
 		opts.InterstatScript = costpkg.FindInterstatScript()
 		if opts.InterstatScript == "" {
-			fmt.Fprintf(os.Stderr, "ic: cost baseline: interstat cost-query.sh not found\n")
-			fmt.Fprintf(os.Stderr, "  Hint: install interstat plugin or use --script=<path>\n")
+			slog.Error("cost baseline: interstat cost-query.sh not found", "hint", "install interstat plugin or use --script=<path>")
 			return 2
 		}
 	}
 
 	result, err := costpkg.ComputeBaseline(ctx, opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: cost baseline: %v\n", err)
+		slog.Error("cost baseline failed", "error", err)
 		return 2
 	}
 
@@ -109,7 +109,7 @@ func cmdCostReconcile(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--billed-in="):
 			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--billed-in="), 10, 64)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: cost reconcile: invalid --billed-in: %v\n", err)
+				slog.Error("cost reconcile: invalid --billed-in", "error", err)
 				return 3
 			}
 			billedIn = v
@@ -117,7 +117,7 @@ func cmdCostReconcile(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--billed-out="):
 			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--billed-out="), 10, 64)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: cost reconcile: invalid --billed-out: %v\n", err)
+				slog.Error("cost reconcile: invalid --billed-out", "error", err)
 				return 3
 			}
 			billedOut = v
@@ -127,19 +127,19 @@ func cmdCostReconcile(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--source="):
 			source = strings.TrimPrefix(arg, "--source=")
 		default:
-			fmt.Fprintf(os.Stderr, "ic: cost reconcile: unknown flag: %s\n", arg)
+			slog.Error("cost reconcile: unknown flag", "value", arg)
 			return 3
 		}
 	}
 
 	if !hasBilledIn || !hasBilledOut {
-		fmt.Fprintf(os.Stderr, "ic: cost reconcile: --billed-in and --billed-out are required\n")
+		slog.Error("cost reconcile: --billed-in and --billed-out are required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: cost reconcile: %v\n", err)
+		slog.Error("cost reconcile failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -154,7 +154,7 @@ func cmdCostReconcile(ctx context.Context, args []string) int {
 
 	rec, err := rStore.Reconcile(ctx, runID, dispatchID, billedIn, billedOut, source, recorder)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: cost reconcile: %v\n", err)
+		slog.Error("cost reconcile failed", "error", err)
 		return 2
 	}
 
@@ -210,7 +210,7 @@ func cmdCostList(ctx context.Context, args []string) int {
 		if strings.HasPrefix(arg, "--limit=") {
 			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: cost list: invalid --limit: %v\n", err)
+				slog.Error("cost list: invalid --limit", "error", err)
 				return 3
 			}
 			limit = v
@@ -219,7 +219,7 @@ func cmdCostList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: cost list: %v\n", err)
+		slog.Error("cost list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -229,7 +229,7 @@ func cmdCostList(ctx context.Context, args []string) int {
 
 	recs, err := rStore.List(ctx, runID, limit)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: cost list: %v\n", err)
+		slog.Error("cost list failed", "error", err)
 		return 2
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/observability"
 	"github.com/mistakeknot/intercore/internal/sentinel"
 	"github.com/mistakeknot/intercore/internal/state"
 )
@@ -23,6 +25,7 @@ var (
 	flagTimeout time.Duration
 	flagVerbose bool
 	flagJSON    bool
+	flagVV      bool // double-verbose for debug level
 )
 
 func main() {
@@ -49,6 +52,9 @@ func main() {
 			flagTimeout = d
 		case arg == "--verbose":
 			flagVerbose = true
+		case arg == "-vv":
+			flagVerbose = true
+			flagVV = true
 		case arg == "--json":
 			flagJSON = true
 		default:
@@ -68,6 +74,17 @@ func main() {
 	if flagTimeout == 0 {
 		flagTimeout = 100 * time.Millisecond
 	}
+
+	// Initialize structured logging
+	logLevel := slog.LevelWarn
+	if envLevel := os.Getenv("IC_LOG_LEVEL"); envLevel != "" {
+		logLevel = observability.ParseLevel(envLevel)
+	} else if flagVV {
+		logLevel = slog.LevelDebug
+	} else if flagVerbose {
+		logLevel = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(observability.NewHandler(os.Stderr, logLevel)))
 
 	ctx := context.Background()
 	var exitCode int
@@ -116,7 +133,7 @@ func main() {
 	case "publish":
 		exitCode = cmdPublish(ctx, subArgs)
 	default:
-		fmt.Fprintf(os.Stderr, "ic: unknown command: %s\n", subcommand)
+		slog.Error("unknown command", "command", subcommand)
 		printUsage()
 		exitCode = 3
 	}
@@ -291,33 +308,33 @@ func openDB() (*db.DB, error) {
 func cmdInit(ctx context.Context) int {
 	path, err := resolveDBPath()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: init: %v\n", err)
+		slog.Error("init failed", "error", err)
 		return 2
 	}
 
 	// Ensure parent directory exists with restricted permissions
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: init: cannot create directory %s: %v\n", dir, err)
+		slog.Error("init: cannot create directory", "value", dir, "error", err)
 		return 2
 	}
 
 	d, err := db.Open(path, flagTimeout)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: init: %v\n", err)
+		slog.Error("init failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: init: migration failed: %v\n", err)
+		slog.Error("init: migration failed", "error", err)
 		return 2
 	}
 
 	// Ensure DB file has restricted permissions (owner read/write only).
 	// SQLite creates files with the process umask, which may be too permissive.
 	if err := os.Chmod(path, 0600); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: init: warning: could not set file permissions: %v\n", err)
+		slog.Warn("init: could not set file permissions", "error", err)
 	}
 
 	v, _ := d.SchemaVersion()
@@ -347,13 +364,13 @@ func cmdVersion(ctx context.Context) int {
 func cmdHealth(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: health: %v\n", err)
+		slog.Error("health failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Health(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: health: %v\n", err)
+		slog.Error("health failed", "error", err)
 		return 2
 	}
 
@@ -363,7 +380,7 @@ func cmdHealth(ctx context.Context) int {
 
 func cmdSentinel(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: sentinel: missing subcommand (check, reset, list, prune)\n")
+		slog.Error("sentinel: missing subcommand", "expected", "check, reset, list, prune")
 		return 3
 	}
 
@@ -377,7 +394,7 @@ func cmdSentinel(ctx context.Context, args []string) int {
 	case "prune":
 		return cmdSentinelPrune(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: sentinel: unknown subcommand: %s\n", args[0])
+		slog.Error("sentinel: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -392,7 +409,7 @@ func cmdSentinelCheck(ctx context.Context, args []string) int {
 			var err error
 			intervalSec, err = strconv.Atoi(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: sentinel check: invalid interval: %s\n", val)
+				slog.Error("sentinel check: invalid interval", "value", val)
 				return 3
 			}
 		} else if args[i] == "--interval" && i+1 < len(args) {
@@ -400,7 +417,7 @@ func cmdSentinelCheck(ctx context.Context, args []string) int {
 			var err error
 			intervalSec, err = strconv.Atoi(args[i])
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: sentinel check: invalid interval: %s\n", args[i])
+				slog.Error("sentinel check: invalid interval", "value", args[i])
 				return 3
 			}
 		} else {
@@ -415,15 +432,15 @@ func cmdSentinelCheck(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel check: %v\n", err)
+		slog.Error("sentinel check failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
-	store := sentinel.New(d.SqlDB())
+	store := sentinel.New(d.SqlDB(), nil)
 	allowed, err := store.Check(ctx, positional[0], positional[1], intervalSec)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel check: %v\n", err)
+		slog.Error("sentinel check failed", "error", err)
 		return 2
 	}
 
@@ -443,14 +460,14 @@ func cmdSentinelReset(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel reset: %v\n", err)
+		slog.Error("sentinel reset failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
-	store := sentinel.New(d.SqlDB())
+	store := sentinel.New(d.SqlDB(), nil)
 	if err := store.Reset(ctx, args[0], args[1]); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel reset: %v\n", err)
+		slog.Error("sentinel reset failed", "error", err)
 		return 2
 	}
 
@@ -461,15 +478,15 @@ func cmdSentinelReset(ctx context.Context, args []string) int {
 func cmdSentinelList(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel list: %v\n", err)
+		slog.Error("sentinel list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
-	store := sentinel.New(d.SqlDB())
+	store := sentinel.New(d.SqlDB(), nil)
 	sentinels, err := store.List(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel list: %v\n", err)
+		slog.Error("sentinel list failed", "error", err)
 		return 2
 	}
 
@@ -496,21 +513,21 @@ func cmdSentinelPrune(ctx context.Context, args []string) int {
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel prune: invalid duration: %v\n", err)
+		slog.Error("sentinel prune: invalid duration", "error", err)
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel prune: %v\n", err)
+		slog.Error("sentinel prune failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
-	store := sentinel.New(d.SqlDB())
+	store := sentinel.New(d.SqlDB(), nil)
 	count, err := store.Prune(ctx, dur)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: sentinel prune: %v\n", err)
+		slog.Error("sentinel prune failed", "error", err)
 		return 2
 	}
 
@@ -520,7 +537,7 @@ func cmdSentinelPrune(ctx context.Context, args []string) int {
 
 func cmdState(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: state: missing subcommand (set, get, delete, list, prune)\n")
+		slog.Error("state: missing subcommand", "expected", "set, get, delete, list, prune")
 		return 3
 	}
 
@@ -536,7 +553,7 @@ func cmdState(ctx context.Context, args []string) int {
 	case "prune":
 		return cmdStatePrune(ctx)
 	default:
-		fmt.Fprintf(os.Stderr, "ic: state: unknown subcommand: %s\n", args[0])
+		slog.Error("state: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -565,7 +582,7 @@ func cmdStateSet(ctx context.Context, args []string) int {
 	scopeID := positional[1]
 
 	if err := state.ValidateKey(key); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state set: %v\n", err)
+		slog.Error("state set failed", "error", err)
 		return 2
 	}
 
@@ -574,7 +591,7 @@ func cmdStateSet(ctx context.Context, args []string) int {
 		var err error
 		ttl, err = time.ParseDuration(ttlStr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: state set: invalid TTL: %v\n", err)
+			slog.Error("state set: invalid TTL", "error", err)
 			return 3
 		}
 	}
@@ -587,27 +604,27 @@ func cmdStateSet(ctx context.Context, args []string) int {
 		// Validate file path is under CWD (same as --db validation)
 		absFile, err := filepath.Abs(filePath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: state set: invalid file path: %v\n", err)
+			slog.Error("state set: invalid file path", "error", err)
 			return 2
 		}
 		cwd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: state set: cannot determine working directory: %v\n", err)
+			slog.Error("state set: cannot determine working directory", "error", err)
 			return 2
 		}
 		if !strings.HasPrefix(absFile, cwd+string(filepath.Separator)) {
-			fmt.Fprintf(os.Stderr, "ic: state set: file path must be under current directory: %s\n", filePath)
+			slog.Error("state set: file path must be under current directory", "path", filePath)
 			return 2
 		}
 		payload, err = os.ReadFile(absFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: state set: cannot read file %s: %v\n", filePath, err)
+			slog.Error("state set: cannot read file", "value", filePath, "error", err)
 			return 2
 		}
 	} else {
 		payload, err = io.ReadAll(os.Stdin)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: state set: cannot read stdin: %v\n", err)
+			slog.Error("state set: cannot read stdin", "error", err)
 			return 2
 		}
 	}
@@ -615,20 +632,20 @@ func cmdStateSet(ctx context.Context, args []string) int {
 	payload = []byte(strings.TrimSpace(string(payload)))
 
 	if err := state.ValidatePayload(payload); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state set: %v\n", err)
+		slog.Error("state set failed", "error", err)
 		return 2
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state set: %v\n", err)
+		slog.Error("state set failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	store := state.New(d.SqlDB())
 	if err := store.Set(ctx, key, scopeID, json.RawMessage(payload), ttl); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state set: %v\n", err)
+		slog.Error("state set failed", "error", err)
 		return 2
 	}
 
@@ -642,13 +659,13 @@ func cmdStateGet(ctx context.Context, args []string) int {
 	}
 
 	if err := state.ValidateKey(args[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state get: %v\n", err)
+		slog.Error("state get failed", "error", err)
 		return 2
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state get: %v\n", err)
+		slog.Error("state get failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -659,7 +676,7 @@ func cmdStateGet(ctx context.Context, args []string) int {
 		if err == state.ErrNotFound {
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: state get: %v\n", err)
+		slog.Error("state get failed", "error", err)
 		return 2
 	}
 
@@ -674,13 +691,13 @@ func cmdStateDelete(ctx context.Context, args []string) int {
 	}
 
 	if err := state.ValidateKey(args[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state delete: %v\n", err)
+		slog.Error("state delete failed", "error", err)
 		return 2
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state delete: %v\n", err)
+		slog.Error("state delete failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -688,7 +705,7 @@ func cmdStateDelete(ctx context.Context, args []string) int {
 	store := state.New(d.SqlDB())
 	deleted, err := store.Delete(ctx, args[0], args[1])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state delete: %v\n", err)
+		slog.Error("state delete failed", "error", err)
 		return 2
 	}
 
@@ -707,13 +724,13 @@ func cmdStateList(ctx context.Context, args []string) int {
 	}
 
 	if err := state.ValidateKey(args[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state list: %v\n", err)
+		slog.Error("state list failed", "error", err)
 		return 2
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state list: %v\n", err)
+		slog.Error("state list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -721,7 +738,7 @@ func cmdStateList(ctx context.Context, args []string) int {
 	store := state.New(d.SqlDB())
 	ids, err := store.List(ctx, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state list: %v\n", err)
+		slog.Error("state list failed", "error", err)
 		return 2
 	}
 
@@ -734,7 +751,7 @@ func cmdStateList(ctx context.Context, args []string) int {
 func cmdStatePrune(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state prune: %v\n", err)
+		slog.Error("state prune failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -742,7 +759,7 @@ func cmdStatePrune(ctx context.Context) int {
 	store := state.New(d.SqlDB())
 	count, err := store.Prune(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: state prune: %v\n", err)
+		slog.Error("state prune failed", "error", err)
 		return 2
 	}
 
@@ -752,7 +769,7 @@ func cmdStatePrune(ctx context.Context) int {
 
 func cmdCompat(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: compat: missing subcommand (status, check)\n")
+		slog.Error("compat: missing subcommand", "expected", "status, check")
 		return 3
 	}
 
@@ -762,7 +779,7 @@ func cmdCompat(ctx context.Context, args []string) int {
 	case "check":
 		return cmdCompatCheck(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: compat: unknown subcommand: %s\n", args[0])
+		slog.Error("compat: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -813,7 +830,7 @@ func cmdCompatCheck(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: compat check: %v\n", err)
+		slog.Error("compat check failed", "error", err)
 		return 1
 	}
 	defer d.Close()
@@ -821,7 +838,7 @@ func cmdCompatCheck(ctx context.Context, args []string) int {
 	store := state.New(d.SqlDB())
 	ids, err := store.List(ctx, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: compat check: %v\n", err)
+		slog.Error("compat check failed", "error", err)
 		return 2
 	}
 

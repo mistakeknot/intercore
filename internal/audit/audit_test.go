@@ -41,6 +41,7 @@ func setupTestDB(t *testing.T) *sql.DB {
 			prev_hash    TEXT NOT NULL DEFAULT '',
 			checksum     TEXT NOT NULL,
 			sequence_num INTEGER NOT NULL,
+			trace_id     TEXT NOT NULL DEFAULT '',
 			created_at   INTEGER NOT NULL DEFAULT (unixepoch())
 		);
 		CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id, sequence_num);

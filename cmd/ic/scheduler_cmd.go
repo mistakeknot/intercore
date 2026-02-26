@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ import (
 
 func cmdScheduler(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: scheduler: missing subcommand (status, submit, stats, pause, resume, list, prune)\n")
+		slog.Error("scheduler: missing subcommand", "expected", "status, submit, stats, pause, resume, list, prune")
 		return 3
 	}
 
@@ -36,7 +37,7 @@ func cmdScheduler(ctx context.Context, args []string) int {
 	case "prune":
 		return cmdSchedulerPrune(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: scheduler: unknown subcommand: %s\n", args[0])
+		slog.Error("scheduler: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -70,24 +71,24 @@ func cmdSchedulerSubmit(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--priority=")
 			p, err := strconv.Atoi(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: scheduler submit: invalid priority: %s\n", val)
+				slog.Error("scheduler submit: invalid priority", "value", val)
 				return 3
 			}
 			priority = p
 		default:
-			fmt.Fprintf(os.Stderr, "ic: scheduler submit: unknown flag: %s\n", args[i])
+			slog.Error("scheduler submit: unknown flag", "value", args[i])
 			return 3
 		}
 	}
 
 	if promptFile == "" {
-		fmt.Fprintf(os.Stderr, "ic: scheduler submit: --prompt-file is required\n")
+		slog.Error("scheduler submit: --prompt-file is required")
 		return 3
 	}
 	if projectDir == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: scheduler submit: cannot determine project dir: %v\n", err)
+			slog.Error("scheduler submit: cannot determine project dir", "error", err)
 			return 2
 		}
 		projectDir = cwd
@@ -95,7 +96,7 @@ func cmdSchedulerSubmit(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler submit: %v\n", err)
+		slog.Error("scheduler submit failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -108,7 +109,7 @@ func cmdSchedulerSubmit(ctx context.Context, args []string) int {
 		"name":        name,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler submit: %v\n", err)
+		slog.Error("scheduler submit failed", "error", err)
 		return 2
 	}
 
@@ -120,7 +121,7 @@ func cmdSchedulerSubmit(ctx context.Context, args []string) int {
 
 	store := scheduler.NewStore(d.SqlDB())
 	if err := store.Create(ctx, job); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler submit: %v\n", err)
+		slog.Error("scheduler submit failed", "error", err)
 		return 2
 	}
 
@@ -143,7 +144,7 @@ func cmdSchedulerStatus(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler status: %v\n", err)
+		slog.Error("scheduler status failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -151,7 +152,7 @@ func cmdSchedulerStatus(ctx context.Context, args []string) int {
 	store := scheduler.NewStore(d.SqlDB())
 	job, err := store.Get(ctx, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler status: %v\n", err)
+		slog.Error("scheduler status failed", "error", err)
 		return 1
 	}
 
@@ -166,7 +167,7 @@ func cmdSchedulerStatus(ctx context.Context, args []string) int {
 func cmdSchedulerStats(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler stats: %v\n", err)
+		slog.Error("scheduler stats failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -178,7 +179,7 @@ func cmdSchedulerStats(ctx context.Context) int {
 	for _, status := range []string{"pending", "running", "completed", "failed", "cancelled"} {
 		jobs, err := store.List(ctx, status, 10000)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: scheduler stats: %v\n", err)
+			slog.Error("scheduler stats failed", "error", err)
 			return 2
 		}
 		statusCounts[status] = len(jobs)
@@ -207,7 +208,7 @@ func cmdSchedulerList(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--limit=")
 			n, err := strconv.Atoi(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: scheduler list: invalid limit: %s\n", val)
+				slog.Error("scheduler list: invalid limit", "value", val)
 				return 3
 			}
 			limit = n
@@ -216,7 +217,7 @@ func cmdSchedulerList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler list: %v\n", err)
+		slog.Error("scheduler list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -224,7 +225,7 @@ func cmdSchedulerList(ctx context.Context, args []string) int {
 	store := scheduler.NewStore(d.SqlDB())
 	jobs, err := store.List(ctx, statusFilter, limit)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler list: %v\n", err)
+		slog.Error("scheduler list failed", "error", err)
 		return 2
 	}
 
@@ -254,7 +255,7 @@ func cmdSchedulerList(ctx context.Context, args []string) int {
 func cmdSchedulerPause(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler pause: %v\n", err)
+		slog.Error("scheduler pause failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -264,7 +265,7 @@ func cmdSchedulerPause(ctx context.Context) int {
 	_, err = sqlDB.ExecContext(ctx,
 		`INSERT OR REPLACE INTO state (key, scope_id, payload, updated_at) VALUES ('scheduler_paused', 'global', 'true', unixepoch())`)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler pause: %v\n", err)
+		slog.Error("scheduler pause failed", "error", err)
 		return 2
 	}
 
@@ -275,7 +276,7 @@ func cmdSchedulerPause(ctx context.Context) int {
 func cmdSchedulerResume(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler resume: %v\n", err)
+		slog.Error("scheduler resume failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -284,7 +285,7 @@ func cmdSchedulerResume(ctx context.Context) int {
 	_, err = sqlDB.ExecContext(ctx,
 		`INSERT OR REPLACE INTO state (key, scope_id, payload, updated_at) VALUES ('scheduler_paused', 'global', 'false', unixepoch())`)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler resume: %v\n", err)
+		slog.Error("scheduler resume failed", "error", err)
 		return 2
 	}
 
@@ -300,7 +301,7 @@ func cmdSchedulerCancel(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: %v\n", err)
+		slog.Error("scheduler cancel failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -308,19 +309,19 @@ func cmdSchedulerCancel(ctx context.Context, args []string) int {
 	store := scheduler.NewStore(d.SqlDB())
 	job, err := store.Get(ctx, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: %v\n", err)
+		slog.Error("scheduler cancel failed", "error", err)
 		return 1
 	}
 
 	if job.Status == scheduler.StatusCompleted || job.Status == scheduler.StatusFailed || job.Status == scheduler.StatusCancelled {
-		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: job already in terminal state: %s\n", job.Status)
+		slog.Error("scheduler cancel: job already in terminal state", "status", job.Status)
 		return 1
 	}
 
 	job.Status = scheduler.StatusCancelled
 	job.CompletedAt = time.Now()
 	if err := store.Update(ctx, job); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: %v\n", err)
+		slog.Error("scheduler cancel failed", "error", err)
 		return 2
 	}
 
@@ -338,13 +339,13 @@ func cmdSchedulerPrune(ctx context.Context, args []string) int {
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler prune: invalid duration: %s\n", olderThan)
+		slog.Error("scheduler prune: invalid duration", "value", olderThan)
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler prune: %v\n", err)
+		slog.Error("scheduler prune failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -352,7 +353,7 @@ func cmdSchedulerPrune(ctx context.Context, args []string) int {
 	store := scheduler.NewStore(d.SqlDB())
 	pruned, err := store.Prune(ctx, dur)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler prune: %v\n", err)
+		slog.Error("scheduler prune failed", "error", err)
 		return 2
 	}
 

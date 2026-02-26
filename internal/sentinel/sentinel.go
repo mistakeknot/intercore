@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
+	"log/slog"
 	"time"
 )
 
@@ -17,12 +17,16 @@ type Sentinel struct {
 
 // Store provides sentinel operations against the intercore DB.
 type Store struct {
-	db *sql.DB
+	db     *sql.DB
+	logger *slog.Logger
 }
 
 // New creates a sentinel store.
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
+func New(db *sql.DB, logger *slog.Logger) *Store {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Store{db: db, logger: logger}
 }
 
 // Check performs an atomic claim-if-eligible throttle check.
@@ -71,7 +75,7 @@ func (s *Store) Check(ctx context.Context, name, scopeID string, intervalSec int
 	// Synchronous auto-prune: delete stale sentinels in same tx
 	if _, err := tx.ExecContext(ctx,
 		"DELETE FROM sentinels WHERE unixepoch() - last_fired > 604800"); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: auto-prune: %v\n", err)
+		s.logger.WarnContext(ctx, "sentinel auto-prune failed", "error", err)
 	}
 
 	if err := tx.Commit(); err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -35,7 +36,8 @@ func TestSpawnHandler_TriggersOnExecuting(t *testing.T) {
 	q := &mockQuerier{agents: []string{"agent1", "agent2"}}
 	s := &mockSpawner{failIDs: map[string]bool{}}
 	var buf bytes.Buffer
-	h := NewSpawnHandler(q, s, &buf)
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewSpawnHandler(q, s, logger)
 
 	e := Event{
 		Source:    SourcePhase,
@@ -101,7 +103,8 @@ func TestSpawnHandler_PartialFailure(t *testing.T) {
 	q := &mockQuerier{agents: []string{"ok1", "fail1", "ok2"}}
 	s := &mockSpawner{failIDs: map[string]bool{"fail1": true}}
 	var buf bytes.Buffer
-	h := NewSpawnHandler(q, s, &buf)
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewSpawnHandler(q, s, logger)
 
 	e := Event{Source: SourcePhase, Type: "advance", RunID: "run001", ToState: "executing"}
 	h(context.Background(), e)
@@ -109,13 +112,17 @@ func TestSpawnHandler_PartialFailure(t *testing.T) {
 	if len(s.spawned) != 2 {
 		t.Errorf("spawned %d, want 2 (ok1 and ok2)", len(s.spawned))
 	}
-	if !bytes.Contains(buf.Bytes(), []byte("fail1 failed")) {
-		t.Error("expected failure log for fail1")
+	logOut := buf.String()
+	if !strings.Contains(logOut, "auto-spawn failed") {
+		t.Errorf("expected failure log for fail1, got: %s", logOut)
+	}
+	if !strings.Contains(logOut, "fail1") {
+		t.Errorf("expected agent_id fail1 in log, got: %s", logOut)
 	}
 }
 
-// TestSpawnWiringIntegration tests the full Notifier → SpawnHandler → mock chain,
-// mirroring how cmdRunAdvance wires the spawn handler at run.go:336.
+// TestSpawnWiringIntegration tests the full Notifier -> SpawnHandler -> mock chain,
+// mirroring how cmdRunAdvance wires the spawn handler at run.go.
 func TestSpawnWiringIntegration(t *testing.T) {
 	// 1. Create notifier (same as cmdRunAdvance)
 	notifier := NewNotifier()
@@ -130,7 +137,8 @@ func TestSpawnWiringIntegration(t *testing.T) {
 
 	// 3. Subscribe spawn handler (same pattern as cmdRunAdvance)
 	var logBuf bytes.Buffer
-	notifier.Subscribe("spawn", NewSpawnHandler(q, spawner, &logBuf))
+	logger := slog.New(slog.NewJSONHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	notifier.Subscribe("spawn", NewSpawnHandler(q, spawner, logger))
 
 	// 4. Fire a phase event to "executing" (simulates Advance callback)
 	ctx := context.Background()
@@ -153,13 +161,16 @@ func TestSpawnWiringIntegration(t *testing.T) {
 		t.Errorf("spawned = %v, want [agent-1 agent-2]", spawned)
 	}
 
-	// 6. Assert log output (handler prefixes with "[event] ")
+	// 6. Assert log output contains structured spawn messages
 	logStr := logBuf.String()
-	if !strings.Contains(logStr, "[event] auto-spawn: agent agent-1 started") {
-		t.Errorf("missing log for agent-1 in: %s", logStr)
+	if !strings.Contains(logStr, "auto-spawn started") {
+		t.Errorf("missing spawn log for agent-1 in: %s", logStr)
 	}
-	if !strings.Contains(logStr, "[event] auto-spawn: agent agent-2 started") {
-		t.Errorf("missing log for agent-2 in: %s", logStr)
+	if !strings.Contains(logStr, "agent-1") {
+		t.Errorf("missing agent-1 in log: %s", logStr)
+	}
+	if !strings.Contains(logStr, "agent-2") {
+		t.Errorf("missing agent-2 in log: %s", logStr)
 	}
 }
 

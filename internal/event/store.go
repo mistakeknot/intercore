@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -341,10 +342,19 @@ func scanEvents(rows *sql.Rows) ([]Event, error) {
 }
 
 func (s *Store) defaultDispatchEnvelope(ctx context.Context, dispatchID, runID, fromStatus, toStatus string) *EventEnvelope {
-	traceID := runID
+	// Read propagated trace context from environment
+	envTraceID := os.Getenv("IC_TRACE_ID")
+	envSpanID := os.Getenv("IC_SPAN_ID")
+	envParentSpanID := os.Getenv("IC_PARENT_SPAN_ID")
+
+	traceID := envTraceID
 	if traceID == "" {
-		traceID = dispatchID
+		traceID = runID
+		if traceID == "" {
+			traceID = dispatchID
+		}
 	}
+
 	capability := ""
 	if runID != "" {
 		capability = "run:" + runID
@@ -352,12 +362,18 @@ func (s *Store) defaultDispatchEnvelope(ctx context.Context, dispatchID, runID, 
 		capability = "dispatch:" + dispatchID
 	}
 
+	spanID := envSpanID
+	if spanID == "" {
+		spanID = fmt.Sprintf("dispatch:%s:%d", dispatchID, time.Now().UnixNano())
+	}
+
 	envelope := &EventEnvelope{
 		PolicyVersion:      "dispatch-lifecycle/v2",
 		CallerIdentity:     "dispatch.store",
 		CapabilityScope:    capability,
 		TraceID:            traceID,
-		SpanID:             fmt.Sprintf("dispatch:%s:%d", dispatchID, time.Now().UnixNano()),
+		SpanID:             spanID,
+		ParentSpanID:       envParentSpanID,
 		InputArtifactRefs:  statusRef(fromStatus),
 		OutputArtifactRefs: statusRef(toStatus),
 	}
@@ -384,16 +400,31 @@ func (s *Store) defaultDispatchEnvelope(ctx context.Context, dispatchID, runID, 
 }
 
 func defaultCoordinationEnvelope(eventType, lockID, pattern, scope, runID string) *EventEnvelope {
-	traceID := runID
+	// Read propagated trace context from environment
+	envTraceID := os.Getenv("IC_TRACE_ID")
+	envSpanID := os.Getenv("IC_SPAN_ID")
+	envParentSpanID := os.Getenv("IC_PARENT_SPAN_ID")
+
+	traceID := envTraceID
 	if traceID == "" {
-		traceID = lockID
+		traceID = runID
+		if traceID == "" {
+			traceID = lockID
+		}
 	}
+
+	spanID := envSpanID
+	if spanID == "" {
+		spanID = fmt.Sprintf("coordination:%s:%d", eventType, time.Now().UnixNano())
+	}
+
 	return &EventEnvelope{
 		PolicyVersion:      "coordination/v1",
 		CallerIdentity:     "coordination.store",
 		CapabilityScope:    "scope:" + scope,
 		TraceID:            traceID,
-		SpanID:             fmt.Sprintf("coordination:%s:%d", eventType, time.Now().UnixNano()),
+		SpanID:             spanID,
+		ParentSpanID:       envParentSpanID,
 		InputArtifactRefs:  statusRef(pattern),
 		OutputArtifactRefs: statusRef(lockID),
 	}

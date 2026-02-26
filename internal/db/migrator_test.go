@@ -95,6 +95,77 @@ func TestMigrator_V16Upgrade(t *testing.T) {
 	}
 }
 
+func TestMigrator_V22ToV23_AuditTraceID(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	// Apply baseline (creates all tables at current schema)
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate baseline: %v", err)
+	}
+
+	// Override version to 22 to simulate a pre-v23 DB
+	if _, err := d.db.ExecContext(ctx, "PRAGMA user_version = 22"); err != nil {
+		t.Fatalf("set version: %v", err)
+	}
+
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+
+	applied, err := m.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if applied != 1 {
+		t.Errorf("applied = %d, want 1", applied)
+	}
+
+	// Verify version is now 23
+	v, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d, want 23", v)
+	}
+
+	// Verify trace_id column exists on audit_log
+	rows, err := d.db.Query("SELECT trace_id FROM audit_log LIMIT 0")
+	if err != nil {
+		t.Fatalf("trace_id column missing on audit_log: %v", err)
+	}
+	rows.Close()
+
+	// Verify the index exists
+	var idxName string
+	err = d.db.QueryRow(
+		"SELECT name FROM sqlite_master WHERE type='index' AND name='idx_audit_log_trace'",
+	).Scan(&idxName)
+	if err != nil {
+		t.Fatalf("idx_audit_log_trace index missing: %v", err)
+	}
+
+	// Verify we can insert and query with trace_id
+	_, err = d.db.Exec(
+		`INSERT INTO audit_log (session_id, event_type, actor, target, checksum, sequence_num, trace_id)
+		 VALUES ('test', 'command', 'user', 'target', 'abc123', 1, 'trace-abc')`,
+	)
+	if err != nil {
+		t.Fatalf("insert with trace_id failed: %v", err)
+	}
+
+	var gotTraceID string
+	err = d.db.QueryRow("SELECT trace_id FROM audit_log WHERE session_id = 'test'").Scan(&gotTraceID)
+	if err != nil {
+		t.Fatalf("query trace_id: %v", err)
+	}
+	if gotTraceID != "trace-abc" {
+		t.Errorf("trace_id = %q, want %q", gotTraceID, "trace-abc")
+	}
+}
+
 func TestMigrator_V20NoOp(t *testing.T) {
 	d, _ := tempDB(t)
 	ctx := context.Background()

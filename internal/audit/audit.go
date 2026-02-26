@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -62,6 +63,7 @@ type Entry struct {
 	PrevHash    string                 `json:"prev_hash,omitempty"`
 	Checksum    string                 `json:"checksum"`
 	SequenceNum uint64                 `json:"sequence_num"`
+	TraceID     string                 `json:"trace_id,omitempty"`
 	CreatedAt   time.Time              `json:"created_at"`
 }
 
@@ -134,6 +136,9 @@ func (l *Logger) Log(ctx context.Context, eventType EventType, actor Actor, targ
 	now := time.Unix(time.Now().Unix(), 0).UTC()
 	l.sequenceNum++
 
+	// Populate trace_id from environment if not set by caller.
+	traceID := os.Getenv("IC_TRACE_ID")
+
 	entry := Entry{
 		SessionID:   l.sessionID,
 		EventType:   eventType,
@@ -143,6 +148,7 @@ func (l *Logger) Log(ctx context.Context, eventType EventType, actor Actor, targ
 		Metadata:    l.sanitizeMap(metadata),
 		PrevHash:    l.lastHash,
 		SequenceNum: l.sequenceNum,
+		TraceID:     traceID,
 		CreatedAt:   now,
 	}
 
@@ -164,8 +170,8 @@ func (l *Logger) Log(ctx context.Context, eventType EventType, actor Actor, targ
 	}
 
 	_, err = l.db.ExecContext(ctx,
-		`INSERT INTO audit_log (session_id, event_type, actor, target, payload, metadata, prev_hash, checksum, sequence_num, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO audit_log (session_id, event_type, actor, target, payload, metadata, prev_hash, checksum, sequence_num, trace_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		entry.SessionID,
 		string(entry.EventType),
 		string(entry.Actor),
@@ -175,6 +181,7 @@ func (l *Logger) Log(ctx context.Context, eventType EventType, actor Actor, targ
 		entry.PrevHash,
 		entry.Checksum,
 		entry.SequenceNum,
+		entry.TraceID,
 		now.Unix(),
 	)
 	if err != nil {
@@ -186,10 +193,12 @@ func (l *Logger) Log(ctx context.Context, eventType EventType, actor Actor, targ
 }
 
 func computeChecksum(entry Entry) (string, error) {
-	// Zero out checksum for hashing.
+	// Zero out checksum and trace_id for hashing.
+	// TraceID is excluded to preserve backward compatibility of the tamper-evident chain.
 	e := entry
 	e.Checksum = ""
 	e.ID = 0
+	e.TraceID = ""
 
 	data, err := json.Marshal(e)
 	if err != nil {
@@ -204,7 +213,7 @@ func computeChecksum(entry Entry) (string, error) {
 // Returns nil if the chain is valid, or an error describing the first break.
 func VerifyIntegrity(ctx context.Context, db *sql.DB, sessionID string) error {
 	rows, err := db.QueryContext(ctx,
-		`SELECT session_id, event_type, actor, target, payload, metadata, prev_hash, checksum, sequence_num, created_at
+		`SELECT session_id, event_type, actor, target, payload, metadata, prev_hash, checksum, sequence_num, trace_id, created_at
 		 FROM audit_log WHERE session_id = ? ORDER BY sequence_num ASC`,
 		sessionID,
 	)
@@ -218,13 +227,14 @@ func VerifyIntegrity(ctx context.Context, db *sql.DB, sessionID string) error {
 
 	for rows.Next() {
 		var (
-			sid, et, act, tgt string
+			sid, et, act, tgt         string
 			payloadJSON, metadataJSON string
-			ph, cs string
-			sn     int64
-			ca     int64
+			ph, cs                    string
+			sn                        int64
+			traceID                   string
+			ca                        int64
 		)
-		if err := rows.Scan(&sid, &et, &act, &tgt, &payloadJSON, &metadataJSON, &ph, &cs, &sn, &ca); err != nil {
+		if err := rows.Scan(&sid, &et, &act, &tgt, &payloadJSON, &metadataJSON, &ph, &cs, &sn, &traceID, &ca); err != nil {
 			return fmt.Errorf("verify: scan: %w", err)
 		}
 
@@ -271,7 +281,7 @@ func VerifyIntegrity(ctx context.Context, db *sql.DB, sessionID string) error {
 
 // Query returns audit entries matching the filter.
 func Query(ctx context.Context, db *sql.DB, filter Filter) ([]Entry, error) {
-	query := `SELECT id, session_id, event_type, actor, target, payload, metadata, prev_hash, checksum, sequence_num, created_at
+	query := `SELECT id, session_id, event_type, actor, target, payload, metadata, prev_hash, checksum, sequence_num, trace_id, created_at
 	          FROM audit_log WHERE 1=1`
 	var args []interface{}
 
@@ -315,7 +325,7 @@ func Query(ctx context.Context, db *sql.DB, filter Filter) ([]Entry, error) {
 		var ca int64
 
 		if err := rows.Scan(&e.ID, &e.SessionID, &e.EventType, &e.Actor, &e.Target,
-			&payloadJSON, &metadataJSON, &e.PrevHash, &e.Checksum, &e.SequenceNum, &ca); err != nil {
+			&payloadJSON, &metadataJSON, &e.PrevHash, &e.Checksum, &e.SequenceNum, &e.TraceID, &ca); err != nil {
 			return nil, fmt.Errorf("audit.Query: scan: %w", err)
 		}
 		json.Unmarshal([]byte(payloadJSON), &e.Payload)

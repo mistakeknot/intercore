@@ -307,12 +307,14 @@ CREATE TABLE IF NOT EXISTS audit_log (
     prev_hash    TEXT NOT NULL DEFAULT '',
     checksum     TEXT NOT NULL,
     sequence_num INTEGER NOT NULL,
+    trace_id     TEXT NOT NULL DEFAULT '',
     created_at   INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id, sequence_num);
 CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
 CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_trace ON audit_log(trace_id) WHERE trace_id != '';
 
 -- v17: cost reconciliation records
 CREATE TABLE IF NOT EXISTS cost_reconciliations (

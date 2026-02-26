@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,7 +26,7 @@ import (
 
 func cmdRun(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run: missing subcommand (create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, action, tokens, budget, replay)\n")
+		slog.Error("run: missing subcommand", "expected", "create, status, advance, skip, rollback, phase, list, events, cancel, set, current, agent, artifact, action, tokens, budget, replay")
 		return 3
 	}
 
@@ -65,7 +66,7 @@ func cmdRun(ctx context.Context, args []string) int {
 	case "replay":
 		return cmdRunReplay(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: run: unknown subcommand: %s\n", args[0])
+		slog.Error("run: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -91,7 +92,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--complexity=")
 			c, err := strconv.Atoi(val)
 			if err != nil || c < 1 || c > 5 {
-				fmt.Fprintf(os.Stderr, "ic: run create: invalid complexity (1-5): %s\n", val)
+				slog.Error("run create: invalid complexity", "value", val)
 				return 3
 			}
 			complexity = c
@@ -103,7 +104,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--token-budget=")
 			v, err := strconv.ParseInt(val, 10, 64)
 			if err != nil || v <= 0 {
-				fmt.Fprintf(os.Stderr, "ic: run create: invalid token-budget (positive integer): %s\n", val)
+				slog.Error("run create: invalid token-budget", "value", val)
 				return 3
 			}
 			tokenBudget = v
@@ -111,7 +112,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--budget-warn-pct=")
 			v, err := strconv.Atoi(val)
 			if err != nil || v < 1 || v > 99 {
-				fmt.Fprintf(os.Stderr, "ic: run create: invalid budget-warn-pct (1-99): %s\n", val)
+				slog.Error("run create: invalid budget-warn-pct", "value", val)
 				return 3
 			}
 			budgetWarnPct = v
@@ -119,7 +120,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--max-dispatches=")
 			v, err := strconv.Atoi(val)
 			if err != nil || v < 0 {
-				fmt.Fprintf(os.Stderr, "ic: run create: invalid max-dispatches (non-negative integer): %s\n", val)
+				slog.Error("run create: invalid max-dispatches", "value", val)
 				return 3
 			}
 			maxDispatches = v
@@ -129,7 +130,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--max-agents=")
 			v, err := strconv.Atoi(val)
 			if err != nil || v < 0 {
-				fmt.Fprintf(os.Stderr, "ic: run create: invalid max-agents (non-negative integer): %s\n", val)
+				slog.Error("run create: invalid max-agents", "value", val)
 				return 3
 			}
 			maxAgents = v
@@ -140,23 +141,23 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--gates-file="):
 			gatesFile = strings.TrimPrefix(args[i], "--gates-file=")
 		default:
-			fmt.Fprintf(os.Stderr, "ic: run create: unknown flag: %s\n", args[i])
+			slog.Error("run create: unknown flag", "value", args[i])
 			return 3
 		}
 	}
 
 	if goal == "" {
-		fmt.Fprintf(os.Stderr, "ic: run create: --goal is required\n")
+		slog.Error("run create: --goal is required")
 		return 3
 	}
 
 	if projects != "" && project != "" {
-		fmt.Fprintf(os.Stderr, "ic: run create: --project and --projects are mutually exclusive\n")
+		slog.Error("run create: --project and --projects are mutually exclusive")
 		return 3
 	}
 
 	if gatesJSON != "" && gatesFile != "" {
-		fmt.Fprintf(os.Stderr, "ic: run create: --gates and --gates-file are mutually exclusive\n")
+		slog.Error("run create: --gates and --gates-file are mutually exclusive")
 		return 3
 	}
 
@@ -165,7 +166,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	if gatesFile != "" {
 		data, err := os.ReadFile(gatesFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: read gates file: %v\n", err)
+			slog.Error("run create: read gates file", "error", err)
 			return 2
 		}
 		gatesJSON = string(data)
@@ -174,14 +175,14 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		var err error
 		gateRules, err = phase.ParseGateRules(gatesJSON)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			slog.Error("run create failed", "error", err)
 			return 3
 		}
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+		slog.Error("run create failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -191,7 +192,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	if phasesJSON != "" {
 		parsed, err := phase.ParsePhaseChain(phasesJSON)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			slog.Error("run create failed", "error", err)
 			return 3
 		}
 		customPhases = parsed
@@ -202,7 +203,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	}
 	if gateRules != nil {
 		if err := phase.ValidateGateRulesForChain(activeChain, gateRules); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			slog.Error("run create failed", "error", err)
 			return 3
 		}
 	}
@@ -213,14 +214,14 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	if projects != "" {
 		projectPaths := strings.Split(projects, ",")
 		if len(projectPaths) < 2 {
-			fmt.Fprintf(os.Stderr, "ic: run create: --projects requires at least 2 comma-separated paths\n")
+			slog.Error("run create: --projects requires at least 2 comma-separated paths")
 			return 3
 		}
 		// Resolve to absolute paths
 		for i, p := range projectPaths {
 			abs, err := filepath.Abs(strings.TrimSpace(p))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: run create: invalid project path %q: %v\n", p, err)
+				slog.Error("run create: invalid project path", "value", p, "error", err)
 				return 3
 			}
 			projectPaths[i] = abs
@@ -258,7 +259,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 
 		portfolioID, childIDs, err := store.CreatePortfolio(ctx, portfolio, children)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+			slog.Error("run create failed", "error", err)
 			return 2
 		}
 
@@ -280,7 +281,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	if project == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: cannot determine project dir: %v\n", err)
+			slog.Error("run create: cannot determine project dir", "error", err)
 			return 2
 		}
 		project = cwd
@@ -314,7 +315,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			Type    string  `json:"type,omitempty"`
 		}
 		if err := json.Unmarshal([]byte(actionsJSON), &actionMap); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: invalid --actions JSON: %v\n", err)
+			slog.Error("run create: invalid --actions JSON", "error", err)
 			return 2
 		}
 		actionBatch = make(map[string]*action.Action, len(actionMap))
@@ -331,7 +332,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 
 	id, err := store.Create(ctx, run)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run create: %v\n", err)
+		slog.Error("run create failed", "error", err)
 		return 2
 	}
 
@@ -339,7 +340,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	if actionBatch != nil {
 		aStore := action.New(d.SqlDB())
 		if err := aStore.AddBatch(ctx, id, actionBatch); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run create: register actions: %v\n", err)
+			slog.Error("run create: register actions", "error", err)
 			return 2
 		}
 	}
@@ -363,7 +364,7 @@ func cmdRunStatus(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run status: %v\n", err)
+		slog.Error("run status failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -372,10 +373,10 @@ func cmdRunStatus(ctx context.Context, args []string) int {
 	run, err := store.Get(ctx, args[0])
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run status: not found: %s\n", args[0])
+			slog.Error("run status: not found", "id", args[0])
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run status: %v\n", err)
+		slog.Error("run status failed", "error", err)
 		return 2
 	}
 
@@ -417,7 +418,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--priority=")
 			p, err := strconv.Atoi(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: run advance: invalid priority: %s\n", val)
+				slog.Error("run advance: invalid priority", "value", val)
 				return 3
 			}
 			priority = p
@@ -438,7 +439,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run advance: %v\n", err)
+		slog.Error("run advance failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -449,19 +450,23 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 
 	// Set up event notifier with handlers
 	notifier := event.NewNotifier()
-	notifier.Subscribe("log", event.NewLogHandler(os.Stderr, !flagVerbose))
+	var eventLogger *slog.Logger
+	if flagVerbose {
+		eventLogger = slog.Default()
+	}
+	notifier.Subscribe("log", event.NewLogHandler(eventLogger))
 
 	// Get run info for project dir (needed by hook handler)
 	run, err := store.Get(ctx, id)
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)
+			slog.Error("run advance: not found", "id", id)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run advance: %v\n", err)
+		slog.Error("run advance failed", "error", err)
 		return 2
 	}
-	notifier.Subscribe("hook", event.NewHookHandler(run.ProjectDir, os.Stderr))
+	notifier.Subscribe("hook", event.NewHookHandler(run.ProjectDir, slog.Default()))
 
 	// Dispatch event recorder: writes to dispatch_events + notifies
 	dispatchRecorder := func(dispatchID, runID, fromStatus, toStatus string) {
@@ -474,7 +479,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			Timestamp: time.Now(),
 		}
 		if err := evStore.AddDispatchEvent(ctx, dispatchID, runID, fromStatus, toStatus, "status_change", "", nil); err != nil {
-			fmt.Fprintf(os.Stderr, "[event] dispatch event: %v\n", err)
+			slog.Debug("event: dispatch event", "error", err)
 		}
 		notifier.Notify(ctx, e)
 	}
@@ -533,7 +538,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 
 		return nil
 	})
-	notifier.Subscribe("spawn", event.NewSpawnHandler(rtStore, spawner, os.Stderr))
+	notifier.Subscribe("spawn", event.NewSpawnHandler(rtStore, spawner, slog.Default()))
 
 	// Phase event callback: notifies after phase transition
 	phaseCallback := func(runID, eventType, fromPhase, toPhase, reason string) {
@@ -597,14 +602,14 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 	}, rtStore, dStore, store, dq, bq, phaseCallback)
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run advance: not found: %s\n", id)
+			slog.Error("run advance: not found", "id", id)
 			return 1
 		}
 		if err == phase.ErrTerminalRun || err == phase.ErrTerminalPhase {
-			fmt.Fprintf(os.Stderr, "ic: run advance: %v\n", err)
+			slog.Error("run advance failed", "error", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run advance: %v\n", err)
+		slog.Error("run advance failed", "error", err)
 		return 2
 	}
 
@@ -615,7 +620,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		var actErr error
 		resolvedActions, actErr = aStore.ListForPhaseResolved(ctx, id, result.ToPhase, run.ProjectDir)
 		if actErr != nil {
-			fmt.Fprintf(os.Stderr, "ic: run advance: warning: action resolution failed: %v\n", actErr)
+			slog.Warn("run advance: action resolution failed", "error", actErr)
 		}
 	}
 
@@ -707,20 +712,20 @@ func cmdRunSkip(ctx context.Context, args []string) int {
 	targetPhase := positional[1]
 
 	if reason == "" {
-		fmt.Fprintf(os.Stderr, "ic: run skip: --reason is required\n")
+		slog.Error("run skip: --reason is required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run skip: %v\n", err)
+		slog.Error("run skip failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	store := phase.New(d.SqlDB())
 	if err := store.SkipPhase(ctx, runID, targetPhase, reason, actor); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run skip: %v\n", err)
+		slog.Error("run skip failed", "error", err)
 		return 1
 	}
 
@@ -743,7 +748,7 @@ func cmdRunPhase(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run phase: %v\n", err)
+		slog.Error("run phase failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -752,10 +757,10 @@ func cmdRunPhase(ctx context.Context, args []string) int {
 	run, err := store.Get(ctx, args[0])
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run phase: not found: %s\n", args[0])
+			slog.Error("run phase: not found", "id", args[0])
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run phase: %v\n", err)
+		slog.Error("run phase failed", "error", err)
 		return 2
 	}
 
@@ -782,7 +787,7 @@ func cmdRunList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run list: %v\n", err)
+		slog.Error("run list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -796,7 +801,7 @@ func cmdRunList(ctx context.Context, args []string) int {
 		runs, err = store.List(ctx, scopeFilter)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run list: %v\n", err)
+		slog.Error("run list failed", "error", err)
 		return 2
 	}
 
@@ -833,7 +838,7 @@ func cmdRunEvents(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run events: %v\n", err)
+		slog.Error("run events failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -841,7 +846,7 @@ func cmdRunEvents(ctx context.Context, args []string) int {
 	store := phase.New(d.SqlDB())
 	events, err := store.Events(ctx, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run events: %v\n", err)
+		slog.Error("run events failed", "error", err)
 		return 2
 	}
 
@@ -875,7 +880,7 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run cancel: %v\n", err)
+		slog.Error("run cancel failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -886,22 +891,22 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 	run, err := store.Get(ctx, args[0])
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run cancel: not found: %s\n", args[0])
+			slog.Error("run cancel: not found", "id", args[0])
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run cancel: %v\n", err)
+		slog.Error("run cancel failed", "error", err)
 		return 2
 	}
 
 	if phase.IsTerminalStatus(run.Status) {
-		fmt.Fprintf(os.Stderr, "ic: run cancel: run already %s\n", run.Status)
+		slog.Error("run cancel: run already in terminal state", "status", run.Status)
 		return 1
 	}
 
 	// Portfolio cascade: cancel portfolio + all active children atomically
 	if run.ProjectDir == "" {
 		if err := store.CancelPortfolio(ctx, args[0]); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run cancel: %v\n", err)
+			slog.Error("run cancel failed", "error", err)
 			return 2
 		}
 		// Record cancel events for portfolio and children
@@ -913,7 +918,7 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 		})
 		children, err := store.GetChildren(ctx, args[0])
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run cancel: warning: could not list children: %v\n", err)
+			slog.Warn("run cancel: could not list children", "error", err)
 		}
 		for _, c := range children {
 			store.AddEvent(ctx, &phase.PhaseEvent{
@@ -929,7 +934,7 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 	}
 
 	if err := store.UpdateStatus(ctx, args[0], phase.StatusCancelled); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run cancel: %v\n", err)
+		slog.Error("run cancel failed", "error", err)
 		return 2
 	}
 
@@ -980,7 +985,7 @@ func cmdRunRollback(ctx context.Context, args []string) int {
 
 	// Route: --to-phase → workflow rollback
 	if toPhase == "" {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: --to-phase or --layer required\n")
+		slog.Error("run rollback: --to-phase or --layer required")
 		return 3
 	}
 
@@ -990,7 +995,7 @@ func cmdRunRollback(ctx context.Context, args []string) int {
 func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, dryRun bool) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		slog.Error("run rollback failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1003,17 +1008,17 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 	run, err := pStore.Get(ctx, runID)
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run rollback: not found: %s\n", runID)
+			slog.Error("run rollback: not found", "id", runID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		slog.Error("run rollback failed", "error", err)
 		return 2
 	}
 
 	chain := phase.ResolveChain(run)
 	rolledBackPhases := phase.ChainPhasesBetween(chain, toPhase, run.Phase)
 	if rolledBackPhases == nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: target phase %q is not behind current phase %q\n", toPhase, run.Phase)
+		slog.Error("run rollback: target phase is not behind current phase", "target", toPhase, "current", run.Phase)
 		return 1
 	}
 
@@ -1027,7 +1032,7 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(output); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run rollback: output error: %v\n", err)
+			slog.Error("run rollback: output error failed", "error", err)
 			return 2
 		}
 		return 0
@@ -1035,8 +1040,12 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 
 	// Set up event notifier for bus notifications
 	notifier := event.NewNotifier()
-	notifier.Subscribe("log", event.NewLogHandler(os.Stderr, !flagVerbose))
-	notifier.Subscribe("hook", event.NewHookHandler(run.ProjectDir, os.Stderr))
+	var rollbackEventLogger *slog.Logger
+	if flagVerbose {
+		rollbackEventLogger = slog.Default()
+	}
+	notifier.Subscribe("log", event.NewLogHandler(rollbackEventLogger))
+	notifier.Subscribe("hook", event.NewHookHandler(run.ProjectDir, slog.Default()))
 
 	callback := func(runID, eventType, fromPhase, toPhase, cbReason string) {
 		notifier.Notify(ctx, event.Event{
@@ -1053,7 +1062,7 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 	// Perform workflow rollback
 	result, err := phase.Rollback(ctx, pStore, runID, toPhase, reason, callback)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		slog.Error("run rollback failed", "error", err)
 		if err == phase.ErrNotFound {
 			return 1
 		}
@@ -1065,19 +1074,19 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 	cleanupErr := false
 	markedArtifacts, err := rtStore.MarkArtifactsRolledBack(ctx, runID, result.RolledBackPhases)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: artifact marking failed: %v\n", err)
+		slog.Warn("run rollback: artifact marking failed", "error", err)
 		cleanupErr = true
 	}
 
 	cancelledDispatches, err := dStore.CancelByRun(ctx, runID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: dispatch cancellation failed: %v\n", err)
+		slog.Warn("run rollback: dispatch cancellation failed", "error", err)
 		cleanupErr = true
 	}
 
 	failedAgents, err := rtStore.FailAgentsByRun(ctx, runID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: warning: agent failure marking failed: %v\n", err)
+		slog.Warn("run rollback: agent failure marking failed", "error", err)
 		cleanupErr = true
 	}
 
@@ -1094,7 +1103,7 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(output); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback: output error: %v\n", err)
+		slog.Error("run rollback: output error failed", "error", err)
 		return 2
 	}
 
@@ -1108,7 +1117,7 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback --layer=code: %v\n", err)
+		slog.Error("run rollback --layer=code failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1120,10 +1129,10 @@ func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) 
 	_, err = pStore.Get(ctx, runID)
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run rollback: not found: %s\n", runID)
+			slog.Error("run rollback: not found", "id", runID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run rollback: %v\n", err)
+		slog.Error("run rollback failed", "error", err)
 		return 2
 	}
 
@@ -1134,7 +1143,7 @@ func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) 
 
 	entries, err := rtStore.ListArtifactsForCodeRollback(ctx, runID, phaseFilter)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback --layer=code: %v\n", err)
+		slog.Error("run rollback --layer=code failed", "error", err)
 		return 2
 	}
 
@@ -1159,7 +1168,7 @@ func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(entries); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run rollback --layer=code: output error: %v\n", err)
+		slog.Error("run rollback --layer=code: output error failed", "error", err)
 		return 2
 	}
 	return 0
@@ -1183,7 +1192,7 @@ func cmdRunSet(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--complexity=")
 			c, err := strconv.Atoi(val)
 			if err != nil || c < 1 || c > 5 {
-				fmt.Fprintf(os.Stderr, "ic: run set: invalid complexity (1-5): %s\n", val)
+				slog.Error("run set: invalid complexity", "value", val)
 				return 3
 			}
 			complexity = &c
@@ -1191,7 +1200,7 @@ func cmdRunSet(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--auto-advance=")
 			b, err := strconv.ParseBool(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: run set: invalid bool: %s\n", val)
+				slog.Error("run set: invalid bool", "value", val)
 				return 3
 			}
 			autoAdvance = &b
@@ -1199,7 +1208,7 @@ func cmdRunSet(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--force-full=")
 			b, err := strconv.ParseBool(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: run set: invalid bool: %s\n", val)
+				slog.Error("run set: invalid bool", "value", val)
 				return 3
 			}
 			forceFull = &b
@@ -1207,24 +1216,24 @@ func cmdRunSet(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--max-dispatches=")
 			v, err := strconv.Atoi(val)
 			if err != nil || v < 0 {
-				fmt.Fprintf(os.Stderr, "ic: run set: invalid max-dispatches (non-negative integer): %s\n", val)
+				slog.Error("run set: invalid max-dispatches", "value", val)
 				return 3
 			}
 			maxDispatches = &v
 		default:
-			fmt.Fprintf(os.Stderr, "ic: run set: unknown flag: %s\n", args[i])
+			slog.Error("run set: unknown flag", "value", args[i])
 			return 3
 		}
 	}
 
 	if complexity == nil && autoAdvance == nil && forceFull == nil && maxDispatches == nil {
-		fmt.Fprintf(os.Stderr, "ic: run set: no settings to update\n")
+		slog.Error("run set: no settings to update")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run set: %v\n", err)
+		slog.Error("run set failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1235,28 +1244,28 @@ func cmdRunSet(ctx context.Context, args []string) int {
 	run, err := store.Get(ctx, id)
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run set: not found: %s\n", id)
+			slog.Error("run set: not found", "id", id)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run set: %v\n", err)
+		slog.Error("run set failed", "error", err)
 		return 2
 	}
 
 	// --max-dispatches is only valid for portfolio runs
 	if maxDispatches != nil {
 		if run.ProjectDir != "" {
-			fmt.Fprintf(os.Stderr, "ic: run set: --max-dispatches is only valid for portfolio runs\n")
+			slog.Error("run set: --max-dispatches is only valid for portfolio runs")
 			return 3
 		}
 		if err := store.UpdateMaxDispatches(ctx, id, *maxDispatches); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run set: %v\n", err)
+			slog.Error("run set failed", "error", err)
 			return 2
 		}
 	}
 
 	if complexity != nil || autoAdvance != nil || forceFull != nil {
 		if err := store.UpdateSettings(ctx, id, complexity, autoAdvance, forceFull); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run set: %v\n", err)
+			slog.Error("run set failed", "error", err)
 			return 2
 		}
 	}
@@ -1281,7 +1290,7 @@ func cmdRunCurrent(ctx context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--project="):
 			project = strings.TrimPrefix(args[i], "--project=")
 		default:
-			fmt.Fprintf(os.Stderr, "ic: run current: unknown flag: %s\n", args[i])
+			slog.Error("run current: unknown flag", "value", args[i])
 			return 3
 		}
 	}
@@ -1289,7 +1298,7 @@ func cmdRunCurrent(ctx context.Context, args []string) int {
 	if project == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run current: cannot determine project dir: %v\n", err)
+			slog.Error("run current: cannot determine project dir", "error", err)
 			return 2
 		}
 		project = cwd
@@ -1297,7 +1306,7 @@ func cmdRunCurrent(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run current: %v\n", err)
+		slog.Error("run current failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1313,7 +1322,7 @@ func cmdRunCurrent(ctx context.Context, args []string) int {
 			}
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run current: %v\n", err)
+		slog.Error("run current failed", "error", err)
 		return 2
 	}
 
@@ -1334,7 +1343,7 @@ func cmdRunCurrent(ctx context.Context, args []string) int {
 
 func cmdRunAgent(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run agent: missing subcommand (add, list, update)\n")
+		slog.Error("run agent: missing subcommand", "expected", "add, list, update")
 		return 3
 	}
 
@@ -1346,7 +1355,7 @@ func cmdRunAgent(ctx context.Context, args []string) int {
 	case "update":
 		return cmdRunAgentUpdate(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: run agent: unknown subcommand: %s\n", args[0])
+		slog.Error("run agent: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -1380,7 +1389,7 @@ func cmdRunAgentAdd(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run agent add: %v\n", err)
+		slog.Error("run agent add failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1400,10 +1409,10 @@ func cmdRunAgentAdd(ctx context.Context, args []string) int {
 	id, err := store.AddAgent(ctx, agent)
 	if err != nil {
 		if err == runtrack.ErrRunNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run agent add: run not found: %s\n", runID)
+			slog.Error("run agent add: run not found", "id", runID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run agent add: %v\n", err)
+		slog.Error("run agent add failed", "error", err)
 		return 2
 	}
 
@@ -1426,7 +1435,7 @@ func cmdRunAgentList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run agent list: %v\n", err)
+		slog.Error("run agent list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1434,7 +1443,7 @@ func cmdRunAgentList(ctx context.Context, args []string) int {
 	store := runtrack.New(d.SqlDB())
 	agents, err := store.ListAgents(ctx, runID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run agent list: %v\n", err)
+		slog.Error("run agent list failed", "error", err)
 		return 2
 	}
 
@@ -1476,7 +1485,7 @@ func cmdRunAgentUpdate(ctx context.Context, args []string) int {
 	agentID := positional[0]
 
 	if status == "" {
-		fmt.Fprintf(os.Stderr, "ic: run agent update: --status is required\n")
+		slog.Error("run agent update: --status is required")
 		return 3
 	}
 
@@ -1484,13 +1493,13 @@ func cmdRunAgentUpdate(ctx context.Context, args []string) int {
 	case runtrack.StatusActive, runtrack.StatusCompleted, runtrack.StatusFailed:
 		// valid
 	default:
-		fmt.Fprintf(os.Stderr, "ic: run agent update: invalid status %q (must be active, completed, or failed)\n", status)
+		slog.Error("run agent update: invalid status (must be active, completed, or failed)", "status", status)
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run agent update: %v\n", err)
+		slog.Error("run agent update failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1498,10 +1507,10 @@ func cmdRunAgentUpdate(ctx context.Context, args []string) int {
 	store := runtrack.New(d.SqlDB())
 	if err := store.UpdateAgent(ctx, agentID, status); err != nil {
 		if err == runtrack.ErrAgentNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run agent update: not found: %s\n", agentID)
+			slog.Error("run agent update: not found", "id", agentID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run agent update: %v\n", err)
+		slog.Error("run agent update failed", "error", err)
 		return 2
 	}
 
@@ -1520,7 +1529,7 @@ func cmdRunTokens(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run tokens: %v\n", err)
+		slog.Error("run tokens failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1528,7 +1537,7 @@ func cmdRunTokens(ctx context.Context, args []string) int {
 	dStore := dispatch.New(d.SqlDB(), nil)
 	agg, err := dStore.AggregateTokens(ctx, runID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run tokens: %v\n", err)
+		slog.Error("run tokens failed", "error", err)
 		return 2
 	}
 
@@ -1572,7 +1581,7 @@ func cmdRunBudget(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run budget: %v\n", err)
+		slog.Error("run budget failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1584,7 +1593,7 @@ func cmdRunBudget(ctx context.Context, args []string) int {
 	checker := budget.New(pStore, dStore, sStore, nil)
 	result, err := checker.Check(ctx, runID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run budget: %v\n", err)
+		slog.Error("run budget failed", "error", err)
 		return 2
 	}
 	if result == nil {
@@ -1678,24 +1687,24 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--limit="):
 			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if err != nil || v <= 0 {
-				fmt.Fprintf(os.Stderr, "ic: run replay: invalid --limit: %s\n", strings.TrimPrefix(arg, "--limit="))
+				slog.Error("run replay: invalid --limit", "value", strings.TrimPrefix(arg, "--limit="))
 				return 3
 			}
 			limit = v
 		default:
-			fmt.Fprintf(os.Stderr, "ic: run replay: unknown flag: %s\n", arg)
+			slog.Error("run replay: unknown flag", "value", arg)
 			return 3
 		}
 	}
 
 	if mode != "simulate" && mode != "reexecute" {
-		fmt.Fprintf(os.Stderr, "ic: run replay: invalid --mode (simulate|reexecute): %s\n", mode)
+		slog.Error("run replay: invalid --mode", "value", mode)
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run replay: %v\n", err)
+		slog.Error("run replay failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1704,29 +1713,29 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 	run, err := pStore.Get(ctx, runID)
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run replay: run not found: %s\n", runID)
+			slog.Error("run replay: run not found", "id", runID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run replay: %v\n", err)
+		slog.Error("run replay failed", "error", err)
 		return 2
 	}
 
 	if run.Status != phase.StatusCompleted {
-		fmt.Fprintf(os.Stderr, "ic: run replay: run must be completed for deterministic replay (status=%s)\n", run.Status)
+		slog.Error("run replay: run must be completed for deterministic replay", "status", run.Status)
 		return 1
 	}
 
 	evStore := event.NewStore(d.SqlDB())
 	events, err := evStore.ListEvents(ctx, runID, 0, 0, 0, limit)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run replay: list events: %v\n", err)
+		slog.Error("run replay: list events failed", "error", err)
 		return 2
 	}
 
 	replayStore := replay.New(d.SqlDB())
 	inputs, err := replayStore.ListInputs(ctx, runID, limit*2)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run replay: list inputs: %v\n", err)
+		slog.Error("run replay: list inputs failed", "error", err)
 		return 2
 	}
 
@@ -1753,7 +1762,7 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run replay: write: %v\n", err)
+			slog.Error("run replay: write failed", "error", err)
 			return 2
 		}
 	} else {
@@ -1785,19 +1794,19 @@ func cmdRunReplayInputs(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--limit="):
 			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if err != nil || v <= 0 {
-				fmt.Fprintf(os.Stderr, "ic: run replay inputs: invalid --limit: %s\n", strings.TrimPrefix(arg, "--limit="))
+				slog.Error("run replay inputs: invalid --limit", "value", strings.TrimPrefix(arg, "--limit="))
 				return 3
 			}
 			limit = v
 		default:
-			fmt.Fprintf(os.Stderr, "ic: run replay inputs: unknown flag: %s\n", arg)
+			slog.Error("run replay inputs: unknown flag", "value", arg)
 			return 3
 		}
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run replay inputs: %v\n", err)
+		slog.Error("run replay inputs failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1805,13 +1814,13 @@ func cmdRunReplayInputs(ctx context.Context, args []string) int {
 	replayStore := replay.New(d.SqlDB())
 	inputs, err := replayStore.ListInputs(ctx, runID, limit)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run replay inputs: %v\n", err)
+		slog.Error("run replay inputs failed", "error", err)
 		return 2
 	}
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(inputs); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: run replay inputs: write: %v\n", err)
+			slog.Error("run replay inputs: write failed", "error", err)
 			return 2
 		}
 	} else {
@@ -1847,17 +1856,17 @@ func cmdRunReplayRecord(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--event-id="):
 			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--event-id="), 10, 64)
 			if err != nil || v <= 0 {
-				fmt.Fprintf(os.Stderr, "ic: run replay record: invalid --event-id: %s\n", strings.TrimPrefix(arg, "--event-id="))
+				slog.Error("run replay record: invalid --event-id", "value", strings.TrimPrefix(arg, "--event-id="))
 				return 3
 			}
 			eventID = &v
 		default:
-			fmt.Fprintf(os.Stderr, "ic: run replay record: unknown flag: %s\n", arg)
+			slog.Error("run replay record: unknown flag", "value", arg)
 			return 3
 		}
 	}
 	if kind == "" {
-		fmt.Fprintf(os.Stderr, "ic: run replay record: --kind is required\n")
+		slog.Error("run replay record: --kind is required")
 		return 3
 	}
 	if payload == "" {
@@ -1866,7 +1875,7 @@ func cmdRunReplayRecord(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run replay record: %v\n", err)
+		slog.Error("run replay record failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1874,10 +1883,10 @@ func cmdRunReplayRecord(ctx context.Context, args []string) int {
 	pStore := phase.New(d.SqlDB())
 	if _, err := pStore.Get(ctx, runID); err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run replay record: run not found: %s\n", runID)
+			slog.Error("run replay record: run not found", "id", runID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run replay record: %v\n", err)
+		slog.Error("run replay record failed", "error", err)
 		return 2
 	}
 
@@ -1895,7 +1904,7 @@ func cmdRunReplayRecord(ctx context.Context, args []string) int {
 	}
 	id, err := replayStore.AddInput(ctx, in)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run replay record: %v\n", err)
+		slog.Error("run replay record failed", "error", err)
 		return 2
 	}
 	if flagJSON {
@@ -1908,7 +1917,7 @@ func cmdRunReplayRecord(ctx context.Context, args []string) int {
 
 func cmdRunArtifact(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run artifact: missing subcommand (add, list)\n")
+		slog.Error("run artifact: missing subcommand", "expected", "add, list")
 		return 3
 	}
 
@@ -1918,7 +1927,7 @@ func cmdRunArtifact(ctx context.Context, args []string) int {
 	case "list":
 		return cmdRunArtifactList(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: run artifact: unknown subcommand: %s\n", args[0])
+		slog.Error("run artifact: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -1949,11 +1958,11 @@ func cmdRunArtifactAdd(ctx context.Context, args []string) int {
 	runID := positional[0]
 
 	if artifactPhase == "" {
-		fmt.Fprintf(os.Stderr, "ic: run artifact add: --phase is required\n")
+		slog.Error("run artifact add: --phase is required")
 		return 3
 	}
 	if path == "" {
-		fmt.Fprintf(os.Stderr, "ic: run artifact add: --path is required\n")
+		slog.Error("run artifact add: --path is required")
 		return 3
 	}
 	if artifactType == "" {
@@ -1962,7 +1971,7 @@ func cmdRunArtifactAdd(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run artifact add: %v\n", err)
+		slog.Error("run artifact add failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -1981,10 +1990,10 @@ func cmdRunArtifactAdd(ctx context.Context, args []string) int {
 	id, err := store.AddArtifact(ctx, artifact)
 	if err != nil {
 		if err == runtrack.ErrRunNotFound {
-			fmt.Fprintf(os.Stderr, "ic: run artifact add: run not found: %s\n", runID)
+			slog.Error("run artifact add: run not found", "id", runID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: run artifact add: %v\n", err)
+		slog.Error("run artifact add failed", "error", err)
 		return 2
 	}
 
@@ -2020,7 +2029,7 @@ func cmdRunArtifactList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run artifact list: %v\n", err)
+		slog.Error("run artifact list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -2028,7 +2037,7 @@ func cmdRunArtifactList(ctx context.Context, args []string) int {
 	store := runtrack.New(d.SqlDB())
 	artifacts, err := store.ListArtifacts(ctx, runID, phaseFilter)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run artifact list: %v\n", err)
+		slog.Error("run artifact list failed", "error", err)
 		return 2
 	}
 

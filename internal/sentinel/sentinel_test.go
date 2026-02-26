@@ -53,7 +53,7 @@ func TestSentinelCheck(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := setupTestDB(t)
-			store := New(db)
+			store := New(db, nil)
 			ctx := context.Background()
 
 			if tt.setupFired > 0 {
@@ -77,7 +77,7 @@ func TestSentinelCheck(t *testing.T) {
 
 func TestSentinelCheck_Interval0_OnceOnly(t *testing.T) {
 	db := setupTestDB(t)
-	store := New(db)
+	store := New(db, nil)
 	ctx := context.Background()
 
 	// First call: should be allowed
@@ -110,7 +110,7 @@ func TestSentinelCheck_Interval0_OnceOnly(t *testing.T) {
 
 func TestSentinelCheck_IntervalExpiry(t *testing.T) {
 	db := setupTestDB(t)
-	store := New(db)
+	store := New(db, nil)
 	ctx := context.Background()
 
 	// First call: allowed
@@ -146,7 +146,7 @@ func TestSentinelCheck_IntervalExpiry(t *testing.T) {
 
 func TestSentinelCheck_Concurrent(t *testing.T) {
 	db := setupTestDB(t)
-	store := New(db)
+	store := New(db, nil)
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
@@ -176,7 +176,7 @@ func TestSentinelCheck_Concurrent(t *testing.T) {
 
 func TestSentinelReset(t *testing.T) {
 	db := setupTestDB(t)
-	store := New(db)
+	store := New(db, nil)
 	ctx := context.Background()
 
 	// Fire sentinel
@@ -199,7 +199,7 @@ func TestSentinelReset(t *testing.T) {
 
 func TestSentinelList(t *testing.T) {
 	db := setupTestDB(t)
-	store := New(db)
+	store := New(db, nil)
 	ctx := context.Background()
 
 	store.Check(ctx, "a", "s1", 0)
@@ -216,7 +216,7 @@ func TestSentinelList(t *testing.T) {
 
 func TestSentinelPrune(t *testing.T) {
 	db := setupTestDB(t)
-	store := New(db)
+	store := New(db, nil)
 	ctx := context.Background()
 
 	// Create a sentinel and back-date it

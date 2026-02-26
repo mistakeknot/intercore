@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -55,7 +56,7 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 			i++
 			opts.CWD = args[i]
 		case strings.HasPrefix(args[i], "--"):
-			fmt.Fprintf(os.Stderr, "ic: publish: unknown flag: %s\n", args[i])
+			slog.Error("publish: unknown flag", "value", args[i])
 			return 3
 		default:
 			positional = append(positional, args[i])
@@ -73,7 +74,7 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 	}
 
 	if opts.Mode == publish.BumpExact && opts.Version == "" {
-		fmt.Fprintf(os.Stderr, "ic: publish: specify a version (e.g., 0.3.0) or use --patch/--minor\n")
+		slog.Error("publish: specify a version (e.g., 0.3.0) or use --patch/--minor")
 		return 3
 	}
 
@@ -90,11 +91,11 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 	if err := engine.Publish(ctx); err != nil {
 		if errors.Is(err, publish.ErrVersionMatch) {
 			if !opts.Auto {
-				fmt.Fprintf(os.Stderr, "ic: publish: %v\n", err)
+				slog.Error("publish failed", "error", err)
 			}
 			return 0 // not an error
 		}
-		fmt.Fprintf(os.Stderr, "ic: publish: %v\n", err)
+		slog.Error("publish failed", "error", err)
 		return 2
 	}
 	return 0
@@ -115,7 +116,7 @@ func cmdPublishDoctor(ctx context.Context, args []string) int {
 
 	result, err := publish.RunDoctor(ctx, opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish doctor: %v\n", err)
+		slog.Error("publish doctor failed", "error", err)
 		return 2
 	}
 
@@ -179,7 +180,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 		// Just scan and report
 		entries, err := publish.ListCacheEntries()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: publish clean: %v\n", err)
+			slog.Error("publish clean failed", "error", err)
 			return 2
 		}
 
@@ -206,7 +207,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 
 	count, bytes, err := publish.CleanOrphans()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish clean: orphans: %v\n", err)
+		slog.Error("publish clean: orphans failed", "error", err)
 	}
 	if count > 0 {
 		fmt.Printf("Cleaned %d orphaned directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
@@ -214,7 +215,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 
 	count, bytes, err = publish.StripGitDirs()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish clean: .git: %v\n", err)
+		slog.Error("publish clean: .git failed", "error", err)
 	}
 	if count > 0 {
 		fmt.Printf("Stripped %d .git directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
@@ -242,19 +243,19 @@ func cmdPublishStatus(ctx context.Context, args []string) int {
 	cwd, _ := os.Getwd()
 	root, err := publish.FindPluginRoot(cwd)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish status: %v\n", err)
+		slog.Error("publish status failed", "error", err)
 		return 2
 	}
 
 	plugin, err := publish.ReadPlugin(root)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish status: %v\n", err)
+		slog.Error("publish status failed", "error", err)
 		return 2
 	}
 
 	marketRoot, err := publish.FindMarketplace(root)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish status: %v\n", err)
+		slog.Error("publish status failed", "error", err)
 		return 2
 	}
 
@@ -290,13 +291,13 @@ func cmdPublishStatusAll(ctx context.Context) int {
 	cwd, _ := os.Getwd()
 	marketRoot, err := publish.FindMarketplace(cwd)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish status: %v\n", err)
+		slog.Error("publish status failed", "error", err)
 		return 2
 	}
 
 	mktVersions, err := publish.ListMarketplacePlugins(marketRoot)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish status: %v\n", err)
+		slog.Error("publish status failed", "error", err)
 		return 2
 	}
 
@@ -327,13 +328,13 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 	cwd, _ := os.Getwd()
 	root, err := publish.FindPluginRoot(cwd)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish init: %v\n", err)
+		slog.Error("publish init failed", "error", err)
 		return 2
 	}
 
 	plugin, err := publish.ReadPlugin(root)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish init: %v\n", err)
+		slog.Error("publish init failed", "error", err)
 		return 2
 	}
 
@@ -343,12 +344,12 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 
 	marketRoot, err := publish.FindMarketplace(root)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish init: %v\n", err)
+		slog.Error("publish init failed", "error", err)
 		return 2
 	}
 
 	if err := publish.RegisterPlugin(marketRoot, plugin); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: publish init: %v\n", err)
+		slog.Error("publish init failed", "error", err)
 		return 2
 	}
 

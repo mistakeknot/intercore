@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 
 func cmdAgency(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: agency: missing subcommand (load, validate, show, capabilities)\n")
+		slog.Error("agency: missing subcommand", "expected", "load, validate, show, capabilities")
 		return 3
 	}
 	switch args[0] {
@@ -30,7 +31,7 @@ func cmdAgency(ctx context.Context, args []string) int {
 	case "capabilities":
 		return cmdAgencyCapabilities(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: agency: unknown subcommand: %s\n", args[0])
+		slog.Error("agency: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -56,21 +57,21 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 	}
 
 	if runID == "" {
-		fmt.Fprintf(os.Stderr, "ic: agency load: --run=<id> is required\n")
+		slog.Error("agency load: --run=<id> is required")
 		return 3
 	}
 	if target == "" {
-		fmt.Fprintf(os.Stderr, "ic: agency load: specify stage name or 'all'\n")
+		slog.Error("agency load: specify stage name or 'all'")
 		return 3
 	}
 	if specDir == "" {
-		fmt.Fprintf(os.Stderr, "ic: agency load: --spec-dir=<path> is required\n")
+		slog.Error("agency load: --spec-dir=<path> is required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: agency load: %v\n", err)
+		slog.Error("agency load failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -82,7 +83,7 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 		stages = []string{"discover", "design", "build", "ship", "reflect"}
 	} else {
 		if !agency.KnownStages[target] {
-			fmt.Fprintf(os.Stderr, "ic: agency load: unknown stage %q\n", target)
+			slog.Error("agency load: unknown stage", "stage", target)
 			return 3
 		}
 		stages = []string{target}
@@ -95,15 +96,15 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 		specPath := filepath.Join(specDir, stageName+".yaml")
 		spec, perr := agency.ParseFile(specPath)
 		if perr != nil {
-			fmt.Fprintf(os.Stderr, "ic: agency load: %v\n", perr)
+			slog.Error("agency load failed", "error", perr)
 			return 1
 		}
 
 		verrs := agency.Validate(spec, knownPhases)
 		if len(verrs) > 0 {
-			fmt.Fprintf(os.Stderr, "ic: agency load: validation failed for %s:\n", stageName)
+			slog.Error("agency load: validation failed", "stage", stageName)
 			for _, ve := range verrs {
-				fmt.Fprintf(os.Stderr, "  - %s\n", ve)
+				slog.Error("validation error", "detail", ve)
 			}
 			return 1
 		}
@@ -120,17 +121,17 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 			}
 			if len(a.Args) > 0 {
 				argsJSON, merr := json.Marshal(a.Args)
-			if merr != nil {
-				fmt.Fprintf(os.Stderr, "ic: agency load: marshal args for %s/%s: %v\n", a.Phase, a.Command, merr)
-				return 1
-			}
+				if merr != nil {
+					slog.Error("agency load: marshal args", "phase", a.Phase, "command", a.Command, "error", merr)
+					return 1
+				}
 				s := string(argsJSON)
 				act.Args = &s
 			}
 			if _, aerr := actionStore.Add(ctx, act); aerr != nil {
 				// Ignore duplicate errors (idempotent reload)
 				if !errors.Is(aerr, action.ErrDuplicate) {
-					fmt.Fprintf(os.Stderr, "ic: agency load: register agent %s/%s for %s: %v\n", a.Phase, a.Command, stageName, aerr)
+					slog.Error("agency load: register agent", "phase", a.Phase, "command", a.Command, "stage", stageName, "error", aerr)
 					return 1
 				}
 			}
@@ -140,12 +141,12 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 		for phaseName, mc := range spec.Models {
 			mcJSON, merr := json.Marshal(mc)
 			if merr != nil {
-				fmt.Fprintf(os.Stderr, "ic: agency load: marshal model config for %s.%s: %v\n", stageName, phaseName, merr)
+				slog.Error("agency load: marshal model config", "stage", stageName, "phase", phaseName, "error", merr)
 				return 1
 			}
 			key := "agency.models." + phaseName
 			if serr := stateStore.Set(ctx, key, runID, json.RawMessage(mcJSON), 0); serr != nil {
-				fmt.Fprintf(os.Stderr, "ic: agency load: store model config for %s.%s: %v\n", stageName, phaseName, serr)
+				slog.Error("agency load: store model config", "stage", stageName, "phase", phaseName, "error", serr)
 				return 1
 			}
 		}
@@ -154,13 +155,13 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 		if len(spec.Gates.Entry) > 0 || len(spec.Gates.Exit) > 0 {
 			for _, phaseName := range spec.Meta.Phases {
 				gateJSON, merr := json.Marshal(spec.Gates)
-			if merr != nil {
-				fmt.Fprintf(os.Stderr, "ic: agency load: marshal gate config for %s.%s: %v\n", stageName, phaseName, merr)
-				return 1
-			}
+				if merr != nil {
+					slog.Error("agency load: marshal gate config", "stage", stageName, "phase", phaseName, "error", merr)
+					return 1
+				}
 				key := "agency.gates." + phaseName
 				if serr := stateStore.Set(ctx, key, runID, json.RawMessage(gateJSON), 0); serr != nil {
-					fmt.Fprintf(os.Stderr, "ic: agency load: store gate config for %s.%s: %v\n", stageName, phaseName, serr)
+					slog.Error("agency load: store gate config", "stage", stageName, "phase", phaseName, "error", serr)
 					return 1
 				}
 			}
@@ -170,12 +171,12 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 		if len(spec.Capabilities) > 0 {
 			capsJSON, merr := json.Marshal(spec.Capabilities)
 			if merr != nil {
-				fmt.Fprintf(os.Stderr, "ic: agency load: marshal capabilities for %s: %v\n", stageName, merr)
+				slog.Error("agency load: marshal capabilities", "stage", stageName, "error", merr)
 				return 1
 			}
 			key := "agency.capabilities." + stageName
 			if serr := stateStore.Set(ctx, key, runID, json.RawMessage(capsJSON), 0); serr != nil {
-				fmt.Fprintf(os.Stderr, "ic: agency load: store capabilities for %s: %v\n", stageName, serr)
+				slog.Error("agency load: store capabilities", "stage", stageName, "error", serr)
 				return 1
 			}
 		}
@@ -213,7 +214,7 @@ func cmdAgencyValidate(ctx context.Context, args []string) int {
 
 	if all {
 		if specDir == "" {
-			fmt.Fprintf(os.Stderr, "ic: agency validate: --spec-dir required with --all\n")
+			slog.Error("agency validate: --spec-dir required with --all")
 			return 3
 		}
 		matches, _ := filepath.Glob(filepath.Join(specDir, "*.yaml"))
@@ -221,7 +222,7 @@ func cmdAgencyValidate(ctx context.Context, args []string) int {
 	}
 
 	if len(files) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: agency validate: specify a file or --all --spec-dir=<path>\n")
+		slog.Error("agency validate: specify a file or --all --spec-dir=<path>")
 		return 3
 	}
 
@@ -231,15 +232,15 @@ func cmdAgencyValidate(ctx context.Context, args []string) int {
 	for _, f := range files {
 		spec, perr := agency.ParseFile(f)
 		if perr != nil {
-			fmt.Fprintf(os.Stderr, "FAIL %s: %v\n", filepath.Base(f), perr)
+			slog.Error("agency validate failed", "file", filepath.Base(f), "error", perr)
 			allValid = false
 			continue
 		}
 		verrs := agency.Validate(spec, knownPhases)
 		if len(verrs) > 0 {
-			fmt.Fprintf(os.Stderr, "FAIL %s:\n", filepath.Base(f))
+			slog.Error("agency validate failed", "file", filepath.Base(f))
 			for _, ve := range verrs {
-				fmt.Fprintf(os.Stderr, "  - %s\n", ve)
+				slog.Error("validation error", "detail", ve)
 			}
 			allValid = false
 		} else {
@@ -271,7 +272,7 @@ func cmdAgencyShow(ctx context.Context, args []string) int {
 	specPath := filepath.Join(specDir, target+".yaml")
 	spec, err := agency.ParseFile(specPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: agency show: %v\n", err)
+		slog.Error("agency show failed", "error", err)
 		return 1
 	}
 	enc := json.NewEncoder(os.Stdout)
@@ -284,14 +285,14 @@ func cmdAgencyShow(ctx context.Context, args []string) int {
 // Usage: ic agency capabilities <run-id>
 func cmdAgencyCapabilities(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: agency capabilities: specify run ID\n")
+		slog.Error("agency capabilities: specify run ID")
 		return 3
 	}
 	runID := args[0]
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: agency capabilities: %v\n", err)
+		slog.Error("agency capabilities failed", "error", err)
 		return 2
 	}
 	defer d.Close()

@@ -3,6 +3,7 @@ package phase
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -18,6 +19,20 @@ type phaseEventEnvelope struct {
 }
 
 func defaultPhaseEnvelopeJSON(runID, eventType, fromPhase, toPhase string) *string {
+	// Read propagated trace context from environment
+	envTraceID := os.Getenv("IC_TRACE_ID")
+	envSpanID := os.Getenv("IC_SPAN_ID")
+
+	traceID := envTraceID
+	if traceID == "" {
+		traceID = runID
+	}
+
+	spanID := envSpanID
+	if spanID == "" {
+		spanID = fmt.Sprintf("phase:%s:%d", eventType, time.Now().UnixNano())
+	}
+
 	capabilityScope := ""
 	if runID != "" {
 		capabilityScope = "run:" + runID
@@ -27,8 +42,8 @@ func defaultPhaseEnvelopeJSON(runID, eventType, fromPhase, toPhase string) *stri
 		PolicyVersion:      "phase-machine/v1",
 		CallerIdentity:     "phase.store",
 		CapabilityScope:    capabilityScope,
-		TraceID:            runID,
-		SpanID:             fmt.Sprintf("phase:%s:%d", eventType, time.Now().UnixNano()),
+		TraceID:            traceID,
+		SpanID:             spanID,
 		ParentSpanID:       fmt.Sprintf("phase-state:%s", fromPhase),
 		InputArtifactRefs:  phaseRef(fromPhase),
 		OutputArtifactRefs: phaseRef(toPhase),

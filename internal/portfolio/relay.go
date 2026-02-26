@@ -5,8 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -33,7 +32,7 @@ type Relay struct {
 	depStore    *DepStore
 	pool        *DBPool
 	interval    time.Duration
-	logw        io.Writer
+	logger      *slog.Logger
 }
 
 // NewRelay creates a portfolio event relay.
@@ -49,13 +48,13 @@ func NewRelay(portfolioID string, db *sql.DB, interval time.Duration) *Relay {
 		depStore:    NewDepStore(db),
 		pool:        NewDBPool(500 * time.Millisecond),
 		interval:    interval,
-		logw:        os.Stderr,
+		logger:      slog.Default(),
 	}
 }
 
-// SetLogWriter sets the writer for relay log output.
-func (r *Relay) SetLogWriter(w io.Writer) {
-	r.logw = w
+// SetLogger sets the logger for relay output.
+func (r *Relay) SetLogger(l *slog.Logger) {
+	r.logger = l
 }
 
 // Run starts the relay loop. Blocks until ctx is cancelled.
@@ -73,7 +72,7 @@ func (r *Relay) Run(ctx context.Context) error {
 
 	for {
 		if err := r.poll(ctx, cursors); err != nil {
-			fmt.Fprintf(r.logw, "[relay] poll error: %v\n", err)
+			r.logger.Warn("relay poll error", "error", err)
 		}
 
 		select {
@@ -122,7 +121,7 @@ func (r *Relay) poll(ctx context.Context, cursors map[string]int64) error {
 
 		childDB, err := r.pool.Get(child.ProjectDir)
 		if err != nil {
-			fmt.Fprintf(r.logw, "[relay] skip %s: %v\n", child.ProjectDir, err)
+			r.logger.Warn("relay skip project", "project", child.ProjectDir, "error", err)
 			continue
 		}
 
@@ -131,7 +130,7 @@ func (r *Relay) poll(ctx context.Context, cursors map[string]int64) error {
 		// Query new phase events from child DB
 		events, err := queryChildEvents(ctx, childDB, cursor)
 		if err != nil {
-			fmt.Fprintf(r.logw, "[relay] query events %s: %v\n", child.ProjectDir, err)
+			r.logger.Warn("relay query events failed", "project", child.ProjectDir, "error", err)
 			continue
 		}
 
@@ -139,7 +138,7 @@ func (r *Relay) poll(ctx context.Context, cursors map[string]int64) error {
 		if len(events) > 0 {
 			newCursor, err := r.relayChildEvents(ctx, child.ProjectDir, cursor, events, deps)
 			if err != nil {
-				fmt.Fprintf(r.logw, "[relay] relay events %s: %v\n", child.ProjectDir, err)
+				r.logger.Warn("relay events failed", "project", child.ProjectDir, "error", err)
 				continue
 			}
 			cursors[child.ProjectDir] = newCursor
@@ -155,7 +154,7 @@ func (r *Relay) poll(ctx context.Context, cursors map[string]int64) error {
 	// Write active dispatch count to state table
 	if err := r.stateStore.Set(ctx, "active-dispatch-count", r.portfolioID,
 		json.RawMessage(strconv.Quote(strconv.Itoa(totalActive))), 0); err != nil {
-		fmt.Fprintf(r.logw, "[relay] write dispatch count: %v\n", err)
+		r.logger.Warn("relay write dispatch count", "error", err)
 	}
 
 	return nil
@@ -185,7 +184,7 @@ func (r *Relay) relayChildEvents(ctx context.Context, projectDir string, cursor 
 			return cursor, fmt.Errorf("insert relay event: %w", err)
 		}
 
-		fmt.Fprintf(r.logw, "[relay] %s: %s %s→%s\n", projectDir, eventType, evt.FromPhase, evt.ToPhase)
+		r.logger.Info("relay event", "project", projectDir, "type", eventType, "from", evt.FromPhase, "to", evt.ToPhase)
 
 		if evt.ID > newCursor {
 			newCursor = evt.ID

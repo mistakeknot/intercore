@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -14,7 +15,7 @@ import (
 
 func cmdCoordination(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: coordination: missing subcommand (reserve, release, check, list, sweep, transfer)\n")
+		slog.Error("coordination: missing subcommand", "expected", "reserve, release, check, list, sweep, transfer")
 		return 3
 	}
 
@@ -32,7 +33,7 @@ func cmdCoordination(ctx context.Context, args []string) int {
 	case "transfer":
 		return cmdCoordTransfer(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: coordination: unknown subcommand: %s\n", args[0])
+		slog.Error("coordination: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -40,13 +41,13 @@ func cmdCoordination(ctx context.Context, args []string) int {
 func coordStore(ctx context.Context) (*coordination.Store, func(), int) {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: coordination: %v\n", err)
+		slog.Error("coordination failed", "error", err)
 		return nil, nil, 2
 	}
 
 	if err := d.Migrate(ctx); err != nil {
 		d.Close()
-		fmt.Fprintf(os.Stderr, "ic: coordination: migrate: %v\n", err)
+		slog.Error("coordination: migrate failed", "error", err)
 		return nil, nil, 2
 	}
 
@@ -103,7 +104,7 @@ func cmdCoordReserve(ctx context.Context, args []string) int {
 	}
 
 	if lock.Owner == "" || lock.Scope == "" || lock.Pattern == "" {
-		fmt.Fprintf(os.Stderr, "ic: coordination reserve: --owner, --scope, and --pattern are required\n")
+		slog.Error("coordination reserve: --owner, --scope, and --pattern are required")
 		return 3
 	}
 
@@ -115,7 +116,7 @@ func cmdCoordReserve(ctx context.Context, args []string) int {
 
 	result, err := store.Reserve(ctx, lock)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: coordination reserve: %v\n", err)
+		slog.Error("coordination reserve failed", "error", err)
 		return 2
 	}
 
@@ -123,8 +124,7 @@ func cmdCoordReserve(ctx context.Context, args []string) int {
 		if flagJSON {
 			json.NewEncoder(os.Stdout).Encode(result)
 		} else {
-			fmt.Fprintf(os.Stderr, "conflict: %s reserved by %s (%s)\n",
-				result.Conflict.BlockerPattern, result.Conflict.BlockerOwner, result.Conflict.BlockerReason)
+			slog.Warn("coordination conflict", "pattern", result.Conflict.BlockerPattern, "owner", result.Conflict.BlockerOwner, "reason", result.Conflict.BlockerReason)
 		}
 		return 1
 	}
@@ -156,7 +156,7 @@ func cmdCoordRelease(ctx context.Context, args []string) int {
 		id = positional[0]
 	}
 	if id == "" && (owner == "" || scope == "") {
-		fmt.Fprintf(os.Stderr, "ic: coordination release: provide <id> or --owner + --scope\n")
+		slog.Error("coordination release: provide <id> or --owner + --scope")
 		return 3
 	}
 
@@ -168,7 +168,7 @@ func cmdCoordRelease(ctx context.Context, args []string) int {
 
 	n, err := store.Release(ctx, id, owner, scope)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: coordination release: %v\n", err)
+		slog.Error("coordination release failed", "error", err)
 		return 2
 	}
 
@@ -195,7 +195,7 @@ func cmdCoordCheck(ctx context.Context, args []string) int {
 	}
 
 	if scope == "" || pattern == "" {
-		fmt.Fprintf(os.Stderr, "ic: coordination check: --scope and --pattern are required\n")
+		slog.Error("coordination check: --scope and --pattern are required")
 		return 3
 	}
 
@@ -207,7 +207,7 @@ func cmdCoordCheck(ctx context.Context, args []string) int {
 
 	conflicts, err := store.Check(ctx, scope, pattern, excludeOwner)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: coordination check: %v\n", err)
+		slog.Error("coordination check failed", "error", err)
 		return 2
 	}
 
@@ -252,7 +252,7 @@ func cmdCoordList(ctx context.Context, args []string) int {
 
 	locks, err := store.List(ctx, f)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: coordination list: %v\n", err)
+		slog.Error("coordination list failed", "error", err)
 		return 2
 	}
 
@@ -289,7 +289,7 @@ func cmdCoordSweep(ctx context.Context, args []string) int {
 		var err error
 		dur, err = time.ParseDuration(olderThan)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: coordination sweep: invalid duration: %s\n", olderThan)
+			slog.Error("coordination sweep: invalid duration", "value", olderThan)
 			return 3
 		}
 	}
@@ -302,7 +302,7 @@ func cmdCoordSweep(ctx context.Context, args []string) int {
 
 	result, err := store.Sweep(ctx, dur, dryRun)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: coordination sweep: %v\n", err)
+		slog.Error("coordination sweep failed", "error", err)
 		return 2
 	}
 
@@ -336,7 +336,7 @@ func cmdCoordTransfer(ctx context.Context, args []string) int {
 	}
 
 	if from == "" || to == "" || scope == "" {
-		fmt.Fprintf(os.Stderr, "ic: coordination transfer: --from, --to, and --scope are required\n")
+		slog.Error("coordination transfer: --from, --to, and --scope are required")
 		return 3
 	}
 
@@ -348,7 +348,7 @@ func cmdCoordTransfer(ctx context.Context, args []string) int {
 
 	n, err := store.Transfer(ctx, from, to, scope, force)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: coordination transfer: %v\n", err)
+		slog.Error("coordination transfer failed", "error", err)
 		return 1
 	}
 

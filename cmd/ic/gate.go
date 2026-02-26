@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -19,7 +20,7 @@ import (
 
 func cmdGate(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: gate: missing subcommand (check, override, rules)\n")
+		slog.Error("gate: missing subcommand", "expected", "check, override, rules")
 		return 3
 	}
 
@@ -31,7 +32,7 @@ func cmdGate(ctx context.Context, args []string) int {
 	case "rules":
 		return cmdGateRules(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: gate: unknown subcommand: %s\n", args[0])
+		slog.Error("gate: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -46,7 +47,7 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--priority=")
 			p, err := strconv.Atoi(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: gate check: invalid priority: %s\n", val)
+				slog.Error("gate check: invalid priority", "value", val)
 				return 3
 			}
 			priority = p
@@ -63,7 +64,7 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: gate check: %v\n", err)
+		slog.Error("gate check failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -115,14 +116,14 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 	}, rtStore, dStore, store, depStore, bq)
 	if err != nil {
 		if errors.Is(err, phase.ErrNotFound) {
-			fmt.Fprintf(os.Stderr, "ic: gate check: not found: %s\n", runID)
+			slog.Error("gate check: not found", "id", runID)
 			return 1
 		}
 		if errors.Is(err, phase.ErrTerminalRun) || errors.Is(err, phase.ErrTerminalPhase) {
-			fmt.Fprintf(os.Stderr, "ic: gate check: %v\n", err)
+			slog.Error("gate check failed", "error", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: gate check: %v\n", err)
+		slog.Error("gate check failed", "error", err)
 		return 2
 	}
 
@@ -185,13 +186,13 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 	runID := positional[0]
 
 	if reason == "" {
-		fmt.Fprintf(os.Stderr, "ic: gate override: --reason is required\n")
+		slog.Error("gate override: --reason is required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: gate override: %v\n", err)
+		slog.Error("gate override failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -200,34 +201,34 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 	run, err := store.Get(ctx, runID)
 	if err != nil {
 		if err == phase.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: gate override: not found: %s\n", runID)
+			slog.Error("gate override: not found", "id", runID)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: gate override: %v\n", err)
+		slog.Error("gate override failed", "error", err)
 		return 2
 	}
 
 	if phase.IsTerminalStatus(run.Status) {
-		fmt.Fprintf(os.Stderr, "ic: gate override: run is %s\n", run.Status)
+		slog.Error("gate override: run is in terminal status", "status", run.Status)
 		return 1
 	}
 	chain := phase.ResolveChain(run)
 	if phase.ChainIsTerminal(chain, run.Phase) {
-		fmt.Fprintf(os.Stderr, "ic: gate override: run is already at terminal phase\n")
+		slog.Error("gate override: run is already at terminal phase")
 		return 1
 	}
 
 	fromPhase := run.Phase
 	toPhase, err := phase.ChainNextPhase(chain, fromPhase)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: gate override: %v\n", err)
+		slog.Error("gate override failed", "error", err)
 		return 2
 	}
 
 	// R3: UpdatePhase first, then record event.
 	// If crash between, advance happened without audit — safer than audit without advance.
 	if err := store.UpdatePhase(ctx, runID, fromPhase, toPhase); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: gate override: %v\n", err)
+		slog.Error("gate override failed", "error", err)
 		return 2
 	}
 
@@ -240,14 +241,14 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 		GateTier:   strPtr(phase.TierHard),
 		Reason:     strPtr(reason),
 	}); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: gate override: event: %v\n", err)
+		slog.Error("gate override: event failed", "error", err)
 		// Phase already advanced — log but don't fail (R3 ordering)
 	}
 
 	// If we reached the terminal phase, mark the run as completed
 	if phase.ChainIsTerminal(chain, toPhase) {
 		if err := store.UpdateStatus(ctx, runID, phase.StatusCompleted); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: gate override: status: %v\n", err)
+			slog.Error("gate override: status failed", "error", err)
 		}
 	}
 
@@ -278,7 +279,7 @@ func cmdGateRules(ctx context.Context, args []string) int {
 	if runID != "" {
 		d, err := openDB()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: gate rules: %v\n", err)
+			slog.Error("gate rules failed", "error", err)
 			return 2
 		}
 		defer d.Close()
@@ -286,7 +287,7 @@ func cmdGateRules(ctx context.Context, args []string) int {
 		store := phase.New(d.SqlDB())
 		run, err := store.Get(ctx, runID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: gate rules: %v\n", err)
+			slog.Error("gate rules failed", "error", err)
 			return 1
 		}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ import (
 
 func cmdDiscovery(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: discovery: missing subcommand (submit, status, list, score, promote, dismiss, feedback, profile, decay, rollback, search)\n")
+		slog.Error("discovery: missing subcommand", "expected", "submit, status, list, score, promote, dismiss, feedback, profile, decay, rollback, search")
 		return 3
 	}
 
@@ -42,7 +43,7 @@ func cmdDiscovery(ctx context.Context, args []string) int {
 	case "search":
 		return cmdDiscoverySearch(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: discovery: unknown subcommand: %s\n", args[0])
+		slog.Error("discovery: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -75,7 +76,7 @@ func cmdDiscoverySubmit(ctx context.Context, args []string) int {
 	}
 
 	if source == "" || sourceID == "" || title == "" {
-		fmt.Fprintf(os.Stderr, "ic: discovery submit: --source, --source-id, and --title are required\n")
+		slog.Error("discovery submit: --source, --source-id, and --title are required")
 		return 3
 	}
 
@@ -84,7 +85,7 @@ func cmdDiscoverySubmit(ctx context.Context, args []string) int {
 		var err error
 		score, err = strconv.ParseFloat(scoreStr, 64)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery submit: invalid score: %s\n", scoreStr)
+			slog.Error("discovery submit: invalid score", "value", scoreStr)
 			return 3
 		}
 	}
@@ -93,7 +94,7 @@ func cmdDiscoverySubmit(ctx context.Context, args []string) int {
 	if metadataFile != "" {
 		data, err := readFileArg(metadataFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery submit: metadata: %v\n", err)
+			slog.Error("discovery submit: metadata failed", "error", err)
 			return 2
 		}
 		metadata = string(data)
@@ -103,7 +104,7 @@ func cmdDiscoverySubmit(ctx context.Context, args []string) int {
 	if embeddingFile != "" {
 		data, err := readFileArg(embeddingFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery submit: embedding: %v\n", err)
+			slog.Error("discovery submit: embedding failed", "error", err)
 			return 2
 		}
 		embedding = data
@@ -111,7 +112,7 @@ func cmdDiscoverySubmit(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery submit: %v\n", err)
+		slog.Error("discovery submit failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -122,7 +123,7 @@ func cmdDiscoverySubmit(ctx context.Context, args []string) int {
 	if dedupStr != "" {
 		threshold, err := strconv.ParseFloat(dedupStr, 64)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery submit: invalid dedup threshold: %s\n", dedupStr)
+			slog.Error("discovery submit: invalid dedup threshold", "value", dedupStr)
 			return 3
 		}
 		id, err = store.SubmitWithDedup(ctx, source, sourceID, title, summary, url, metadata, embedding, score, threshold)
@@ -148,7 +149,7 @@ func cmdDiscoveryStatus(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery status: %v\n", err)
+		slog.Error("discovery status failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -161,7 +162,7 @@ func cmdDiscoveryStatus(ctx context.Context, args []string) int {
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(disc); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery status: encode: %v\n", err)
+			slog.Error("discovery status: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -192,14 +193,14 @@ func cmdDiscoveryList(ctx context.Context, args []string) int {
 		var err error
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery list: invalid limit: %s\n", limitStr)
+			slog.Error("discovery list: invalid limit", "value", limitStr)
 			return 3
 		}
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery list: %v\n", err)
+		slog.Error("discovery list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -209,13 +210,13 @@ func cmdDiscoveryList(ctx context.Context, args []string) int {
 		Source: source, Status: status, Tier: tier, Limit: limit,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery list: %v\n", err)
+		slog.Error("discovery list failed", "error", err)
 		return 2
 	}
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(results); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery list: encode: %v\n", err)
+			slog.Error("discovery list: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -244,13 +245,13 @@ func cmdDiscoveryScore(ctx context.Context, args []string) int {
 
 	score, err := strconv.ParseFloat(scoreStr, 64)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery score: invalid score: %s\n", scoreStr)
+		slog.Error("discovery score: invalid score", "value", scoreStr)
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery score: %v\n", err)
+		slog.Error("discovery score failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -286,7 +287,7 @@ func cmdDiscoveryPromote(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery promote: %v\n", err)
+		slog.Error("discovery promote failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -308,7 +309,7 @@ func cmdDiscoveryDismiss(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery dismiss: %v\n", err)
+		slog.Error("discovery dismiss failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -351,7 +352,7 @@ func cmdDiscoveryFeedback(ctx context.Context, args []string) int {
 	if dataFile != "" {
 		raw, err := readFileArg(dataFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery feedback: data: %v\n", err)
+			slog.Error("discovery feedback: data failed", "error", err)
 			return 2
 		}
 		data = string(raw)
@@ -359,7 +360,7 @@ func cmdDiscoveryFeedback(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery feedback: %v\n", err)
+		slog.Error("discovery feedback failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -381,7 +382,7 @@ func cmdDiscoveryProfile(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery profile: %v\n", err)
+		slog.Error("discovery profile failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -389,13 +390,13 @@ func cmdDiscoveryProfile(ctx context.Context, args []string) int {
 	store := discovery.NewStore(d.SqlDB())
 	p, err := store.GetProfile(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery profile: %v\n", err)
+		slog.Error("discovery profile failed", "error", err)
 		return 2
 	}
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(p); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery profile: encode: %v\n", err)
+			slog.Error("discovery profile: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -417,31 +418,31 @@ func cmdDiscoveryProfileUpdate(ctx context.Context, args []string) int {
 	}
 
 	if kwFile == "" || swFile == "" {
-		fmt.Fprintf(os.Stderr, "ic: discovery profile update: --keyword-weights and --source-weights are required\n")
+		slog.Error("discovery profile update: --keyword-weights and --source-weights are required")
 		return 3
 	}
 
 	kw, err := readFileArg(kwFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery profile update: keyword-weights: %v\n", err)
+		slog.Error("discovery profile update: keyword-weights failed", "error", err)
 		return 2
 	}
 	sw, err := readFileArg(swFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery profile update: source-weights: %v\n", err)
+		slog.Error("discovery profile update: source-weights failed", "error", err)
 		return 2
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery profile update: %v\n", err)
+		slog.Error("discovery profile update failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	store := discovery.NewStore(d.SqlDB())
 	if err := store.UpdateProfile(ctx, nil, string(kw), string(sw)); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery profile update: %v\n", err)
+		slog.Error("discovery profile update failed", "error", err)
 		return 2
 	}
 
@@ -462,13 +463,13 @@ func cmdDiscoveryDecay(ctx context.Context, args []string) int {
 	}
 
 	if rateStr == "" {
-		fmt.Fprintf(os.Stderr, "ic: discovery decay: --rate is required\n")
+		slog.Error("discovery decay: --rate is required")
 		return 3
 	}
 
 	rate, err := strconv.ParseFloat(rateStr, 64)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery decay: invalid rate: %s\n", rateStr)
+		slog.Error("discovery decay: invalid rate", "value", rateStr)
 		return 3
 	}
 
@@ -476,7 +477,7 @@ func cmdDiscoveryDecay(ctx context.Context, args []string) int {
 	if minAgeStr != "" {
 		sec, err := strconv.ParseInt(minAgeStr, 10, 64)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery decay: invalid min-age (seconds): %s\n", minAgeStr)
+			slog.Error("discovery decay: invalid min-age", "value", minAgeStr)
 			return 3
 		}
 		minAgeSec = sec
@@ -484,7 +485,7 @@ func cmdDiscoveryDecay(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery decay: %v\n", err)
+		slog.Error("discovery decay failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -492,7 +493,7 @@ func cmdDiscoveryDecay(ctx context.Context, args []string) int {
 	store := discovery.NewStore(d.SqlDB())
 	count, err := store.Decay(ctx, rate, minAgeSec)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery decay: %v\n", err)
+		slog.Error("discovery decay failed", "error", err)
 		return 2
 	}
 
@@ -513,19 +514,19 @@ func cmdDiscoveryRollback(ctx context.Context, args []string) int {
 	}
 
 	if source == "" || sinceStr == "" {
-		fmt.Fprintf(os.Stderr, "ic: discovery rollback: --source and --since are required\n")
+		slog.Error("discovery rollback: --source and --since are required")
 		return 3
 	}
 
 	since, err := strconv.ParseInt(sinceStr, 10, 64)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery rollback: invalid since timestamp: %s\n", sinceStr)
+		slog.Error("discovery rollback: invalid since timestamp", "value", sinceStr)
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery rollback: %v\n", err)
+		slog.Error("discovery rollback failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -533,7 +534,7 @@ func cmdDiscoveryRollback(ctx context.Context, args []string) int {
 	store := discovery.NewStore(d.SqlDB())
 	count, err := store.Rollback(ctx, source, since)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery rollback: %v\n", err)
+		slog.Error("discovery rollback failed", "error", err)
 		return 2
 	}
 
@@ -562,13 +563,13 @@ func cmdDiscoverySearch(ctx context.Context, args []string) int {
 	}
 
 	if embeddingFile == "" {
-		fmt.Fprintf(os.Stderr, "ic: discovery search: --embedding is required\n")
+		slog.Error("discovery search: --embedding is required")
 		return 3
 	}
 
 	embedding, err := readFileArg(embeddingFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery search: embedding: %v\n", err)
+		slog.Error("discovery search: embedding failed", "error", err)
 		return 2
 	}
 
@@ -576,7 +577,7 @@ func cmdDiscoverySearch(ctx context.Context, args []string) int {
 	if minScoreStr != "" {
 		minScore, err = strconv.ParseFloat(minScoreStr, 64)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery search: invalid min-score: %s\n", minScoreStr)
+			slog.Error("discovery search: invalid min-score", "value", minScoreStr)
 			return 3
 		}
 	}
@@ -585,14 +586,14 @@ func cmdDiscoverySearch(ctx context.Context, args []string) int {
 	if limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery search: invalid limit: %s\n", limitStr)
+			slog.Error("discovery search: invalid limit", "value", limitStr)
 			return 3
 		}
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery search: %v\n", err)
+		slog.Error("discovery search failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -602,13 +603,13 @@ func cmdDiscoverySearch(ctx context.Context, args []string) int {
 		Source: source, Tier: tier, Status: status, MinScore: minScore, Limit: limit,
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: discovery search: %v\n", err)
+		slog.Error("discovery search failed", "error", err)
 		return 2
 	}
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(results); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: discovery search: encode: %v\n", err)
+			slog.Error("discovery search: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -630,21 +631,21 @@ func readFileArg(arg string) ([]byte, error) {
 // discoveryError maps sentinel errors to exit codes.
 func discoveryError(cmd string, err error) int {
 	if errors.Is(err, discovery.ErrNotFound) {
-		fmt.Fprintf(os.Stderr, "ic: discovery %s: %v\n", cmd, err)
+		slog.Error("discovery command failed", "command", cmd, "error", err)
 		return 1
 	}
 	if errors.Is(err, discovery.ErrGateBlocked) {
-		fmt.Fprintf(os.Stderr, "ic: discovery %s: %v\n", cmd, err)
+		slog.Error("discovery command failed", "command", cmd, "error", err)
 		return 1
 	}
 	if errors.Is(err, discovery.ErrLifecycle) {
-		fmt.Fprintf(os.Stderr, "ic: discovery %s: %v\n", cmd, err)
+		slog.Error("discovery command failed", "command", cmd, "error", err)
 		return 1
 	}
 	if errors.Is(err, discovery.ErrDuplicate) {
-		fmt.Fprintf(os.Stderr, "ic: discovery %s: %v\n", cmd, err)
+		slog.Error("discovery command failed", "command", cmd, "error", err)
 		return 1
 	}
-	fmt.Fprintf(os.Stderr, "ic: discovery %s: %v\n", cmd, err)
+	slog.Error("discovery command failed", "command", cmd, "error", err)
 	return 2
 }

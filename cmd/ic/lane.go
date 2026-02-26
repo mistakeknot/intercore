@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -13,7 +14,7 @@ import (
 
 func cmdLane(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: lane: missing subcommand (create, list, status, close, events, sync, members, velocity)\n")
+		slog.Error("lane: missing subcommand", "expected", "create, list, status, close, events, sync, members, velocity")
 		return 3
 	}
 
@@ -35,7 +36,7 @@ func cmdLane(ctx context.Context, args []string) int {
 	case "velocity":
 		return cmdLaneVelocity(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: lane: unknown subcommand: %s\n", args[0])
+		slog.Error("lane: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -55,33 +56,33 @@ func cmdLaneCreate(ctx context.Context, args []string) int {
 	}
 
 	if name == "" {
-		fmt.Fprintf(os.Stderr, "ic: lane create: --name is required\n")
+		slog.Error("lane create: --name is required")
 		return 3
 	}
 	if laneType == "" {
 		laneType = "standing"
 	}
 	if laneType != "standing" && laneType != "arc" {
-		fmt.Fprintf(os.Stderr, "ic: lane create: --type must be 'standing' or 'arc'\n")
+		slog.Error("lane create: --type must be 'standing' or 'arc'")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane create: %v\n", err)
+		slog.Error("lane create failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane create: migrate: %v\n", err)
+		slog.Error("lane create: migrate failed", "error", err)
 		return 2
 	}
 
 	store := lane.New(d.SqlDB())
 	id, err := store.Create(ctx, name, laneType, description)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane create: %v\n", err)
+		slog.Error("lane create failed", "error", err)
 		return 2
 	}
 
@@ -91,7 +92,7 @@ func cmdLaneCreate(ctx context.Context, args []string) int {
 			"name":      name,
 			"lane_type": laneType,
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane create: encode: %v\n", err)
+			slog.Error("lane create: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -113,20 +114,20 @@ func cmdLaneList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane list: %v\n", err)
+		slog.Error("lane list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane list: migrate: %v\n", err)
+		slog.Error("lane list: migrate failed", "error", err)
 		return 2
 	}
 
 	store := lane.New(d.SqlDB())
 	lanes, err := store.List(ctx, status)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane list: %v\n", err)
+		slog.Error("lane list failed", "error", err)
 		return 2
 	}
 
@@ -144,7 +145,7 @@ func cmdLaneList(ctx context.Context, args []string) int {
 			}
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(items); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane list: encode: %v\n", err)
+			slog.Error("lane list: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -169,13 +170,13 @@ func cmdLaneStatus(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane status: %v\n", err)
+		slog.Error("lane status failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane status: migrate: %v\n", err)
+		slog.Error("lane status: migrate failed", "error", err)
 		return 2
 	}
 
@@ -186,20 +187,20 @@ func cmdLaneStatus(ctx context.Context, args []string) int {
 	if err != nil {
 		l, err = store.GetByName(ctx, idOrName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane status: %v\n", err)
+			slog.Error("lane status failed", "error", err)
 			return 2
 		}
 	}
 
 	members, err := store.GetMembers(ctx, l.ID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane status: members: %v\n", err)
+		slog.Error("lane status: members failed", "error", err)
 		return 2
 	}
 
 	events, err := store.Events(ctx, l.ID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane status: events: %v\n", err)
+		slog.Error("lane status: events failed", "error", err)
 		return 2
 	}
 
@@ -218,7 +219,7 @@ func cmdLaneStatus(ctx context.Context, args []string) int {
 			"updated_at":   l.UpdatedAt,
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(out); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane status: encode: %v\n", err)
+			slog.Error("lane status: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -244,19 +245,19 @@ func cmdLaneClose(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane close: %v\n", err)
+		slog.Error("lane close failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane close: migrate: %v\n", err)
+		slog.Error("lane close: migrate failed", "error", err)
 		return 2
 	}
 
 	store := lane.New(d.SqlDB())
 	if err := store.Close(ctx, args[0]); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane close: %v\n", err)
+		slog.Error("lane close failed", "error", err)
 		return 2
 	}
 
@@ -272,20 +273,20 @@ func cmdLaneEvents(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane events: %v\n", err)
+		slog.Error("lane events failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane events: migrate: %v\n", err)
+		slog.Error("lane events: migrate failed", "error", err)
 		return 2
 	}
 
 	store := lane.New(d.SqlDB())
 	events, err := store.Events(ctx, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane events: %v\n", err)
+		slog.Error("lane events failed", "error", err)
 		return 2
 	}
 
@@ -301,7 +302,7 @@ func cmdLaneEvents(ctx context.Context, args []string) int {
 			}
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(items); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane events: encode: %v\n", err)
+			slog.Error("lane events: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -329,19 +330,19 @@ func cmdLaneSync(ctx context.Context, args []string) int {
 	}
 
 	if len(beadIDs) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: lane sync: --bead-ids is required\n")
+		slog.Error("lane sync: --bead-ids is required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane sync: %v\n", err)
+		slog.Error("lane sync failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane sync: migrate: %v\n", err)
+		slog.Error("lane sync: migrate failed", "error", err)
 		return 2
 	}
 
@@ -352,13 +353,13 @@ func cmdLaneSync(ctx context.Context, args []string) int {
 	if err != nil {
 		l, err = store.GetByName(ctx, idOrName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane sync: %v\n", err)
+			slog.Error("lane sync failed", "error", err)
 			return 2
 		}
 	}
 
 	if err := store.SnapshotMembers(ctx, l.ID, beadIDs); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane sync: %v\n", err)
+		slog.Error("lane sync failed", "error", err)
 		return 2
 	}
 
@@ -367,7 +368,7 @@ func cmdLaneSync(ctx context.Context, args []string) int {
 			"lane_id":      l.ID,
 			"member_count": len(beadIDs),
 		}); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane sync: encode: %v\n", err)
+			slog.Error("lane sync: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -385,13 +386,13 @@ func cmdLaneMembers(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane members: %v\n", err)
+		slog.Error("lane members failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane members: migrate: %v\n", err)
+		slog.Error("lane members: migrate failed", "error", err)
 		return 2
 	}
 
@@ -401,20 +402,20 @@ func cmdLaneMembers(ctx context.Context, args []string) int {
 	if err != nil {
 		l, err = store.GetByName(ctx, idOrName)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane members: %v\n", err)
+			slog.Error("lane members failed", "error", err)
 			return 2
 		}
 	}
 
 	members, err := store.GetMembers(ctx, l.ID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane members: %v\n", err)
+		slog.Error("lane members failed", "error", err)
 		return 2
 	}
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(members); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane members: encode: %v\n", err)
+			slog.Error("lane members: encode failed", "error", err)
 			return 2
 		}
 	} else {
@@ -436,11 +437,11 @@ func cmdLaneVelocity(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(arg, "--days=")
 			n, err := fmt.Sscanf(val, "%d", &days)
 			if err != nil || n != 1 {
-				fmt.Fprintf(os.Stderr, "ic: lane velocity: invalid --days value: %s\n", val)
+				slog.Error("lane velocity: invalid --days value", "value", val)
 				return 3
 			}
 			if days < 1 {
-				fmt.Fprintf(os.Stderr, "ic: lane velocity: --days must be >= 1, got %d\n", days)
+				slog.Error("lane velocity: --days must be >= 1", "days", days)
 				return 3
 			}
 		}
@@ -448,13 +449,13 @@ func cmdLaneVelocity(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane velocity: %v\n", err)
+		slog.Error("lane velocity failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	if err := d.Migrate(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane velocity: migrate: %v\n", err)
+		slog.Error("lane velocity: migrate failed", "error", err)
 		return 2
 	}
 
@@ -462,7 +463,7 @@ func cmdLaneVelocity(ctx context.Context, args []string) int {
 	v := lane.NewVelocityCalculator(store)
 	scores, err := v.ComputeStarvationFromDB(ctx, days)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lane velocity: %v\n", err)
+		slog.Error("lane velocity failed", "error", err)
 		return 2
 	}
 
@@ -481,7 +482,7 @@ func cmdLaneVelocity(ctx context.Context, args []string) int {
 			}
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(items); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lane velocity: encode: %v\n", err)
+			slog.Error("lane velocity: encode failed", "error", err)
 			return 2
 		}
 	} else {

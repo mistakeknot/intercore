@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ import (
 
 func cmdRunAction(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: run action: missing subcommand (add, list, update, delete)\n")
+		slog.Error("run action: missing subcommand", "expected", "add, list, update, delete")
 		return 3
 	}
 
@@ -28,7 +29,7 @@ func cmdRunAction(ctx context.Context, args []string) int {
 	case "delete":
 		return cmdRunActionDelete(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: run action: unknown subcommand: %s\n", args[0])
+		slog.Error("run action: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -53,7 +54,7 @@ func cmdRunActionAdd(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--priority="):
 			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--priority="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: run action add: invalid --priority: %s\n", strings.TrimPrefix(arg, "--priority="))
+				slog.Error("run action add: invalid --priority", "value", strings.TrimPrefix(arg, "--priority="))
 				return 3
 			}
 			priority = v
@@ -69,13 +70,13 @@ func cmdRunActionAdd(ctx context.Context, args []string) int {
 	runID = positional[0]
 
 	if phase == "" || command == "" {
-		fmt.Fprintf(os.Stderr, "ic: run action add: --phase and --command are required\n")
+		slog.Error("run action add: --phase and --command are required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action add: %v\n", err)
+		slog.Error("run action add failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -95,7 +96,7 @@ func cmdRunActionAdd(ctx context.Context, args []string) int {
 
 	id, err := s.Add(ctx, a)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action add: %v\n", err)
+		slog.Error("run action add failed", "error", err)
 		if errors.Is(err, action.ErrDuplicate) {
 			return 1
 		}
@@ -131,7 +132,7 @@ func cmdRunActionList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action list: %v\n", err)
+		slog.Error("run action list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -145,7 +146,7 @@ func cmdRunActionList(ctx context.Context, args []string) int {
 		actions, err = s.ListAll(ctx, runID)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action list: %v\n", err)
+		slog.Error("run action list failed", "error", err)
 		return 2
 	}
 
@@ -189,7 +190,7 @@ func cmdRunActionUpdate(ctx context.Context, args []string) int {
 		case strings.HasPrefix(arg, "--priority="):
 			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--priority="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: run action update: invalid --priority: %s\n", strings.TrimPrefix(arg, "--priority="))
+				slog.Error("run action update: invalid --priority", "value", strings.TrimPrefix(arg, "--priority="))
 				return 3
 			}
 			priority = v
@@ -206,7 +207,7 @@ func cmdRunActionUpdate(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action update: %v\n", err)
+		slog.Error("run action update failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -224,7 +225,7 @@ func cmdRunActionUpdate(ctx context.Context, args []string) int {
 	}
 
 	if err := s.Update(ctx, runID, phase, command, upd); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action update: %v\n", err)
+		slog.Error("run action update failed", "error", err)
 		if errors.Is(err, action.ErrNotFound) {
 			return 1
 		}
@@ -258,14 +259,14 @@ func cmdRunActionDelete(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action delete: %v\n", err)
+		slog.Error("run action delete failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	s := action.New(d.SqlDB())
 	if err := s.Delete(ctx, runID, phase, command); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: run action delete: %v\n", err)
+		slog.Error("run action delete failed", "error", err)
 		if errors.Is(err, action.ErrNotFound) {
 			return 1
 		}

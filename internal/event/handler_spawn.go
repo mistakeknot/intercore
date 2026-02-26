@@ -3,8 +3,7 @@ package event
 import (
 	"context"
 	"fmt"
-	"io"
-	"os"
+	"log/slog"
 )
 
 // AgentQuerier queries run agents. Decouples from runtrack package.
@@ -26,10 +25,7 @@ func (f AgentSpawnerFunc) SpawnByAgentID(ctx context.Context, agentID string) er
 
 // NewSpawnHandler returns a handler that auto-spawns agents when phase
 // reaches "executing". No-op for other phase transitions or dispatch events.
-func NewSpawnHandler(querier AgentQuerier, spawner AgentSpawner, logw io.Writer) Handler {
-	if logw == nil {
-		logw = os.Stderr
-	}
+func NewSpawnHandler(querier AgentQuerier, spawner AgentSpawner, logger *slog.Logger) Handler {
 	return func(ctx context.Context, e Event) error {
 		if e.Source != SourcePhase || e.ToState != "executing" {
 			return nil
@@ -46,10 +42,14 @@ func NewSpawnHandler(querier AgentQuerier, spawner AgentSpawner, logw io.Writer)
 
 		for _, id := range agentIDs {
 			if err := spawner.SpawnByAgentID(ctx, id); err != nil {
-				fmt.Fprintf(logw, "[event] auto-spawn: agent %s failed: %v\n", id, err)
+				if logger != nil {
+					logger.WarnContext(ctx, "auto-spawn failed", "agent_id", id, "error", err)
+				}
 				continue
 			}
-			fmt.Fprintf(logw, "[event] auto-spawn: agent %s started\n", id)
+			if logger != nil {
+				logger.InfoContext(ctx, "auto-spawn started", "agent_id", id)
+			}
 		}
 		return nil
 	}

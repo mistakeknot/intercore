@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 
 func cmdInterspect(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: interspect: missing subcommand (record, query)\n")
+		slog.Error("interspect: missing subcommand", "expected", "record, query")
 		return 3
 	}
 
@@ -22,7 +23,7 @@ func cmdInterspect(ctx context.Context, args []string) int {
 	case "query":
 		return cmdInterspectQuery(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: interspect: unknown subcommand: %s\n", args[0])
+		slog.Error("interspect: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -47,23 +48,23 @@ func cmdInterspectRecord(ctx context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--project="):
 			project = strings.TrimPrefix(args[i], "--project=")
 		default:
-			fmt.Fprintf(os.Stderr, "ic: interspect record: unknown flag: %s\n", args[i])
+			slog.Error("interspect record: unknown flag", "value", args[i])
 			return 3
 		}
 	}
 
 	if agent == "" {
-		fmt.Fprintf(os.Stderr, "ic: interspect record: --agent is required\n")
+		slog.Error("interspect record: --agent is required")
 		return 3
 	}
 	if eventType == "" {
-		fmt.Fprintf(os.Stderr, "ic: interspect record: --type is required\n")
+		slog.Error("interspect record: --type is required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: interspect record: %v\n", err)
+		slog.Error("interspect record failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -71,7 +72,7 @@ func cmdInterspectRecord(ctx context.Context, args []string) int {
 	evStore := event.NewStore(d.SqlDB())
 	id, err := evStore.AddInterspectEvent(ctx, runID, agent, eventType, reason, contextJSON, session, project)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: interspect record: %v\n", err)
+		slog.Error("interspect record failed", "error", err)
 		return 2
 	}
 
@@ -91,24 +92,24 @@ func cmdInterspectQuery(ctx context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--since="):
 			val := strings.TrimPrefix(args[i], "--since=")
 			if _, err := fmt.Sscanf(val, "%d", &since); err != nil {
-				fmt.Fprintf(os.Stderr, "ic: interspect query: invalid --since: %s\n", val)
+				slog.Error("interspect query: invalid --since", "value", val)
 				return 3
 			}
 		case strings.HasPrefix(args[i], "--limit="):
 			val := strings.TrimPrefix(args[i], "--limit=")
 			if _, err := fmt.Sscanf(val, "%d", &limit); err != nil {
-				fmt.Fprintf(os.Stderr, "ic: interspect query: invalid --limit: %s\n", val)
+				slog.Error("interspect query: invalid --limit", "value", val)
 				return 3
 			}
 		default:
-			fmt.Fprintf(os.Stderr, "ic: interspect query: unknown flag: %s\n", args[i])
+			slog.Error("interspect query: unknown flag", "value", args[i])
 			return 3
 		}
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: interspect query: %v\n", err)
+		slog.Error("interspect query failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -116,14 +117,14 @@ func cmdInterspectQuery(ctx context.Context, args []string) int {
 	evStore := event.NewStore(d.SqlDB())
 	events, err := evStore.ListInterspectEvents(ctx, agent, since, limit)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: interspect query: %v\n", err)
+		slog.Error("interspect query failed", "error", err)
 		return 2
 	}
 
 	enc := json.NewEncoder(os.Stdout)
 	for _, e := range events {
 		if err := enc.Encode(e); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: interspect query: write: %v\n", err)
+			slog.Error("interspect query: write failed", "error", err)
 			return 2
 		}
 	}

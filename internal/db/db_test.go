@@ -69,8 +69,8 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Errorf("SchemaVersion = %d, want 22", v)
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d, want 23", v)
 	}
 
 	// Verify tables exist
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 22", v)
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 23", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 22", v)
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 23", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 22", v)
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 23", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 22", v)
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 23", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Errorf("SchemaVersion = %d, want 22", v)
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d, want 23", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Errorf("SchemaVersion = %d, want 22", v)
+	if v != 23 {
+		t.Errorf("SchemaVersion = %d, want 23", v)
 	}
 }
 
@@ -682,8 +682,8 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Fatalf("expected schema version 22, got %d", v)
+	if v != 23 {
+		t.Fatalf("expected schema version 23, got %d", v)
 	}
 
 	// Verify status column exists on run_artifacts with default 'active'
@@ -740,8 +740,8 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Fatalf("expected schema version 22, got %d", v)
+	if v != 23 {
+		t.Fatalf("expected schema version 23, got %d", v)
 	}
 
 	// Verify discoveries table exists and accepts inserts
@@ -792,8 +792,8 @@ func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Fatalf("expected schema version 22, got %d", v)
+	if v != 23 {
+		t.Fatalf("expected schema version 23, got %d", v)
 	}
 
 	// Verify lanes table exists with correct columns
@@ -861,8 +861,8 @@ func TestMigrate_V16ToV17_CostReconciliations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Fatalf("expected schema version 22, got %d", v)
+	if v != 23 {
+		t.Fatalf("expected schema version 23, got %d", v)
 	}
 
 	// Verify cost_reconciliations table exists with correct columns
@@ -907,8 +907,8 @@ func TestMigrate_V17ToV18_SandboxSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Fatalf("expected schema version 22, got %d", v)
+	if v != 23 {
+		t.Fatalf("expected schema version 23, got %d", v)
 	}
 
 	// Verify sandbox_spec and sandbox_effective columns exist on dispatches
@@ -1020,6 +1020,19 @@ func TestMigrate_V20ToV22_EventEnvelopeAndReplayInputs(t *testing.T) {
 			reason TEXT,
 			created_at INTEGER NOT NULL DEFAULT (unixepoch())
 		);
+		CREATE TABLE IF NOT EXISTS audit_log (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id   TEXT NOT NULL,
+			event_type   TEXT NOT NULL,
+			actor        TEXT NOT NULL,
+			target       TEXT NOT NULL DEFAULT '',
+			payload      TEXT NOT NULL DEFAULT '{}',
+			metadata     TEXT NOT NULL DEFAULT '{}',
+			prev_hash    TEXT NOT NULL DEFAULT '',
+			checksum     TEXT NOT NULL,
+			sequence_num INTEGER NOT NULL,
+			created_at   INTEGER NOT NULL DEFAULT (unixepoch())
+		);
 		PRAGMA user_version = 20;
 	`)
 	if err != nil {
@@ -1034,8 +1047,8 @@ func TestMigrate_V20ToV22_EventEnvelopeAndReplayInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 22 {
-		t.Fatalf("expected schema version 22, got %d", v)
+	if v != 23 {
+		t.Fatalf("expected schema version 23, got %d", v)
 	}
 
 	for _, q := range []string{

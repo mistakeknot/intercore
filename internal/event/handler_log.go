@@ -2,27 +2,27 @@ package event
 
 import (
 	"context"
-	"fmt"
-	"io"
-	"os"
+	"log/slog"
 )
 
-// NewLogHandler returns a handler that prints structured event lines.
-// If quiet is true, logs are suppressed.
-func NewLogHandler(w io.Writer, quiet bool) Handler {
-	if w == nil {
-		w = os.Stderr
-	}
+// NewLogHandler returns a handler that logs structured event lines.
+// If logger is nil, logging is suppressed (equivalent to the old quiet=true).
+func NewLogHandler(logger *slog.Logger) Handler {
 	return func(ctx context.Context, e Event) error {
-		if quiet {
+		if logger == nil {
 			return nil
 		}
-		fmt.Fprintf(w, "[event] source=%s type=%s run=%s from=%s to=%s",
-			e.Source, e.Type, e.RunID, e.FromState, e.ToState)
-		if e.Reason != "" {
-			fmt.Fprintf(w, " reason=%q", e.Reason)
+		attrs := []slog.Attr{
+			slog.String("source", e.Source),
+			slog.String("type", e.Type),
+			slog.String("run_id", e.RunID),
+			slog.String("from", e.FromState),
+			slog.String("to", e.ToState),
 		}
-		fmt.Fprintln(w)
+		if e.Reason != "" {
+			attrs = append(attrs, slog.String("reason", e.Reason))
+		}
+		logger.LogAttrs(ctx, slog.LevelInfo, "event", attrs...)
 		return nil
 	}
 }

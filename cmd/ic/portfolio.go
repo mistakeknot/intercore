@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,7 +18,7 @@ import (
 
 func cmdPortfolio(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: portfolio: missing subcommand (dep, relay, order, status)\n")
+		slog.Error("portfolio: missing subcommand", "expected", "dep, relay, order, status")
 		return 3
 	}
 
@@ -31,14 +32,14 @@ func cmdPortfolio(ctx context.Context, args []string) int {
 	case "status":
 		return cmdPortfolioStatus(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: portfolio: unknown subcommand: %s\n", args[0])
+		slog.Error("portfolio: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
 
 func cmdPortfolioDep(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep: missing subcommand (add, list, remove)\n")
+		slog.Error("portfolio dep: missing subcommand", "expected", "add, list, remove")
 		return 3
 	}
 
@@ -50,7 +51,7 @@ func cmdPortfolioDep(ctx context.Context, args []string) int {
 	case "remove":
 		return cmdPortfolioDepRemove(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep: unknown subcommand: %s\n", args[0])
+		slog.Error("portfolio dep: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -79,25 +80,25 @@ func cmdPortfolioDepAdd(ctx context.Context, args []string) int {
 	// Normalize paths to absolute to match child project_dir values
 	upstream, err := filepath.Abs(upstream)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep add: resolve upstream: %v\n", err)
+		slog.Error("portfolio dep add: resolve upstream failed", "error", err)
 		return 2
 	}
 	downstream, err = filepath.Abs(downstream)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep add: resolve downstream: %v\n", err)
+		slog.Error("portfolio dep add: resolve downstream failed", "error", err)
 		return 2
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep add: %v\n", err)
+		slog.Error("portfolio dep add failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	depStore := portfolio.NewDepStore(d.SqlDB())
 	if err := depStore.Add(ctx, portfolioID, upstream, downstream); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep add: %v\n", err)
+		slog.Error("portfolio dep add failed", "error", err)
 		return 2
 	}
 
@@ -113,7 +114,7 @@ func cmdPortfolioDepList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep list: %v\n", err)
+		slog.Error("portfolio dep list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -121,7 +122,7 @@ func cmdPortfolioDepList(ctx context.Context, args []string) int {
 	depStore := portfolio.NewDepStore(d.SqlDB())
 	deps, err := depStore.List(ctx, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep list: %v\n", err)
+		slog.Error("portfolio dep list failed", "error", err)
 		return 2
 	}
 
@@ -166,14 +167,14 @@ func cmdPortfolioDepRemove(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep remove: %v\n", err)
+		slog.Error("portfolio dep remove failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	depStore := portfolio.NewDepStore(d.SqlDB())
 	if err := depStore.Remove(ctx, portfolioID, upstream, downstream); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio dep remove: %v\n", err)
+		slog.Error("portfolio dep remove failed", "error", err)
 		return 2
 	}
 
@@ -192,7 +193,7 @@ func cmdPortfolioRelay(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--interval=")
 			d, err := time.ParseDuration(val)
 			if err != nil || d <= 0 {
-				fmt.Fprintf(os.Stderr, "ic: portfolio relay: invalid interval: %s\n", val)
+				slog.Error("portfolio relay: invalid interval", "value", val)
 				return 3
 			}
 			interval = d
@@ -209,13 +210,13 @@ func cmdPortfolioRelay(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio relay: %v\n", err)
+		slog.Error("portfolio relay failed", "error", err)
 		return 2
 	}
 	defer d.Close()
 
 	relay := portfolio.NewRelay(portfolioID, d.SqlDB(), interval)
-	relay.SetLogWriter(os.Stderr)
+	relay.SetLogger(slog.Default())
 
 	// Handle SIGINT/SIGTERM for clean shutdown
 	relayCtx, cancel := context.WithCancel(ctx)
@@ -225,17 +226,17 @@ func cmdPortfolioRelay(ctx context.Context, args []string) int {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		fmt.Fprintf(os.Stderr, "\n[relay] shutting down...\n")
+		slog.Info("relay shutting down")
 		cancel()
 	}()
 
-	fmt.Fprintf(os.Stderr, "[relay] starting for portfolio %s (interval=%s)\n", portfolioID, interval)
+	slog.Info("relay starting", "portfolio", portfolioID, "interval", interval.String())
 	if err := relay.Run(relayCtx); err != nil && err != context.Canceled {
-		fmt.Fprintf(os.Stderr, "ic: portfolio relay: %v\n", err)
+		slog.Error("portfolio relay failed", "error", err)
 		return 2
 	}
 
-	fmt.Fprintf(os.Stderr, "[relay] stopped\n")
+	slog.Info("relay stopped")
 	return 0
 }
 
@@ -248,7 +249,7 @@ func cmdPortfolioOrder(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio order: %v\n", err)
+		slog.Error("portfolio order failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -256,13 +257,13 @@ func cmdPortfolioOrder(ctx context.Context, args []string) int {
 	depStore := portfolio.NewDepStore(d.SqlDB())
 	deps, err := depStore.List(ctx, portfolioID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio order: %v\n", err)
+		slog.Error("portfolio order failed", "error", err)
 		return 2
 	}
 
 	order, err := portfolio.TopologicalSort(deps)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio order: %v\n", err)
+		slog.Error("portfolio order failed", "error", err)
 		return 2
 	}
 
@@ -285,7 +286,7 @@ func cmdPortfolioStatus(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio status: %v\n", err)
+		slog.Error("portfolio status failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -295,13 +296,13 @@ func cmdPortfolioStatus(ctx context.Context, args []string) int {
 
 	children, err := store.GetChildren(ctx, portfolioID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio status: %v\n", err)
+		slog.Error("portfolio status failed", "error", err)
 		return 2
 	}
 
 	deps, err := depStore.List(ctx, portfolioID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: portfolio status: %v\n", err)
+		slog.Error("portfolio status failed", "error", err)
 		return 2
 	}
 

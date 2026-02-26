@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -21,7 +22,7 @@ var knownConfigKeys = map[string]string{
 
 func cmdConfig(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: config: missing subcommand (set, get, list)\n")
+		slog.Error("config: missing subcommand", "expected", "set, get, list")
 		return 3
 	}
 
@@ -33,7 +34,7 @@ func cmdConfig(ctx context.Context, args []string) int {
 	case "list":
 		return cmdConfigList(ctx)
 	default:
-		fmt.Fprintf(os.Stderr, "ic: config: unknown subcommand: %s\n", args[0])
+		slog.Error("config: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -54,7 +55,7 @@ func cmdConfigSet(ctx context.Context, args []string) int {
 	// Validate value is a number for known keys
 	if _, ok := knownConfigKeys[key]; ok {
 		if _, err := strconv.Atoi(value); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: config set: value must be an integer: %s\n", value)
+			slog.Error("config set: value must be an integer", "value", value)
 			return 3
 		}
 	}
@@ -64,7 +65,7 @@ func cmdConfigSet(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: config set: %v\n", err)
+		slog.Error("config set failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -72,7 +73,7 @@ func cmdConfigSet(ctx context.Context, args []string) int {
 	store := state.New(d.SqlDB())
 	payload := json.RawMessage(value)
 	if err := store.Set(ctx, stateKey, kernelScope, payload, 0); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: config set: %v\n", err)
+		slog.Error("config set failed", "error", err)
 		return 2
 	}
 
@@ -98,7 +99,7 @@ func cmdConfigGet(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: config get: %v\n", err)
+		slog.Error("config get failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -117,7 +118,7 @@ func cmdConfigGet(ctx context.Context, args []string) int {
 			}
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: config get: %v\n", err)
+		slog.Error("config get failed", "error", err)
 		return 2
 	}
 
@@ -135,7 +136,7 @@ func cmdConfigGet(ctx context.Context, args []string) int {
 func cmdConfigList(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: config list: %v\n", err)
+		slog.Error("config list failed", "error", err)
 		return 2
 	}
 	defer d.Close()

@@ -3,8 +3,10 @@ package event
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -22,10 +24,10 @@ func (b *syncBuffer) Write(p []byte) (int, error) {
 	return b.buf.Write(p)
 }
 
-func (b *syncBuffer) Bytes() []byte {
+func (b *syncBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.buf.Bytes()
+	return b.buf.String()
 }
 
 func TestHookHandler_ExecutesPhaseHook(t *testing.T) {
@@ -38,8 +40,9 @@ func TestHookHandler_ExecutesPhaseHook(t *testing.T) {
 	hookPath := filepath.Join(hookDir, "on-phase-advance")
 	os.WriteFile(hookPath, []byte(hookScript), 0755)
 
-	var buf bytes.Buffer
-	h := NewHookHandler(dir, &buf)
+	var buf syncBuffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewHookHandler(dir, logger)
 
 	e := Event{
 		Source:    SourcePhase,
@@ -69,8 +72,9 @@ func TestHookHandler_ExecutesPhaseHook(t *testing.T) {
 
 func TestHookHandler_SkipsIfNoHook(t *testing.T) {
 	dir := t.TempDir()
-	var buf bytes.Buffer
-	h := NewHookHandler(dir, &buf)
+	var buf syncBuffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewHookHandler(dir, logger)
 
 	err := h(context.Background(), Event{Source: SourcePhase, Type: "advance"})
 	if err != nil {
@@ -86,8 +90,9 @@ func TestHookHandler_SkipsNonExecutable(t *testing.T) {
 	hookPath := filepath.Join(hookDir, "on-phase-advance")
 	os.WriteFile(hookPath, []byte("#!/bin/sh\necho test"), 0644)
 
-	var buf bytes.Buffer
-	h := NewHookHandler(dir, &buf)
+	var buf syncBuffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewHookHandler(dir, logger)
 
 	err := h(context.Background(), Event{Source: SourcePhase, Type: "advance"})
 	if err != nil {
@@ -104,7 +109,8 @@ func TestHookHandler_FailingHookIsFireAndForget(t *testing.T) {
 	os.WriteFile(hookPath, []byte("#!/bin/sh\nexit 1"), 0755)
 
 	var buf syncBuffer
-	h := NewHookHandler(dir, &buf)
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	h := NewHookHandler(dir, logger)
 
 	err := h(context.Background(), Event{Source: SourcePhase, Type: "advance"})
 	if err != nil {
@@ -113,8 +119,9 @@ func TestHookHandler_FailingHookIsFireAndForget(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	if !bytes.Contains(buf.Bytes(), []byte("failed")) {
-		t.Error("expected failure log")
+	logOut := buf.String()
+	if !strings.Contains(logOut, "hook failed") {
+		t.Errorf("expected failure log containing 'hook failed', got: %s", logOut)
 	}
 }
 

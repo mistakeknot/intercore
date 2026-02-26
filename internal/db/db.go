@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 22
-	maxSchemaVersion     = 22
+	currentSchemaVersion = 23
+	maxSchemaVersion     = 23
 )
 
 var (
@@ -338,6 +338,18 @@ func (d *DB) Migrate(ctx context.Context) error {
 		if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_kind
 			ON run_replay_inputs(run_id, kind, created_at, id)`); err != nil {
 			return fmt.Errorf("migrate v21→v22 idx_replay_inputs_run_kind: %w", err)
+		}
+	}
+
+	// v22 → v23: add trace_id column to audit_log for trace correlation
+	if currentVersion >= 15 && currentVersion < 23 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE audit_log ADD COLUMN trace_id TEXT NOT NULL DEFAULT ''"); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migrate v22→v23 audit_log trace_id: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_audit_log_trace ON audit_log(trace_id) WHERE trace_id != ''"); err != nil {
+			return fmt.Errorf("migrate v22→v23 idx_audit_log_trace: %w", err)
 		}
 	}
 

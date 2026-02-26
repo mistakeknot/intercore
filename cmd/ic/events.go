@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -15,7 +16,7 @@ import (
 
 func cmdEvents(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: events: missing subcommand (tail, cursor)\n")
+		slog.Error("events: missing subcommand", "expected", "tail, cursor")
 		return 3
 	}
 
@@ -25,7 +26,7 @@ func cmdEvents(ctx context.Context, args []string) int {
 	case "cursor":
 		return cmdEventsCursor(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: events: unknown subcommand: %s\n", args[0])
+		slog.Error("events: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -49,7 +50,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--since-phase=")
 			n, err := strconv.ParseInt(val, 10, 64)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: events tail: invalid --since-phase: %s\n", val)
+				slog.Error("events tail: invalid --since-phase", "value", val)
 				return 3
 			}
 			sincePhase = n
@@ -57,7 +58,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--since-dispatch=")
 			n, err := strconv.ParseInt(val, 10, 64)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: events tail: invalid --since-dispatch: %s\n", val)
+				slog.Error("events tail: invalid --since-dispatch", "value", val)
 				return 3
 			}
 			sinceDispatch = n
@@ -65,7 +66,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--since-discovery=")
 			n, err := strconv.ParseInt(val, 10, 64)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: events tail: invalid --since-discovery: %s\n", val)
+				slog.Error("events tail: invalid --since-discovery", "value", val)
 				return 3
 			}
 			sinceDiscovery = n
@@ -75,7 +76,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--poll-interval=")
 			d, err := time.ParseDuration(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: events tail: invalid --poll-interval: %s\n", val)
+				slog.Error("events tail: invalid --poll-interval", "value", val)
 				return 3
 			}
 			pollInterval = d
@@ -83,7 +84,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--limit=")
 			n, err := strconv.Atoi(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: events tail: invalid --limit: %s\n", val)
+				slog.Error("events tail: invalid --limit", "value", val)
 				return 3
 			}
 			limit = n
@@ -97,13 +98,13 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 	}
 
 	if runID == "" && !allRuns {
-		fmt.Fprintf(os.Stderr, "ic: events tail: provide <run_id> or --all\n")
+		slog.Error("events tail: provide <run_id> or --all")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: events tail: %v\n", err)
+		slog.Error("events tail failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -128,14 +129,14 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			events, err = evStore.ListEvents(ctx, runID, sincePhase, sinceDispatch, sinceDiscovery, limit)
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: events tail: %v\n", err)
+			slog.Error("events tail failed", "error", err)
 			return 2
 		}
 
 		encodeErr := false
 		for _, e := range events {
 			if err := enc.Encode(e); err != nil {
-				fmt.Fprintf(os.Stderr, "ic: events tail: write: %v\n", err)
+				slog.Error("events tail: write failed", "error", err)
 				encodeErr = true
 				break
 			}
@@ -172,7 +173,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 
 func cmdEventsCursor(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: events cursor: missing subcommand (list, reset, register)\n")
+		slog.Error("events cursor: missing subcommand", "expected", "list, reset, register")
 		return 3
 	}
 
@@ -184,7 +185,7 @@ func cmdEventsCursor(ctx context.Context, args []string) int {
 	case "register":
 		return cmdEventsCursorRegister(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: events cursor: unknown subcommand: %s\n", args[0])
+		slog.Error("events cursor: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -192,7 +193,7 @@ func cmdEventsCursor(ctx context.Context, args []string) int {
 func cmdEventsCursorList(ctx context.Context) int {
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: events cursor list: %v\n", err)
+		slog.Error("events cursor list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -200,7 +201,7 @@ func cmdEventsCursorList(ctx context.Context) int {
 	stStore := state.New(d.SqlDB())
 	ids, err := stStore.List(ctx, "cursor")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: events cursor list: %v\n", err)
+		slog.Error("events cursor list failed", "error", err)
 		return 2
 	}
 
@@ -222,7 +223,7 @@ func cmdEventsCursorReset(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: events cursor reset: %v\n", err)
+		slog.Error("events cursor reset failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -230,7 +231,7 @@ func cmdEventsCursorReset(ctx context.Context, args []string) int {
 	stStore := state.New(d.SqlDB())
 	deleted, err := stStore.Delete(ctx, "cursor", args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: events cursor reset: %v\n", err)
+		slog.Error("events cursor reset failed", "error", err)
 		return 2
 	}
 
@@ -264,7 +265,7 @@ func cmdEventsCursorRegister(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: events cursor register: %v\n", err)
+		slog.Error("events cursor register failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -278,7 +279,7 @@ func cmdEventsCursorRegister(ctx context.Context, args []string) int {
 
 	payload := `{"phase":0,"dispatch":0,"interspect":0,"discovery":0}`
 	if err := stStore.Set(ctx, "cursor", consumer, json.RawMessage(payload), ttl); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: events cursor register: %v\n", err)
+		slog.Error("events cursor register failed", "error", err)
 		return 2
 	}
 
@@ -323,7 +324,7 @@ func saveCursor(ctx context.Context, store *state.Store, consumer, scope string,
 	// Use existing TTL if cursor was registered as durable; otherwise default 24h
 	ttl := cursorTTL(ctx, store, key)
 	if err := store.Set(ctx, "cursor", key, json.RawMessage(payload), ttl); err != nil {
-		fmt.Fprintf(os.Stderr, "[event] saveCursor %s: %v\n", key, err)
+		slog.Debug("event: saveCursor", "cursor", key, "error", err)
 	}
 }
 

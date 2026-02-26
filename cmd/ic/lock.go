@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 func cmdLock(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: lock: missing subcommand (acquire, release, list, stale, clean)\n")
+		slog.Error("lock: missing subcommand", "expected", "acquire, release, list, stale, clean")
 		return 3
 	}
 
@@ -31,7 +32,7 @@ func cmdLock(ctx context.Context, args []string) int {
 	case "clean":
 		return cmdLockClean(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: lock: unknown subcommand: %s\n", args[0])
+		slog.Error("lock: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -62,7 +63,7 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 		var err error
 		dur, err = time.ParseDuration(timeout)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: lock acquire: invalid timeout: %s\n", timeout)
+			slog.Error("lock acquire: invalid timeout", "value", timeout)
 			return 3
 		}
 	}
@@ -77,11 +78,11 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 	if err != nil {
 		if errors.Is(err, lock.ErrTimeout) {
 			if flagVerbose {
-				fmt.Fprintf(os.Stderr, "ic: lock acquire: timed out\n")
+				slog.Error("lock acquire: timed out")
 			}
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: lock acquire: %v\n", err)
+		slog.Error("lock acquire failed", "error", err)
 		return 2
 	}
 
@@ -119,17 +120,17 @@ func cmdLockRelease(ctx context.Context, args []string) int {
 	if err != nil {
 		if errors.Is(err, lock.ErrNotFound) {
 			if flagVerbose {
-				fmt.Fprintf(os.Stderr, "ic: lock release: not found\n")
+				slog.Error("lock release: not found")
 			}
 			return 1
 		}
 		if errors.Is(err, lock.ErrNotOwner) {
 			if flagVerbose {
-				fmt.Fprintf(os.Stderr, "ic: lock release: not owner\n")
+				slog.Error("lock release: not owner")
 			}
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: lock release: %v\n", err)
+		slog.Error("lock release failed", "error", err)
 		return 2
 	}
 
@@ -143,7 +144,7 @@ func cmdLockList(ctx context.Context) int {
 	mgr := lock.NewManager("")
 	locks, err := mgr.List(ctx)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lock list: %v\n", err)
+		slog.Error("lock list failed", "error", err)
 		return 2
 	}
 
@@ -167,14 +168,14 @@ func cmdLockStale(ctx context.Context, args []string) int {
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lock stale: invalid duration: %s\n", olderThan)
+		slog.Error("lock stale: invalid duration", "value", olderThan)
 		return 3
 	}
 
 	mgr := lock.NewManager("")
 	locks, err := mgr.Stale(ctx, dur)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lock stale: %v\n", err)
+		slog.Error("lock stale failed", "error", err)
 		return 2
 	}
 
@@ -198,14 +199,14 @@ func cmdLockClean(ctx context.Context, args []string) int {
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lock clean: invalid duration: %s\n", olderThan)
+		slog.Error("lock clean: invalid duration", "value", olderThan)
 		return 3
 	}
 
 	mgr := lock.NewManager("")
 	count, err := mgr.Clean(ctx, dur)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: lock clean: %v\n", err)
+		slog.Error("lock clean failed", "error", err)
 		return 2
 	}
 

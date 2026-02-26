@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -21,7 +22,7 @@ import (
 
 func cmdDispatch(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: dispatch: missing subcommand (spawn, status, list, poll, wait, kill, prune, tokens)\n")
+		slog.Error("dispatch: missing subcommand", "expected", "spawn, status, list, poll, wait, kill, prune, tokens")
 		return 3
 	}
 
@@ -43,7 +44,7 @@ func cmdDispatch(ctx context.Context, args []string) int {
 	case "tokens":
 		return cmdDispatchTokens(ctx, args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "ic: dispatch: unknown subcommand: %s\n", args[0])
+		slog.Error("dispatch: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
 }
@@ -78,7 +79,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 			val := strings.TrimPrefix(args[i], "--timeout=")
 			dur, err := time.ParseDuration(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: dispatch spawn: invalid timeout: %s\n", val)
+				slog.Error("dispatch spawn: invalid timeout", "value", val)
 				return 3
 			}
 			opts.TimeoutSec = int(dur.Seconds())
@@ -89,19 +90,19 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--dispatch-sh="):
 			opts.DispatchSH = strings.TrimPrefix(args[i], "--dispatch-sh=")
 		default:
-			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: unknown flag: %s\n", args[i])
+			slog.Error("dispatch spawn: unknown flag", "value", args[i])
 			return 3
 		}
 	}
 
 	if opts.PromptFile == "" {
-		fmt.Fprintf(os.Stderr, "ic: dispatch spawn: --prompt-file is required\n")
+		slog.Error("dispatch spawn: --prompt-file is required")
 		return 3
 	}
 	if opts.ProjectDir == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: cannot determine project dir: %v\n", err)
+			slog.Error("dispatch spawn: cannot determine project dir", "error", err)
 			return 2
 		}
 		opts.ProjectDir = cwd
@@ -109,7 +110,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch spawn: %v\n", err)
+		slog.Error("dispatch spawn failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -118,7 +119,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	if scheduled {
 		spawnJSON, err := scheduler.MarshalSpawnOpts(opts)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: marshal opts: %v\n", err)
+			slog.Error("dispatch spawn: marshal opts", "error", err)
 			return 2
 		}
 
@@ -134,7 +135,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 
 		schedStore := scheduler.NewStore(d.SqlDB())
 		if err := schedStore.Create(ctx, job); err != nil {
-			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: scheduler submit: %v\n", err)
+			slog.Error("dispatch spawn: scheduler submit failed", "error", err)
 			return 2
 		}
 
@@ -153,7 +154,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	// Note: this is advisory, not atomic — concurrent spawns may exceed the limit.
 	if opts.ScopeID != "" {
 		if limited, msg := checkPortfolioDispatchLimit(ctx, d.SqlDB(), opts.ScopeID); limited {
-			fmt.Fprintf(os.Stderr, "ic: dispatch spawn: %s\n", msg)
+			slog.Error("dispatch spawn: rejected", "reason", msg)
 			return 1
 		}
 	}
@@ -161,7 +162,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	store := dispatch.New(d.SqlDB(), nil)
 	result, err := dispatch.Spawn(ctx, store, opts)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch spawn: %v\n", err)
+		slog.Error("dispatch spawn failed", "error", err)
 		return 2
 	}
 
@@ -184,7 +185,7 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch status: %v\n", err)
+		slog.Error("dispatch status failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -193,10 +194,10 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 	disp, err := store.Get(ctx, args[0])
 	if err != nil {
 		if err == dispatch.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: dispatch status: not found: %s\n", args[0])
+			slog.Error("dispatch status: not found", "id", args[0])
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: dispatch status: %v\n", err)
+		slog.Error("dispatch status failed", "error", err)
 		return 2
 	}
 
@@ -224,7 +225,7 @@ func cmdDispatchList(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch list: %v\n", err)
+		slog.Error("dispatch list failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -238,7 +239,7 @@ func cmdDispatchList(ctx context.Context, args []string) int {
 		dispatches, err = store.List(ctx, scopeFilter)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch list: %v\n", err)
+		slog.Error("dispatch list failed", "error", err)
 		return 2
 	}
 
@@ -268,7 +269,7 @@ func cmdDispatchPoll(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch poll: %v\n", err)
+		slog.Error("dispatch poll failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -277,10 +278,10 @@ func cmdDispatchPoll(ctx context.Context, args []string) int {
 	disp, err := dispatch.Poll(ctx, store, args[0])
 	if err != nil {
 		if err == dispatch.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: dispatch poll: not found: %s\n", args[0])
+			slog.Error("dispatch poll: not found", "id", args[0])
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: dispatch poll: %v\n", err)
+		slog.Error("dispatch poll failed", "error", err)
 		return 2
 	}
 
@@ -320,7 +321,7 @@ func cmdDispatchWait(ctx context.Context, args []string) int {
 		var err error
 		timeout, err = time.ParseDuration(timeoutStr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: dispatch wait: invalid timeout: %s\n", timeoutStr)
+			slog.Error("dispatch wait: invalid timeout", "value", timeoutStr)
 			return 3
 		}
 	}
@@ -330,14 +331,14 @@ func cmdDispatchWait(ctx context.Context, args []string) int {
 		var err error
 		pollInterval, err = time.ParseDuration(pollStr)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ic: dispatch wait: invalid poll interval: %s\n", pollStr)
+			slog.Error("dispatch wait: invalid poll interval", "value", pollStr)
 			return 3
 		}
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch wait: %v\n", err)
+		slog.Error("dispatch wait failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -346,10 +347,10 @@ func cmdDispatchWait(ctx context.Context, args []string) int {
 	disp, err := dispatch.Wait(ctx, store, id, pollInterval, timeout)
 	if err != nil {
 		if err == dispatch.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: dispatch wait: not found: %s\n", id)
+			slog.Error("dispatch wait: not found", "id", id)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: dispatch wait: %v\n", err)
+		slog.Error("dispatch wait failed", "error", err)
 		return 2
 	}
 
@@ -373,7 +374,7 @@ func cmdDispatchKill(ctx context.Context, args []string) int {
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch kill: %v\n", err)
+		slog.Error("dispatch kill failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -381,10 +382,10 @@ func cmdDispatchKill(ctx context.Context, args []string) int {
 	store := dispatch.New(d.SqlDB(), nil)
 	if err := dispatch.Kill(ctx, store, args[0]); err != nil {
 		if err == dispatch.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: dispatch kill: not found: %s\n", args[0])
+			slog.Error("dispatch kill: not found", "id", args[0])
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: dispatch kill: %v\n", err)
+		slog.Error("dispatch kill failed", "error", err)
 		return 2
 	}
 
@@ -409,13 +410,13 @@ func cmdDispatchPrune(ctx context.Context, args []string) int {
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch prune: invalid duration: %v\n", err)
+		slog.Error("dispatch prune: invalid duration", "error", err)
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch prune: %v\n", err)
+		slog.Error("dispatch prune failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -423,7 +424,7 @@ func cmdDispatchPrune(ctx context.Context, args []string) int {
 	store := dispatch.New(d.SqlDB(), nil)
 	count, err := store.Prune(ctx, dur)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch prune: %v\n", err)
+		slog.Error("dispatch prune failed", "error", err)
 		return 2
 	}
 
@@ -440,21 +441,21 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 		case strings.HasPrefix(args[i], "--in="):
 			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--in="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: dispatch tokens: invalid --in: %s\n", args[i])
+				slog.Error("dispatch tokens: invalid --in", "value", args[i])
 				return 3
 			}
 			fields["input_tokens"] = v
 		case strings.HasPrefix(args[i], "--out="):
 			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--out="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: dispatch tokens: invalid --out: %s\n", args[i])
+				slog.Error("dispatch tokens: invalid --out", "value", args[i])
 				return 3
 			}
 			fields["output_tokens"] = v
 		case strings.HasPrefix(args[i], "--cache="):
 			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--cache="))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: dispatch tokens: invalid --cache: %s\n", args[i])
+				slog.Error("dispatch tokens: invalid --cache", "value", args[i])
 				return 3
 			}
 			fields["cache_hits"] = v
@@ -470,13 +471,13 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 	id := positional[0]
 
 	if len(fields) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: at least one of --in, --out, --cache is required\n")
+		slog.Error("dispatch tokens: at least one of --in, --out, --cache is required")
 		return 3
 	}
 
 	d, err := openDB()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: %v\n", err)
+		slog.Error("dispatch tokens failed", "error", err)
 		return 2
 	}
 	defer d.Close()
@@ -484,10 +485,10 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 	dStore := dispatch.New(d.SqlDB(), nil)
 	if err := dStore.UpdateTokens(ctx, id, fields); err != nil {
 		if err == dispatch.ErrNotFound {
-			fmt.Fprintf(os.Stderr, "ic: dispatch tokens: not found: %s\n", id)
+			slog.Error("dispatch tokens: not found", "id", id)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: %v\n", err)
+		slog.Error("dispatch tokens failed", "error", err)
 		return 2
 	}
 
@@ -498,12 +499,12 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 		checker := budget.New(pStore, dStore, sStore, nil)
 		result, err := checker.Check(ctx, *disp.ScopeID)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[budget] check: %v\n", err)
+			slog.Debug("budget: check", "error", err)
 		} else if result != nil {
 			if result.Exceeded {
-				fmt.Fprintf(os.Stderr, "[budget] EXCEEDED: %d/%d tokens\n", result.Used, result.Budget)
+				slog.Warn("budget exceeded", "used", result.Used, "budget", result.Budget)
 			} else if result.Warning {
-				fmt.Fprintf(os.Stderr, "[budget] WARNING: %d/%d tokens (%d%% threshold)\n", result.Used, result.Budget, result.WarnPct)
+				slog.Warn("budget warning", "used", result.Used, "budget", result.Budget, "warn_pct", result.WarnPct)
 			}
 		}
 	}
@@ -648,7 +649,7 @@ func checkPortfolioDispatchLimit(ctx context.Context, db *sql.DB, scopeID string
 
 	payload, err := stateStore.Get(ctx, "active-dispatch-count", *run.ParentRunID)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ic: dispatch spawn: warning: no relay data for portfolio %s, dispatch limit not enforced\n", *run.ParentRunID)
+		slog.Warn("dispatch spawn: no relay data for portfolio, dispatch limit not enforced", "portfolio_id", *run.ParentRunID)
 		return false, ""
 	}
 

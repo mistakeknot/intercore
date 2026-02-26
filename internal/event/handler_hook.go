@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,10 +21,7 @@ const (
 // NewHookHandler returns a handler that executes convention-based shell hooks.
 // projectDir is the base directory where .clavain/hooks/ is searched.
 // Hooks run in a detached goroutine to avoid blocking the single DB connection.
-func NewHookHandler(projectDir string, logw io.Writer) Handler {
-	if logw == nil {
-		logw = os.Stderr
-	}
+func NewHookHandler(projectDir string, logger *slog.Logger) Handler {
 	return func(ctx context.Context, e Event) error {
 		var hookName string
 		switch e.Source {
@@ -62,8 +59,13 @@ func NewHookHandler(projectDir string, logw io.Writer) Handler {
 			cmd.Stderr = &stderr
 
 			if err := cmd.Run(); err != nil {
-				fmt.Fprintf(logw, "[event] hook %s failed: %v (stderr: %s)\n",
-					hookName, err, stderr.String())
+				if logger != nil {
+					logger.WarnContext(hookCtx, "hook failed",
+						"hook", hookName,
+						"error", err.Error(),
+						"stderr", stderr.String(),
+					)
+				}
 			}
 		}()
 
