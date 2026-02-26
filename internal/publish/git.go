@@ -41,6 +41,24 @@ func GitRemoteReachable(dir string) error {
 	return nil
 }
 
+// GitDirtyFiles returns paths of modified (unstaged) files relative to the repo root.
+func GitDirtyFiles(dir string) ([]string, error) {
+	cmd := exec.Command("git", "-C", dir, "diff", "--name-only")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git diff --name-only: %w", err)
+	}
+	var files []string
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
 // GitAdd stages specific files relative to the repo root.
 func GitAdd(dir string, files ...string) error {
 	args := append([]string{"-C", dir, "add"}, files...)

@@ -198,7 +198,9 @@ func (e *Engine) Publish(ctx context.Context) error {
 			return err
 		}
 
-		// Run post-bump hook if present (legacy: runs before bump despite the name)
+		// Run post-bump hook if present (legacy: runs before bump despite the name).
+		// Collect any files the hook modifies so they get staged in the commit phase.
+		var hookDirtyFiles []string
 		postBump := filepath.Join(pluginRoot, "scripts", "post-bump.sh")
 		if _, err := os.Stat(postBump); err == nil {
 			e.out("  Running post-bump hook...\n")
@@ -206,6 +208,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 				setError(PhaseValidation, err)
 				return fmt.Errorf("post-bump hook: %w", err)
 			}
+			hookDirtyFiles, _ = GitDirtyFiles(pluginRoot)
 		}
 
 		// Phase 3: Bump
@@ -242,6 +245,8 @@ func (e *Engine) Publish(ctx context.Context) error {
 			}
 			filesToAdd = append(filesToAdd, rel)
 		}
+		// Include files modified by the post-bump hook
+		filesToAdd = append(filesToAdd, hookDirtyFiles...)
 
 		if err := GitAdd(pluginRoot, filesToAdd...); err != nil {
 			setError(PhaseCommitPlugin, err)
