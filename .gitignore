@@ -11,3 +11,5 @@
 # Runtime
 *.db.backup-*
 /ic
+.tldrs/
+.tldrsignore
