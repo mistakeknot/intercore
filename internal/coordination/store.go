@@ -365,19 +365,20 @@ func (s *Store) Sweep(ctx context.Context, olderThan time.Duration, dryRun bool)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
 	var expired []Lock
 	for rows.Next() {
 		var l Lock
 		if err := scanLock(rows, &l); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		expired = append(expired, l)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
 	}
+	rows.Close() // Close cursor BEFORE Release calls to avoid holding it open during writes.
 
 	result.Expired = len(expired)
 	result.Total = result.Expired
