@@ -132,6 +132,8 @@ func main() {
 		exitCode = cmdCoordination(ctx, subArgs)
 	case "publish":
 		exitCode = cmdPublish(ctx, subArgs)
+	case "situation":
+		exitCode = cmdSituation(ctx, subArgs)
 	default:
 		slog.Error("unknown command", "command", subcommand)
 		printUsage()
