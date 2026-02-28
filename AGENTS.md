@@ -217,6 +217,16 @@ ic portfolio order <id>                    Topological build order (deterministi
 ic portfolio status <id>                   Per-child readiness with blocked-by details
 ```
 
+### Situation
+
+Unified observation layer for OODAR loops.
+
+```
+ic situation snapshot                      JSON snapshot of all active runs, dispatches, events, queue depth
+ic situation snapshot --run=<id>           Scoped to a specific run (includes budget)
+ic situation snapshot --events=50          Control event history depth (default: 20)
+```
+
 ### Config & Agency
 
 ```

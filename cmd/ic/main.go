@@ -233,6 +233,7 @@ Commands:
   publish clean                  Prune orphaned cache dirs
   publish status [--all]         Show publish health
   publish init                   Register new plugin in marketplace
+  situation snapshot [opts]      Unified observation layer (OODAR)
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 
