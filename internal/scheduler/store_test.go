@@ -238,6 +238,66 @@ func TestStoreRecoverPending(t *testing.T) {
 	}
 }
 
+func TestCountByStatus(t *testing.T) {
+	db := openTestDB(t)
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Empty DB should return non-nil empty map with no error.
+	counts, err := store.CountByStatus(ctx)
+	if err != nil {
+		t.Fatalf("empty db: %v", err)
+	}
+	if counts == nil {
+		t.Fatal("empty db: counts is nil, want non-nil map")
+	}
+	if len(counts) != 0 {
+		t.Errorf("empty db: len(counts) = %d, want 0", len(counts))
+	}
+
+	// Insert jobs with various statuses.
+	statuses := []JobStatus{StatusPending, StatusPending, StatusRunning, StatusCompleted, StatusCompleted, StatusCompleted}
+	for i, status := range statuses {
+		job := &SpawnJob{
+			ID:        fmt.Sprintf("cbs-%d", i),
+			Status:    status,
+			Priority:  PriorityNormal,
+			AgentType: "codex",
+			SpawnOpts: "{}",
+			MaxRetries: 3,
+			CreatedAt: time.Now().Truncate(time.Second),
+		}
+		if status == StatusCompleted {
+			job.CompletedAt = time.Now().Truncate(time.Second)
+		}
+		if status == StatusRunning {
+			job.StartedAt = time.Now().Truncate(time.Second)
+		}
+		if err := store.Create(ctx, job); err != nil {
+			t.Fatalf("create cbs-%d: %v", i, err)
+		}
+	}
+
+	counts, err = store.CountByStatus(ctx)
+	if err != nil {
+		t.Fatalf("count by status: %v", err)
+	}
+
+	if counts["pending"] != 2 {
+		t.Errorf("pending = %d, want 2", counts["pending"])
+	}
+	if counts["running"] != 1 {
+		t.Errorf("running = %d, want 1", counts["running"])
+	}
+	if counts["completed"] != 3 {
+		t.Errorf("completed = %d, want 3", counts["completed"])
+	}
+	// Statuses not present should be absent from the map (zero value).
+	if counts["failed"] != 0 {
+		t.Errorf("failed = %d, want 0", counts["failed"])
+	}
+}
+
 func TestStorePrune(t *testing.T) {
 	db := openTestDB(t)
 	store := NewStore(db)
