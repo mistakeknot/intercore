@@ -1,11 +1,14 @@
 package publish
 
 import (
+	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -207,6 +210,69 @@ func ListCacheEntries() (map[string][]CacheEntry, error) {
 	}
 
 	return result, nil
+}
+
+// BuildGoMCPBinary pre-builds a Go binary from source into the cache directory.
+// This handles plugins with go.mod replace directives that point to monorepo-relative
+// paths — those resolve from the source dir but not from the cache.
+//
+// Best-effort: returns nil on skip or failure (logged as warning by caller).
+func BuildGoMCPBinary(pluginName, srcRoot, cacheDest string) error {
+	// Skip if no go.mod
+	if _, err := os.Stat(filepath.Join(srcRoot, "go.mod")); os.IsNotExist(err) {
+		return nil
+	}
+
+	// Skip if no launcher script (no MCP binary to build)
+	launcherPath := filepath.Join(srcRoot, "bin", "launch-mcp.sh")
+	if _, err := os.Stat(launcherPath); os.IsNotExist(err) {
+		return nil
+	}
+
+	// Parse launcher to find the build target and output binary name
+	buildTarget, binaryName := parseLauncherScript(launcherPath)
+	if buildTarget == "" {
+		return nil // can't determine what to build
+	}
+
+	// Build from source dir (where replace directives resolve), output to cache
+	outputPath := filepath.Join(cacheDest, "bin", binaryName)
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+		return fmt.Errorf("mkdir for binary: %w", err)
+	}
+
+	cmd := execCommand("go", "build", "-o", outputPath, buildTarget)
+	cmd.Dir = srcRoot
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go build %s: %s: %w", buildTarget, strings.TrimSpace(stderr.String()), err)
+	}
+
+	return nil
+}
+
+// parseLauncherScript extracts the go build target and binary name from a launch-mcp.sh.
+// Looks for patterns like: go build -o "$SCRIPT_DIR/server" ./cmd/server
+func parseLauncherScript(path string) (buildTarget, binaryName string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", ""
+	}
+	defer f.Close()
+
+	// Match: go build -o <output> <target>
+	goBuildRe := regexp.MustCompile(`go\s+build\s+-o\s+\S+/(\S+)\s+(\S+)`)
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if m := goBuildRe.FindStringSubmatch(line); m != nil {
+			return m[2], m[1] // target, binary name
+		}
+	}
+	return "", ""
 }
 
 // copyDirExcludeGit recursively copies src to dst, skipping .git directories.

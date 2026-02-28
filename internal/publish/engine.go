@@ -1,6 +1,7 @@
 package publish
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -198,6 +199,12 @@ func (e *Engine) Publish(ctx context.Context) error {
 			return err
 		}
 
+		// Run structural plugin validator (if available in the monorepo)
+		if validatorErr := RunPluginValidator(pluginRoot); validatorErr != nil {
+			setError(PhaseValidation, validatorErr)
+			return fmt.Errorf("plugin validation: %w", validatorErr)
+		}
+
 		// Run post-bump hook if present (legacy: runs before bump despite the name).
 		// Collect any files the hook modifies so they get staged in the commit phase.
 		var hookDirtyFiles []string
@@ -314,8 +321,13 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  warning: cache rebuild: %v\n", err)
 	}
 
-	// Update installed_plugins.json
+	// Pre-build Go binary if this is a Go MCP plugin
 	cachePath := filepath.Join(CacheBase(), plugin.Name, targetVersion)
+	if err := BuildGoMCPBinary(plugin.Name, pluginRoot, cachePath); err != nil {
+		e.out("  warning: Go binary pre-build: %v\n", err)
+	}
+
+	// Update installed_plugins.json
 	if err := UpdateInstalled(plugin.Name, targetVersion, cachePath); err != nil {
 		e.out("  warning: installed_plugins.json: %v\n", err)
 	}
@@ -380,4 +392,50 @@ func runHook(script, version string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// RunPluginValidator runs scripts/validate-plugin.sh on a plugin directory.
+// Returns an error if the validator finds errors (exit code 1).
+// Returns nil if the script is not found (best-effort) or passes.
+func RunPluginValidator(pluginRoot string) error {
+	script := findMonorepoScript(pluginRoot, filepath.Join("scripts", "validate-plugin.sh"))
+	if script == "" {
+		return nil // not found — skip
+	}
+
+	cmd := execCommand("bash", script)
+	cmd.Dir = pluginRoot
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		return nil // passed (warnings are OK)
+	}
+
+	// Exit code 1 = validation errors found
+	output := strings.TrimSpace(stdout.String())
+	if output == "" {
+		output = strings.TrimSpace(stderr.String())
+	}
+	return fmt.Errorf("validate-plugin.sh found errors:\n%s", output)
+}
+
+// findMonorepoScript walks up from a directory to find a script path relative to the monorepo root.
+func findMonorepoScript(from, relPath string) string {
+	abs, _ := filepath.Abs(from)
+	current := abs
+	for i := 0; i < 5; i++ {
+		candidate := filepath.Join(current, relPath)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+	return ""
 }
