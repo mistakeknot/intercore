@@ -18,7 +18,7 @@ import (
 	"github.com/mistakeknot/intercore/internal/state"
 )
 
-const version = "0.3.0"
+const version = "0.3.1"
 
 var (
 	flagDB      string
