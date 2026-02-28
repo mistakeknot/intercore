@@ -349,7 +349,7 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	if err := publish.RegisterPlugin(marketRoot, plugin); err != nil {
+	if err := publish.RegisterPlugin(marketRoot, plugin, root); err != nil {
 		slog.Error("publish init failed", "error", err)
 		return 2
 	}
@@ -379,9 +379,10 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 		slog.Warn("publish init: cache rebuild failed", "error", err)
 	}
 
-	// Phase 4: Update installed_plugins.json
+	// Phase 4: Update installed_plugins.json (with git SHA for Claude Code plugin resolution)
 	cachePath := filepath.Join(publish.CacheBase(), plugin.Name, plugin.Version)
-	if err := publish.UpdateInstalled(plugin.Name, plugin.Version, cachePath); err != nil {
+	gitSha, _ := publish.GitHeadCommit(root)
+	if err := publish.UpdateInstalled(plugin.Name, plugin.Version, cachePath, gitSha); err != nil {
 		slog.Warn("publish init: installed_plugins.json update failed", "error", err)
 	}
 

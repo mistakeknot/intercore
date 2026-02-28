@@ -327,8 +327,9 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  warning: Go binary pre-build: %v\n", err)
 	}
 
-	// Update installed_plugins.json
-	if err := UpdateInstalled(plugin.Name, targetVersion, cachePath); err != nil {
+	// Update installed_plugins.json (with git SHA for Claude Code plugin resolution)
+	gitSha, _ := GitHeadCommit(pluginRoot)
+	if err := UpdateInstalled(plugin.Name, targetVersion, cachePath, gitSha); err != nil {
 		e.out("  warning: installed_plugins.json: %v\n", err)
 	}
 

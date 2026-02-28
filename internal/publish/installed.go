@@ -62,8 +62,8 @@ func ReadInstalled() (*InstalledPlugins, error) {
 	return &ip, nil
 }
 
-// UpdateInstalled patches the version and installPath for a plugin in installed_plugins.json.
-func UpdateInstalled(pluginName, version, installPath string) error {
+// UpdateInstalled patches the version, installPath, and gitCommitSha for a plugin in installed_plugins.json.
+func UpdateInstalled(pluginName, version, installPath, gitCommitSha string) error {
 	path := InstalledPath()
 	if path == "" {
 		return fmt.Errorf("cannot determine installed_plugins.json path")
@@ -82,14 +82,18 @@ func UpdateInstalled(pluginName, version, installPath string) error {
 		entries[0].Version = version
 		entries[0].InstallPath = installPath
 		entries[0].LastUpdated = now
+		if gitCommitSha != "" {
+			entries[0].GitCommitSha = gitCommitSha
+		}
 		ip.Plugins[key] = entries
 	} else {
 		ip.Plugins[key] = []InstalledPluginEntry{{
-			Scope:       "user",
-			InstallPath: installPath,
-			Version:     version,
-			InstalledAt: now,
-			LastUpdated: now,
+			Scope:        "user",
+			InstallPath:  installPath,
+			Version:      version,
+			InstalledAt:  now,
+			LastUpdated:  now,
+			GitCommitSha: gitCommitSha,
 		}}
 	}
 

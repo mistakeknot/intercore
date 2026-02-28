@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const marketplaceRelPath = "core/marketplace/.claude-plugin/marketplace.json"
@@ -163,7 +164,9 @@ func ListMarketplacePlugins(marketRoot string) (map[string]string, error) {
 }
 
 // RegisterPlugin adds a new plugin entry to marketplace.json.
-func RegisterPlugin(marketRoot string, plugin *Plugin) error {
+// If pluginRoot is non-empty, the source URL is derived from the plugin's git remote origin.
+// Otherwise falls back to the plugin name as a GitHub repo under the marketplace org.
+func RegisterPlugin(marketRoot string, plugin *Plugin, pluginRoot ...string) error {
 	path := marketplaceFilePath(marketRoot)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -196,11 +199,24 @@ func RegisterPlugin(marketRoot string, plugin *Plugin) error {
 		}
 	}
 
+	// Derive source URL from git remote origin if available
+	sourceURL := ""
+	if len(pluginRoot) > 0 && pluginRoot[0] != "" {
+		if remoteURL, err := GitRemoteURL(pluginRoot[0]); err == nil {
+			sourceURL = remoteURL
+		}
+	}
+	if sourceURL == "" {
+		// Fallback: infer from marketplace remote to get the org
+		org := inferOrgFromMarketplace(marketRoot)
+		sourceURL = fmt.Sprintf("https://github.com/%s/%s.git", org, plugin.Name)
+	}
+
 	newEntry := map[string]interface{}{
 		"name": plugin.Name,
 		"source": map[string]string{
 			"source": "url",
-			"url":    fmt.Sprintf("https://github.com/mistakeknot/%s.git", plugin.Name),
+			"url":    sourceURL,
 		},
 		"description": "",
 		"version":     plugin.Version,
@@ -267,6 +283,31 @@ func SyncCCMarketplace(marketRoot, pluginName, version string) error {
 	GitPush(ccPath) // errors are ignored — CC sync is best-effort
 
 	return nil
+}
+
+// inferOrgFromMarketplace extracts the GitHub org from the marketplace repo's remote.
+// e.g., "https://github.com/mistakeknot/interagency-marketplace.git" → "mistakeknot"
+func inferOrgFromMarketplace(marketRoot string) string {
+	remoteURL, err := GitRemoteURL(marketRoot)
+	if err != nil {
+		return "mistakeknot" // final fallback
+	}
+	// Parse org from GitHub URL patterns:
+	//   https://github.com/ORG/REPO.git
+	//   git@github.com:ORG/REPO.git
+	remoteURL = strings.TrimSuffix(remoteURL, ".git")
+	if idx := strings.Index(remoteURL, "github.com"); idx >= 0 {
+		// Skip "github.com" + separator (/ or :)
+		rest := remoteURL[idx+len("github.com"):]
+		if len(rest) > 0 && (rest[0] == '/' || rest[0] == ':') {
+			rest = rest[1:]
+		}
+		parts := strings.SplitN(rest, "/", 2)
+		if len(parts) >= 1 && parts[0] != "" {
+			return parts[0]
+		}
+	}
+	return "mistakeknot" // final fallback
 }
 
 func marketplaceFilePath(root string) string {

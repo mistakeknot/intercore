@@ -116,6 +116,18 @@ func GitHeadCommit(dir string) (string, error) {
 	return strings.TrimSpace(out.String()), nil
 }
 
+// GitRemoteURL returns the URL of the origin remote.
+func GitRemoteURL(dir string) (string, error) {
+	cmd := exec.Command("git", "-C", dir, "remote", "get-url", "origin")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("git remote get-url origin: %w", err)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 // GitRevert creates revert commits for the last n commits.
 func GitRevert(dir string, n int) error {
 	for i := 0; i < n; i++ {

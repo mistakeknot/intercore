@@ -140,7 +140,7 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 			})
 			if opts.Fix {
 				cachePath := filepath.Join(CacheBase(), name, mktVer)
-				UpdateInstalled(name, mktVer, cachePath)
+				UpdateInstalled(name, mktVer, cachePath, "")
 			}
 		}
 	}
