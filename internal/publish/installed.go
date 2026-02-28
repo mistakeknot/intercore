@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -98,6 +99,65 @@ func UpdateInstalled(pluginName, version, installPath string) error {
 	}
 
 	return atomicWrite(path, append(data, '\n'))
+}
+
+// EnableInSettings adds "pluginName@interagency-marketplace": true to ~/.claude/settings.json.
+// This is idempotent — if the key already exists, it is left unchanged.
+func EnableInSettings(pluginName string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		return fmt.Errorf("read settings.json: %w", err)
+	}
+
+	// Parse as generic JSON to preserve all fields
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return fmt.Errorf("parse settings.json: %w", err)
+	}
+
+	// Find or create the plugin enablement object.
+	// Claude Code uses a top-level key whose value is a map of "name@marketplace": bool.
+	// The key name varies — find the one containing existing @interagency-marketplace entries.
+	var enableKey string
+	for k, v := range settings {
+		if m, ok := v.(map[string]interface{}); ok {
+			for mk := range m {
+				if strings.Contains(mk, "@interagency-marketplace") {
+					enableKey = k
+					break
+				}
+			}
+		}
+		if enableKey != "" {
+			break
+		}
+	}
+
+	key := pluginName + "@interagency-marketplace"
+
+	if enableKey != "" {
+		m := settings[enableKey].(map[string]interface{})
+		if _, exists := m[key]; exists {
+			return nil // already enabled
+		}
+		m[key] = true
+	} else {
+		// No existing enablement object — this shouldn't happen in practice
+		// but handle it by creating one
+		settings["plugins"] = map[string]interface{}{key: true}
+	}
+
+	out, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings.json: %w", err)
+	}
+	return atomicWrite(settingsPath, append(out, '\n'))
 }
 
 // ReadInstalledVersion returns the installed version for a plugin, or empty string.

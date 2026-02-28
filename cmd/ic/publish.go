@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/mistakeknot/intercore/internal/publish"
@@ -354,7 +355,60 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 	}
 
 	fmt.Printf("Registered %s v%s in marketplace.\n", plugin.Name, plugin.Version)
-	fmt.Println("Next: commit and push the marketplace changes, then run 'ic publish --patch'")
+
+	// Phase 2: Commit and push marketplace
+	fmt.Println("  Committing marketplace...")
+	marketplaceJSON := filepath.Join(".claude-plugin", "marketplace.json")
+	if err := publish.GitAdd(marketRoot, marketplaceJSON); err != nil {
+		slog.Warn("publish init: marketplace commit failed", "error", err)
+	} else {
+		msg := fmt.Sprintf("feat: add %s to marketplace (v%s)", plugin.Name, plugin.Version)
+		if err := publish.GitCommit(marketRoot, msg); err != nil {
+			slog.Warn("publish init: marketplace commit failed", "error", err)
+		} else {
+			fmt.Println("  Pushing marketplace...")
+			if err := publish.GitPush(marketRoot); err != nil {
+				slog.Warn("publish init: marketplace push failed", "error", err)
+			}
+		}
+	}
+
+	// Phase 3: Rebuild cache
+	fmt.Println("  Rebuilding cache...")
+	if err := publish.RebuildCache(plugin.Name, plugin.Version, root); err != nil {
+		slog.Warn("publish init: cache rebuild failed", "error", err)
+	}
+
+	// Phase 4: Update installed_plugins.json
+	cachePath := filepath.Join(publish.CacheBase(), plugin.Name, plugin.Version)
+	if err := publish.UpdateInstalled(plugin.Name, plugin.Version, cachePath); err != nil {
+		slog.Warn("publish init: installed_plugins.json update failed", "error", err)
+	}
+
+	// Phase 5: Enable in settings.json
+	fmt.Println("  Enabling in settings...")
+	if err := publish.EnableInSettings(plugin.Name); err != nil {
+		slog.Warn("publish init: settings.json update failed", "error", err)
+	}
+
+	// Phase 6: Sync CC marketplace checkout
+	if err := publish.SyncCCMarketplace(marketRoot, plugin.Name, plugin.Version); err != nil {
+		slog.Warn("publish init: CC marketplace sync failed", "error", err)
+	}
+
+	// Phase 7: Create hook symlinks if applicable
+	for _, hookPath := range []string{
+		filepath.Join(root, ".claude-plugin", "hooks", "hooks.json"),
+		filepath.Join(root, "hooks", "hooks.json"),
+	} {
+		if _, err := os.Stat(hookPath); err == nil {
+			publish.CreateSymlinks(plugin.Name, "", plugin.Version)
+			break
+		}
+	}
+
+	fmt.Printf("Done. %s v%s is registered, cached, and enabled.\n", plugin.Name, plugin.Version)
+	fmt.Println("Restart your Claude Code session to load the plugin.")
 	return 0
 }
 
