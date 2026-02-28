@@ -16,7 +16,7 @@ import (
 
 func cmdEvents(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		slog.Error("events: missing subcommand", "expected", "tail, cursor")
+		slog.Error("events: missing subcommand", "expected", "tail, cursor, emit, list-review")
 		return 3
 	}
 
@@ -25,6 +25,10 @@ func cmdEvents(ctx context.Context, args []string) int {
 		return cmdEventsTail(ctx, args[1:])
 	case "cursor":
 		return cmdEventsCursor(ctx, args[1:])
+	case "emit":
+		return cmdEventsEmit(ctx, args[1:])
+	case "list-review":
+		return cmdEventsListReview(ctx, args[1:])
 	default:
 		slog.Error("events: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -34,7 +38,7 @@ func cmdEvents(ctx context.Context, args []string) int {
 func cmdEventsTail(ctx context.Context, args []string) int {
 	var runID, consumer string
 	var follow bool
-	var sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery int64
+	var sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview int64
 	var allRuns bool
 	pollInterval := 500 * time.Millisecond
 	limit := 100
@@ -70,6 +74,14 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 				return 3
 			}
 			sinceDiscovery = n
+		case strings.HasPrefix(args[i], "--since-review="):
+			val := strings.TrimPrefix(args[i], "--since-review=")
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				slog.Error("events tail: invalid --since-review", "value", val)
+				return 3
+			}
+			sinceReview = n
 		case strings.HasPrefix(args[i], "--consumer="):
 			consumer = strings.TrimPrefix(args[i], "--consumer=")
 		case strings.HasPrefix(args[i], "--poll-interval="):
@@ -113,8 +125,8 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 	stStore := state.New(d.SqlDB())
 
 	// Restore cursor if consumer is named
-	if consumer != "" && sincePhase == 0 && sinceDispatch == 0 && sinceDiscovery == 0 {
-		sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery = loadCursor(ctx, stStore, consumer, runID)
+	if consumer != "" && sincePhase == 0 && sinceDispatch == 0 && sinceDiscovery == 0 && sinceReview == 0 {
+		sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview = loadCursor(ctx, stStore, consumer, runID)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -124,9 +136,9 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 		var err error
 
 		if allRuns || runID == "" {
-			events, err = evStore.ListAllEvents(ctx, sincePhase, sinceDispatch, sinceDiscovery, limit)
+			events, err = evStore.ListAllEvents(ctx, sincePhase, sinceDispatch, sinceDiscovery, sinceReview, limit)
 		} else {
-			events, err = evStore.ListEvents(ctx, runID, sincePhase, sinceDispatch, sinceDiscovery, limit)
+			events, err = evStore.ListEvents(ctx, runID, sincePhase, sinceDispatch, sinceDiscovery, sinceReview, limit)
 		}
 		if err != nil {
 			slog.Error("events tail failed", "error", err)
@@ -150,11 +162,14 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			if e.Source == event.SourceDiscovery && e.ID > sinceDiscovery {
 				sinceDiscovery = e.ID
 			}
+			if e.Source == event.SourceReview && e.ID > sinceReview {
+				sinceReview = e.ID
+			}
 		}
 
 		// Save cursor after each batch (skip on encode error to avoid advancing past undelivered events)
 		if consumer != "" && len(events) > 0 && !encodeErr {
-			saveCursor(ctx, stStore, consumer, runID, sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery)
+			saveCursor(ctx, stStore, consumer, runID, sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview)
 		}
 
 		if encodeErr {
@@ -277,7 +292,7 @@ func cmdEventsCursorRegister(ctx context.Context, args []string) int {
 		ttl = 0
 	}
 
-	payload := `{"phase":0,"dispatch":0,"interspect":0,"discovery":0}`
+	payload := `{"phase":0,"dispatch":0,"interspect":0,"discovery":0,"review":0}`
 	if err := stStore.Set(ctx, "cursor", consumer, json.RawMessage(payload), ttl); err != nil {
 		slog.Error("events cursor register failed", "error", err)
 		return 2
@@ -291,16 +306,160 @@ func cmdEventsCursorRegister(ctx context.Context, args []string) int {
 	return 0
 }
 
+func cmdEventsEmit(ctx context.Context, args []string) int {
+	var source, eventType, contextJSON, runID, sessionID, projectDir string
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "--source="):
+			source = strings.TrimPrefix(args[i], "--source=")
+		case strings.HasPrefix(args[i], "--type="):
+			eventType = strings.TrimPrefix(args[i], "--type=")
+		case strings.HasPrefix(args[i], "--context="):
+			contextJSON = strings.TrimPrefix(args[i], "--context=")
+		case strings.HasPrefix(args[i], "--run="):
+			runID = strings.TrimPrefix(args[i], "--run=")
+		case strings.HasPrefix(args[i], "--session="):
+			sessionID = strings.TrimPrefix(args[i], "--session=")
+		case strings.HasPrefix(args[i], "--project="):
+			projectDir = strings.TrimPrefix(args[i], "--project=")
+		default:
+			slog.Error("events emit: unknown flag", "value", args[i])
+			return 3
+		}
+	}
+
+	if source == "" {
+		slog.Error("events emit: --source is required")
+		return 3
+	}
+	if eventType == "" {
+		slog.Error("events emit: --type is required")
+		return 3
+	}
+
+	// v1: only review source supported via emit
+	if source != event.SourceReview {
+		slog.Error("events emit: only --source=review is supported", "source", source)
+		return 3
+	}
+
+	if contextJSON == "" {
+		slog.Error("events emit: --context is required for review events")
+		return 3
+	}
+	if !json.Valid([]byte(contextJSON)) {
+		slog.Error("events emit: --context must be valid JSON")
+		return 3
+	}
+
+	// Default session/project from env
+	if sessionID == "" {
+		sessionID = os.Getenv("CLAUDE_SESSION_ID")
+	}
+	if projectDir == "" {
+		projectDir, _ = os.Getwd()
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("events emit failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	evStore := event.NewStore(d.SqlDB())
+
+	var payload struct {
+		FindingID       string            `json:"finding_id"`
+		Agents          map[string]string `json:"agents"`
+		Resolution      string            `json:"resolution"`
+		DismissalReason string            `json:"dismissal_reason"`
+		ChosenSeverity  string            `json:"chosen_severity"`
+		Impact          string            `json:"impact"`
+	}
+	if err := json.Unmarshal([]byte(contextJSON), &payload); err != nil {
+		slog.Error("events emit: failed to parse review context", "error", err)
+		return 3
+	}
+	if payload.FindingID == "" || payload.Resolution == "" || payload.ChosenSeverity == "" || payload.Impact == "" {
+		slog.Error("events emit: review context requires finding_id, resolution, chosen_severity, impact")
+		return 3
+	}
+	if len(payload.Agents) == 0 {
+		slog.Error("events emit: review context requires non-empty agents map")
+		return 3
+	}
+	agentsJSON, _ := json.Marshal(payload.Agents)
+
+	_ = eventType // eventType validated but not used in AddReviewEvent (hardcoded as disagreement_resolved)
+
+	id, err := evStore.AddReviewEvent(ctx, runID, payload.FindingID, string(agentsJSON), payload.Resolution, payload.DismissalReason, payload.ChosenSeverity, payload.Impact, sessionID, projectDir)
+	if err != nil {
+		slog.Error("events emit failed", "error", err)
+		return 2
+	}
+	fmt.Printf("%d\n", id)
+
+	return 0
+}
+
+func cmdEventsListReview(ctx context.Context, args []string) int {
+	var since int64
+	limit := 1000
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "--since="):
+			val := strings.TrimPrefix(args[i], "--since=")
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				slog.Error("events list-review: invalid --since", "value", val)
+				return 3
+			}
+			since = n
+		case strings.HasPrefix(args[i], "--limit="):
+			val := strings.TrimPrefix(args[i], "--limit=")
+			n, err := strconv.Atoi(val)
+			if err != nil {
+				slog.Error("events list-review: invalid --limit", "value", val)
+				return 3
+			}
+			limit = n
+		}
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("events list-review failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	evStore := event.NewStore(d.SqlDB())
+	events, err := evStore.ListReviewEvents(ctx, since, limit)
+	if err != nil {
+		slog.Error("events list-review failed", "error", err)
+		return 2
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	for _, e := range events {
+		enc.Encode(e)
+	}
+	return 0
+}
+
 // --- cursor helpers ---
 
-func loadCursor(ctx context.Context, store *state.Store, consumer, scope string) (phase, dispatch, interspect, discovery int64) {
+func loadCursor(ctx context.Context, store *state.Store, consumer, scope string) (phase, dispatch, interspect, discovery, review int64) {
 	key := consumer
 	if scope != "" {
 		key = consumer + ":" + scope
 	}
 	payload, err := store.Get(ctx, "cursor", key)
 	if err != nil {
-		return 0, 0, 0, 0
+		return 0, 0, 0, 0, 0
 	}
 
 	var cursor struct {
@@ -308,19 +467,20 @@ func loadCursor(ctx context.Context, store *state.Store, consumer, scope string)
 		Dispatch   int64 `json:"dispatch"`
 		Interspect int64 `json:"interspect"`
 		Discovery  int64 `json:"discovery"`
+		Review     int64 `json:"review"`
 	}
 	if err := json.Unmarshal(payload, &cursor); err != nil {
-		return 0, 0, 0, 0
+		return 0, 0, 0, 0, 0
 	}
-	return cursor.Phase, cursor.Dispatch, cursor.Interspect, cursor.Discovery
+	return cursor.Phase, cursor.Dispatch, cursor.Interspect, cursor.Discovery, cursor.Review
 }
 
-func saveCursor(ctx context.Context, store *state.Store, consumer, scope string, phaseID, dispatchID, interspectID, discoveryID int64) {
+func saveCursor(ctx context.Context, store *state.Store, consumer, scope string, phaseID, dispatchID, interspectID, discoveryID, reviewID int64) {
 	key := consumer
 	if scope != "" {
 		key = consumer + ":" + scope
 	}
-	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d,"interspect":%d,"discovery":%d}`, phaseID, dispatchID, interspectID, discoveryID)
+	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d,"interspect":%d,"discovery":%d,"review":%d}`, phaseID, dispatchID, interspectID, discoveryID, reviewID)
 	// Use existing TTL if cursor was registered as durable; otherwise default 24h
 	ttl := cursorTTL(ctx, store, key)
 	if err := store.Set(ctx, "cursor", key, json.RawMessage(payload), ttl); err != nil {

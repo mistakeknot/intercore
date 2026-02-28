@@ -72,7 +72,7 @@ func TestAddDispatchEvent_DefaultEnvelope(t *testing.T) {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
 
-	events, err := store.ListEvents(ctx, "run-env", 0, 0, 0, 10)
+	events, err := store.ListEvents(ctx, "run-env", 0, 0, 0, 0, 10)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestListEvents_MergesPhaseAndDispatch(t *testing.T) {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
 
-	events, err := store.ListEvents(ctx, "run001", 0, 0, 0, 100)
+	events, err := store.ListEvents(ctx, "run001", 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestListEvents_CausalReconstructionByTraceID(t *testing.T) {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
 
-	events, err := store.ListEvents(ctx, runID, 0, 0, 0, 100)
+	events, err := store.ListEvents(ctx, runID, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestListEvents_SinceFiltering(t *testing.T) {
 	}
 
 	// Get all first
-	all, err := store.ListEvents(ctx, "run002", 0, 0, 0, 100)
+	all, err := store.ListEvents(ctx, "run002", 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestListEvents_SinceFiltering(t *testing.T) {
 	}
 
 	// Get since first event — should return 2
-	filtered, err := store.ListEvents(ctx, "run002", all[0].ID, 0, 0, 100)
+	filtered, err := store.ListEvents(ctx, "run002", all[0].ID, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents filtered: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestListEvents_DualCursorsIndependent(t *testing.T) {
 
 	// Advance dispatch cursor past both dispatch events, but leave phase cursor at 0
 	// This should still return both phase events
-	events, err := store.ListEvents(ctx, "run003", 0, 100, 0, 100)
+	events, err := store.ListEvents(ctx, "run003", 0, 100, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestListAllEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestListEvents_ExcludesDiscovery(t *testing.T) {
 	}
 
 	// Run-scoped ListEvents should NOT include discovery events
-	events, err := store.ListEvents(ctx, "runExcl", 0, 0, 0, 100)
+	events, err := store.ListEvents(ctx, "runExcl", 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +358,7 @@ func TestListAllEvents_IncludesDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,5 +580,113 @@ func TestMaxInterspectEventID(t *testing.T) {
 	}
 	if maxID != 2 {
 		t.Errorf("MaxInterspectEventID = %d, want 2", maxID)
+	}
+}
+
+func TestAddReviewEvent(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.AddReviewEvent(ctx, "run001", "AR-001", `{"fd-architecture":"P1","fd-quality":"P2"}`, "discarded", "agent_wrong", "P2", "decision_changed", "sess-abc", "/tmp/project")
+	if err != nil {
+		t.Fatalf("AddReviewEvent: %v", err)
+	}
+	if id < 1 {
+		t.Errorf("expected id >= 1, got %d", id)
+	}
+
+	events, err := store.ListReviewEvents(ctx, 0, 100)
+	if err != nil {
+		t.Fatalf("ListReviewEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.FindingID != "AR-001" {
+		t.Errorf("FindingID = %q, want %q", e.FindingID, "AR-001")
+	}
+	if e.AgentsJSON != `{"fd-architecture":"P1","fd-quality":"P2"}` {
+		t.Errorf("AgentsJSON mismatch: got %q", e.AgentsJSON)
+	}
+	if e.Resolution != "discarded" {
+		t.Errorf("Resolution = %q, want %q", e.Resolution, "discarded")
+	}
+	if e.DismissalReason != "agent_wrong" {
+		t.Errorf("DismissalReason = %q, want %q", e.DismissalReason, "agent_wrong")
+	}
+	if e.ChosenSeverity != "P2" {
+		t.Errorf("ChosenSeverity = %q, want %q", e.ChosenSeverity, "P2")
+	}
+	if e.Impact != "decision_changed" {
+		t.Errorf("Impact = %q, want %q", e.Impact, "decision_changed")
+	}
+}
+
+func TestAddReviewEvent_OptionalFields(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.AddReviewEvent(ctx, "", "AR-002", `{"fd-safety":"P0"}`, "accepted", "", "P0", "severity_overridden", "", "")
+	if err != nil {
+		t.Fatalf("AddReviewEvent: %v", err)
+	}
+	if id < 1 {
+		t.Errorf("expected id >= 1, got %d", id)
+	}
+
+	events, err := store.ListReviewEvents(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].RunID != "" {
+		t.Errorf("RunID should be empty, got %q", events[0].RunID)
+	}
+	if events[0].DismissalReason != "" {
+		t.Errorf("DismissalReason should be empty, got %q", events[0].DismissalReason)
+	}
+}
+
+func TestListReviewEvents_SinceCursor(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "")
+	store.AddReviewEvent(ctx, "", "F-2", `{}`, "discarded", "agent_wrong", "P2", "decision_changed", "", "")
+	store.AddReviewEvent(ctx, "", "F-3", `{}`, "accepted", "", "P0", "severity_overridden", "", "")
+
+	all, err := store.ListReviewEvents(ctx, 0, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected 3, got %d", len(all))
+	}
+
+	filtered, err := store.ListReviewEvents(ctx, all[0].ID, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(filtered) != 2 {
+		t.Errorf("expected 2 after cursor, got %d", len(filtered))
+	}
+}
+
+func TestMaxReviewEventID(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "")
+
+	maxID, err := store.MaxReviewEventID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxID < 1 {
+		t.Errorf("expected maxID >= 1, got %d", maxID)
 	}
 }

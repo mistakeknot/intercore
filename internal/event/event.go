@@ -9,6 +9,7 @@ const (
 	SourceInterspect   = "interspect"
 	SourceDiscovery    = "discovery"
 	SourceCoordination = "coordination"
+	SourceReview       = "review"
 )
 
 // InterspectEvent represents a human correction or agent dispatch signal.
@@ -22,6 +23,21 @@ type InterspectEvent struct {
 	SessionID      string    `json:"session_id,omitempty"`
 	ProjectDir     string    `json:"project_dir,omitempty"`
 	Timestamp      time.Time `json:"timestamp"`
+}
+
+// ReviewEvent represents a disagreement resolution from flux-drive review.
+type ReviewEvent struct {
+	ID              int64     `json:"id"`
+	RunID           string    `json:"run_id,omitempty"`
+	FindingID       string    `json:"finding_id"`
+	AgentsJSON      string    `json:"agents_json"`
+	Resolution      string    `json:"resolution"`
+	DismissalReason string    `json:"dismissal_reason,omitempty"`
+	ChosenSeverity  string    `json:"chosen_severity"`
+	Impact          string    `json:"impact"`
+	SessionID       string    `json:"session_id,omitempty"`
+	ProjectDir      string    `json:"project_dir,omitempty"`
+	Timestamp       time.Time `json:"timestamp"`
 }
 
 // Event is the unified event type for the intercore event bus.

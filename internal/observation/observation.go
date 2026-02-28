@@ -83,8 +83,8 @@ type DispatchQuerier interface {
 
 // EventQuerier is the subset of event.Store needed by the Collector.
 type EventQuerier interface {
-	ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]event.Event, error)
-	ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]event.Event, error)
+	ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]event.Event, error)
+	ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]event.Event, error)
 }
 
 // SchedulerQuerier is the subset of scheduler.Store needed by the Collector.
@@ -167,9 +167,9 @@ func (c *Collector) Collect(ctx context.Context, opts CollectOptions) (*Snapshot
 			err  error
 		)
 		if opts.RunID != "" {
-			evts, err = c.events.ListEvents(ctx, opts.RunID, 0, 0, 0, opts.EventLimit)
+			evts, err = c.events.ListEvents(ctx, opts.RunID, 0, 0, 0, 0, opts.EventLimit)
 		} else {
-			evts, err = c.events.ListAllEvents(ctx, 0, 0, 0, opts.EventLimit)
+			evts, err = c.events.ListAllEvents(ctx, 0, 0, 0, 0, opts.EventLimit)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("observation: list events: %w", err)

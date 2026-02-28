@@ -1726,7 +1726,7 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 	}
 
 	evStore := event.NewStore(d.SqlDB())
-	events, err := evStore.ListEvents(ctx, runID, 0, 0, 0, limit)
+	events, err := evStore.ListEvents(ctx, runID, 0, 0, 0, 0, limit)
 	if err != nil {
 		slog.Error("run replay: list events failed", "error", err)
 		return 2

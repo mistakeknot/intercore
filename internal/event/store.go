@@ -62,10 +62,10 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 }
 
 // ListEvents returns unified events for a run, merging phase_events,
-// dispatch_events, coordination_events, and discovery_events, ordered by
+// dispatch_events, coordination_events, and review_events, ordered by
 // timestamp. Uses separate per-table cursors to avoid conflating independent
 // AUTOINCREMENT ID spaces.
-func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]Event, error) {
+func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
@@ -89,11 +89,17 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM coordination_events
 		WHERE (run_id = ? OR ? = '') AND id > 0
+		UNION ALL
+		SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
+			finding_id, resolution, COALESCE(agents_json, '{}') AS reason, '' AS envelope_json, created_at
+		FROM review_events
+		WHERE (run_id = ? OR ? = '') AND id > ?
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
 		runID, sincePhaseID,
 		runID, runID, sinceDispatchID,
 		runID, runID,
+		runID, runID, sinceReviewID,
 		limit,
 	)
 	if err != nil {
@@ -104,8 +110,8 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 	return scanEvents(rows)
 }
 
-// ListAllEvents returns events across all runs, merging all four event tables.
-func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]Event, error) {
+// ListAllEvents returns events across all runs, merging all five event tables.
+func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
@@ -131,9 +137,14 @@ func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID
 			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
 		FROM coordination_events
 		WHERE id > 0
+		UNION ALL
+		SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
+			finding_id, resolution, COALESCE(agents_json, '{}') AS reason, '' AS envelope_json, created_at
+		FROM review_events
+		WHERE id > ?
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
-		sincePhaseID, sinceDispatchID, sinceDiscoveryID, limit,
+		sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID, limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list all events: %w", err)
@@ -310,6 +321,82 @@ func (s *Store) ListInterspectEvents(ctx context.Context, agentName string, sinc
 func (s *Store) MaxInterspectEventID(ctx context.Context) (int64, error) {
 	var id sql.NullInt64
 	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM interspect_events").Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if !id.Valid {
+		return 0, nil
+	}
+	return id.Int64, nil
+}
+
+// AddReviewEvent records a disagreement resolution event.
+func (s *Store) AddReviewEvent(ctx context.Context, runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, sessionID, projectDir string) (int64, error) {
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO review_events (run_id, finding_id, agents_json, resolution, dismissal_reason, chosen_severity, impact, session_id, project_dir)
+		VALUES (NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+		runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, sessionID, projectDir,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("add review event: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	// Create replay input (consistent with dispatch/coordination pattern, per PRD F1)
+	if runID != "" {
+		payload := reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact)
+		_ = insertReplayInput(ctx, s.db.ExecContext, runID, "review_event", findingID, payload, "", SourceReview, &id)
+	}
+
+	return id, nil
+}
+
+// ListReviewEvents returns review events since a cursor position.
+func (s *Store) ListReviewEvents(ctx context.Context, since int64, limit int) ([]ReviewEvent, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(run_id, '') AS run_id, finding_id, agents_json, resolution,
+			COALESCE(dismissal_reason, '') AS dismissal_reason, chosen_severity, impact,
+			COALESCE(session_id, '') AS session_id,
+			COALESCE(project_dir, '') AS project_dir,
+			created_at
+		FROM review_events
+		WHERE id > ?
+		ORDER BY created_at ASC, id ASC
+		LIMIT ?`,
+		since, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list review events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []ReviewEvent
+	for rows.Next() {
+		var e ReviewEvent
+		var ts int64
+		if err := rows.Scan(&e.ID, &e.RunID, &e.FindingID, &e.AgentsJSON, &e.Resolution,
+			&e.DismissalReason, &e.ChosenSeverity, &e.Impact,
+			&e.SessionID, &e.ProjectDir, &ts); err != nil {
+			return nil, fmt.Errorf("scan review event: %w", err)
+		}
+		e.Timestamp = time.Unix(ts, 0)
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
+// MaxReviewEventID returns the highest review_events.id (for cursor init).
+func (s *Store) MaxReviewEventID(ctx context.Context) (int64, error) {
+	var id sql.NullInt64
+	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM review_events").Scan(&id)
 	if err != nil {
 		return 0, err
 	}

@@ -663,6 +663,36 @@ pass "events after cursor reset"
 
 echo "  Event bus tests passed"
 
+# --- Review Events (Disagreement Pipeline) ---
+echo ""
+echo "=== Review Events ==="
+
+EVENT_ID=$(ic --db="$TEST_DB" events emit --source=review --type=disagreement_resolved \
+    --context='{"finding_id":"IT-001","agents":{"fd-arch":"P1","fd-quality":"P2"},"resolution":"discarded","dismissal_reason":"agent_wrong","chosen_severity":"P2","impact":"decision_changed"}' \
+    --session=test-sess --project=/tmp/test)
+[[ -n "$EVENT_ID" ]] || fail "emit returned no event ID"
+pass "events emit review event (id=$EVENT_ID)"
+
+# Verify event appears in tail --all output
+TAIL_OUTPUT=$(ic --db="$TEST_DB" events tail --all)
+echo "$TAIL_OUTPUT" | grep -q "IT-001" || fail "emitted event not found in tail --all output"
+pass "events emit→tail roundtrip"
+
+# Verify typed list-review returns full event
+REVIEW_OUTPUT=$(ic --db="$TEST_DB" events list-review)
+echo "$REVIEW_OUTPUT" | jq -e '.finding_id == "IT-001"' >/dev/null || fail "list-review: finding_id mismatch"
+echo "$REVIEW_OUTPUT" | jq -e '.chosen_severity == "P2"' >/dev/null || fail "list-review: chosen_severity missing"
+echo "$REVIEW_OUTPUT" | jq -e '.impact == "decision_changed"' >/dev/null || fail "list-review: impact missing"
+echo "$REVIEW_OUTPUT" | jq -e '.dismissal_reason == "agent_wrong"' >/dev/null || fail "list-review: dismissal_reason missing"
+pass "events list-review returns typed fields"
+
+# Verify --since cursor works
+REVIEW_SINCE=$(ic --db="$TEST_DB" events list-review --since="$EVENT_ID")
+[[ -z "$REVIEW_SINCE" ]] || fail "list-review --since should return empty after last event"
+pass "events list-review --since cursor"
+
+echo "  Review events tests passed"
+
 # --- Replay Tests ---
 echo ""
 echo "=== Replay Mode ==="

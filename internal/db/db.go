@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 23
-	maxSchemaVersion     = 23
+	currentSchemaVersion = 24
+	maxSchemaVersion     = 24
 )
 
 var (
@@ -350,6 +350,32 @@ func (d *DB) Migrate(ctx context.Context) error {
 		}
 		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_audit_log_trace ON audit_log(trace_id) WHERE trace_id != ''"); err != nil {
 			return fmt.Errorf("migrate v22→v23 idx_audit_log_trace: %w", err)
+		}
+	}
+
+	// v23 → v24: review events (disagreement resolution pipeline)
+	if currentVersion >= 20 && currentVersion < 24 {
+		v24Stmts := []string{
+			`CREATE TABLE IF NOT EXISTS review_events (
+				id                INTEGER PRIMARY KEY AUTOINCREMENT,
+				run_id            TEXT,
+				finding_id        TEXT NOT NULL,
+				agents_json       TEXT NOT NULL,
+				resolution        TEXT NOT NULL,
+				dismissal_reason  TEXT,
+				chosen_severity   TEXT NOT NULL,
+				impact            TEXT NOT NULL,
+				session_id        TEXT,
+				project_dir       TEXT,
+				created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_review_events_finding ON review_events(finding_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_review_events_created ON review_events(created_at)`,
+		}
+		for _, stmt := range v24Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate v23→v24: %w", err)
+			}
 		}
 	}
 

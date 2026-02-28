@@ -183,6 +183,23 @@ CREATE INDEX idx_interspect_events_agent ON interspect_events(agent_name);
 CREATE INDEX idx_interspect_events_created ON interspect_events(created_at);
 CREATE INDEX idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;
 
+-- v24: review events (disagreement resolution pipeline)
+CREATE TABLE review_events (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id            TEXT,
+    finding_id        TEXT NOT NULL,
+    agents_json       TEXT NOT NULL,
+    resolution        TEXT NOT NULL,
+    dismissal_reason  TEXT,
+    chosen_severity   TEXT NOT NULL,
+    impact            TEXT NOT NULL,
+    session_id        TEXT,
+    project_dir       TEXT,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX idx_review_events_finding ON review_events(finding_id);
+CREATE INDEX idx_review_events_created ON review_events(created_at);
+
 -- v9: discovery pipeline
 CREATE TABLE discoveries (
     id              TEXT PRIMARY KEY,
