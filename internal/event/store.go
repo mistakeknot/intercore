@@ -349,7 +349,9 @@ func (s *Store) AddReviewEvent(ctx context.Context, runID, findingID, agentsJSON
 	// Create replay input (consistent with dispatch/coordination pattern, per PRD F1)
 	if runID != "" {
 		payload := reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact)
-		_ = insertReplayInput(ctx, s.db.ExecContext, runID, "review_event", findingID, payload, "", SourceReview, &id)
+		if err := insertReplayInput(ctx, s.db.ExecContext, runID, "review_event", findingID, payload, "", SourceReview, &id); err != nil {
+			return id, fmt.Errorf("add review event: replay input: %w", err)
+		}
 	}
 
 	return id, nil
