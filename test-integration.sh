@@ -1361,5 +1361,41 @@ if [[ -f "$CLAVAIN_LIB" ]]; then
     fi
 fi
 
+# --- Situation Snapshot ---
+echo ""
+echo "=== Situation Snapshot ==="
+
+# Empty snapshot: no active runs scoped, just global state
+snap_out=$(ic situation snapshot --db="$TEST_DB")
+snap_rc=$?
+[[ "$snap_rc" -eq 0 ]] || fail "situation snapshot exit code: expected 0, got $snap_rc"
+pass "situation snapshot: exit code 0"
+
+# Validate JSON structure
+echo "$snap_out" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'timestamp' in d; assert 'runs' in d; assert 'dispatches' in d; assert 'recent_events' in d; assert 'queue' in d" || fail "situation snapshot: invalid JSON structure"
+pass "situation snapshot: valid JSON with expected keys"
+
+# Scoped snapshot: create a run, then snapshot scoped to that run
+SNAP_RUN=$(ic run create --project="$TEST_DIR" --goal="Snapshot test run" --db="$TEST_DB")
+[[ -n "$SNAP_RUN" ]] || fail "situation snapshot: run create returned empty ID"
+
+scoped_out=$(ic situation snapshot --run="$SNAP_RUN" --db="$TEST_DB")
+scoped_rc=$?
+[[ "$scoped_rc" -eq 0 ]] || fail "situation snapshot --run exit code: expected 0, got $scoped_rc"
+pass "situation snapshot --run: exit code 0"
+
+# Verify the scoped snapshot contains the created run
+echo "$scoped_out" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+runs = d['runs']
+assert len(runs) == 1, f'expected 1 run, got {len(runs)}'
+assert runs[0]['id'] == '$SNAP_RUN', f'expected run id $SNAP_RUN, got {runs[0][\"id\"]}'
+assert runs[0]['goal'] == 'Snapshot test run', f'unexpected goal: {runs[0][\"goal\"]}'
+" || fail "situation snapshot --run: output missing created run"
+pass "situation snapshot --run: contains created run"
+
+echo "  Situation snapshot tests passed"
+
 echo ""
 echo "All integration tests passed."
