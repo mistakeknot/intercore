@@ -71,10 +71,13 @@ func RunDoctor(ctx context.Context, opts DoctorOpts) (*DoctorResult, error) {
 	// Check 6: .git in cache
 	checkGitInCache(result, opts)
 
-	// Check 7: plugin.json schema validation
+	// Check 7: Stale cache versions
+	checkStaleCacheVersions(result, opts)
+
+	// Check 8: plugin.json schema validation
 	checkPluginSchemas(result, opts)
 
-	// Check 8: Hook declaration correctness
+	// Check 9: Hook declaration correctness
 	checkUndeclaredHooks(result, opts)
 
 	return result, nil
@@ -290,6 +293,42 @@ func checkGitInCache(result *DoctorResult, opts DoctorOpts) {
 					Severity: "info",
 					Category: "cache",
 					Message:  fmt.Sprintf("stripped %d .git dirs (%.1f MB freed)", count, float64(bytes)/1024/1024),
+				})
+			}
+		}
+	}
+}
+
+func checkStaleCacheVersions(result *DoctorResult, opts DoctorOpts) {
+	entries, err := ListCacheEntries()
+	if err != nil {
+		return
+	}
+
+	staleCount := 0
+	for pluginName, versions := range entries {
+		installedVer := ReadInstalledVersion(pluginName)
+		for _, v := range versions {
+			if !v.IsSymlink && !v.Orphaned && v.Version != installedVer {
+				staleCount++
+			}
+		}
+	}
+
+	if staleCount > 0 {
+		result.Findings = append(result.Findings, Finding{
+			Severity: "warning",
+			Category: "cache",
+			Message:  fmt.Sprintf("%d stale cache version(s) found", staleCount),
+			Fix:      "run: ic publish clean",
+		})
+		if opts.Fix {
+			count, bytes, _ := PruneStaleVersions(1)
+			if count > 0 {
+				result.Findings = append(result.Findings, Finding{
+					Severity: "info",
+					Category: "cache",
+					Message:  fmt.Sprintf("pruned %d stale version(s) (%.1f MB freed)", count, float64(bytes)/1024/1024),
 				})
 			}
 		}

@@ -338,6 +338,18 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  warning: CC marketplace sync: %v\n", err)
 	}
 
+	// Refresh CC's in-memory marketplace index
+	if err := RefreshCCMarketplace(); err != nil {
+		e.out("  warning: CC marketplace refresh: %v\n", err)
+	}
+
+	// Prune stale cache versions (keep only the newly published one)
+	if pruned, freed, err := PruneStaleVersions(1); err != nil {
+		e.out("  warning: stale version prune: %v\n", err)
+	} else if pruned > 0 {
+		e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n", pruned, float64(freed)/1024/1024)
+	}
+
 	// Create hook symlinks
 	hasHooks := false
 	for _, hookPath := range []string{

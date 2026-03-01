@@ -285,6 +285,15 @@ func SyncCCMarketplace(marketRoot, pluginName, version string) error {
 	return nil
 }
 
+// RefreshCCMarketplace tells the running Claude Code process to re-read the marketplace index.
+// Best-effort: errors are returned but callers should treat them as non-fatal.
+func RefreshCCMarketplace() error {
+	cmd := execCommand("claude", "plugin", "marketplace", "update", "interagency-marketplace")
+	cmd.Stdout = os.Stderr // surface output but don't pollute stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // inferOrgFromMarketplace extracts the GitHub org from the marketplace repo's remote.
 // e.g., "https://github.com/mistakeknot/interagency-marketplace.git" → "mistakeknot"
 func inferOrgFromMarketplace(marketRoot string) string {

@@ -186,25 +186,26 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 		}
 
 		orphaned := 0
-		gitDirs := 0
-		for _, versions := range entries {
+		stale := 0
+		for pluginName, versions := range entries {
+			installedVer := publish.ReadInstalledVersion(pluginName)
 			for _, v := range versions {
 				if v.Orphaned {
 					orphaned++
+				} else if !v.IsSymlink && v.Version != installedVer {
+					stale++
 				}
 			}
 		}
 
-		// Count .git dirs
-		base := publish.CacheBase()
-		if base != "" {
-			fmt.Printf("Would clean:\n")
-			fmt.Printf("  %d orphaned cache directories\n", orphaned)
-			fmt.Printf("  .git directories (scanning...)\n")
-		}
-		_ = gitDirs
+		fmt.Printf("Would clean:\n")
+		fmt.Printf("  %d orphaned cache directories\n", orphaned)
+		fmt.Printf("  %d stale version directories\n", stale)
+		fmt.Printf("  .git directories in cache entries\n")
 		return 0
 	}
+
+	totalCount := 0
 
 	count, bytes, err := publish.CleanOrphans()
 	if err != nil {
@@ -212,6 +213,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 	}
 	if count > 0 {
 		fmt.Printf("Cleaned %d orphaned directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
+		totalCount += count
 	}
 
 	count, bytes, err = publish.StripGitDirs()
@@ -220,9 +222,19 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 	}
 	if count > 0 {
 		fmt.Printf("Stripped %d .git directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
+		totalCount += count
 	}
 
-	if count == 0 {
+	count, bytes, err = publish.PruneStaleVersions(1)
+	if err != nil {
+		slog.Error("publish clean: stale versions failed", "error", err)
+	}
+	if count > 0 {
+		fmt.Printf("Pruned %d stale version directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
+		totalCount += count
+	}
+
+	if totalCount == 0 {
 		fmt.Println("Cache is clean.")
 	}
 	return 0
@@ -397,6 +409,11 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 		slog.Warn("publish init: CC marketplace sync failed", "error", err)
 	}
 
+	// Phase 6b: Refresh CC's in-memory marketplace index
+	if err := publish.RefreshCCMarketplace(); err != nil {
+		slog.Warn("publish init: CC marketplace refresh failed", "error", err)
+	}
+
 	// Phase 7: Create hook symlinks if applicable
 	for _, hookPath := range []string{
 		filepath.Join(root, ".claude-plugin", "hooks", "hooks.json"),
@@ -427,7 +444,7 @@ Usage:
   ic publish doctor --fix        Auto-repair everything
   ic publish doctor --json       Machine-readable output
 
-  ic publish clean               Prune orphaned cache dirs, strip .git
+  ic publish clean               Prune orphans, stale versions, strip .git
   ic publish clean --dry-run     Show what would be cleaned
 
   ic publish status              Show publish state for current plugin

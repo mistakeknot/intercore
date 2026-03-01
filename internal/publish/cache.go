@@ -98,6 +98,62 @@ func StripGitDirs() (count int, bytesFreed int64, err error) {
 	return count, bytesFreed, err
 }
 
+// PruneStaleVersions removes old cached versions that are not the currently installed version.
+// For each plugin, it keeps the installed version plus the `keep-1` most recent other versions,
+// removing the rest. Symlinks and orphaned directories are skipped (orphans have their own cleanup).
+// Returns the number of directories removed and total bytes freed.
+func PruneStaleVersions(keep int) (count int, bytesFreed int64, err error) {
+	entries, err := ListCacheEntries()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for pluginName, versions := range entries {
+		installedVer := ReadInstalledVersion(pluginName)
+
+		// Separate: installed version stays, symlinks stay, orphans stay (handled by CleanOrphans)
+		var candidates []CacheEntry
+		for _, v := range versions {
+			if v.IsSymlink || v.Orphaned || v.Version == installedVer {
+				continue
+			}
+			candidates = append(candidates, v)
+		}
+
+		// Sort candidates by version descending (newest first)
+		sortVersionsDesc(candidates)
+
+		// Keep the top `keep-1` (since the installed version is already kept separately)
+		toKeep := keep - 1
+		if toKeep < 0 {
+			toKeep = 0
+		}
+
+		for i, c := range candidates {
+			if i < toKeep {
+				continue // keep this one
+			}
+			size := dirSize(c.Path)
+			if rmErr := os.RemoveAll(c.Path); rmErr != nil {
+				continue // best effort
+			}
+			count++
+			bytesFreed += size
+		}
+	}
+
+	return count, bytesFreed, nil
+}
+
+// sortVersionsDesc sorts cache entries by version, newest first.
+func sortVersionsDesc(entries []CacheEntry) {
+	for i := 1; i < len(entries); i++ {
+		for j := i; j > 0 && CompareVersions(entries[j].Version, entries[j-1].Version) > 0; j-- {
+			entries[j], entries[j-1] = entries[j-1], entries[j]
+		}
+	}
+}
+
 // CreateSymlinks creates version bridge symlinks for hook session continuity.
 // When a session loaded hooks from version A and we publish version B,
 // create a symlink so the old path still resolves.
