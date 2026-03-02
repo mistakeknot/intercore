@@ -219,7 +219,7 @@ ic portfolio status <id>                   Per-child readiness with blocked-by d
 
 ### Situation
 
-Unified observation layer for OODAR loops.
+Unified observation layer for OODARC loops.
 
 ```
 ic situation snapshot                      JSON snapshot of all active runs, dispatches, events, queue depth
