@@ -124,6 +124,8 @@ func main() {
 		exitCode = cmdAgency(ctx, subArgs)
 	case "compat":
 		exitCode = cmdCompat(ctx, subArgs)
+	case "route":
+		exitCode = cmdRoute(ctx, subArgs)
 	case "cost":
 		exitCode = cmdCost(ctx, subArgs)
 	case "scheduler":
@@ -225,6 +227,10 @@ Commands:
   config set <key> <value>      Set a kernel config value
   config get <key>              Get a kernel config value
   config list [--verbose]       List kernel config values
+  route model --phase=<p> --category=<c> --agent=<a>  Resolve a single model
+  route batch --phase=<p> <agents...>  Resolve models for multiple agents
+  route dispatch --tier=<name>  Resolve dispatch tier to model
+  route table [--phase=<p>]     Show full routing table
   cost reconcile <run> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
   cost list <run> [--limit=N]   List past reconciliations
   publish <ver>                  Publish plugin (bump + push + sync)
