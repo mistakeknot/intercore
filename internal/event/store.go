@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/mistakeknot/intercore/pkg/redaction"
 )
 
 // Store provides event read/write operations.
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	redactCfg *redaction.Config
 }
 
 // NewStore creates an event store.
@@ -19,8 +22,35 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// SetRedactionConfig enables automatic redaction of user-content fields
+// before persistence. Pass nil to disable.
+func (s *Store) SetRedactionConfig(cfg *redaction.Config) {
+	s.redactCfg = cfg
+}
+
+// redactStr applies redaction to a string if a config is set.
+// Returns the input unchanged if redaction is disabled.
+func (s *Store) redactStr(input string) string {
+	if s.redactCfg == nil || input == "" {
+		return input
+	}
+	output, _ := redaction.Redact(input, *s.redactCfg)
+	return output
+}
+
+// redactStrPtr applies redaction to a *string if a config is set.
+func (s *Store) redactStrPtr(input *string) *string {
+	if s.redactCfg == nil || input == nil || *input == "" {
+		return input
+	}
+	output, _ := redaction.Redact(*input, *s.redactCfg)
+	return &output
+}
+
 // AddDispatchEvent records a dispatch lifecycle event.
 func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromStatus, toStatus, eventType, reason string, envelope *EventEnvelope) error {
+	reason = s.redactStr(reason)
+
 	if envelope == nil {
 		envelope = s.defaultDispatchEnvelope(ctx, dispatchID, runID, fromStatus, toStatus)
 	}
@@ -28,6 +58,7 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 	if err != nil {
 		return fmt.Errorf("add dispatch event: marshal envelope: %w", err)
 	}
+	envelopeJSON = s.redactStrPtr(envelopeJSON)
 
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO dispatch_events (
@@ -195,6 +226,8 @@ func (s *Store) MaxDiscoveryEventID(ctx context.Context) (int64, error) {
 
 // AddCoordinationEvent records a coordination lock lifecycle event.
 func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, owner, pattern, scope, reason, runID string, envelope *EventEnvelope) error {
+	reason = s.redactStr(reason)
+
 	if envelope == nil {
 		envelope = defaultCoordinationEnvelope(eventType, lockID, pattern, scope, runID)
 	}
@@ -202,6 +235,7 @@ func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, own
 	if err != nil {
 		return fmt.Errorf("add coordination event: marshal envelope: %w", err)
 	}
+	envelopeJSON = s.redactStrPtr(envelopeJSON)
 
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO coordination_events (
@@ -250,6 +284,9 @@ func (s *Store) MaxCoordinationEventID(ctx context.Context) (int64, error) {
 
 // AddInterspectEvent records a human correction or agent dispatch signal.
 func (s *Store) AddInterspectEvent(ctx context.Context, runID, agentName, eventType, overrideReason, contextJSON, sessionID, projectDir string) (int64, error) {
+	overrideReason = s.redactStr(overrideReason)
+	contextJSON = s.redactStr(contextJSON)
+
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO interspect_events (run_id, agent_name, event_type, override_reason, context_json, session_id, project_dir)
 		VALUES (NULLIF(?, ''), ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))`,
@@ -332,6 +369,11 @@ func (s *Store) MaxInterspectEventID(ctx context.Context) (int64, error) {
 
 // AddReviewEvent records a disagreement resolution event.
 func (s *Store) AddReviewEvent(ctx context.Context, runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, sessionID, projectDir string) (int64, error) {
+	agentsJSON = s.redactStr(agentsJSON)
+	resolution = s.redactStr(resolution)
+	dismissalReason = s.redactStr(dismissalReason)
+	impact = s.redactStr(impact)
+
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO review_events (run_id, finding_id, agents_json, resolution, dismissal_reason, chosen_severity, impact, session_id, project_dir)
 		VALUES (NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
