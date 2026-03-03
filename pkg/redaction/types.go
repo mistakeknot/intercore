@@ -3,6 +3,8 @@
 //
 // Ported from github.com/Dicklesworthstone/ntm/internal/redaction with
 // additional categories for the Demarch ecosystem.
+//
+// Exported via pkg/ so both intercore and autarch can import it.
 package redaction
 
 // Mode defines the redaction behavior.
@@ -42,7 +44,7 @@ const (
 	CategoryDatabaseURL Category = "DATABASE_URL"
 
 	// Generic patterns
-	CategoryPassword     Category = "PASSWORD"
+	CategoryPassword      Category = "PASSWORD"
 	CategoryGenericAPIKey Category = "GENERIC_API_KEY"
 	CategoryGenericSecret Category = "GENERIC_SECRET"
 
@@ -75,10 +77,10 @@ type Result struct {
 
 // Config configures the redaction behavior.
 type Config struct {
-	Mode               Mode                `json:"mode"`
-	Allowlist          []string            `json:"allowlist,omitempty"`
+	Mode               Mode                  `json:"mode"`
+	Allowlist          []string              `json:"allowlist,omitempty"`
 	ExtraPatterns      map[Category][]string `json:"extra_patterns,omitempty"`
-	DisabledCategories []Category          `json:"disabled_categories,omitempty"`
+	DisabledCategories []Category            `json:"disabled_categories,omitempty"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
