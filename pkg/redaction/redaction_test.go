@@ -264,6 +264,88 @@ func TestConvenienceFunctions(t *testing.T) {
 	}
 }
 
+func TestScanAndRedact_TelegramToken(t *testing.T) {
+	ResetPatterns()
+	token := "12345678:ABCDefghIJKLmnopQRSTuvwxyz123456"
+	input := "bot token: " + token
+	result := ScanAndRedact(input, Config{Mode: ModeRedact})
+	if strings.Contains(result.Output, token) {
+		t.Error("Telegram token should be redacted")
+	}
+	if len(result.Findings) == 0 || result.Findings[0].Category != CategoryTelegramToken {
+		cats := ""
+		for _, f := range result.Findings {
+			cats += string(f.Category) + " "
+		}
+		t.Errorf("expected TELEGRAM_TOKEN, got: %s", cats)
+	}
+}
+
+func TestScanAndRedact_PerplexityKey(t *testing.T) {
+	ResetPatterns()
+	token := "pplx-" + strings.Repeat("a", 48)
+	input := "key: " + token
+	result := ScanAndRedact(input, Config{Mode: ModeRedact})
+	if strings.Contains(result.Output, token) {
+		t.Error("Perplexity key should be redacted")
+	}
+	if result.Findings[0].Category != CategoryPerplexityKey {
+		t.Errorf("expected PERPLEXITY_KEY, got %s", result.Findings[0].Category)
+	}
+}
+
+func TestScanAndRedact_FalKey(t *testing.T) {
+	ResetPatterns()
+	token := "fal_" + strings.Repeat("x", 32)
+	input := "key: " + token
+	result := ScanAndRedact(input, Config{Mode: ModeRedact})
+	if strings.Contains(result.Output, token) {
+		t.Error("Fal key should be redacted")
+	}
+	if result.Findings[0].Category != CategoryFalKey {
+		t.Errorf("expected FAL_KEY, got %s", result.Findings[0].Category)
+	}
+}
+
+func TestScanAndRedact_FirecrawlKey(t *testing.T) {
+	ResetPatterns()
+	token := "fc-" + strings.Repeat("a", 32)
+	input := "key: " + token
+	result := ScanAndRedact(input, Config{Mode: ModeRedact})
+	if strings.Contains(result.Output, token) {
+		t.Error("Firecrawl key should be redacted")
+	}
+	if result.Findings[0].Category != CategoryFirecrawlKey {
+		t.Errorf("expected FIRECRAWL_KEY, got %s", result.Findings[0].Category)
+	}
+}
+
+func TestScanAndRedact_BrowserBaseKey(t *testing.T) {
+	ResetPatterns()
+	token := "bb_live_" + strings.Repeat("z", 32)
+	input := "key: " + token
+	result := ScanAndRedact(input, Config{Mode: ModeRedact})
+	if strings.Contains(result.Output, token) {
+		t.Error("BrowserBase key should be redacted")
+	}
+	if result.Findings[0].Category != CategoryBrowserBaseKey {
+		t.Errorf("expected BROWSERBASE_KEY, got %s", result.Findings[0].Category)
+	}
+}
+
+func TestScanAndRedact_CodexToken(t *testing.T) {
+	ResetPatterns()
+	token := "gAAAA" + strings.Repeat("B", 30)
+	input := "token: " + token
+	result := ScanAndRedact(input, Config{Mode: ModeRedact})
+	if strings.Contains(result.Output, token) {
+		t.Error("Codex token should be redacted")
+	}
+	if result.Findings[0].Category != CategoryCodexToken {
+		t.Errorf("expected CODEX_TOKEN, got %s", result.Findings[0].Category)
+	}
+}
+
 func TestConfigValidate(t *testing.T) {
 	good := Config{Mode: ModeRedact}
 	if err := good.Validate(); err != nil {

@@ -62,6 +62,14 @@ var defaultPatterns = []patternDef{
 	{CategoryHuggingFace, `hf_[a-zA-Z0-9]{30,}`, 100},
 	{CategoryExaAPIKey, `(?i)(exa[_-]?api[_-]?key)\s*[=:]\s*["']?[a-zA-Z0-9_-]{20,}["']?`, 80},
 
+	// Hermes-discovered patterns
+	{CategoryTelegramToken, `\d{8,}:[-A-Za-z0-9_]{30,}`, 90},
+	{CategoryPerplexityKey, `pplx-[A-Za-z0-9]{10,}`, 100},
+	{CategoryFalKey, `fal_[A-Za-z0-9_-]{10,}`, 100},
+	{CategoryFirecrawlKey, `fc-[A-Za-z0-9]{10,}`, 100},
+	{CategoryBrowserBaseKey, `bb_live_[A-Za-z0-9_-]{10,}`, 100},
+	{CategoryCodexToken, `gAAAA[A-Za-z0-9_=-]{20,}`, 100},
+
 	// Generic patterns (lower priority)
 	{CategoryPassword, `(?i)(password|passwd|pwd)\s*[=:]\s*["']?[^\s"']{8,}["']?`, 50},
 	{CategoryGenericAPIKey, `(?i)([a-z_]*api[_]?key)\s*[=:]\s*["']?[a-zA-Z0-9_-]{16,}["']?`, 40},

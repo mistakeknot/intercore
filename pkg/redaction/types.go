@@ -53,6 +53,14 @@ const (
 	CategorySlackToken  Category = "SLACK_TOKEN"
 	CategoryHuggingFace Category = "HUGGINGFACE_TOKEN"
 	CategoryExaAPIKey   Category = "EXA_API_KEY"
+
+	// Hermes-discovered patterns
+	CategoryTelegramToken  Category = "TELEGRAM_TOKEN"
+	CategoryPerplexityKey  Category = "PERPLEXITY_KEY"
+	CategoryFalKey         Category = "FAL_KEY"
+	CategoryFirecrawlKey   Category = "FIRECRAWL_KEY"
+	CategoryBrowserBaseKey Category = "BROWSERBASE_KEY"
+	CategoryCodexToken     Category = "CODEX_TOKEN"
 )
 
 // Finding represents a single detected secret.
