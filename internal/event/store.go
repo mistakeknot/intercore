@@ -450,6 +450,27 @@ func (s *Store) MaxReviewEventID(ctx context.Context) (int64, error) {
 	return id.Int64, nil
 }
 
+// AddIntentEvent records an intent submission event for audit trail.
+func (s *Store) AddIntentEvent(ctx context.Context, intentType, beadID, idempotencyKey, sessionID, runID string, success bool, errorDetail string) error {
+	errorDetail = s.redactStr(errorDetail)
+
+	successInt := 0
+	if success {
+		successInt = 1
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO intent_events (
+			intent_type, bead_id, idempotency_key, session_id, run_id, success, error_detail
+		) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''))`,
+		intentType, beadID, idempotencyKey, sessionID, runID, successInt, errorDetail,
+	)
+	if err != nil {
+		return fmt.Errorf("add intent event: %w", err)
+	}
+	return nil
+}
+
 func scanEvents(rows *sql.Rows) ([]Event, error) {
 	var events []Event
 	for rows.Next() {

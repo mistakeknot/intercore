@@ -10,6 +10,7 @@ const (
 	SourceDiscovery    = "discovery"
 	SourceCoordination = "coordination"
 	SourceReview       = "review"
+	SourceIntent       = "intent"
 )
 
 // InterspectEvent represents a human correction or agent dispatch signal.
