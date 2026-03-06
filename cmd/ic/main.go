@@ -134,6 +134,8 @@ func main() {
 		exitCode = cmdCoordination(ctx, subArgs)
 	case "publish":
 		exitCode = cmdPublish(ctx, subArgs)
+	case "landed":
+		exitCode = cmdLanded(ctx, subArgs)
 	case "situation":
 		exitCode = cmdSituation(ctx, subArgs)
 	default:

@@ -118,17 +118,17 @@ func TestMigrator_V22ToV23_AuditTraceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if applied != 2 {
-		t.Errorf("applied = %d, want 2", applied)
+	if applied != 3 {
+		t.Errorf("applied = %d, want 3", applied)
 	}
 
-	// Verify version is now 24 (v23 audit_trace_id + v24 review_events)
+	// Verify version is now 25 (v23 audit_trace_id + v24 review_events + v25 landed_changes)
 	v, err := d.SchemaVersion()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d, want 24", v)
+	if v != 25 {
+		t.Errorf("SchemaVersion = %d, want 25", v)
 	}
 
 	// Verify trace_id column exists on audit_log
