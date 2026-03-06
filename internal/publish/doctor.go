@@ -144,6 +144,22 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 			if opts.Fix {
 				cachePath := filepath.Join(CacheBase(), name, mktVer)
 				UpdateInstalled(name, mktVer, cachePath, "")
+
+				// Also rebuild cache content from source
+				for _, dir := range result.PluginDirs {
+					p, err := ReadPlugin(dir)
+					if err == nil && p.Name == name {
+						if err := ForceRebuildCache(name, mktVer, dir); err == nil {
+							result.Findings = append(result.Findings, Finding{
+								Severity: "info",
+								Category: "cache",
+								Plugin:   name,
+								Message:  fmt.Sprintf("rebuilt cache from source (v%s)", mktVer),
+							})
+						}
+						break
+					}
+				}
 			}
 		}
 	}
@@ -484,6 +500,10 @@ func checkUndeclaredHooks(result *DoctorResult, opts DoctorOpts) {
 							Plugin:   name,
 							Message:  "removed duplicate hooks declaration from plugin.json",
 						})
+					}
+					// Rebuild cache to propagate fix
+					if p != nil && p.Version != "" {
+						ForceRebuildCache(name, p.Version, dir)
 					}
 				}
 			} else {

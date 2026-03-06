@@ -41,6 +41,18 @@ func RebuildCache(pluginName, version, srcRoot string) error {
 	return nil
 }
 
+// ForceRebuildCache removes existing cache and rebuilds from source.
+// Unlike RebuildCache, this replaces stale content even if the dir exists.
+func ForceRebuildCache(pluginName, version, srcRoot string) error {
+	base := CacheBase()
+	if base == "" {
+		return fmt.Errorf("cannot determine cache base directory")
+	}
+	dest := filepath.Join(base, pluginName, version)
+	os.RemoveAll(dest)
+	return copyDirExcludeGit(srcRoot, dest)
+}
+
 // CleanOrphans removes cache directories with .orphaned_at markers.
 // Returns the count of removed dirs and bytes freed.
 func CleanOrphans() (count int, bytesFreed int64, err error) {
