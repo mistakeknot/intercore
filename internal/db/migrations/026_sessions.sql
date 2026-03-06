@@ -25,6 +25,6 @@ CREATE TABLE IF NOT EXISTS session_attributions (
     phase           TEXT,
     created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 );
-CREATE INDEX IF NOT EXISTS idx_session_attr_session ON session_attributions(session_id, project_dir);
+CREATE INDEX IF NOT EXISTS idx_session_attr_session ON session_attributions(session_id, project_dir, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_session_attr_bead ON session_attributions(bead_id) WHERE bead_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_session_attr_created ON session_attributions(created_at);

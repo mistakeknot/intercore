@@ -96,7 +96,6 @@ func (s *Store) Start(ctx context.Context, opts StartOpts) (int64, error) {
 			agent_type = excluded.agent_type,
 			model = COALESCE(excluded.model, sessions.model),
 			metadata = COALESCE(excluded.metadata, sessions.metadata),
-			started_at = excluded.started_at,
 			ended_at = NULL`,
 		opts.SessionID, opts.ProjectDir, agentType,
 		opts.Model, opts.Metadata, now,
