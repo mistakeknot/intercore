@@ -1,6 +1,9 @@
 package contract
 
-import "fmt"
+import (
+	"fmt"
+	"regexp"
+)
 
 // Intent type constants — all policy-governing mutations apps can submit.
 const (
@@ -21,6 +24,12 @@ const (
 	IntentAgentApprove  = "agent.approve"
 	IntentAgentCancel   = "agent.cancel"
 )
+
+// beadIDPattern validates bead IDs (e.g., "iv-abc123").
+var beadIDPattern = regexp.MustCompile(`^[A-Za-z]+-[a-z0-9]+$`)
+
+// sessionIDPattern validates session IDs (hex, UUID, or short alphanumeric).
+var sessionIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]{1,128}$`)
 
 // validIntentTypes is the set of known intent types.
 var validIntentTypes = map[string]bool{
@@ -63,6 +72,12 @@ func (i *Intent) Validate() error {
 	}
 	if i.Timestamp == 0 {
 		return fmt.Errorf("timestamp is required")
+	}
+	if i.BeadID != "" && !beadIDPattern.MatchString(i.BeadID) {
+		return fmt.Errorf("invalid bead ID format: %s", i.BeadID)
+	}
+	if !sessionIDPattern.MatchString(i.SessionID) {
+		return fmt.Errorf("invalid session ID format")
 	}
 	return nil
 }

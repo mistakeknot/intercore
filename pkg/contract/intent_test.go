@@ -54,6 +54,38 @@ func TestIntentValidation(t *testing.T) {
 			},
 			wantErr: "unknown intent type",
 		},
+		{
+			name: "invalid bead ID format",
+			intent: Intent{
+				Type:           IntentSprintAdvance,
+				BeadID:         "../../etc/passwd",
+				IdempotencyKey: "key-1",
+				SessionID:      "sess-123",
+				Timestamp:      time.Now().Unix(),
+			},
+			wantErr: "invalid bead ID format",
+		},
+		{
+			name: "invalid session ID format",
+			intent: Intent{
+				Type:           IntentSprintAdvance,
+				BeadID:         "iv-abc123",
+				IdempotencyKey: "key-1",
+				SessionID:      "sess;rm -rf /",
+				Timestamp:      time.Now().Unix(),
+			},
+			wantErr: "invalid session ID format",
+		},
+		{
+			name: "empty bead ID is allowed",
+			intent: Intent{
+				Type:           IntentSprintAdvance,
+				IdempotencyKey: "key-1",
+				SessionID:      "sess-123",
+				Timestamp:      time.Now().Unix(),
+			},
+			wantErr: "",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
