@@ -136,6 +136,8 @@ func main() {
 		exitCode = cmdPublish(ctx, subArgs)
 	case "landed":
 		exitCode = cmdLanded(ctx, subArgs)
+	case "session":
+		exitCode = cmdSession(ctx, subArgs)
 	case "situation":
 		exitCode = cmdSituation(ctx, subArgs)
 	default:
@@ -241,6 +243,11 @@ Commands:
   publish clean                  Prune orphaned cache dirs
   publish status [--all]         Show publish health
   publish init                   Register new plugin in marketplace
+  session start --session=<id> --project=<dir> [opts]  Register a session
+  session attribute --session=<id> [--bead=<id>] [opts]  Record attribution
+  session end --session=<id>    End a session
+  session current --session=<id> [--project=<dir>]  Show latest attribution
+  session list [--project=<dir>] [--active-only]    List sessions
   situation snapshot [opts]      Unified observation layer (OODAR)
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
