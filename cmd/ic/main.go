@@ -235,6 +235,8 @@ Commands:
   route batch --phase=<p> <agents...>  Resolve models for multiple agents
   route dispatch --tier=<name>  Resolve dispatch tier to model
   route table [--phase=<p>]     Show full routing table
+  route record --agent=<a> --model=<m> --rule=<r>  Record a routing decision
+  route list [--agent=<a>] [--model=<m>]  List routing decisions
   cost reconcile <run> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
   cost list <run> [--limit=N]   List past reconciliations
   publish <ver>                  Publish plugin (bump + push + sync)

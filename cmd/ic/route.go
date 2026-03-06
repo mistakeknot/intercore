@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mistakeknot/intercore/internal/routing"
 )
@@ -25,6 +27,8 @@ Subcommands:
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
   table   [--phase=<p>]                             Show full routing table
+  record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
+  list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
 `)
 		return 3
 	}
@@ -38,6 +42,10 @@ Subcommands:
 		return cmdRouteDispatch(ctx, args[1:])
 	case "table":
 		return cmdRouteTable(ctx, args[1:])
+	case "record":
+		return cmdRouteRecord(ctx, args[1:])
+	case "list":
+		return cmdRouteList(ctx, args[1:])
 	default:
 		slog.Error("route: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -315,4 +323,164 @@ func printRouteTable(r *routing.Resolver, cfg *routing.Config, phase string) {
 		}
 		fmt.Printf("%-40s %-12s %-8s %s\n", e.Agent, e.Category, e.Model, floor)
 	}
+}
+
+func cmdRouteRecord(ctx context.Context, args []string) int {
+	var opts routing.RecordDecisionOpts
+	var floorApplied bool
+	var complexity string
+
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--dispatch="):
+			opts.DispatchID = strings.TrimPrefix(arg, "--dispatch=")
+		case strings.HasPrefix(arg, "--run="):
+			opts.RunID = strings.TrimPrefix(arg, "--run=")
+		case strings.HasPrefix(arg, "--session="):
+			opts.SessionID = strings.TrimPrefix(arg, "--session=")
+		case strings.HasPrefix(arg, "--bead="):
+			opts.BeadID = strings.TrimPrefix(arg, "--bead=")
+		case strings.HasPrefix(arg, "--project="):
+			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
+		case strings.HasPrefix(arg, "--phase="):
+			opts.Phase = strings.TrimPrefix(arg, "--phase=")
+		case strings.HasPrefix(arg, "--agent="):
+			opts.Agent = strings.TrimPrefix(arg, "--agent=")
+		case strings.HasPrefix(arg, "--category="):
+			opts.Category = strings.TrimPrefix(arg, "--category=")
+		case strings.HasPrefix(arg, "--model="):
+			opts.SelectedModel = strings.TrimPrefix(arg, "--model=")
+		case strings.HasPrefix(arg, "--rule="):
+			opts.RuleMatched = strings.TrimPrefix(arg, "--rule=")
+		case arg == "--floor-applied":
+			floorApplied = true
+		case strings.HasPrefix(arg, "--floor-from="):
+			opts.FloorFrom = strings.TrimPrefix(arg, "--floor-from=")
+		case strings.HasPrefix(arg, "--floor-to="):
+			opts.FloorTo = strings.TrimPrefix(arg, "--floor-to=")
+		case strings.HasPrefix(arg, "--candidates="):
+			opts.Candidates = strings.TrimPrefix(arg, "--candidates=")
+		case strings.HasPrefix(arg, "--excluded="):
+			opts.Excluded = strings.TrimPrefix(arg, "--excluded=")
+		case strings.HasPrefix(arg, "--policy-hash="):
+			opts.PolicyHash = strings.TrimPrefix(arg, "--policy-hash=")
+		case strings.HasPrefix(arg, "--override-id="):
+			opts.OverrideID = strings.TrimPrefix(arg, "--override-id=")
+		case strings.HasPrefix(arg, "--complexity="):
+			complexity = strings.TrimPrefix(arg, "--complexity=")
+		case strings.HasPrefix(arg, "--context="):
+			opts.ContextJSON = strings.TrimPrefix(arg, "--context=")
+		}
+	}
+
+	opts.FloorApplied = floorApplied
+	if complexity != "" {
+		if v, err := strconv.Atoi(complexity); err == nil {
+			opts.Complexity = v
+		}
+	}
+
+	if opts.Agent == "" || opts.SelectedModel == "" || opts.RuleMatched == "" {
+		slog.Error("route record: --agent, --model, and --rule are required")
+		return 3
+	}
+	if opts.ProjectDir == "" {
+		if wd, err := os.Getwd(); err == nil {
+			opts.ProjectDir = wd
+		}
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route record failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := routing.NewDecisionStore(d.SqlDB())
+	id, err := store.Record(ctx, opts)
+	if err != nil {
+		slog.Error("route record failed", "error", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"id":    id,
+			"agent": opts.Agent,
+			"model": opts.SelectedModel,
+			"rule":  opts.RuleMatched,
+		})
+	} else {
+		fmt.Printf("Routing decision recorded: id=%d agent=%s model=%s rule=%s\n",
+			id, opts.Agent, opts.SelectedModel, opts.RuleMatched)
+	}
+	return 0
+}
+
+func cmdRouteList(ctx context.Context, args []string) int {
+	var opts routing.ListDecisionOpts
+	var limit string
+
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--project="):
+			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
+		case strings.HasPrefix(arg, "--agent="):
+			opts.Agent = strings.TrimPrefix(arg, "--agent=")
+		case strings.HasPrefix(arg, "--model="):
+			opts.Model = strings.TrimPrefix(arg, "--model=")
+		case strings.HasPrefix(arg, "--dispatch="):
+			opts.DispatchID = strings.TrimPrefix(arg, "--dispatch=")
+		case strings.HasPrefix(arg, "--since="):
+			if v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--since="), 10, 64); err == nil {
+				opts.Since = v
+			}
+		case strings.HasPrefix(arg, "--until="):
+			if v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--until="), 10, 64); err == nil {
+				opts.Until = v
+			}
+		case strings.HasPrefix(arg, "--limit="):
+			limit = strings.TrimPrefix(arg, "--limit=")
+		}
+	}
+
+	if limit != "" {
+		if v, err := strconv.Atoi(limit); err == nil {
+			opts.Limit = v
+		}
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route list failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := routing.NewDecisionStore(d.SqlDB())
+	decisions, err := store.List(ctx, opts)
+	if err != nil {
+		slog.Error("route list failed", "error", err)
+		return 2
+	}
+
+	if flagJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(decisions)
+	} else {
+		if len(decisions) == 0 {
+			fmt.Println("No routing decisions found.")
+			return 0
+		}
+		fmt.Printf("%-6s %-35s %-8s %-18s %s\n", "ID", "AGENT", "MODEL", "RULE", "DECIDED")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, dec := range decisions {
+			fmt.Printf("%-6d %-35s %-8s %-18s %s\n",
+				dec.ID, dec.Agent, dec.SelectedModel, dec.RuleMatched,
+				time.Unix(dec.DecidedAt, 0).Format("2006-01-02 15:04"))
+		}
+	}
+	return 0
 }
