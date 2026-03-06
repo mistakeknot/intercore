@@ -85,9 +85,10 @@ func TestComputeStats_TwoValues(t *testing.T) {
 
 func TestFormatText_NoData(t *testing.T) {
 	r := &BaselineResult{
-		Period:       Period{Days: 30, Start: "2026-01-27", End: "2026-02-26"},
-		ShippedBeads: 5,
-		Stats:        TokenStats{}, // no correlated data
+		Period:        Period{Days: 30, Start: "2026-01-27", End: "2026-02-26"},
+		LandedChanges: 5,
+		Source:        "shipped_beads",
+		Stats:         TokenStats{}, // no correlated data
 	}
 
 	out := FormatText(r)
@@ -98,14 +99,15 @@ func TestFormatText_NoData(t *testing.T) {
 		t.Errorf("expected 'no correlated data' message, got:\n%s", out)
 	}
 	if !contains(out, "5") {
-		t.Errorf("expected shipped bead count, got:\n%s", out)
+		t.Errorf("expected landed change count, got:\n%s", out)
 	}
 }
 
 func TestFormatText_WithData(t *testing.T) {
 	r := &BaselineResult{
-		Period:       Period{Days: 30, Start: "2026-01-27", End: "2026-02-26"},
-		ShippedBeads: 3,
+		Period:        Period{Days: 30, Start: "2026-01-27", End: "2026-02-26"},
+		LandedChanges: 3,
+		Source:        "landed_changes",
 		Stats: TokenStats{
 			P50: 50000, P90: 90000, P95: 95000, Mean: 60000,
 			Total: 180000, InputTotal: 100000, OutputTotal: 80000, Count: 3,
@@ -116,16 +118,17 @@ func TestFormatText_WithData(t *testing.T) {
 	if !contains(out, "50.0k") {
 		t.Errorf("expected formatted p50, got:\n%s", out)
 	}
-	if !contains(out, "Shipped beads:  3") {
-		t.Errorf("expected shipped count, got:\n%s", out)
+	if !contains(out, "Landed changes: 3") {
+		t.Errorf("expected landed change count, got:\n%s", out)
 	}
 }
 
 func TestFormatText_WithPhaseBreakdown(t *testing.T) {
 	r := &BaselineResult{
-		Period:       Period{Days: 30, Start: "2026-01-27", End: "2026-02-26"},
-		ShippedBeads: 2,
-		Stats:        TokenStats{P50: 100000, Count: 2, Total: 200000},
+		Period:        Period{Days: 30, Start: "2026-01-27", End: "2026-02-26"},
+		LandedChanges: 2,
+		Source:        "shipped_beads",
+		Stats:         TokenStats{P50: 100000, Count: 2, Total: 200000},
 		ByPhase: map[string]TokenStats{
 			"executing":  {Total: 150000, Count: 10},
 			"brainstorm": {Total: 50000, Count: 4},

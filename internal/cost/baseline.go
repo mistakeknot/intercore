@@ -2,6 +2,7 @@ package cost
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,27 +12,31 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mistakeknot/intercore/internal/landed"
 )
 
 // BaselineOpts configures the cost-per-landable-change query.
 type BaselineOpts struct {
-	LastN           int    // last N shipped beads (default: 50, 0 = all)
-	Days            int    // only beads closed within last N days (default: 30)
-	ByPhase         bool   // break down by workflow phase
-	ByAgent         bool   // break down by agent type
-	JSON            bool   // output JSON
-	InterstatScript string // path to cost-query.sh (override for testing)
-	BeadsDir        string // BEADS_DIR override (for testing)
+	LastN           int     // last N shipped beads (default: 50, 0 = all)
+	Days            int     // only beads closed within last N days (default: 30)
+	ByPhase         bool    // break down by workflow phase
+	ByAgent         bool    // break down by agent type
+	JSON            bool    // output JSON
+	InterstatScript string  // path to cost-query.sh (override for testing)
+	BeadsDir        string  // BEADS_DIR override (for testing)
+	DB              *sql.DB // intercore DB for landed_changes queries (optional, enables direct query)
 }
 
 // BaselineResult holds the computed baseline metric.
 type BaselineResult struct {
-	Period       Period                `json:"period"`
-	ShippedBeads int                   `json:"shipped_beads"`
-	Stats        TokenStats            `json:"stats"`
-	ByPhase      map[string]TokenStats `json:"by_phase,omitempty"`
-	ByAgent      map[string]TokenStats `json:"by_agent,omitempty"`
-	Uncorrelated *TokenStats           `json:"uncorrelated,omitempty"`
+	Period         Period                `json:"period"`
+	LandedChanges  int                   `json:"landed_changes"`
+	Source         string                `json:"source"` // "landed_changes" or "shipped_beads"
+	Stats          TokenStats            `json:"stats"`
+	ByPhase        map[string]TokenStats `json:"by_phase,omitempty"`
+	ByAgent        map[string]TokenStats `json:"by_agent,omitempty"`
+	Uncorrelated   *TokenStats           `json:"uncorrelated,omitempty"`
 }
 
 // Period describes the time window of the baseline.
@@ -73,6 +78,8 @@ type beadRecord struct {
 }
 
 // ComputeBaseline runs the cost-per-landable-change analysis.
+// When opts.DB is set, uses the canonical landed_changes table directly.
+// Falls back to closed beads (bd list) when landed_changes is unavailable or empty.
 func ComputeBaseline(ctx context.Context, opts BaselineOpts) (*BaselineResult, error) {
 	if opts.LastN == 0 {
 		opts.LastN = 50
@@ -81,37 +88,9 @@ func ComputeBaseline(ctx context.Context, opts BaselineOpts) (*BaselineResult, e
 		opts.Days = 30
 	}
 
-	// 1. Get shipped beads
-	beads, err := listShippedBeads(ctx, opts)
-	if err != nil {
-		return nil, fmt.Errorf("listing shipped beads: %w", err)
-	}
-
-	// Filter by time window
 	cutoff := time.Now().AddDate(0, 0, -opts.Days)
-	var filtered []beadRecord
-	for _, b := range beads {
-		t, err := time.Parse(time.RFC3339, b.ClosedAt)
-		if err != nil {
-			continue // skip unparseable dates
-		}
-		if t.After(cutoff) {
-			filtered = append(filtered, b)
-		}
-	}
 
-	// Apply LastN limit
-	if opts.LastN > 0 && len(filtered) > opts.LastN {
-		filtered = filtered[:opts.LastN]
-	}
-
-	// Build bead ID set for correlation
-	beadIDs := make(map[string]bool, len(filtered))
-	for _, b := range filtered {
-		beadIDs[b.ID] = true
-	}
-
-	// 2. Query interstat token data (script path must be set by caller)
+	// 1. Query interstat token data (script path must be set by caller)
 	scriptPath := opts.InterstatScript
 	if scriptPath == "" {
 		return nil, fmt.Errorf("InterstatScript is required (caller must resolve cost-query.sh path)")
@@ -123,10 +102,9 @@ func ComputeBaseline(ctx context.Context, opts BaselineOpts) (*BaselineResult, e
 			Start: cutoff.Format("2006-01-02"),
 			End:   time.Now().Format("2006-01-02"),
 		},
-		ShippedBeads: len(filtered),
 	}
 
-	// Agent breakdown is independent of bead correlation — query it early
+	// Agent breakdown is independent of landed-change correlation — query it early
 	if opts.ByAgent {
 		agentRows, err := queryInterstat(ctx, scriptPath, "aggregate")
 		if err != nil {
@@ -145,18 +123,24 @@ func ComputeBaseline(ctx context.Context, opts BaselineOpts) (*BaselineResult, e
 		}
 	}
 
-	// No beads → return result with agent breakdown only
-	if len(filtered) == 0 {
+	// 2. Get denominator: landed changes (primary) or shipped beads (fallback)
+	beadIDs, err := computeDenominator(ctx, opts, cutoff, result)
+	if err != nil {
+		return nil, err
+	}
+
+	// No changes/beads → return result with agent breakdown only
+	if result.LandedChanges == 0 {
 		return result, nil
 	}
 
-	// 3. Get per-bead token totals
+	// 3. Get per-bead token totals (correlation still uses interstat by-bead)
 	beadRows, err := queryInterstat(ctx, scriptPath, "by-bead")
 	if err != nil {
 		return nil, fmt.Errorf("querying interstat by-bead: %w", err)
 	}
 
-	// Correlate: only include rows for shipped beads in window
+	// Correlate: only include rows for beads with landed changes
 	var perBeadTokens []int64
 	var totalInput, totalOutput int64
 	for _, row := range beadRows {
@@ -196,13 +180,76 @@ func ComputeBaseline(ctx context.Context, opts BaselineOpts) (*BaselineResult, e
 	return result, nil
 }
 
+// computeDenominator resolves the landed-change count and bead ID set.
+// Primary: landed_changes table (when opts.DB is set and has data).
+// Fallback: closed beads via bd CLI.
+func computeDenominator(ctx context.Context, opts BaselineOpts, cutoff time.Time, result *BaselineResult) (map[string]bool, error) {
+	beadIDs := make(map[string]bool)
+
+	// Try landed_changes table first
+	if opts.DB != nil {
+		store := landed.NewStore(opts.DB)
+		listOpts := landed.ListOpts{
+			Since: cutoff.Unix(),
+			Limit: 0, // no limit — we filter in Go
+		}
+		changes, err := store.List(ctx, listOpts)
+		if err == nil && len(changes) > 0 {
+			result.Source = "landed_changes"
+
+			// Apply LastN limit (changes are ordered newest first from the store)
+			if opts.LastN > 0 && len(changes) > opts.LastN {
+				changes = changes[:opts.LastN]
+			}
+
+			result.LandedChanges = len(changes)
+			for _, c := range changes {
+				if c.BeadID != nil {
+					beadIDs[*c.BeadID] = true
+				}
+			}
+			return beadIDs, nil
+		}
+		// Fall through to shipped beads if landed_changes is empty or errors
+	}
+
+	// Fallback: closed beads via bd CLI
+	result.Source = "shipped_beads"
+	beads, err := listShippedBeads(ctx, opts)
+	if err != nil {
+		return nil, fmt.Errorf("listing shipped beads: %w", err)
+	}
+
+	var filtered []beadRecord
+	for _, b := range beads {
+		t, err := time.Parse(time.RFC3339, b.ClosedAt)
+		if err != nil {
+			continue
+		}
+		if t.After(cutoff) {
+			filtered = append(filtered, b)
+		}
+	}
+
+	if opts.LastN > 0 && len(filtered) > opts.LastN {
+		filtered = filtered[:opts.LastN]
+	}
+
+	result.LandedChanges = len(filtered)
+	for _, b := range filtered {
+		beadIDs[b.ID] = true
+	}
+
+	return beadIDs, nil
+}
+
 // FormatText returns a human-readable baseline report.
 func FormatText(r *BaselineResult) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "Cost Baseline (%s to %s)\n", r.Period.Start, r.Period.End)
 	fmt.Fprintf(&b, "══════════════════════════════════════\n")
-	fmt.Fprintf(&b, "  Shipped beads:  %d\n", r.ShippedBeads)
+	fmt.Fprintf(&b, "  Landed changes: %d (source: %s)\n", r.LandedChanges, r.Source)
 
 	if r.Stats.Count == 0 {
 		fmt.Fprintf(&b, "  Token data:     no correlated data yet\n")

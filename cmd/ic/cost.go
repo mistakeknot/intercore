@@ -79,6 +79,15 @@ func cmdCostBaseline(ctx context.Context, args []string) int {
 		}
 	}
 
+	// Pass DB for direct landed_changes queries (primary denominator source)
+	d, err := openDB()
+	if err != nil {
+		slog.Warn("cost baseline: could not open DB for landed_changes, falling back to bd", "error", err)
+	} else {
+		defer d.Close()
+		opts.DB = d.SqlDB()
+	}
+
 	result, err := costpkg.ComputeBaseline(ctx, opts)
 	if err != nil {
 		slog.Error("cost baseline failed", "error", err)
