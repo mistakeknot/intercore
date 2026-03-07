@@ -365,6 +365,19 @@ func (e *Engine) Publish(ctx context.Context) error {
 		CreateSymlinks(plugin.Name, plugin.Version, targetVersion)
 	}
 
+	// Phase 7b: Sync agent-rig.json (best-effort — non-fatal)
+	if rigPath, err := FindAgentRig(pluginRoot); err == nil {
+		result, err := SyncRig(rigPath, plugin.Name, plugin.Description(), "interagency-marketplace")
+		if err != nil {
+			e.out("  warning: rig sync: %v\n", err)
+		} else if result.Added {
+			e.out("  Added %s to agent-rig.json\n", plugin.Name)
+			if err := CommitAndPushRig(result.ClavRoot, plugin.Name, targetVersion); err != nil {
+				e.out("  warning: rig commit/push: %v\n", err)
+			}
+		}
+	}
+
 	// Phase 8: Done
 	if e.store != nil && stateID != "" {
 		e.store.Complete(ctx, stateID)

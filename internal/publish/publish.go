@@ -64,10 +64,16 @@ type PublishOpts struct {
 
 // Plugin represents a discovered plugin.
 type Plugin struct {
-	Name       string // from plugin.json .name
-	Version    string // current version from plugin.json .version
-	Root       string // absolute path to plugin root (parent of .claude-plugin/)
-	PluginJSON string // absolute path to plugin.json
+	Name        string // from plugin.json .name
+	Version     string // current version from plugin.json .version
+	Root        string // absolute path to plugin root (parent of .claude-plugin/)
+	PluginJSON  string // absolute path to plugin.json
+	description string // from plugin.json .description (lazy-loaded)
+}
+
+// Description returns the plugin's description from plugin.json.
+func (p *Plugin) Description() string {
+	return p.description
 }
 
 // VersionFile is a file that contains a derived version string.
