@@ -37,8 +37,8 @@ In the three-layer architecture, Intercore sits beneath the OS (Clavain, Layer 2
 ## Architecture
 
 ```
-cmd/ic/          CLI entry point + 15 subcommand files (run, dispatch, gate, lock, events, coordination, scheduler, lane, discovery, portfolio, cost, interspect, agency, action, config)
-internal/        22 packages — key ones: db/, state/, dispatch/, phase/, event/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, audit/, redaction/
+cmd/ic/          CLI entry point + 20 subcommand files (run, dispatch, gate, lock, events, coordination, scheduler, lane, discovery, portfolio, cost, interspect, agency, action, config, publish, route, landed, session, situation)
+internal/        30 packages — key ones: db/, state/, dispatch/, phase/, event/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, audit/, redaction/, publish/
 lib-intercore.sh Bash wrappers for hooks (45 functions)
 ```
 
@@ -238,6 +238,22 @@ ic agency validate <file> | --all --spec-dir=<path>
 ic agency show <stage> --spec-dir=<path>
 ic agency capabilities <run-id>
 ```
+
+### Publish
+
+```
+ic publish <version>                      Bump to exact version and publish
+ic publish --patch                        Auto-increment patch version
+ic publish --minor                        Auto-increment minor version
+ic publish --auto [--cwd=<d>]             Auto mode (hooks): patch, no prompts
+ic publish --dry-run                      Show what would happen
+ic publish init [--name=<name>]           Register plugin in marketplace
+ic publish status [--all]                 Show publish state
+ic publish doctor [--fix] [--json]        Detect/repair drift
+ic publish clean [--dry-run]              Prune orphans, stale versions
+```
+
+**Pipeline phases:** discovery → validation → bump → commit plugin → push plugin → update marketplace → sync local → sync agent-rig.json → done. Each phase is tracked in SQLite for crash recovery. The agent-rig sync is best-effort: after marketplace sync, checks if the plugin is listed in `os/clavain/agent-rig.json` and adds it to the recommended tier if missing.
 
 ### Exit Codes
 
