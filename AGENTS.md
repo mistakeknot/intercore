@@ -49,3 +49,16 @@ For brainstorming/planning outputs, add two short lines:
 If a high-value change conflicts with philosophy, either:
 - adjust the plan to align, or
 - create follow-up work to update `PHILOSOPHY.md` explicitly.
+
+## Decay Policy
+
+Operational state (C1) follows intermem's decay model adapted for kernel data:
+
+| Data type | Grace period | TTL | Hysteresis | Action |
+|-----------|-------------|-----|------------|--------|
+| Completed runs | 30 days | 30d from completion | N/A | Pruned from active queries (retained in DB for audit) |
+| Coordination locks | Per-lock TTL | Lock-specific (default 60s) | N/A | Auto-released at expiry |
+| Dispatch records | 30 days | 30d from completion | N/A | Excluded from cost aggregation |
+| Event stream | 90 days | 90d retention | N/A | Old events excluded from reactor processing |
+
+**Standard pattern:** Grace period → TTL expiry → no hysteresis (kernel state is operational, not knowledge). Intercore uses TTL-based cleanup rather than confidence decay because C1 data has a clear "done" state — completed runs don't gradually lose relevance, they become irrelevant after their monitoring window closes. Sentinel auto-prune runs synchronously in the same transaction as new writes.
