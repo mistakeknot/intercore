@@ -66,6 +66,7 @@ var CLIContracts = []ContractType{
 // EventContracts lists types used for the event bus.
 var EventContracts = []ContractType{
 	{Name: "event", Instance: event.Event{}},
+	{Name: "review-event", Instance: event.ReviewEvent{}},
 	{Name: "interspect-event", Instance: event.InterspectEvent{}},
 	{Name: "event-envelope", Instance: event.EventEnvelope{}},
 }
