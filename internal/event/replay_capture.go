@@ -59,13 +59,14 @@ func dispatchReplayPayload(dispatchID, fromStatus, toStatus, eventType, reason s
 	return string(b)
 }
 
-func reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact string) string {
+func reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType string) string {
 	out := map[string]interface{}{
 		"finding_id":      findingID,
 		"agents_json":     agentsJSON,
 		"resolution":      resolution,
 		"chosen_severity": chosenSeverity,
 		"impact":          impact,
+		"event_type":      eventType,
 	}
 	if dismissalReason != "" {
 		out["dismissal_reason"] = dismissalReason

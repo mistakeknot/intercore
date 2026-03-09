@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 27
-	maxSchemaVersion     = 27
+	currentSchemaVersion = 28
+	maxSchemaVersion     = 28
 )
 
 var (
@@ -376,6 +376,19 @@ func (d *DB) Migrate(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, stmt); err != nil {
 				return fmt.Errorf("migrate v23→v24: %w", err)
 			}
+		}
+	}
+
+	// v27 → v28: add event_type column to review_events
+	// Covers both existing v24+ DBs and fresh v20+ DBs where v24 inline migration just ran
+	if currentVersion >= 20 && currentVersion < 28 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE review_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'disagreement_resolved'"); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migrate v27→v28 event_type: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_review_events_type ON review_events(event_type)"); err != nil {
+			return fmt.Errorf("migrate v27→v28 idx: %w", err)
 		}
 	}
 

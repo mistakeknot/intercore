@@ -587,7 +587,7 @@ func TestAddReviewEvent(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	id, err := store.AddReviewEvent(ctx, "run001", "AR-001", `{"fd-architecture":"P1","fd-quality":"P2"}`, "discarded", "agent_wrong", "P2", "decision_changed", "sess-abc", "/tmp/project")
+	id, err := store.AddReviewEvent(ctx, "run001", "AR-001", `{"fd-architecture":"P1","fd-quality":"P2"}`, "discarded", "agent_wrong", "P2", "decision_changed", "", "sess-abc", "/tmp/project")
 	if err != nil {
 		t.Fatalf("AddReviewEvent: %v", err)
 	}
@@ -622,13 +622,45 @@ func TestAddReviewEvent(t *testing.T) {
 	if e.Impact != "decision_changed" {
 		t.Errorf("Impact = %q, want %q", e.Impact, "decision_changed")
 	}
+	if e.EventType != "disagreement_resolved" {
+		t.Errorf("EventType = %q, want %q", e.EventType, "disagreement_resolved")
+	}
+}
+
+func TestAddReviewEvent_ExecutionDefect(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.AddReviewEvent(ctx, "run002", "BUG-001", `{"reporter":"agent-a","target":"agent-b"}`, "reported", "", "P1", "execution_defect", "execution_defect", "sess-xyz", "/tmp/project")
+	if err != nil {
+		t.Fatalf("AddReviewEvent: %v", err)
+	}
+	if id < 1 {
+		t.Errorf("expected id >= 1, got %d", id)
+	}
+
+	events, err := store.ListReviewEvents(ctx, 0, 100)
+	if err != nil {
+		t.Fatalf("ListReviewEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.EventType != "execution_defect" {
+		t.Errorf("EventType = %q, want %q", e.EventType, "execution_defect")
+	}
+	if e.FindingID != "BUG-001" {
+		t.Errorf("FindingID = %q, want %q", e.FindingID, "BUG-001")
+	}
 }
 
 func TestAddReviewEvent_OptionalFields(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	id, err := store.AddReviewEvent(ctx, "", "AR-002", `{"fd-safety":"P0"}`, "accepted", "", "P0", "severity_overridden", "", "")
+	id, err := store.AddReviewEvent(ctx, "", "AR-002", `{"fd-safety":"P0"}`, "accepted", "", "P0", "severity_overridden", "", "", "")
 	if err != nil {
 		t.Fatalf("AddReviewEvent: %v", err)
 	}
@@ -655,9 +687,9 @@ func TestListReviewEvents_SinceCursor(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "")
-	store.AddReviewEvent(ctx, "", "F-2", `{}`, "discarded", "agent_wrong", "P2", "decision_changed", "", "")
-	store.AddReviewEvent(ctx, "", "F-3", `{}`, "accepted", "", "P0", "severity_overridden", "", "")
+	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "", "")
+	store.AddReviewEvent(ctx, "", "F-2", `{}`, "discarded", "agent_wrong", "P2", "decision_changed", "", "", "")
+	store.AddReviewEvent(ctx, "", "F-3", `{}`, "accepted", "", "P0", "severity_overridden", "", "", "")
 
 	all, err := store.ListReviewEvents(ctx, 0, 100)
 	if err != nil {
@@ -680,7 +712,7 @@ func TestMaxReviewEventID(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "")
+	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "", "")
 
 	maxID, err := store.MaxReviewEventID(ctx)
 	if err != nil {

@@ -367,17 +367,21 @@ func (s *Store) MaxInterspectEventID(ctx context.Context) (int64, error) {
 	return id.Int64, nil
 }
 
-// AddReviewEvent records a disagreement resolution event.
-func (s *Store) AddReviewEvent(ctx context.Context, runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, sessionID, projectDir string) (int64, error) {
+// AddReviewEvent records a disagreement resolution or execution defect event.
+func (s *Store) AddReviewEvent(ctx context.Context, runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType, sessionID, projectDir string) (int64, error) {
 	agentsJSON = s.redactStr(agentsJSON)
 	resolution = s.redactStr(resolution)
 	dismissalReason = s.redactStr(dismissalReason)
 	impact = s.redactStr(impact)
 
+	if eventType == "" {
+		eventType = "disagreement_resolved"
+	}
+
 	result, err := s.db.ExecContext(ctx, `
-		INSERT INTO review_events (run_id, finding_id, agents_json, resolution, dismissal_reason, chosen_severity, impact, session_id, project_dir)
-		VALUES (NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
-		runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, sessionID, projectDir,
+		INSERT INTO review_events (run_id, finding_id, agents_json, resolution, dismissal_reason, chosen_severity, impact, event_type, session_id, project_dir)
+		VALUES (NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+		runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType, sessionID, projectDir,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("add review event: %w", err)
@@ -390,7 +394,7 @@ func (s *Store) AddReviewEvent(ctx context.Context, runID, findingID, agentsJSON
 
 	// Create replay input (consistent with dispatch/coordination pattern, per PRD F1)
 	if runID != "" {
-		payload := reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact)
+		payload := reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType)
 		if err := insertReplayInput(ctx, s.db.ExecContext, runID, "review_event", findingID, payload, "", SourceReview, &id); err != nil {
 			return id, fmt.Errorf("add review event: replay input: %w", err)
 		}
@@ -408,6 +412,7 @@ func (s *Store) ListReviewEvents(ctx context.Context, since int64, limit int) ([
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, COALESCE(run_id, '') AS run_id, finding_id, agents_json, resolution,
 			COALESCE(dismissal_reason, '') AS dismissal_reason, chosen_severity, impact,
+			COALESCE(event_type, 'disagreement_resolved') AS event_type,
 			COALESCE(session_id, '') AS session_id,
 			COALESCE(project_dir, '') AS project_dir,
 			created_at
@@ -427,7 +432,7 @@ func (s *Store) ListReviewEvents(ctx context.Context, since int64, limit int) ([
 		var e ReviewEvent
 		var ts int64
 		if err := rows.Scan(&e.ID, &e.RunID, &e.FindingID, &e.AgentsJSON, &e.Resolution,
-			&e.DismissalReason, &e.ChosenSeverity, &e.Impact,
+			&e.DismissalReason, &e.ChosenSeverity, &e.Impact, &e.EventType,
 			&e.SessionID, &e.ProjectDir, &ts); err != nil {
 			return nil, fmt.Errorf("scan review event: %w", err)
 		}

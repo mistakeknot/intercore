@@ -181,6 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_interspect_events_created ON interspect_events(cr
 CREATE INDEX IF NOT EXISTS idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;
 
 -- v24: review events (disagreement resolution pipeline)
+-- v28: added event_type column for execution_defect support
 CREATE TABLE IF NOT EXISTS review_events (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id            TEXT,
@@ -190,12 +191,14 @@ CREATE TABLE IF NOT EXISTS review_events (
     dismissal_reason  TEXT,
     chosen_severity   TEXT NOT NULL,
     impact            TEXT NOT NULL,
+    event_type        TEXT NOT NULL DEFAULT 'disagreement_resolved',
     session_id        TEXT,
     project_dir       TEXT,
     created_at        INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_review_events_finding ON review_events(finding_id);
 CREATE INDEX IF NOT EXISTS idx_review_events_created ON review_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_review_events_type ON review_events(event_type);
 
 -- v9: discovery pipeline
 CREATE TABLE IF NOT EXISTS discoveries (

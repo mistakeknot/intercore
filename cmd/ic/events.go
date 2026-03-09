@@ -344,6 +344,15 @@ func cmdEventsEmit(ctx context.Context, args []string) int {
 		return 3
 	}
 
+	// Validate event type
+	switch eventType {
+	case "disagreement_resolved", "execution_defect":
+		// known types
+	default:
+		slog.Error("events emit: --type must be disagreement_resolved or execution_defect", "type", eventType)
+		return 3
+	}
+
 	if contextJSON == "" {
 		slog.Error("events emit: --context is required for review events")
 		return 3
@@ -392,9 +401,7 @@ func cmdEventsEmit(ctx context.Context, args []string) int {
 	}
 	agentsJSON, _ := json.Marshal(payload.Agents)
 
-	_ = eventType // eventType validated but not used in AddReviewEvent (hardcoded as disagreement_resolved)
-
-	id, err := evStore.AddReviewEvent(ctx, runID, payload.FindingID, string(agentsJSON), payload.Resolution, payload.DismissalReason, payload.ChosenSeverity, payload.Impact, sessionID, projectDir)
+	id, err := evStore.AddReviewEvent(ctx, runID, payload.FindingID, string(agentsJSON), payload.Resolution, payload.DismissalReason, payload.ChosenSeverity, payload.Impact, eventType, sessionID, projectDir)
 	if err != nil {
 		slog.Error("events emit failed", "error", err)
 		return 2

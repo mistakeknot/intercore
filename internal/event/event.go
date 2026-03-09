@@ -26,7 +26,7 @@ type InterspectEvent struct {
 	Timestamp      time.Time `json:"timestamp"`
 }
 
-// ReviewEvent represents a disagreement resolution from flux-drive review.
+// ReviewEvent represents a disagreement resolution or execution defect from review/sprint.
 type ReviewEvent struct {
 	ID              int64     `json:"id"`
 	RunID           string    `json:"run_id,omitempty"`
@@ -36,6 +36,7 @@ type ReviewEvent struct {
 	DismissalReason string    `json:"dismissal_reason,omitempty"`
 	ChosenSeverity  string    `json:"chosen_severity"`
 	Impact          string    `json:"impact"`
+	EventType       string    `json:"event_type"`
 	SessionID       string    `json:"session_id,omitempty"`
 	ProjectDir      string    `json:"project_dir,omitempty"`
 	Timestamp       time.Time `json:"timestamp"`
