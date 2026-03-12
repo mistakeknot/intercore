@@ -118,17 +118,17 @@ func TestMigrator_V22ToV23_AuditTraceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if applied != 6 {
-		t.Errorf("applied = %d, want 6", applied)
+	if applied != 7 {
+		t.Errorf("applied = %d, want 7", applied)
 	}
 
-	// Verify version is now 28 (v23-v27 + v28 review_event_type)
+	// Verify version is now 29 (v23-v28 + v29 intent_events)
 	v, err := d.SchemaVersion()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 28 {
-		t.Errorf("SchemaVersion = %d, want 28", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", v, currentSchemaVersion)
 	}
 
 	// Verify trace_id column exists on audit_log
@@ -198,6 +198,7 @@ func TestMigrator_FinalSchemaShape(t *testing.T) {
 		"lanes", "lane_events", "lane_members", "phase_actions",
 		"audit_log", "cost_reconciliations", "coordination_locks",
 		"coordination_events", "scheduler_jobs", "run_replay_inputs",
+		"intent_events",
 	}
 
 	scenarios := []struct {

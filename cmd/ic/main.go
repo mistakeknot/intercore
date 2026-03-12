@@ -18,7 +18,7 @@ import (
 	"github.com/mistakeknot/intercore/internal/state"
 )
 
-const version = "0.3.1"
+const version = "0.3.2"
 
 var (
 	flagDB      string
@@ -200,6 +200,7 @@ Commands:
   run artifact list <run> [--phase=<p>]  List artifacts for run
   events tail <run_id|--all> [--follow] [--consumer=<name>]
   events tail ... [--since-phase=N] [--since-dispatch=N] [--limit=N]
+  events record --source=<s> --type=<t> --payload=<json> [opts]  Record event
   events cursor list             List named cursors
   events cursor reset <name>     Reset a named cursor
   gate check <run_id> [--priority=N]   Dry-run gate evaluation (0=pass, 1=fail)

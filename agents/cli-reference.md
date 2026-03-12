@@ -100,9 +100,21 @@ ic lock clean [--older-than=<dur>]         Remove stale locks (PID-liveness chec
 ```
 ic events tail <run_id> [--consumer=<name>] [--follow] [--since-phase=N] [--since-dispatch=N] [--limit=N] [--poll-interval=<dur>]
 ic events tail --all [flags]               Tail events across all runs
+ic events record --source=<s> --type=<t> --payload=<json> [--run=<id>] [--session=<id>] [--project=<dir>]
+  Sources: interspect, review, coordination, intent
+  Payload validated per source (see below)
 ic events cursor list                      List consumer cursors
 ic events cursor reset <consumer>          Reset a consumer cursor
 ```
+
+**`events record` payload requirements:**
+
+| Source | Required fields | Notes |
+|--------|----------------|-------|
+| `interspect` | `agent_name` | Optional: `override_reason`, `context` |
+| `review` | `finding_id`, `agents` (map), `resolution`, `chosen_severity`, `impact` | `--type` must be `disagreement_resolved` or `execution_defect` |
+| `coordination` | `lock_id`, `owner`, `pattern`, `scope` | Optional: `reason` |
+| `intent` | `intent_type`, `bead_id`, `idempotency_key` | Optional: `success` (bool), `error_detail` |
 
 ### Coordination (SQLite-backed, v20)
 
