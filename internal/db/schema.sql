@@ -480,6 +480,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     started_at      INTEGER NOT NULL DEFAULT (unixepoch()),
     ended_at        INTEGER,
     metadata        TEXT,
+    input_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens   INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
     UNIQUE(session_id, project_dir)
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_dir, started_at);

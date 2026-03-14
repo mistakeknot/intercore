@@ -10,14 +10,28 @@ import (
 
 // Session represents a registered agent session.
 type Session struct {
-	ID         int64   `json:"id"`
-	SessionID  string  `json:"session_id"`
-	ProjectDir string  `json:"project_dir"`
-	AgentType  string  `json:"agent_type"`
-	Model      *string `json:"model,omitempty"`
-	StartedAt  int64   `json:"started_at"`
-	EndedAt    *int64  `json:"ended_at,omitempty"`
-	Metadata   *string `json:"metadata,omitempty"`
+	ID                   int64   `json:"id"`
+	SessionID            string  `json:"session_id"`
+	ProjectDir           string  `json:"project_dir"`
+	AgentType            string  `json:"agent_type"`
+	Model                *string `json:"model,omitempty"`
+	StartedAt            int64   `json:"started_at"`
+	EndedAt              *int64  `json:"ended_at,omitempty"`
+	Metadata             *string `json:"metadata,omitempty"`
+	InputTokens          int64   `json:"input_tokens"`
+	OutputTokens         int64   `json:"output_tokens"`
+	CacheCreationTokens  int64   `json:"cache_creation_tokens"`
+	CacheReadTokens      int64   `json:"cache_read_tokens"`
+}
+
+// TokensOpts holds the fields for updating token counts on a session.
+type TokensOpts struct {
+	SessionID           string
+	ProjectDir          string
+	InputTokens         int64
+	OutputTokens        int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
 }
 
 // Attribution represents a point-in-time attribution change within a session.
@@ -172,6 +186,41 @@ func (s *Store) End(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// UpdateTokens adds token counts to a session. The values are additive —
+// they are added to the existing totals, not replaced. This supports
+// incremental reporting (e.g., per-turn or per-phase token updates).
+func (s *Store) UpdateTokens(ctx context.Context, opts TokensOpts) error {
+	if opts.SessionID == "" {
+		return fmt.Errorf("session tokens: session_id is required")
+	}
+
+	projectDir := opts.ProjectDir
+	if projectDir == "" {
+		return fmt.Errorf("session tokens: project_dir is required")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sessions SET
+			input_tokens = input_tokens + ?,
+			output_tokens = output_tokens + ?,
+			cache_creation_tokens = cache_creation_tokens + ?,
+			cache_read_tokens = cache_read_tokens + ?
+		WHERE session_id = ? AND project_dir = ?`,
+		opts.InputTokens, opts.OutputTokens,
+		opts.CacheCreationTokens, opts.CacheReadTokens,
+		opts.SessionID, projectDir,
+	)
+	if err != nil {
+		return fmt.Errorf("session tokens: %w", err)
+	}
+
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("session tokens: no session found for %q in %q", opts.SessionID, projectDir)
+	}
+	return nil
+}
+
 // Current returns the latest attribution for a session in a project.
 // Returns nil if no attributions exist.
 func (s *Store) Current(ctx context.Context, sessionID, projectDir string) (*CurrentAttribution, error) {
@@ -222,7 +271,7 @@ func (s *Store) List(ctx context.Context, opts ListOpts) ([]Session, error) {
 		where = append(where, "ended_at IS NULL")
 	}
 
-	query := "SELECT id, session_id, project_dir, agent_type, model, started_at, ended_at, metadata FROM sessions"
+	query := "SELECT id, session_id, project_dir, agent_type, model, started_at, ended_at, metadata, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens FROM sessions"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -249,6 +298,8 @@ func (s *Store) List(ctx context.Context, opts ListOpts) ([]Session, error) {
 		if err := rows.Scan(
 			&sess.ID, &sess.SessionID, &sess.ProjectDir, &sess.AgentType,
 			&model, &sess.StartedAt, &endedAt, &metadata,
+			&sess.InputTokens, &sess.OutputTokens,
+			&sess.CacheCreationTokens, &sess.CacheReadTokens,
 		); err != nil {
 			return nil, fmt.Errorf("session list: scan: %w", err)
 		}

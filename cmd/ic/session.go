@@ -15,7 +15,7 @@ import (
 
 func cmdSession(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: session: usage: ic session <start|attribute|end|current|list>\n")
+		fmt.Fprintf(os.Stderr, "ic: session: usage: ic session <start|attribute|end|current|list|tokens>\n")
 		return 3
 	}
 
@@ -30,6 +30,8 @@ func cmdSession(ctx context.Context, args []string) int {
 		return cmdSessionCurrent(ctx, args[1:])
 	case "list":
 		return cmdSessionList(ctx, args[1:])
+	case "tokens":
+		return cmdSessionTokens(ctx, args[1:])
 	default:
 		slog.Error("session: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -328,9 +330,101 @@ func cmdSessionList(ctx context.Context, args []string) int {
 			if s.Model != nil {
 				model = " model=" + *s.Model
 			}
-			fmt.Printf("[%s] %s  %s  %s%s\n", started, s.SessionID, s.ProjectDir, status, model)
+			tokens := ""
+			billing := s.InputTokens + s.OutputTokens
+			if billing > 0 {
+				tokens = fmt.Sprintf(" tokens=%d", billing)
+			}
+			fmt.Printf("[%s] %s  %s  %s%s%s\n", started, s.SessionID, s.ProjectDir, status, model, tokens)
 		}
 		fmt.Printf("\n%d session(s)\n", len(sessions))
+	}
+	return 0
+}
+
+func cmdSessionTokens(ctx context.Context, args []string) int {
+	var opts session.TokensOpts
+
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--session="):
+			opts.SessionID = strings.TrimPrefix(arg, "--session=")
+		case strings.HasPrefix(arg, "--project="):
+			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
+		case strings.HasPrefix(arg, "--input="):
+			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--input="), 10, 64)
+			if err != nil {
+				slog.Error("session tokens: invalid --input", "error", err)
+				return 3
+			}
+			opts.InputTokens = v
+		case strings.HasPrefix(arg, "--output="):
+			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--output="), 10, 64)
+			if err != nil {
+				slog.Error("session tokens: invalid --output", "error", err)
+				return 3
+			}
+			opts.OutputTokens = v
+		case strings.HasPrefix(arg, "--cache-creation="):
+			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--cache-creation="), 10, 64)
+			if err != nil {
+				slog.Error("session tokens: invalid --cache-creation", "error", err)
+				return 3
+			}
+			opts.CacheCreationTokens = v
+		case strings.HasPrefix(arg, "--cache-read="):
+			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--cache-read="), 10, 64)
+			if err != nil {
+				slog.Error("session tokens: invalid --cache-read", "error", err)
+				return 3
+			}
+			opts.CacheReadTokens = v
+		default:
+			slog.Error("session tokens: unknown flag", "value", arg)
+			return 3
+		}
+	}
+
+	if opts.SessionID == "" {
+		slog.Error("session tokens: --session is required")
+		return 3
+	}
+
+	if opts.ProjectDir == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			slog.Error("session tokens: cannot determine CWD", "error", err)
+			return 2
+		}
+		opts.ProjectDir = cwd
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("session tokens failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := session.NewStore(d.SqlDB())
+	if err := store.UpdateTokens(ctx, opts); err != nil {
+		slog.Error("session tokens failed", "error", err)
+		return 2
+	}
+
+	total := opts.InputTokens + opts.OutputTokens
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"session_id":             opts.SessionID,
+			"added_input_tokens":     opts.InputTokens,
+			"added_output_tokens":    opts.OutputTokens,
+			"added_cache_creation":   opts.CacheCreationTokens,
+			"added_cache_read":       opts.CacheReadTokens,
+			"added_billing_tokens":   total,
+		})
+	} else {
+		fmt.Printf("Tokens recorded: +%d in, +%d out (billing: +%d)\n",
+			opts.InputTokens, opts.OutputTokens, total)
 	}
 	return 0
 }

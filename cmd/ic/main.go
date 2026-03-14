@@ -251,6 +251,7 @@ Commands:
   session end --session=<id>    End a session
   session current --session=<id> [--project=<dir>]  Show latest attribution
   session list [--project=<dir>] [--active-only]    List sessions
+  session tokens --session=<id> --input=N --output=N [opts]  Add token counts
   situation snapshot [opts]      Unified observation layer (OODAR)
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB

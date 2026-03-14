@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 29
-	maxSchemaVersion     = 29
+	currentSchemaVersion = 30
+	maxSchemaVersion     = 30
 )
 
 var (
