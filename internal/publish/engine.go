@@ -205,6 +205,15 @@ func (e *Engine) Publish(ctx context.Context) error {
 			return fmt.Errorf("plugin validation: %w", validatorErr)
 		}
 
+		// Human approval gate: block auto-publish of agent-mutated plugins
+		if e.opts.Auto {
+			if RequiresApproval(pluginRoot) {
+				err := ErrApprovalRequired
+				setError(PhaseValidation, err)
+				return err
+			}
+		}
+
 		// Run post-bump hook if present (legacy: runs before bump despite the name).
 		// Collect any files the hook modifies so they get staged in the commit phase.
 		var hookDirtyFiles []string
@@ -382,6 +391,9 @@ func (e *Engine) Publish(ctx context.Context) error {
 	if e.store != nil && stateID != "" {
 		e.store.Complete(ctx, stateID)
 	}
+
+	// Consume approval marker if present (single-use)
+	ConsumeApproval(pluginRoot)
 
 	if syncOnly {
 		e.out("  Synced %s v%s to marketplace\n", plugin.Name, targetVersion)

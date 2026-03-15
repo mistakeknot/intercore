@@ -107,4 +107,5 @@ var (
 	ErrRemoteUnreachable = errors.New("git remote is unreachable")
 	ErrActivePublish     = errors.New("another publish is in progress")
 	ErrNoActivePublish   = errors.New("no active publish to resume")
+	ErrApprovalRequired  = errors.New("agent-mutated plugin requires human approval — create .publish-approved or run 'ic publish' manually")
 )
