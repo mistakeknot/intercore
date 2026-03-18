@@ -1,57 +1,136 @@
 package portfolio
 
-import (
-	"fmt"
-	"sort"
-)
+import "fmt"
 
 // TopologicalSort returns projects in dependency-respecting order (upstreams first)
-// using Kahn's algorithm. The output is deterministic: ties among nodes at the
-// same topological level are broken by lexicographic sort.
+// using Kahn's algorithm with a min-heap priority queue. The output is deterministic:
+// among nodes whose dependencies are all satisfied, the lexicographically smallest
+// is always emitted first.
 func TopologicalSort(deps []Dep) ([]string, error) {
-	// Build adjacency list and in-degree map
-	inDegree := make(map[string]int)
-	downstream := make(map[string][]string)
+	if len(deps) == 0 {
+		return nil, nil
+	}
 
-	// Collect all nodes
+	// Phase 1: Collect unique node names and assign indices.
+	nameIndex := make(map[string]int, len(deps))
+	var names []string
+	nodeID := func(s string) int {
+		if id, ok := nameIndex[s]; ok {
+			return id
+		}
+		id := len(names)
+		nameIndex[s] = id
+		names = append(names, s)
+		return id
+	}
 	for _, d := range deps {
-		if _, ok := inDegree[d.UpstreamProject]; !ok {
-			inDegree[d.UpstreamProject] = 0
-		}
-		if _, ok := inDegree[d.DownstreamProject]; !ok {
-			inDegree[d.DownstreamProject] = 0
-		}
-		downstream[d.UpstreamProject] = append(downstream[d.UpstreamProject], d.DownstreamProject)
-		inDegree[d.DownstreamProject]++
+		nodeID(d.UpstreamProject)
+		nodeID(d.DownstreamProject)
+	}
+	n := len(names)
+
+	// Phase 2: Build adjacency and in-degree arrays (zero-alloc per edge).
+	inDegree := make([]int, n)
+	// Flatten adjacency into a single slice pair (offsets + targets).
+	// First pass: count outgoing edges.
+	outCount := make([]int, n)
+	for _, d := range deps {
+		outCount[nameIndex[d.UpstreamProject]]++
+	}
+	// Compute prefix offsets.
+	offsets := make([]int, n+1)
+	for i := 0; i < n; i++ {
+		offsets[i+1] = offsets[i] + outCount[i]
+	}
+	// Second pass: fill target array.
+	targets := make([]int, len(deps))
+	pos := make([]int, n) // write cursor per node
+	copy(pos, offsets[:n])
+	for _, d := range deps {
+		u := nameIndex[d.UpstreamProject]
+		v := nameIndex[d.DownstreamProject]
+		targets[pos[u]] = v
+		pos[u]++
+		inDegree[v]++
 	}
 
-	// Seed queue with zero-in-degree nodes (sorted for determinism)
-	var queue []string
-	for node, deg := range inDegree {
-		if deg == 0 {
-			queue = append(queue, node)
+	// Phase 3: Kahn's with inline string min-heap for determinism.
+	h := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		if inDegree[i] == 0 {
+			h = append(h, names[i])
 		}
 	}
-	sort.Strings(queue)
+	heapInit(h)
 
-	var order []string
-	for len(queue) > 0 {
-		node := queue[0]
-		queue = queue[1:]
+	order := make([]string, 0, n)
+	for len(h) > 0 {
+		var node string
+		node, h = heapPop(h)
 		order = append(order, node)
-		var ready []string
-		for _, next := range downstream[node] {
-			inDegree[next]--
-			if inDegree[next] == 0 {
-				ready = append(ready, next)
+		uid := nameIndex[node]
+		for j := offsets[uid]; j < offsets[uid+1]; j++ {
+			v := targets[j]
+			inDegree[v]--
+			if inDegree[v] == 0 {
+				h = heapPush(h, names[v])
 			}
 		}
-		sort.Strings(ready)
-		queue = append(queue, ready...)
 	}
 
-	if len(order) != len(inDegree) {
-		return nil, fmt.Errorf("topo sort: cycle detected (%d nodes, %d sorted)", len(inDegree), len(order))
+	if len(order) != n {
+		return nil, fmt.Errorf("topo sort: cycle detected (%d nodes, %d sorted)", n, len(order))
 	}
 	return order, nil
+}
+
+// Inline min-heap operations on []string to avoid container/heap interface boxing.
+
+func heapInit(h []string) {
+	n := len(h)
+	for i := n/2 - 1; i >= 0; i-- {
+		heapDown(h, i, n)
+	}
+}
+
+func heapPush(h []string, s string) []string {
+	h = append(h, s)
+	heapUp(h, len(h)-1)
+	return h
+}
+
+func heapPop(h []string) (string, []string) {
+	n := len(h) - 1
+	h[0], h[n] = h[n], h[0]
+	heapDown(h, 0, n)
+	return h[n], h[:n]
+}
+
+func heapUp(h []string, j int) {
+	for {
+		i := (j - 1) / 2
+		if i == j || h[j] >= h[i] {
+			break
+		}
+		h[i], h[j] = h[j], h[i]
+		j = i
+	}
+}
+
+func heapDown(h []string, i, n int) {
+	for {
+		left := 2*i + 1
+		if left >= n {
+			break
+		}
+		j := left
+		if right := left + 1; right < n && h[right] < h[left] {
+			j = right
+		}
+		if h[i] <= h[j] {
+			break
+		}
+		h[i], h[j] = h[j], h[i]
+		i = j
+	}
 }
