@@ -75,8 +75,20 @@ func BenchmarkScoreAllPairs10x5(b *testing.B) {
 	agents := makeAgents(5)
 	cfg := DefaultConfig()
 
+	reservations := make(map[string][]string, len(agents))
+	for i := range agents {
+		if len(agents[i].Reservations) > 0 {
+			reservations[agents[i].ID] = agents[i].Reservations
+		}
+	}
+	ctx := &scoringContext{
+		tasks:        tasks,
+		agents:       agents,
+		reservations: reservations,
+	}
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = scoreAllPairs(tasks, agents, cfg)
+		_ = scoreAllPairs(ctx, cfg)
 	}
 }

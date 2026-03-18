@@ -54,13 +54,13 @@ type Assignment struct {
 
 // Breakdown shows how each factor contributed to the score.
 type Breakdown struct {
-	BaseScore         float64 `json:"base_score"`
-	AgentTypeBonus    float64 `json:"agent_type_bonus"`
-	CriticalPathBonus float64 `json:"critical_path_bonus"`
-	ProfileTagBonus   float64 `json:"profile_tag_bonus"`
-	FocusPatternBonus float64 `json:"focus_pattern_bonus"`
+	BaseScore          float64 `json:"base_score"`
+	AgentTypeBonus     float64 `json:"agent_type_bonus"`
+	CriticalPathBonus  float64 `json:"critical_path_bonus"`
+	ProfileTagBonus    float64 `json:"profile_tag_bonus"`
+	FocusPatternBonus  float64 `json:"focus_pattern_bonus"`
 	FileOverlapPenalty float64 `json:"file_overlap_penalty"`
-	ContextPenalty    float64 `json:"context_penalty"`
+	ContextPenalty     float64 `json:"context_penalty"`
 }
 
 // Config controls scoring behavior.
@@ -69,8 +69,8 @@ type Config struct {
 	PenalizeFileOverlap     bool    `json:"penalize_file_overlap"`
 	UseAgentProfiles        bool    `json:"use_agent_profiles"`
 	BudgetAware             bool    `json:"budget_aware"`
-	ContextThreshold        float64 `json:"context_threshold"`         // 0-100, default 80
-	ProfileTagBoostWeight   float64 `json:"profile_tag_boost_weight"`  // default 0.15
+	ContextThreshold        float64 `json:"context_threshold"`          // 0-100, default 80
+	ProfileTagBoostWeight   float64 `json:"profile_tag_boost_weight"`   // default 0.15
 	FocusPatternBoostWeight float64 `json:"focus_pattern_boost_weight"` // default 0.10
 }
 
@@ -99,10 +99,17 @@ const (
 )
 
 type scoredPair struct {
-	task      Task
-	agent     Agent
+	taskIdx   int
+	agentIdx  int
 	score     float64
 	breakdown Breakdown
+}
+
+// scoringContext holds shared state for a single Assign call to avoid repeated allocations.
+type scoringContext struct {
+	tasks        []Task
+	agents       []Agent
+	reservations map[string][]string
 }
 
 // Assign computes optimal assignments for the given tasks and agents.
@@ -111,45 +118,59 @@ func Assign(tasks []Task, agents []Agent, strategy Strategy, cfg Config) []Assig
 		return nil
 	}
 
+	// Build reservation map once.
+	reservations := make(map[string][]string, len(agents))
+	for i := range agents {
+		if len(agents[i].Reservations) > 0 {
+			reservations[agents[i].ID] = agents[i].Reservations
+		}
+	}
+
+	ctx := &scoringContext{
+		tasks:        tasks,
+		agents:       agents,
+		reservations: reservations,
+	}
+
 	// Score all pairs.
-	pairs := scoreAllPairs(tasks, agents, cfg)
+	pairs := scoreAllPairs(ctx, cfg)
 
 	// Select assignments based on strategy.
-	selected := selectAssignments(pairs, len(agents), len(tasks), strategy)
+	selected := selectAssignments(pairs, ctx, len(agents), len(tasks), strategy)
 
 	// Build result.
 	assignments := make([]Assignment, len(selected))
 	for i, p := range selected {
 		assignments[i] = Assignment{
-			TaskID:    p.task.ID,
-			AgentID:   p.agent.ID,
+			TaskID:    ctx.tasks[p.taskIdx].ID,
+			AgentID:   ctx.agents[p.agentIdx].ID,
 			Score:     p.score,
 			Breakdown: p.breakdown,
-			Reason:    buildReason(p, strategy),
+			Reason:    buildReason(p, ctx, strategy),
 		}
 	}
 	return assignments
 }
 
-func scoreAllPairs(tasks []Task, agents []Agent, cfg Config) []scoredPair {
-	// Build reservation map: agent -> reserved files.
-	reservations := make(map[string][]string)
-	for _, a := range agents {
-		reservations[a.ID] = a.Reservations
-	}
-
-	pairs := make([]scoredPair, 0, len(tasks)*len(agents))
-	for _, task := range tasks {
-		for _, agent := range agents {
-			pair := scoreOne(agent, task, cfg, reservations)
-			pairs = append(pairs, pair)
+func scoreAllPairs(ctx *scoringContext, cfg Config) []scoredPair {
+	n := len(ctx.tasks) * len(ctx.agents)
+	pairs := make([]scoredPair, n)
+	idx := 0
+	for ti := range ctx.tasks {
+		for ai := range ctx.agents {
+			scoreOne(&pairs[idx], ti, ai, ctx, cfg)
+			idx++
 		}
 	}
 	return pairs
 }
 
-func scoreOne(agent Agent, task Task, cfg Config, reservations map[string][]string) scoredPair {
-	b := Breakdown{
+func scoreOne(out *scoredPair, taskIdx, agentIdx int, ctx *scoringContext, cfg Config) {
+	task := &ctx.tasks[taskIdx]
+	agent := &ctx.agents[agentIdx]
+
+	b := &out.breakdown
+	*b = Breakdown{
 		BaseScore: task.Score,
 	}
 
@@ -178,7 +199,7 @@ func scoreOne(agent Agent, task Task, cfg Config, reservations map[string][]stri
 	}
 
 	if cfg.PenalizeFileOverlap {
-		b.FileOverlapPenalty = fileOverlapPenalty(agent.ID, task.Files, reservations)
+		b.FileOverlapPenalty = fileOverlapPenalty(agent.ID, task.Files, ctx.reservations)
 	}
 
 	if cfg.BudgetAware {
@@ -189,24 +210,19 @@ func scoreOne(agent Agent, task Task, cfg Config, reservations map[string][]stri
 		b.ContextPenalty = contextPenalty(agent.ContextUsage, threshold)
 	}
 
-	total := b.BaseScore +
+	out.taskIdx = taskIdx
+	out.agentIdx = agentIdx
+	out.score = b.BaseScore +
 		b.AgentTypeBonus +
 		b.CriticalPathBonus +
 		b.ProfileTagBonus +
 		b.FocusPatternBonus -
 		b.FileOverlapPenalty -
 		b.ContextPenalty
-
-	return scoredPair{
-		task:      task,
-		agent:     agent,
-		score:     total,
-		breakdown: b,
-	}
 }
 
 // agentTypeBonus returns a bonus based on agent-task complexity match.
-func agentTypeBonus(agentType string, task Task) float64 {
+func agentTypeBonus(agentType string, task *Task) float64 {
 	complexity := estimateComplexity(task)
 
 	switch strings.ToLower(agentType) {
@@ -230,7 +246,7 @@ func agentTypeBonus(agentType string, task Task) float64 {
 	return 0
 }
 
-func estimateComplexity(task Task) float64 {
+func estimateComplexity(task *Task) float64 {
 	c := 0.5
 
 	switch task.Type {
@@ -271,15 +287,15 @@ func profileTagBonus(agentTags, taskTags []string, weight float64) float64 {
 		return 0
 	}
 
-	agentSet := make(map[string]bool, len(agentTags))
-	for _, t := range agentTags {
-		agentSet[strings.ToLower(t)] = true
-	}
-
+	// O(n*m) with small slices is faster than map allocation.
 	matches := 0
-	for _, t := range taskTags {
-		if agentSet[strings.ToLower(t)] {
-			matches++
+	for _, tt := range taskTags {
+		ttLower := strings.ToLower(tt)
+		for _, at := range agentTags {
+			if strings.ToLower(at) == ttLower {
+				matches++
+				break
+			}
 		}
 	}
 
@@ -335,7 +351,7 @@ func matchesPattern(file, pattern string) bool {
 	return strings.Contains(file, pattern)
 }
 
-func criticalPathBonus(task Task) float64 {
+func criticalPathBonus(task *Task) float64 {
 	n := len(task.UnblocksIDs)
 	switch {
 	case n >= 5:
@@ -390,152 +406,145 @@ func contextPenalty(usage, threshold float64) float64 {
 	return excess * 0.3
 }
 
-func selectAssignments(pairs []scoredPair, numAgents, numTasks int, strategy Strategy) []scoredPair {
+func selectAssignments(pairs []scoredPair, ctx *scoringContext, numAgents, numTasks int, strategy Strategy) []scoredPair {
 	switch strategy {
 	case StrategyQuality:
-		return selectQuality(pairs, numAgents, numTasks)
+		return selectQuality(pairs, ctx, numAgents, numTasks)
 	case StrategyDependency:
-		return selectDependency(pairs, numAgents, numTasks)
+		return selectDependency(pairs, ctx, numAgents, numTasks)
 	case StrategyRoundRobin:
-		return selectRoundRobin(pairs, numAgents, numTasks)
+		return selectRoundRobin(pairs, ctx, numAgents, numTasks)
 	case StrategySpeed:
-		return selectSpeed(pairs, numAgents, numTasks)
+		return selectSpeed(pairs, ctx, numAgents, numTasks)
 	default: // balanced
-		return selectBalanced(pairs, numAgents, numTasks)
+		return selectBalanced(pairs, ctx, numAgents, numTasks)
 	}
 }
 
 // selectQuality assigns each task to its highest-scoring agent.
-func selectQuality(pairs []scoredPair, _, _ int) []scoredPair {
+func selectQuality(pairs []scoredPair, ctx *scoringContext, _, numTasks int) []scoredPair {
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].score > pairs[j].score
 	})
 
-	assigned := make(map[string]bool)
-	var result []scoredPair
-	for _, p := range pairs {
-		if assigned[p.task.ID] {
+	assigned := make(map[int]bool, numTasks)
+	result := make([]scoredPair, 0, numTasks)
+	for i := range pairs {
+		if assigned[pairs[i].taskIdx] {
 			continue
 		}
-		assigned[p.task.ID] = true
-		result = append(result, p)
+		assigned[pairs[i].taskIdx] = true
+		result = append(result, pairs[i])
 	}
 	return result
 }
 
 // selectBalanced assigns tasks to agents, ensuring even distribution.
-func selectBalanced(pairs []scoredPair, numAgents, _ int) []scoredPair {
+func selectBalanced(pairs []scoredPair, ctx *scoringContext, numAgents, numTasks int) []scoredPair {
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].score > pairs[j].score
 	})
 
-	assignedTasks := make(map[string]bool)
-	agentLoad := make(map[string]int)
+	assignedTasks := make(map[int]bool, numTasks)
+	agentLoad := make(map[int]int, numAgents)
 
-	// Count unique tasks.
-	taskSet := make(map[string]bool)
-	for _, p := range pairs {
-		taskSet[p.task.ID] = true
-	}
-	numTasks := len(taskSet)
 	maxPerAgent := (numTasks + numAgents - 1) / numAgents
 	if maxPerAgent < 1 {
 		maxPerAgent = 1
 	}
 
-	var result []scoredPair
+	result := make([]scoredPair, 0, numTasks)
 	for _, p := range pairs {
-		if assignedTasks[p.task.ID] {
+		if assignedTasks[p.taskIdx] {
 			continue
 		}
-		if agentLoad[p.agent.ID] >= maxPerAgent {
+		if agentLoad[p.agentIdx] >= maxPerAgent {
 			continue
 		}
-		assignedTasks[p.task.ID] = true
-		agentLoad[p.agent.ID]++
+		assignedTasks[p.taskIdx] = true
+		agentLoad[p.agentIdx]++
 		result = append(result, p)
 	}
 	return result
 }
 
 // selectDependency prioritizes tasks that unblock the most other tasks.
-func selectDependency(pairs []scoredPair, _, _ int) []scoredPair {
+func selectDependency(pairs []scoredPair, ctx *scoringContext, _, numTasks int) []scoredPair {
 	sort.Slice(pairs, func(i, j int) bool {
 		// Primary sort: more unblocks first
-		ui := len(pairs[i].task.UnblocksIDs)
-		uj := len(pairs[j].task.UnblocksIDs)
+		ui := len(ctx.tasks[pairs[i].taskIdx].UnblocksIDs)
+		uj := len(ctx.tasks[pairs[j].taskIdx].UnblocksIDs)
 		if ui != uj {
 			return ui > uj
 		}
 		return pairs[i].score > pairs[j].score
 	})
 
-	assigned := make(map[string]bool)
-	var result []scoredPair
+	assigned := make(map[int]bool, numTasks)
+	result := make([]scoredPair, 0, numTasks)
 	for _, p := range pairs {
-		if assigned[p.task.ID] {
+		if assigned[p.taskIdx] {
 			continue
 		}
-		assigned[p.task.ID] = true
+		assigned[p.taskIdx] = true
 		result = append(result, p)
 	}
 	return result
 }
 
 // selectSpeed assigns each task to any available agent, highest score first.
-func selectSpeed(pairs []scoredPair, _, _ int) []scoredPair {
+func selectSpeed(pairs []scoredPair, ctx *scoringContext, _, numTasks int) []scoredPair {
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].score > pairs[j].score
 	})
 
-	assigned := make(map[string]bool)
-	var result []scoredPair
+	assigned := make(map[int]bool, numTasks)
+	result := make([]scoredPair, 0, numTasks)
 	for _, p := range pairs {
-		if assigned[p.task.ID] {
+		if assigned[p.taskIdx] {
 			continue
 		}
-		assigned[p.task.ID] = true
+		assigned[p.taskIdx] = true
 		result = append(result, p)
 	}
 	return result
 }
 
 // selectRoundRobin distributes tasks evenly across agents in order.
-func selectRoundRobin(pairs []scoredPair, numAgents, _ int) []scoredPair {
-	// Collect unique tasks and agents.
-	taskOrder := make([]string, 0)
-	taskSeen := make(map[string]bool)
-	agentOrder := make([]string, 0)
-	agentSeen := make(map[string]bool)
+func selectRoundRobin(pairs []scoredPair, ctx *scoringContext, numAgents, numTasks int) []scoredPair {
+	// Collect unique task and agent indices in order.
+	taskOrder := make([]int, 0, numTasks)
+	taskSeen := make(map[int]bool, numTasks)
+	agentOrder := make([]int, 0, numAgents)
+	agentSeen := make(map[int]bool, numAgents)
 
-	for _, p := range pairs {
-		if !taskSeen[p.task.ID] {
-			taskSeen[p.task.ID] = true
-			taskOrder = append(taskOrder, p.task.ID)
+	for i := range pairs {
+		if !taskSeen[pairs[i].taskIdx] {
+			taskSeen[pairs[i].taskIdx] = true
+			taskOrder = append(taskOrder, pairs[i].taskIdx)
 		}
-		if !agentSeen[p.agent.ID] {
-			agentSeen[p.agent.ID] = true
-			agentOrder = append(agentOrder, p.agent.ID)
+		if !agentSeen[pairs[i].agentIdx] {
+			agentSeen[pairs[i].agentIdx] = true
+			agentOrder = append(agentOrder, pairs[i].agentIdx)
 		}
 	}
 
-	// Build lookup.
-	pairMap := make(map[string]map[string]scoredPair)
-	for _, p := range pairs {
-		if pairMap[p.task.ID] == nil {
-			pairMap[p.task.ID] = make(map[string]scoredPair)
-		}
-		pairMap[p.task.ID][p.agent.ID] = p
+	// Build lookup: pairLookup[taskIdx*numAgents + agentIdx] for O(1) access.
+	// Use a flat map keyed by (taskIdx, agentIdx) encoded as a single int.
+	type pairKey struct{ t, a int }
+	pairMap := make(map[pairKey]scoredPair, len(pairs))
+	for i := range pairs {
+		pairMap[pairKey{pairs[i].taskIdx, pairs[i].agentIdx}] = pairs[i]
 	}
 
-	var result []scoredPair
+	result := make([]scoredPair, 0, numTasks)
 	agentIdx := 0
-	for _, taskID := range taskOrder {
+	for _, ti := range taskOrder {
 		if agentIdx >= len(agentOrder) {
 			agentIdx = 0
 		}
-		agentID := agentOrder[agentIdx]
-		if p, ok := pairMap[taskID][agentID]; ok {
+		ai := agentOrder[agentIdx]
+		if p, ok := pairMap[pairKey{ti, ai}]; ok {
 			result = append(result, p)
 		}
 		agentIdx++
@@ -543,30 +552,51 @@ func selectRoundRobin(pairs []scoredPair, numAgents, _ int) []scoredPair {
 	return result
 }
 
-func buildReason(p scoredPair, strategy Strategy) string {
-	parts := make([]string, 0, 4)
+// reasonTable precomputes all 64 possible reason strings (6 binary flags).
+// Indexed by flags: bit0=typeMatch, bit1=critPath, bit2=tagAffinity,
+// bit3=fileFocus, bit4=contextPressure, bit5=fileConflict.
+var reasonTable [64]string
 
+func init() {
+	labels := [6]string{
+		"good type match",
+		"on critical path",
+		"tag affinity",
+		"file focus match",
+		"context pressure",
+		"file conflict",
+	}
+	reasonTable[0] = "default assignment"
+	for flags := uint8(1); flags < 64; flags++ {
+		var parts []string
+		for bit := uint8(0); bit < 6; bit++ {
+			if flags&(1<<bit) != 0 {
+				parts = append(parts, labels[bit])
+			}
+		}
+		reasonTable[flags] = strings.Join(parts, ", ")
+	}
+}
+
+func buildReason(p scoredPair, ctx *scoringContext, strategy Strategy) string {
+	var flags uint8
 	if p.breakdown.AgentTypeBonus > 0 {
-		parts = append(parts, "good type match")
+		flags |= 1
 	}
 	if p.breakdown.CriticalPathBonus > 0 {
-		parts = append(parts, "on critical path")
+		flags |= 2
 	}
 	if p.breakdown.ProfileTagBonus > 0 {
-		parts = append(parts, "tag affinity")
+		flags |= 4
 	}
 	if p.breakdown.FocusPatternBonus > 0 {
-		parts = append(parts, "file focus match")
+		flags |= 8
 	}
 	if p.breakdown.ContextPenalty > 0 {
-		parts = append(parts, "context pressure")
+		flags |= 16
 	}
 	if p.breakdown.FileOverlapPenalty > 0 {
-		parts = append(parts, "file conflict")
+		flags |= 32
 	}
-
-	if len(parts) == 0 {
-		return "default assignment"
-	}
-	return strings.Join(parts, ", ")
+	return reasonTable[flags]
 }

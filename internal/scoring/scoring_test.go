@@ -47,7 +47,7 @@ func TestEstimateComplexity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := estimateComplexity(tt.task)
+			got := estimateComplexity(&tt.task)
 			if !almostEqual(got, tt.want) {
 				t.Errorf("estimateComplexity() = %v, want %v", got, tt.want)
 			}
@@ -58,7 +58,7 @@ func TestEstimateComplexity(t *testing.T) {
 func TestEstimateComplexity_Clamped(t *testing.T) {
 	// Very low should clamp to 0.
 	task := Task{Type: "chore", Priority: 0}
-	got := estimateComplexity(task)
+	got := estimateComplexity(&task)
 	if got < 0 || got > 1 {
 		t.Errorf("complexity out of range [0,1]: %v", got)
 	}
@@ -66,22 +66,22 @@ func TestEstimateComplexity_Clamped(t *testing.T) {
 
 func TestAgentTypeBonus(t *testing.T) {
 	highComplexity := Task{Type: "epic", Priority: 3} // ~0.9
-	lowComplexity := Task{Type: "chore", Priority: 0}  // ~0.2
+	lowComplexity := Task{Type: "chore", Priority: 0} // ~0.2
 
 	// Claude gets bonus for high complexity.
-	if bonus := agentTypeBonus("claude", highComplexity); bonus <= 0 {
+	if bonus := agentTypeBonus("claude", &highComplexity); bonus <= 0 {
 		t.Errorf("claude should get bonus for high complexity, got %v", bonus)
 	}
 	// Codex gets bonus for low complexity.
-	if bonus := agentTypeBonus("codex", lowComplexity); bonus <= 0 {
+	if bonus := agentTypeBonus("codex", &lowComplexity); bonus <= 0 {
 		t.Errorf("codex should get bonus for low complexity, got %v", bonus)
 	}
 	// Claude gets penalty for low complexity.
-	if bonus := agentTypeBonus("claude", lowComplexity); bonus >= 0 {
+	if bonus := agentTypeBonus("claude", &lowComplexity); bonus >= 0 {
 		t.Errorf("claude should get penalty for low complexity, got %v", bonus)
 	}
 	// Codex gets penalty for high complexity.
-	if bonus := agentTypeBonus("codex", highComplexity); bonus >= 0 {
+	if bonus := agentTypeBonus("codex", &highComplexity); bonus >= 0 {
 		t.Errorf("codex should get penalty for high complexity, got %v", bonus)
 	}
 }
@@ -193,7 +193,7 @@ func TestCriticalPathBonus(t *testing.T) {
 				ids[i] = "x"
 			}
 			task := Task{UnblocksIDs: ids}
-			got := criticalPathBonus(task)
+			got := criticalPathBonus(&task)
 			if !almostEqual(got, tt.wantMin) {
 				t.Errorf("criticalPathBonus(%d) = %v, want %v", tt.unblocks, got, tt.wantMin)
 			}
@@ -420,7 +420,7 @@ func TestBuildReason(t *testing.T) {
 			FileOverlapPenalty: 0.05,
 		},
 	}
-	reason := buildReason(p, StrategyBalanced)
+	reason := buildReason(p, nil, StrategyBalanced)
 	for _, substr := range []string{"type match", "critical path", "tag affinity", "file focus", "context pressure", "file conflict"} {
 		if !contains(reason, substr) {
 			t.Errorf("reason %q missing %q", reason, substr)
@@ -429,7 +429,7 @@ func TestBuildReason(t *testing.T) {
 
 	// No factors.
 	p2 := scoredPair{breakdown: Breakdown{}}
-	if buildReason(p2, StrategyBalanced) != "default assignment" {
+	if buildReason(p2, nil, StrategyBalanced) != "default assignment" {
 		t.Errorf("empty breakdown should give 'default assignment'")
 	}
 }
@@ -461,10 +461,16 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestScoreOne_AllDisabled(t *testing.T) {
 	cfg := Config{} // All false/zero
-	agent := Agent{ID: "a1", ContextUsage: 95}
-	task := Task{ID: "t1", Score: 0.5, UnblocksIDs: []string{"t2"}, Files: []string{"main.go"}}
+	agents := []Agent{{ID: "a1", ContextUsage: 95}}
+	tasks := []Task{{ID: "t1", Score: 0.5, UnblocksIDs: []string{"t2"}, Files: []string{"main.go"}}}
 
-	pair := scoreOne(agent, task, cfg, nil)
+	ctx := &scoringContext{
+		tasks:        tasks,
+		agents:       agents,
+		reservations: map[string][]string{},
+	}
+	var pair scoredPair
+	scoreOne(&pair, 0, 0, ctx, cfg)
 
 	// Only base score should remain.
 	if !almostEqual(pair.score, 0.5) {
