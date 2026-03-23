@@ -421,19 +421,37 @@ func selectAssignments(pairs []scoredPair, ctx *scoringContext, numAgents, numTa
 	}
 }
 
-// selectQuality assigns each task to its highest-scoring agent.
-func selectQuality(pairs []scoredPair, ctx *scoringContext, _, numTasks int) []scoredPair {
+// selectQuality assigns each task to its highest-scoring agent,
+// with a per-agent cap to prevent one agent from monopolizing all tasks.
+// The cap is ceiling(tasks/agents) + 1, giving quality mode a slight preference
+// for the best agent while still distributing work.
+func selectQuality(pairs []scoredPair, ctx *scoringContext, numAgents, numTasks int) []scoredPair {
+	if numAgents == 0 {
+		return nil
+	}
+
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].score > pairs[j].score
 	})
 
+	maxPerAgent := (numTasks + numAgents - 1) / numAgents
+	if maxPerAgent < 1 {
+		maxPerAgent = 1
+	}
+	maxPerAgent++ // quality mode allows +1 over balanced
+
 	assigned := make(map[int]bool, numTasks)
+	agentLoad := make(map[int]int, numAgents)
 	result := make([]scoredPair, 0, numTasks)
 	for i := range pairs {
 		if assigned[pairs[i].taskIdx] {
 			continue
 		}
+		if agentLoad[pairs[i].agentIdx] >= maxPerAgent {
+			continue
+		}
 		assigned[pairs[i].taskIdx] = true
+		agentLoad[pairs[i].agentIdx]++
 		result = append(result, pairs[i])
 	}
 	return result
@@ -441,6 +459,10 @@ func selectQuality(pairs []scoredPair, ctx *scoringContext, _, numTasks int) []s
 
 // selectBalanced assigns tasks to agents, ensuring even distribution.
 func selectBalanced(pairs []scoredPair, ctx *scoringContext, numAgents, numTasks int) []scoredPair {
+	if numAgents == 0 {
+		return nil
+	}
+
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].score > pairs[j].score
 	})

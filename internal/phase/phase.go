@@ -4,19 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	exported "github.com/mistakeknot/intercore/pkg/phase"
 )
 
-// Phase constants — the linear lifecycle progression.
+// Phase constants — re-exported from pkg/phase for internal use.
+// New code should import pkg/phase directly.
 const (
-	PhaseBrainstorm         = "brainstorm"
-	PhaseBrainstormReviewed = "brainstorm-reviewed"
-	PhaseStrategized        = "strategized"
-	PhasePlanned            = "planned"
-	PhaseExecuting          = "executing"
-	PhaseReview             = "review"
-	PhasePolish             = "polish"
-	PhaseReflect            = "reflect"
-	PhaseDone               = "done"
+	PhaseBrainstorm         = exported.Brainstorm
+	PhaseBrainstormReviewed = exported.BrainstormReviewed
+	PhaseStrategized        = exported.Strategized
+	PhasePlanned            = exported.Planned
+	PhaseExecuting          = exported.Executing
+	PhaseReview             = exported.Review
+	PhasePolish             = exported.Polish
+	PhaseReflect            = exported.Reflect
+	PhaseDone               = exported.Done
 )
 
 // Run status constants.
@@ -64,17 +67,8 @@ func IsTerminalStatus(s string) bool {
 
 // DefaultPhaseChain is the 9-phase Clavain lifecycle.
 // Used when a run has no explicit phases column (NULL in DB).
-var DefaultPhaseChain = []string{
-	PhaseBrainstorm,
-	PhaseBrainstormReviewed,
-	PhaseStrategized,
-	PhasePlanned,
-	PhaseExecuting,
-	PhaseReview,
-	PhasePolish,
-	PhaseReflect,
-	PhaseDone,
-}
+// Canonical source: pkg/phase.DefaultChain
+var DefaultPhaseChain = exported.DefaultChain
 
 // ParsePhaseChain parses and validates a JSON phase chain.
 // Returns error if: not valid JSON array, fewer than 2 phases, or contains duplicates.

@@ -1,6 +1,7 @@
 package scoring
 
 import (
+	"fmt"
 	"math"
 	"testing"
 )
@@ -509,4 +510,63 @@ func containsSubstr(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+func TestSelectQuality_PerAgentCap(t *testing.T) {
+	// 10 tasks, 5 agents. Cap = ceil(10/5)+1 = 3.
+	// No agent should get more than 3 even if it scores highest on all tasks.
+	tasks := make([]Task, 10)
+	for i := range tasks {
+		tasks[i] = Task{ID: fmt.Sprintf("t%d", i), Score: 0.5}
+	}
+	agents := make([]Agent, 5)
+	for i := range agents {
+		agents[i] = Agent{ID: fmt.Sprintf("a%d", i), Type: "claude"}
+	}
+
+	cfg := DefaultConfig()
+	cfg.UseAgentProfiles = false
+	cfg.PreferCriticalPath = false
+	cfg.PenalizeFileOverlap = false
+	cfg.BudgetAware = false
+
+	assignments := Assign(tasks, agents, StrategyQuality, cfg)
+
+	// All tasks must be assigned (no silent drops).
+	if len(assignments) != 10 {
+		t.Fatalf("expected 10 assignments, got %d", len(assignments))
+	}
+
+	// No agent gets more than 3.
+	load := make(map[string]int)
+	for _, a := range assignments {
+		load[a.AgentID]++
+	}
+	for agentID, count := range load {
+		if count > 3 {
+			t.Errorf("agent %s got %d tasks, want ≤3", agentID, count)
+		}
+	}
+}
+
+func TestSelectQuality_ZeroAgents(t *testing.T) {
+	tasks := []Task{{ID: "t1", Score: 0.5}}
+	var agents []Agent
+
+	cfg := DefaultConfig()
+	assignments := Assign(tasks, agents, StrategyQuality, cfg)
+	if len(assignments) != 0 {
+		t.Fatalf("expected 0 assignments with no agents, got %d", len(assignments))
+	}
+}
+
+func TestSelectBalanced_ZeroAgents(t *testing.T) {
+	tasks := []Task{{ID: "t1", Score: 0.5}}
+	var agents []Agent
+
+	cfg := DefaultConfig()
+	assignments := Assign(tasks, agents, StrategyBalanced, cfg)
+	if len(assignments) != 0 {
+		t.Fatalf("expected 0 assignments with no agents, got %d", len(assignments))
+	}
 }
