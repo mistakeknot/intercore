@@ -158,8 +158,15 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 		txDQ = nil
 	}
 
+	// Build tx-scoped budget querier — all budget reads happen inside
+	// the same transaction as the phase update, preventing TOCTOU.
+	var txBQ BudgetQuerier
+	if bq != nil && run.TokenBudget != nil && *run.TokenBudget > 0 {
+		txBQ = &txBudgetQuerier{q: tx, tokenBudget: *run.TokenBudget}
+	}
+
 	// Evaluate gate — reads happen inside the transaction
-	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, txRT, txVQ, txPQ, txDQ, bq)
+	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, txRT, txVQ, txPQ, txDQ, txBQ)
 	if gateErr != nil {
 		return nil, fmt.Errorf("advance: %w", gateErr)
 	}
@@ -278,7 +285,13 @@ type RollbackResult struct {
 // Rollback does NOT delete events or artifacts — those are marked separately
 // by the caller (see runtrack.MarkArtifactsRolledBack).
 func Rollback(ctx context.Context, store *Store, runID, targetPhase, reason string, callback PhaseEventCallback) (*RollbackResult, error) {
-	run, err := store.Get(ctx, runID)
+	tx, err := store.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("rollback: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	run, err := store.GetQ(ctx, tx, runID)
 	if err != nil {
 		return nil, err
 	}
@@ -292,13 +305,13 @@ func Rollback(ctx context.Context, store *Store, runID, targetPhase, reason stri
 		return nil, ErrInvalidRollback
 	}
 
-	// Perform the phase rewind (store enforces terminal-status rejection + OCC)
-	if err := store.RollbackPhase(ctx, runID, fromPhase, targetPhase); err != nil {
+	// Perform the phase rewind (OCC + terminal-status rejection, inside tx)
+	if err := store.RollbackPhaseQ(ctx, tx, runID, fromPhase, targetPhase); err != nil {
 		return nil, fmt.Errorf("rollback: %w", err)
 	}
 
-	// Record rollback event
-	if err := store.AddEvent(ctx, &PhaseEvent{
+	// Record rollback event (inside same tx — atomic with phase rewind)
+	if err := store.AddEventQ(ctx, tx, &PhaseEvent{
 		RunID:     runID,
 		FromPhase: fromPhase,
 		ToPhase:   targetPhase,
@@ -308,7 +321,12 @@ func Rollback(ctx context.Context, store *Store, runID, targetPhase, reason stri
 		return nil, fmt.Errorf("rollback: record event: %w", err)
 	}
 
-	// Fire callback
+	// Commit the atomic unit: phase rewind + rollback event
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("rollback: commit: %w", err)
+	}
+
+	// Fire callback OUTSIDE transaction (fire-and-forget, matching Advance pattern)
 	if callback != nil {
 		callback(runID, EventRollback, fromPhase, targetPhase, reason)
 	}

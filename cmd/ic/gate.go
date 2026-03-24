@@ -225,31 +225,45 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	// R3: UpdatePhase first, then record event.
-	// If crash between, advance happened without audit — safer than audit without advance.
-	if err := store.UpdatePhase(ctx, runID, fromPhase, toPhase); err != nil {
+	// Atomic override: phase update + event + status all in one transaction.
+	// Prevents orphaned events on crash (the old R3 non-tx approach could
+	// lose override events, which poisons FPR signal for gate calibration).
+	tx, txErr := store.BeginTx(ctx)
+	if txErr != nil {
+		slog.Error("gate override: begin tx failed", "error", txErr)
+		return 2
+	}
+	defer tx.Rollback()
+
+	if err := store.UpdatePhaseQ(ctx, tx, runID, fromPhase, toPhase); err != nil {
 		slog.Error("gate override failed", "error", err)
 		return 2
 	}
 
-	if err := store.AddEvent(ctx, &phase.PhaseEvent{
+	if err := store.AddEventQ(ctx, tx, &phase.PhaseEvent{
 		RunID:      runID,
 		FromPhase:  fromPhase,
 		ToPhase:    toPhase,
 		EventType:  phase.EventOverride,
 		GateResult: strPtr(phase.GateFail),
-		GateTier:   strPtr(phase.TierHard),
+		GateTier:   strPtr(phase.TierHard), // overrides only happen on hard blocks (soft gates auto-advance)
 		Reason:     strPtr(reason),
 	}); err != nil {
 		slog.Error("gate override: event failed", "error", err)
-		// Phase already advanced — log but don't fail (R3 ordering)
+		return 2
 	}
 
-	// If we reached the terminal phase, mark the run as completed
+	// If we reached the terminal phase, mark the run as completed (inside tx)
 	if phase.ChainIsTerminal(chain, toPhase) {
-		if err := store.UpdateStatus(ctx, runID, phase.StatusCompleted); err != nil {
+		if err := store.UpdateStatusQ(ctx, tx, runID, phase.StatusCompleted); err != nil {
 			slog.Error("gate override: status failed", "error", err)
+			return 2
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		slog.Error("gate override: commit failed", "error", err)
+		return 2
 	}
 
 	if flagJSON {

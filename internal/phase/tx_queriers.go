@@ -109,6 +109,28 @@ func (t *txDepQuerier) GetUpstream(ctx context.Context, portfolioRunID, downstre
 	return projects, rows.Err()
 }
 
+// txBudgetQuerier runs budget checks on a transaction.
+// Replicates the budget.Checker.Check + dispatch.Store.AggregateTokens
+// logic but operates on the provided Querier for tx atomicity.
+type txBudgetQuerier struct {
+	q           Querier
+	tokenBudget int64 // from the loaded run, passed at construction
+}
+
+func (t *txBudgetQuerier) IsBudgetExceeded(ctx context.Context, runID string) (bool, error) {
+	if t.tokenBudget <= 0 {
+		return false, nil // no budget set
+	}
+	var totalIn, totalOut int64
+	err := t.q.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0)
+		FROM dispatches WHERE scope_id = ?`, runID).Scan(&totalIn, &totalOut)
+	if err != nil {
+		return false, fmt.Errorf("tx budget check: %w", err)
+	}
+	return (totalIn + totalOut) > t.tokenBudget, nil
+}
+
 // scanRuns scans run rows into []*Run. Shared between store.queryRuns and txPortfolioQuerier.
 func scanRuns(rows *sql.Rows) ([]*Run, error) {
 	var runs []*Run
@@ -127,6 +149,7 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 			maxDispatches sql.NullInt64
 			budgetEnforce sql.NullInt64
 			maxAgents     sql.NullInt64
+			gateRulesJSON sql.NullString
 		)
 		if err := rows.Scan(
 			&r.ID, &r.ProjectDir, &r.Goal, &r.Status, &r.Phase,
@@ -136,6 +159,7 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 			&phasesJSON, &tokenBudget, &budgetWarnPct,
 			&parentRunID, &maxDispatches,
 			&budgetEnforce, &maxAgents,
+			&gateRulesJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scan run: %w", err)
 		}
@@ -155,6 +179,11 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 			return nil, err
 		}
 		r.Phases = phases
+		gr, err := parseGateRulesJSON(gateRulesJSON)
+		if err != nil {
+			return nil, err
+		}
+		r.GateRules = gr
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()
@@ -336,6 +365,38 @@ func (s *Store) SkippedPhasesQ(ctx context.Context, q Querier, runID string) (ma
 		skipped[p] = true
 	}
 	return skipped, rows.Err()
+}
+
+// RollbackPhaseQ rewinds a run's phase pointer using the provided querier.
+// Replicates the OCC logic from Store.RollbackPhase including the 3-way
+// error classification (ErrNotFound, ErrTerminalRun, ErrStalePhase).
+func (s *Store) RollbackPhaseQ(ctx context.Context, q Querier, id, currentPhase, targetPhase string) error {
+	now := time.Now().Unix()
+	result, err := q.ExecContext(ctx, `
+		UPDATE runs SET phase = ?, status = 'active', updated_at = ?, completed_at = NULL
+		WHERE id = ? AND phase = ? AND status NOT IN ('cancelled', 'failed')`,
+		targetPhase, now, id, currentPhase,
+	)
+	if err != nil {
+		return fmt.Errorf("rollback phase: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rollback phase: %w", err)
+	}
+	if n == 0 {
+		// Distinguish: not found vs stale phase vs terminal status.
+		// Must use GetQ (tx-scoped) to read consistent state.
+		run, getErr := s.GetQ(ctx, q, id)
+		if getErr != nil {
+			return ErrNotFound
+		}
+		if run.Status == StatusCancelled || run.Status == StatusFailed {
+			return ErrTerminalRun
+		}
+		return ErrStalePhase
+	}
+	return nil
 }
 
 // BeginTx starts a new transaction on the store's database.
