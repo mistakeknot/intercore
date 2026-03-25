@@ -410,6 +410,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 	priority := 4
 	disableGates := false
 	skipReason := ""
+	calibrationFile := ""
 
 	var positional []string
 	for i := 0; i < len(args); i++ {
@@ -426,6 +427,8 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			disableGates = true
 		case strings.HasPrefix(args[i], "--skip-reason="):
 			skipReason = strings.TrimPrefix(args[i], "--skip-reason=")
+		case strings.HasPrefix(args[i], "--calibration-file="):
+			calibrationFile = strings.TrimPrefix(args[i], "--calibration-file=")
 		default:
 			positional = append(positional, args[i])
 		}
@@ -594,11 +597,23 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 		}
 	}
 
+	// Load calibrated tiers from file (if provided)
+	var calibratedTiers map[string]string
+	if calibrationFile != "" {
+		var loadErr error
+		calibratedTiers, loadErr = LoadGateCalibration(calibrationFile)
+		if loadErr != nil {
+			slog.Error("run advance: calibration file", "error", loadErr)
+			return 2
+		}
+	}
+
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
-		Priority:   priority,
-		DisableAll: disableGates,
-		SkipReason: skipReason,
-		SpecRules:  specRules,
+		Priority:        priority,
+		DisableAll:      disableGates,
+		SkipReason:      skipReason,
+		SpecRules:       specRules,
+		CalibratedTiers: calibratedTiers,
 	}, rtStore, dStore, store, dq, bq, phaseCallback)
 	if err != nil {
 		if err == phase.ErrNotFound {

@@ -55,6 +55,23 @@ func TestDefaultChainLength(t *testing.T) {
 	}
 }
 
+func TestGateCalibrationKey(t *testing.T) {
+	tests := []struct {
+		check, from, to string
+		want            string
+	}{
+		{"verdict_exists", "review", "polish", "verdict_exists:review→polish"},
+		{"artifact_exists", "brainstorm", "brainstorm-reviewed", "artifact_exists:brainstorm→brainstorm-reviewed"},
+		{"budget_not_exceeded", "executing", "review", "budget_not_exceeded:executing→review"},
+	}
+	for _, tt := range tests {
+		got := GateCalibrationKey(tt.check, tt.from, tt.to)
+		if got != tt.want {
+			t.Errorf("GateCalibrationKey(%q, %q, %q) = %q, want %q", tt.check, tt.from, tt.to, got, tt.want)
+		}
+	}
+}
+
 func TestDefaultChainOrder(t *testing.T) {
 	want := []string{
 		"brainstorm", "brainstorm-reviewed", "strategized", "planned",

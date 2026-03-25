@@ -941,6 +941,278 @@ func boolToInt(b bool) int {
 	return 0
 }
 
+// GetGateSignals extracts classified gate signals (TP/FP/TN/FN) from phase_events.
+// Returns signals newer than sinceID, plus the max event ID seen (cursor for pagination).
+//
+// Algorithm (three-pass + reclassification):
+//  1. Pass 1 — scan gated events: classify block→TP, override→FP, advance+pass→TN, advance+fail→FP
+//  2. Pass 2 — rollback cross-check: reclassify TNs as FN when a rollback covers their transition
+//  3. Pass 3 — block→override dedup: remove TP when same run+transition was later overridden
+func (s *Store) GetGateSignals(ctx context.Context, sinceID int64) ([]GateSignal, int64, error) {
+	// --- Pass 1: scan gated events ---
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, run_id, from_phase, to_phase, event_type,
+			gate_result, reason, created_at
+		FROM phase_events
+		WHERE id > ? AND gate_result IS NOT NULL AND gate_result != 'none'
+		ORDER BY id ASC`, sinceID)
+	if err != nil {
+		return nil, sinceID, fmt.Errorf("get gate signals: pass 1: %w", err)
+	}
+	defer rows.Close()
+
+	type signalEntry struct {
+		signal GateSignal
+		idx    int // position in signals slice
+	}
+
+	var signals []GateSignal
+	var cursor int64 = sinceID
+
+	// Track blocks by run+transition for Pass 3 dedup
+	// key: "runID:from→to"
+	blockIdx := make(map[string][]int) // indices into signals
+
+	// Track TNs by run for Pass 2 rollback reclassification
+	// key: "runID"
+	tnByRun := make(map[string][]int) // indices into signals
+
+	for rows.Next() {
+		var (
+			id         int64
+			runID      string
+			fromPhase  string
+			toPhase    string
+			eventType  string
+			gateResult sql.NullString
+			reason     sql.NullString
+			createdAt  int64
+		)
+		if err := rows.Scan(&id, &runID, &fromPhase, &toPhase, &eventType,
+			&gateResult, &reason, &createdAt); err != nil {
+			return nil, sinceID, fmt.Errorf("get gate signals: pass 1 scan: %w", err)
+		}
+		if id > cursor {
+			cursor = id
+		}
+
+		// Extract check types from reason JSON (GateEvidence.Conditions[].Check)
+		checkTypes := extractCheckTypes(reason)
+		transKey := runID + ":" + fromPhase + "→" + toPhase
+
+		switch eventType {
+		case EventBlock:
+			// Candidate TP — may be reclassified in Pass 3 if overridden
+			for _, ct := range checkTypes {
+				idx := len(signals)
+				signals = append(signals, GateSignal{
+					EventID:    id,
+					RunID:      runID,
+					CheckType:  ct,
+					FromPhase:  fromPhase,
+					ToPhase:    toPhase,
+					SignalType: "tp",
+					CreatedAt:  createdAt,
+				})
+				blockIdx[transKey] = append(blockIdx[transKey], idx)
+			}
+
+		case EventOverride:
+			// FP — the gate was wrong to block (human overrode it)
+			category := extractOverrideCategory(reason)
+			for _, ct := range checkTypes {
+				signals = append(signals, GateSignal{
+					EventID:    id,
+					RunID:      runID,
+					CheckType:  ct,
+					FromPhase:  fromPhase,
+					ToPhase:    toPhase,
+					SignalType: "fp",
+					CreatedAt:  createdAt,
+					Category:   category,
+				})
+			}
+
+		case EventAdvance:
+			gr := ""
+			if gateResult.Valid {
+				gr = gateResult.String
+			}
+			if gr == GatePass {
+				// Candidate TN — may be reclassified in Pass 2 if rolled back
+				for _, ct := range checkTypes {
+					idx := len(signals)
+					signals = append(signals, GateSignal{
+						EventID:    id,
+						RunID:      runID,
+						CheckType:  ct,
+						FromPhase:  fromPhase,
+						ToPhase:    toPhase,
+						SignalType: "tn",
+						CreatedAt:  createdAt,
+					})
+					tnByRun[runID] = append(tnByRun[runID], idx)
+				}
+			} else if gr == GateFail {
+				// Soft gate override-by-advance — FP
+				for _, ct := range checkTypes {
+					signals = append(signals, GateSignal{
+						EventID:    id,
+						RunID:      runID,
+						CheckType:  ct,
+						FromPhase:  fromPhase,
+						ToPhase:    toPhase,
+						SignalType: "fp",
+						CreatedAt:  createdAt,
+					})
+				}
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, sinceID, fmt.Errorf("get gate signals: pass 1 rows: %w", err)
+	}
+
+	// --- Pass 2: rollback cross-check ---
+	// Reclassify TNs as FN when a rollback covers their from→to transition.
+	if len(tnByRun) > 0 {
+		rbRows, err := s.db.QueryContext(ctx, `
+			SELECT run_id, from_phase, to_phase
+			FROM phase_events
+			WHERE event_type = 'rollback' AND id > ?
+			ORDER BY id ASC`, sinceID)
+		if err != nil {
+			return nil, sinceID, fmt.Errorf("get gate signals: pass 2: %w", err)
+		}
+		defer rbRows.Close()
+
+		for rbRows.Next() {
+			var rbRunID, rbFrom, rbTo string
+			if err := rbRows.Scan(&rbRunID, &rbFrom, &rbTo); err != nil {
+				return nil, sinceID, fmt.Errorf("get gate signals: pass 2 scan: %w", err)
+			}
+
+			indices, ok := tnByRun[rbRunID]
+			if !ok {
+				continue
+			}
+
+			// Rollback goes from rbFrom (current) back to rbTo (target).
+			// Any TN advance whose toPhase is within the rolled-back span
+			// (strictly after rbTo, up to and including rbFrom) is reclassified as FN.
+			for _, idx := range indices {
+				sig := &signals[idx]
+				if sig.SignalType != "tn" {
+					continue // already reclassified
+				}
+				if isInRolledBackSpan(sig.ToPhase, rbTo, rbFrom) {
+					sig.SignalType = "fn"
+				}
+			}
+		}
+		if err := rbRows.Err(); err != nil {
+			return nil, sinceID, fmt.Errorf("get gate signals: pass 2 rows: %w", err)
+		}
+	}
+
+	// --- Pass 3: block→override dedup ---
+	// For each override (FP), remove the preceding block (TP) for the same
+	// run+transition. The override FP already accounts for this event pair.
+	for transKey := range blockIdx {
+		// Check if any override (FP) exists for this run+transition
+		hasOverride := false
+		for _, sig := range signals {
+			if sig.SignalType == "fp" && sig.Category != "" {
+				overKey := sig.RunID + ":" + sig.FromPhase + "→" + sig.ToPhase
+				if overKey == transKey {
+					hasOverride = true
+					break
+				}
+			}
+		}
+		if !hasOverride {
+			continue
+		}
+		// Remove the TP block signals for this transition (mark as empty)
+		for _, idx := range blockIdx[transKey] {
+			signals[idx].SignalType = "" // mark for removal
+		}
+	}
+
+	// Compact: remove marked-for-removal entries
+	result := make([]GateSignal, 0, len(signals))
+	for _, sig := range signals {
+		if sig.SignalType != "" {
+			result = append(result, sig)
+		}
+	}
+
+	return result, cursor, nil
+}
+
+// extractCheckTypes parses the reason JSON to extract check types from
+// GateEvidence.Conditions[].Check. Returns a single-element slice with
+// an empty check type if parsing fails (attributing to the transition as a whole).
+func extractCheckTypes(reason sql.NullString) []string {
+	if !reason.Valid || reason.String == "" {
+		return []string{""}
+	}
+
+	var evidence GateEvidence
+	if err := json.Unmarshal([]byte(reason.String), &evidence); err != nil {
+		return []string{""}
+	}
+
+	if len(evidence.Conditions) == 0 {
+		return []string{""}
+	}
+
+	// Collect unique failing check types (for blocks/fails) or all checks (for passes)
+	seen := make(map[string]bool)
+	var checks []string
+	for _, c := range evidence.Conditions {
+		if c.Check != "" && !seen[c.Check] {
+			seen[c.Check] = true
+			checks = append(checks, c.Check)
+		}
+	}
+	if len(checks) == 0 {
+		return []string{""}
+	}
+	return checks
+}
+
+// extractOverrideCategory parses override_category from the reason JSON.
+// Returns "uncategorized" if parsing fails or field is absent (pre-F5 overrides).
+func extractOverrideCategory(reason sql.NullString) string {
+	if !reason.Valid || reason.String == "" {
+		return "uncategorized"
+	}
+
+	var parsed struct {
+		Category string `json:"override_category"`
+	}
+	if err := json.Unmarshal([]byte(reason.String), &parsed); err != nil || parsed.Category == "" {
+		return "uncategorized"
+	}
+	return parsed.Category
+}
+
+// isInRolledBackSpan checks if phase is in the span (rbTarget, rbFrom] using
+// the default phase chain. A rollback from rbFrom to rbTarget rolls back all
+// phases strictly after rbTarget up to and including rbFrom.
+func isInRolledBackSpan(phase, rbTarget, rbFrom string) bool {
+	targetIdx := ChainPhaseIndex(DefaultPhaseChain, rbTarget)
+	fromIdx := ChainPhaseIndex(DefaultPhaseChain, rbFrom)
+	phaseIdx := ChainPhaseIndex(DefaultPhaseChain, phase)
+
+	if targetIdx < 0 || fromIdx < 0 || phaseIdx < 0 {
+		return false
+	}
+	// Phase is in rolled-back span if it's strictly after target and at or before from
+	return phaseIdx > targetIdx && phaseIdx <= fromIdx
+}
+
 func joinStrings(ss []string, sep string) string {
 	if len(ss) == 0 {
 		return ""

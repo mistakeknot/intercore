@@ -14,10 +14,11 @@ type SpecGateRule struct {
 
 // GateConfig controls gate evaluation for an advance attempt.
 type GateConfig struct {
-	Priority   int            // 0-1 = hard, 2-3 = soft, 4+ = none
-	DisableAll bool           // skip all gate checks
-	SkipReason string         // reason for manual skip/override
-	SpecRules  []SpecGateRule // rules from agency specs (merged with hardcoded rules)
+	Priority        int               // 0-1 = hard, 2-3 = soft, 4+ = none
+	DisableAll      bool              // skip all gate checks
+	SkipReason      string            // reason for manual skip/override
+	SpecRules       []SpecGateRule    // rules from agency specs (merged with hardcoded rules)
+	CalibratedTiers map[string]string // map[GateCalibrationKey]tier, populated from --calibration-file
 }
 
 // AdvanceResult describes what happened during an advance attempt.
@@ -166,7 +167,7 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 	}
 
 	// Evaluate gate — reads happen inside the transaction
-	gateResult, gateTier, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, txRT, txVQ, txPQ, txDQ, txBQ)
+	gateResult, gateTier, _, evidence, gateErr := evaluateGate(ctx, run, cfg, fromPhase, toPhase, txRT, txVQ, txPQ, txDQ, txBQ)
 	if gateErr != nil {
 		return nil, fmt.Errorf("advance: %w", gateErr)
 	}

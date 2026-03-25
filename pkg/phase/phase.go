@@ -42,6 +42,12 @@ const PlanReviewed = Planned
 // Remove after 2026-06-01.
 const Shipping = Polish
 
+// GateCalibrationKey returns the canonical map key for calibrated tier lookups.
+// Used by signal extraction, calibration command, and runtime integration.
+func GateCalibrationKey(checkType, fromPhase, toPhase string) string {
+	return checkType + ":" + fromPhase + "→" + toPhase
+}
+
 // IsValid returns true if p is in DefaultChain.
 func IsValid(p string) bool {
 	return IsValidForChain(p, DefaultChain)

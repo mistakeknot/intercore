@@ -20,7 +20,7 @@ import (
 
 func cmdGate(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		slog.Error("gate: missing subcommand", "expected", "check, override, rules")
+		slog.Error("gate: missing subcommand", "expected", "check, override, rules, signals")
 		return 3
 	}
 
@@ -31,6 +31,8 @@ func cmdGate(ctx context.Context, args []string) int {
 		return cmdGateOverride(ctx, args[1:])
 	case "rules":
 		return cmdGateRules(ctx, args[1:])
+	case "signals":
+		return cmdGateSignals(ctx, args[1:])
 	default:
 		slog.Error("gate: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -39,6 +41,7 @@ func cmdGate(ctx context.Context, args []string) int {
 
 func cmdGateCheck(ctx context.Context, args []string) int {
 	priority := 3
+	calibrationFile := ""
 	var positional []string
 
 	for i := 0; i < len(args); i++ {
@@ -51,6 +54,8 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 				return 3
 			}
 			priority = p
+		case strings.HasPrefix(args[i], "--calibration-file="):
+			calibrationFile = strings.TrimPrefix(args[i], "--calibration-file=")
 		default:
 			positional = append(positional, args[i])
 		}
@@ -110,9 +115,21 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 		}
 	}
 
+	// Load calibrated tiers from file (if provided)
+	var calibratedTiers map[string]string
+	if calibrationFile != "" {
+		var loadErr error
+		calibratedTiers, loadErr = LoadGateCalibration(calibrationFile)
+		if loadErr != nil {
+			slog.Error("gate check: calibration file", "error", loadErr)
+			return 2
+		}
+	}
+
 	result, err := phase.EvaluateGate(ctx, store, runID, phase.GateConfig{
-		Priority:  priority,
-		SpecRules: specRules,
+		Priority:        priority,
+		SpecRules:       specRules,
+		CalibratedTiers: calibratedTiers,
 	}, rtStore, dStore, store, depStore, bq)
 	if err != nil {
 		if errors.Is(err, phase.ErrNotFound) {
@@ -127,6 +144,12 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 		return 2
 	}
 
+	// Load calibration details for output enrichment (if calibration file provided)
+	var calEntries map[string]CalibratedTierEntry
+	if calibrationFile != "" {
+		calEntries = LoadGateCalibrationRaw(calibrationFile)
+	}
+
 	if flagJSON {
 		out := map[string]interface{}{
 			"run_id":     result.RunID,
@@ -134,13 +157,39 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 			"to_phase":   result.ToPhase,
 			"result":     result.Result,
 			"tier":       result.Tier,
+			"source":     result.Source,
 		}
 		if result.Evidence != nil {
 			out["evidence"] = result.Evidence
 		}
+		// Enrich with calibration details per check
+		if calEntries != nil && result.Evidence != nil {
+			var calDetails []map[string]interface{}
+			for _, c := range result.Evidence.Conditions {
+				calKey := phase.GateCalibrationKey(c.Check, result.FromPhase, result.ToPhase)
+				if entry, ok := calEntries[calKey]; ok {
+					detail := map[string]interface{}{
+						"check":      c.Check,
+						"fpr":        entry.FPR,
+						"weighted_n": entry.WeightedN,
+					}
+					if entry.Locked {
+						detail["calibration_status"] = "locked"
+					} else if entry.WeightedN < 10 {
+						detail["calibration_status"] = "insufficient_data"
+					} else {
+						detail["calibration_status"] = "active"
+					}
+					calDetails = append(calDetails, detail)
+				}
+			}
+			if len(calDetails) > 0 {
+				out["calibration"] = calDetails
+			}
+		}
 		json.NewEncoder(os.Stdout).Encode(out)
 	} else {
-		fmt.Printf("%s → %s: %s (tier: %s)\n", result.FromPhase, result.ToPhase, result.Result, result.Tier)
+		fmt.Printf("%s → %s: %s (tier: %s, source: %s)\n", result.FromPhase, result.ToPhase, result.Result, result.Tier, result.Source)
 		if result.Evidence != nil {
 			for _, c := range result.Evidence.Conditions {
 				indicator := "PASS"
@@ -151,10 +200,26 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 				if c.Detail != "" {
 					detail = " — " + c.Detail
 				}
+
+				// Enrich with calibration info
+				calInfo := ""
+				if calEntries != nil {
+					calKey := phase.GateCalibrationKey(c.Check, result.FromPhase, result.ToPhase)
+					if entry, ok := calEntries[calKey]; ok {
+						if entry.Locked {
+							calInfo = " [calibration: locked]"
+						} else if entry.WeightedN < 10 {
+							calInfo = fmt.Sprintf(" [calibration: insufficient_data, n: %.0f]", entry.WeightedN)
+						} else {
+							calInfo = fmt.Sprintf(" [calibration: fpr=%.2f, n=%.0f]", entry.FPR, entry.WeightedN)
+						}
+					}
+				}
+
 				if c.Count != nil {
-					fmt.Printf("  [%s] %s (count: %d)%s\n", indicator, c.Check, *c.Count, detail)
+					fmt.Printf("  [%s] %s (count: %d)%s%s\n", indicator, c.Check, *c.Count, detail, calInfo)
 				} else {
-					fmt.Printf("  [%s] %s%s\n", indicator, c.Check, detail)
+					fmt.Printf("  [%s] %s%s%s\n", indicator, c.Check, detail, calInfo)
 				}
 			}
 		}
@@ -168,19 +233,24 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 
 func cmdGateOverride(ctx context.Context, args []string) int {
 	var reason string
+	var justified, expedient bool
 	var positional []string
 
 	for i := 0; i < len(args); i++ {
 		switch {
 		case strings.HasPrefix(args[i], "--reason="):
 			reason = strings.TrimPrefix(args[i], "--reason=")
+		case args[i] == "--justified":
+			justified = true
+		case args[i] == "--expedient":
+			expedient = true
 		default:
 			positional = append(positional, args[i])
 		}
 	}
 
 	if len(positional) < 1 {
-		fmt.Fprintf(os.Stderr, "ic: gate override: usage: ic gate override <run_id> --reason=<reason>\n")
+		fmt.Fprintf(os.Stderr, "ic: gate override: usage: ic gate override <run_id> --reason=<reason> [--justified|--expedient]\n")
 		return 3
 	}
 	runID := positional[0]
@@ -189,6 +259,24 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 		slog.Error("gate override: --reason is required")
 		return 3
 	}
+
+	if justified && expedient {
+		slog.Error("gate override: --justified and --expedient are mutually exclusive")
+		return 3
+	}
+
+	// Determine override category
+	category := "uncategorized"
+	if justified {
+		category = "justified"
+	} else if expedient {
+		category = "expedient"
+	} else {
+		fmt.Fprintf(os.Stderr, "gate override: DEPRECATION: specify --justified or --expedient for signal quality\n")
+	}
+
+	// Embed category in reason JSON for signal extraction
+	reasonJSON := fmt.Sprintf(`{"override_category":%q,"reason":%q}`, category, reason)
 
 	d, err := openDB()
 	if err != nil {
@@ -247,7 +335,7 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 		EventType:  phase.EventOverride,
 		GateResult: strPtr(phase.GateFail),
 		GateTier:   strPtr(phase.TierHard), // overrides only happen on hard blocks (soft gates auto-advance)
-		Reason:     strPtr(reason),
+		Reason:     strPtr(reasonJSON),
 	}); err != nil {
 		slog.Error("gate override: event failed", "error", err)
 		return 2
@@ -271,9 +359,10 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 			"from_phase": fromPhase,
 			"to_phase":   toPhase,
 			"reason":     reason,
+			"category":   category,
 		})
 	} else {
-		fmt.Printf("%s → %s (override: %s)\n", fromPhase, toPhase, reason)
+		fmt.Printf("%s → %s (override: %s, category: %s)\n", fromPhase, toPhase, reason, category)
 	}
 	return 0
 }
@@ -349,6 +438,48 @@ func cmdGateRules(ctx context.Context, args []string) int {
 			}
 		}
 	}
+	return 0
+}
+
+func cmdGateSignals(ctx context.Context, args []string) int {
+	var sinceID int64
+
+	for i := 0; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "--since-id="):
+			val := strings.TrimPrefix(args[i], "--since-id=")
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				slog.Error("gate signals: invalid --since-id", "value", val)
+				return 3
+			}
+			sinceID = n
+		}
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("gate signals failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := phase.New(d.SqlDB())
+	signals, cursor, err := store.GetGateSignals(ctx, sinceID)
+	if err != nil {
+		slog.Error("gate signals failed", "error", err)
+		return 2
+	}
+
+	if signals == nil {
+		signals = []phase.GateSignal{}
+	}
+
+	out := map[string]interface{}{
+		"signals": signals,
+		"cursor":  cursor,
+	}
+	json.NewEncoder(os.Stdout).Encode(out)
 	return 0
 }
 

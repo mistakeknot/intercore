@@ -221,6 +221,19 @@ type PhaseEvent struct {
 	CreatedAt    int64
 }
 
+// GateSignal represents a classified gate signal (TP/FP/TN/FN) extracted
+// from phase_events for calibration. Used by GetGateSignals and ic gate signals.
+type GateSignal struct {
+	EventID    int64  `json:"event_id"`
+	RunID      string `json:"run_id"`
+	CheckType  string `json:"check_type"`
+	FromPhase  string `json:"from_phase"`
+	ToPhase    string `json:"to_phase"`
+	SignalType string `json:"signal_type"` // "tp", "fp", "tn", "fn"
+	CreatedAt  int64  `json:"created_at"`
+	Category   string `json:"category,omitempty"` // override category (overrides only)
+}
+
 // strPtr returns a pointer to s.
 func strPtr(s string) *string {
 	return &s
