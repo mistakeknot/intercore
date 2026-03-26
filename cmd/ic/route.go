@@ -26,6 +26,7 @@ Subcommands:
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
+  dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
   table   [--phase=<p>]                             Show full routing table
   record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
   list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
@@ -190,17 +191,57 @@ func cmdRouteBatch(ctx context.Context, args []string) int {
 }
 
 func cmdRouteDispatch(ctx context.Context, args []string) int {
-	var tier string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--tier=") {
-			tier = strings.TrimPrefix(arg, "--tier=")
-		} else if !strings.HasPrefix(arg, "--") && tier == "" {
-			tier = arg
+	var tier, subagentType, currentPhase string
+	for i := 0; i < len(args); i++ {
+		switch {
+		case strings.HasPrefix(args[i], "--tier="):
+			tier = strings.TrimPrefix(args[i], "--tier=")
+		case strings.HasPrefix(args[i], "--type="):
+			subagentType = strings.TrimPrefix(args[i], "--type=")
+		case strings.HasPrefix(args[i], "--phase="):
+			currentPhase = strings.TrimPrefix(args[i], "--phase=")
+		default:
+			if !strings.HasPrefix(args[i], "--") && tier == "" && subagentType == "" {
+				tier = args[i]
+			}
 		}
 	}
 
+	// When --type is provided, resolve subagent type to model via dispatch tiers
+	if subagentType != "" {
+		cfg, err := loadRoutingConfig()
+		if err != nil {
+			slog.Error("route dispatch", "error", err)
+			return 2
+		}
+		r := routing.NewResolver(cfg)
+
+		// Try type:phase first, then type alone
+		var model string
+		if currentPhase != "" {
+			model = r.ResolveDispatchTier(subagentType + ":" + currentPhase)
+		}
+		if model == "" {
+			model = r.ResolveDispatchTier(subagentType)
+		}
+
+		if flagJSON {
+			out := map[string]string{"type": subagentType, "phase": currentPhase, "model": model}
+			enc := json.NewEncoder(os.Stdout)
+			enc.Encode(out)
+		} else {
+			if model == "" {
+				fmt.Fprintf(os.Stderr, "type %q: no dispatch tier found\n", subagentType)
+				return 1
+			}
+			fmt.Println(model)
+		}
+		return 0
+	}
+
+	// Original --tier path (backward compat)
 	if tier == "" {
-		fmt.Fprintf(os.Stderr, "ic route dispatch: provide --tier=<name> or tier name as arg\n")
+		fmt.Fprintf(os.Stderr, "ic route dispatch: requires --tier=<name> or --type=<name>\n")
 		return 3
 	}
 
