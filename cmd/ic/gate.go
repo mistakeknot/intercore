@@ -124,6 +124,7 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 			slog.Error("gate check: calibration file", "error", loadErr)
 			return 2
 		}
+		emitCalibrationStaleEvent(calibrationFile)
 	}
 
 	result, err := phase.EvaluateGate(ctx, store, runID, phase.GateConfig{

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -26,6 +27,29 @@ type CalibratedTiersFile struct {
 }
 
 const calibrationStalenessDuration = 24 * time.Hour
+
+// calibrationStaleDetected is set by LoadGateCalibration when a stale file is
+// encountered. Callers should check this after LoadGateCalibration returns and
+// emit an observability event if needed.
+var calibrationStaleDetected bool
+
+// emitCalibrationStaleEvent records the staleness as an interspect event.
+// Best-effort: failures are logged but do not block the caller.
+func emitCalibrationStaleEvent(path string) {
+	if !calibrationStaleDetected {
+		return
+	}
+	calibrationStaleDetected = false
+	detail := fmt.Sprintf(`{"event_type":"calibration_file_stale","path":%q}`, path)
+	code := cmdEventsRecord(context.Background(), []string{
+		"--source=interspect",
+		"--type=calibration_file_stale",
+		"--payload=" + detail,
+	})
+	if code != 0 {
+		slog.Warn("failed to emit calibration_file_stale event", "code", code)
+	}
+}
 
 // LoadGateCalibration reads and validates a calibration JSON file, returning
 // a map of GateCalibrationKey → tier suitable for GateConfig.CalibratedTiers.
@@ -56,8 +80,8 @@ func LoadGateCalibration(path string) (map[string]string, error) {
 			"path", path,
 			"age", age.Round(time.Minute).String(),
 			"threshold", calibrationStalenessDuration.String(),
-			"interspect_event", "calibration_file_stale",
 		)
+		calibrationStaleDetected = true
 		return nil, nil
 	}
 

@@ -606,6 +606,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 			slog.Error("run advance: calibration file", "error", loadErr)
 			return 2
 		}
+		emitCalibrationStaleEvent(calibrationFile)
 	}
 
 	result, err := phase.Advance(ctx, store, id, phase.GateConfig{
