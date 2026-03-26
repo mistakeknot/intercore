@@ -138,9 +138,9 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 		var err error
 
 		if allRuns || runID == "" {
-			events, err = evStore.ListAllEvents(ctx, sincePhase, sinceDispatch, sinceDiscovery, sinceReview, limit)
+			events, err = evStore.ListAllEvents(ctx, sincePhase, sinceDispatch, sinceDiscovery, 0, sinceReview, limit)
 		} else {
-			events, err = evStore.ListEvents(ctx, runID, sincePhase, sinceDispatch, sinceDiscovery, sinceReview, limit)
+			events, err = evStore.ListEvents(ctx, runID, sincePhase, sinceDispatch, 0, sinceReview, limit)
 		}
 		if err != nil {
 			slog.Error("events tail failed", "error", err)

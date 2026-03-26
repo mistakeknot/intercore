@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -290,7 +291,7 @@ func TestListAllEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +359,7 @@ func TestListAllEvents_IncludesDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -720,5 +721,118 @@ func TestMaxReviewEventID(t *testing.T) {
 	}
 	if maxID < 1 {
 		t.Errorf("expected maxID >= 1, got %d", maxID)
+	}
+}
+
+func TestListEvents_PerSourceRepresentation(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	insertTestRun(t, d, "run-nucleation")
+
+	// Insert 100 coordination events (high volume)
+	for i := 0; i < 100; i++ {
+		err := store.AddCoordinationEvent(ctx, "lock_acquired", fmt.Sprintf("lock-%d", i),
+			"agent-a", "*.go", "project", "", "run-nucleation", nil)
+		if err != nil {
+			t.Fatalf("AddCoordinationEvent %d: %v", i, err)
+		}
+	}
+
+	// Insert 5 phase events (low volume)
+	for i := 0; i < 5; i++ {
+		_, err := d.SqlDB().ExecContext(ctx, `
+			INSERT INTO phase_events (run_id, from_phase, to_phase, event_type)
+			VALUES (?, ?, ?, ?)`, "run-nucleation", "brainstorm", "planned", "advance")
+		if err != nil {
+			t.Fatalf("insert phase event %d: %v", i, err)
+		}
+	}
+
+	// List with limit=20 — both sources should be represented
+	events, err := store.ListEvents(ctx, "run-nucleation", 0, 0, 0, 0, 20)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+
+	sources := map[string]int{}
+	for _, e := range events {
+		sources[e.Source]++
+	}
+
+	if sources["phase"] == 0 {
+		t.Errorf("phase events crowded out: got %d phase, %d coordination", sources["phase"], sources["coordination"])
+	}
+	if sources["coordination"] == 0 {
+		t.Error("expected coordination events")
+	}
+
+	// Phase should have exactly 5 (perSourceLimit(20,4)=5, and we inserted 5)
+	if sources["phase"] != 5 {
+		t.Errorf("phase events = %d, want 5", sources["phase"])
+	}
+
+	// Coordination capped at perSource=5 (out of 100 available)
+	if sources["coordination"] > 5 {
+		t.Errorf("coordination events %d exceeds per-source limit of 5", sources["coordination"])
+	}
+
+	t.Logf("sources: %v (total: %d)", sources, len(events))
+}
+
+func TestListEvents_EdgeCases(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	insertTestRun(t, d, "run-edge")
+
+	// Insert 2 phase events only
+	for i := 0; i < 2; i++ {
+		_, err := d.SqlDB().ExecContext(ctx, `
+			INSERT INTO phase_events (run_id, from_phase, to_phase, event_type)
+			VALUES (?, ?, ?, ?)`, "run-edge", "brainstorm", "planned", "advance")
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	// limit=1: perSourceLimit(1,4)=1, outer limit=1
+	events, err := store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 1)
+	if err != nil {
+		t.Fatalf("ListEvents limit=1: %v", err)
+	}
+	if len(events) != 1 {
+		t.Errorf("limit=1: got %d events, want 1", len(events))
+	}
+
+	// limit > total: should return all 2
+	events, err = store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 200)
+	if err != nil {
+		t.Fatalf("ListEvents limit=200: %v", err)
+	}
+	if len(events) != 2 {
+		t.Errorf("limit=200: got %d events, want 2", len(events))
+	}
+}
+
+func TestPerSourceLimit(t *testing.T) {
+	tests := []struct {
+		total, sources, want int
+	}{
+		{20, 4, 5},
+		{20, 5, 4},
+		{3, 5, 1},
+		{1, 4, 1},
+		{100, 1, 100},
+		{0, 4, 0},
+		{10, 0, 10},
+	}
+	for _, tt := range tests {
+		got := perSourceLimit(tt.total, tt.sources)
+		if got != tt.want {
+			t.Errorf("perSourceLimit(%d, %d) = %d, want %d", tt.total, tt.sources, got, tt.want)
+		}
 	}
 }

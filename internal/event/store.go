@@ -94,43 +94,68 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 
 // ListEvents returns unified events for a run, merging phase_events,
 // dispatch_events, coordination_events, and review_events, ordered by
-// timestamp. Uses separate per-table cursors to avoid conflating independent
-// AUTOINCREMENT ID spaces.
-func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]Event, error) {
+// timestamp. Uses per-source sub-limits to prevent high-volume sources
+// from crowding out low-volume ones. Discovery events are excluded
+// (system-level, no run_id column — use ListAllEvents for those).
+//
+// Per-source sub-limits mean each source gets at most ceil(limit/4) rows.
+// Callers debugging a single source should use source-specific query methods.
+// Polling callers must loop until fewer than limit rows are returned to
+// guarantee all events are drained.
+func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceCoordinationID, sinceReviewID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 
-	// Note: discovery_events are system-level (no run_id column) and excluded
-	// from run-scoped queries. Use ListAllEvents for cross-run streams including
-	// discovery events. The sinceDiscoveryID param is accepted but unused here
-	// to keep the signature aligned with ListAllEvents.
+	// Per-source sub-limit guarantees each source gets representation.
+	// 4 sources in run-scoped query (discovery excluded — no run_id column).
+	perSource := perSourceLimit(limit, 4)
+
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
-			COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM phase_events
-		WHERE run_id = ? AND id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, run_id, 'phase' AS source, event_type, from_phase AS from_state, to_phase AS to_state,
+				COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM phase_events
+			WHERE run_id = ? AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
-			from_status, to_status, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM dispatch_events
-		WHERE (run_id = ? OR ? = '') AND id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
+				from_status AS from_state, to_status AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM dispatch_events
+			WHERE (run_id = ? OR ? = '') AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
-			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM coordination_events
-		WHERE (run_id = ? OR ? = '') AND id > 0
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
+				owner AS from_state, pattern AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM coordination_events
+			WHERE (run_id = ? OR ? = '') AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
-			finding_id, resolution, COALESCE(agents_json, '{}') AS reason, '' AS envelope_json, created_at
-		FROM review_events
-		WHERE (run_id = ? OR ? = '') AND id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
+				finding_id AS from_state, resolution AS to_state, COALESCE(agents_json, '{}') AS reason,
+				'' AS envelope_json, created_at
+			FROM review_events
+			WHERE (run_id = ? OR ? = '') AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
-		runID, sincePhaseID,
-		runID, runID, sinceDispatchID,
-		runID, runID,
-		runID, runID, sinceReviewID,
+		runID, sincePhaseID, perSource,
+		runID, runID, sinceDispatchID, perSource,
+		runID, runID, sinceCoordinationID, perSource,
+		runID, runID, sinceReviewID, perSource,
 		limit,
 	)
 	if err != nil {
@@ -142,40 +167,72 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 }
 
 // ListAllEvents returns events across all runs, merging all five event tables.
-func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]Event, error) {
+// Per-source sub-limits ensure each source is represented regardless of volume.
+// Polling callers must loop until fewer than limit rows are returned.
+func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceCoordinationID, sinceReviewID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 
+	perSource := perSourceLimit(limit, 5)
+
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
-			COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM phase_events
-		WHERE id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, run_id, 'phase' AS source, event_type, from_phase AS from_state, to_phase AS to_state,
+				COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM phase_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
-			from_status, to_status, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM dispatch_events
-		WHERE id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
+				from_status AS from_state, to_status AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM dispatch_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		-- discovery_events: discovery_id AS run_id is for column alignment only
-		SELECT id, COALESCE(discovery_id, '') AS run_id, 'discovery' AS source, event_type,
-			from_status, to_status, COALESCE(payload, '{}') AS reason, '' AS envelope_json, created_at
-		FROM discovery_events
-		WHERE id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(discovery_id, '') AS run_id, 'discovery' AS source, event_type,
+				from_status AS from_state, to_status AS to_state, COALESCE(payload, '{}') AS reason,
+				'' AS envelope_json, created_at
+			FROM discovery_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
-			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM coordination_events
-		WHERE id > 0
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
+				owner AS from_state, pattern AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM coordination_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
-			finding_id, resolution, COALESCE(agents_json, '{}') AS reason, '' AS envelope_json, created_at
-		FROM review_events
-		WHERE id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
+				finding_id AS from_state, resolution AS to_state, COALESCE(agents_json, '{}') AS reason,
+				'' AS envelope_json, created_at
+			FROM review_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
-		sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID, limit,
+		sincePhaseID, perSource,
+		sinceDispatchID, perSource,
+		sinceDiscoveryID, perSource,
+		sinceCoordinationID, perSource,
+		sinceReviewID, perSource,
+		limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list all events: %w", err)
@@ -592,4 +649,13 @@ func statusRef(v string) []string {
 		return nil
 	}
 	return []string{v}
+}
+
+// perSourceLimit computes per-source sub-limit for UNION ALL queries.
+// Each source gets ceil(total / sourceCount) to guarantee representation.
+func perSourceLimit(total, sourceCount int) int {
+	if sourceCount <= 0 {
+		return total
+	}
+	return (total + sourceCount - 1) / sourceCount
 }
