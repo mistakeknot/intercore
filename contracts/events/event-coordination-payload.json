@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/events/event-coordination-payload.json",
+  "properties": {
+    "lock_id": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object"
+}

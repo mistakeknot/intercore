@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/events/event-phase-payload.json",
+  "properties": {
+    "capability_scope": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object"
+}
