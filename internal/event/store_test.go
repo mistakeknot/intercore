@@ -817,6 +817,49 @@ func TestListEvents_EdgeCases(t *testing.T) {
 	}
 }
 
+func TestEvent_Validate(t *testing.T) {
+	tests := []struct {
+		source  string
+		wantErr bool
+	}{
+		{SourcePhase, false},
+		{SourceDispatch, false},
+		{SourceInterspect, false},
+		{SourceDiscovery, false},
+		{SourceCoordination, false},
+		{SourceReview, false},
+		{SourceIntent, false},
+		{"unknown", true},
+		{"", true},
+	}
+	for _, tt := range tests {
+		e := Event{Source: tt.source}
+		err := e.Validate()
+		if (err != nil) != tt.wantErr {
+			t.Errorf("Validate(%q) error = %v, wantErr %v", tt.source, err, tt.wantErr)
+		}
+	}
+}
+
+func TestValidSources_CountMatchesConstants(t *testing.T) {
+	// Guard against adding a Source* constant without updating validSources.
+	// If this fails, add the new constant to validSources in event.go.
+	const expectedSources = 7
+	valid := 0
+	for _, src := range []string{
+		SourcePhase, SourceDispatch, SourceInterspect,
+		SourceDiscovery, SourceCoordination, SourceReview, SourceIntent,
+	} {
+		e := Event{Source: src}
+		if err := e.Validate(); err == nil {
+			valid++
+		}
+	}
+	if valid != expectedSources {
+		t.Errorf("validSources has %d entries, expected %d — update validSources when adding Source* constants", valid, expectedSources)
+	}
+}
+
 func TestPerSourceLimit(t *testing.T) {
 	tests := []struct {
 		total, sources, want int

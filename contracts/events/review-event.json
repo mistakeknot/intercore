@@ -26,6 +26,9 @@
     "impact": {
       "type": "string"
     },
+    "event_type": {
+      "type": "string"
+    },
     "session_id": {
       "type": "string"
     },
@@ -46,6 +49,7 @@
     "resolution",
     "chosen_severity",
     "impact",
+    "event_type",
     "timestamp"
   ]
 }
