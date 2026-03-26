@@ -407,7 +407,7 @@ func cmdRunStatus(ctx context.Context, args []string) int {
 
 func cmdRunAdvance(ctx context.Context, args []string) int {
 	var id string
-	priority := 4
+	priority := 1 // TierHard: evaluate AND block on gate failure (was 4/TierNone: skip all gates)
 	disableGates := false
 	skipReason := ""
 	calibrationFile := ""

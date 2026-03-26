@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	exported "github.com/mistakeknot/intercore/pkg/phase"
 )
@@ -132,6 +133,7 @@ var gateRules = map[[2]string][]gateRule{
 // Returns gate result, tier, source, structured evidence, and any error.
 func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier) (result, tier, source string, evidence *GateEvidence, err error) {
 	if cfg.DisableAll {
+		slog.Warn("gate bypass: --disable-gates used", "run_id", run.ID, "from", from, "to", to)
 		return GateNone, TierNone, "default", nil, nil
 	}
 
@@ -142,6 +144,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	case cfg.Priority <= 3:
 		tier = TierSoft
 	default:
+		slog.Warn("gate bypass: priority >= 4 disables all gate checks", "run_id", run.ID, "priority", cfg.Priority, "from", from, "to", to)
 		return GateNone, TierNone, "default", nil, nil
 	}
 
