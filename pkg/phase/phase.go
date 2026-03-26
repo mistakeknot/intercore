@@ -42,6 +42,14 @@ const PlanReviewed = Planned
 // Remove after 2026-06-01.
 const Shipping = Polish
 
+// Legacy string values for backward compatibility with DB records.
+// Clavain CLI's switch cases use these until ic migrate phases runs.
+// Do NOT change these values — they match what's stored in IC databases.
+const (
+	LegacyPlanReviewed = "plan-reviewed" // DB value; canonical is Planned ("planned")
+	LegacyShipping     = "shipping"      // DB value; canonical is Polish ("polish")
+)
+
 // GateCalibrationKey returns the canonical map key for calibrated tier lookups.
 // Used by signal extraction, calibration command, and runtime integration.
 func GateCalibrationKey(checkType, fromPhase, toPhase string) string {
@@ -61,4 +69,19 @@ func IsValidForChain(p string, chain []string) bool {
 		}
 	}
 	return false
+}
+
+// ModelTier returns a numeric tier for model comparison.
+// Higher tier = more capable model. Returns 0 for unknown.
+func ModelTier(model string) int {
+	switch model {
+	case "haiku":
+		return 1
+	case "sonnet":
+		return 2
+	case "opus":
+		return 3
+	default:
+		return 0
+	}
 }
