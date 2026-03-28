@@ -287,6 +287,7 @@ CREATE TABLE IF NOT EXISTS lanes (
     lane_type   TEXT NOT NULL DEFAULT 'standing',  -- 'standing' or 'arc'
     status      TEXT NOT NULL DEFAULT 'active',    -- 'active', 'closed', 'archived'
     description TEXT NOT NULL DEFAULT '',
+    intent      TEXT NOT NULL DEFAULT '',           -- strategic intent for autonomous epic execution
     metadata    TEXT NOT NULL DEFAULT '{}',         -- JSON: pollard config, starvation weights
     created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),

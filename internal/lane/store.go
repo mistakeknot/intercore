@@ -20,6 +20,7 @@ type Lane struct {
 	LaneType    string // "standing" or "arc"
 	Status      string // "active", "closed", "archived"
 	Description string
+	Intent      string // strategic intent for autonomous epic execution
 	Metadata    string // JSON
 	CreatedAt   int64
 	UpdatedAt   int64
@@ -59,7 +60,7 @@ func generateID() (string, error) {
 }
 
 // Create inserts a new lane and records a "created" event.
-func (s *Store) Create(ctx context.Context, name, laneType, description string) (string, error) {
+func (s *Store) Create(ctx context.Context, name, laneType, description, intent string) (string, error) {
 	id, err := generateID()
 	if err != nil {
 		return "", err
@@ -73,9 +74,9 @@ func (s *Store) Create(ctx context.Context, name, laneType, description string) 
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO lanes (id, name, lane_type, description, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
-		id, name, laneType, description, now, now,
+		INSERT INTO lanes (id, name, lane_type, description, intent, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		id, name, laneType, description, intent, now, now,
 	)
 	if err != nil {
 		return "", fmt.Errorf("lane create: %w", err)
@@ -100,9 +101,9 @@ func (s *Store) Create(ctx context.Context, name, laneType, description string) 
 func (s *Store) Get(ctx context.Context, id string) (*Lane, error) {
 	l := &Lane{}
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, lane_type, status, description, metadata, created_at, updated_at, closed_at
+		SELECT id, name, lane_type, status, description, intent, metadata, created_at, updated_at, closed_at
 		FROM lanes WHERE id = ?`, id,
-	).Scan(&l.ID, &l.Name, &l.LaneType, &l.Status, &l.Description, &l.Metadata,
+	).Scan(&l.ID, &l.Name, &l.LaneType, &l.Status, &l.Description, &l.Intent, &l.Metadata,
 		&l.CreatedAt, &l.UpdatedAt, &l.ClosedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("lane not found: %s", id)
@@ -117,9 +118,9 @@ func (s *Store) Get(ctx context.Context, id string) (*Lane, error) {
 func (s *Store) GetByName(ctx context.Context, name string) (*Lane, error) {
 	l := &Lane{}
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, name, lane_type, status, description, metadata, created_at, updated_at, closed_at
+		SELECT id, name, lane_type, status, description, intent, metadata, created_at, updated_at, closed_at
 		FROM lanes WHERE name = ?`, name,
-	).Scan(&l.ID, &l.Name, &l.LaneType, &l.Status, &l.Description, &l.Metadata,
+	).Scan(&l.ID, &l.Name, &l.LaneType, &l.Status, &l.Description, &l.Intent, &l.Metadata,
 		&l.CreatedAt, &l.UpdatedAt, &l.ClosedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("lane not found: %s", name)
@@ -136,11 +137,11 @@ func (s *Store) List(ctx context.Context, status string) ([]*Lane, error) {
 	var err error
 	if status != "" {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, name, lane_type, status, description, metadata, created_at, updated_at, closed_at
+			SELECT id, name, lane_type, status, description, intent, metadata, created_at, updated_at, closed_at
 			FROM lanes WHERE status = ? ORDER BY name`, status)
 	} else {
 		rows, err = s.db.QueryContext(ctx, `
-			SELECT id, name, lane_type, status, description, metadata, created_at, updated_at, closed_at
+			SELECT id, name, lane_type, status, description, intent, metadata, created_at, updated_at, closed_at
 			FROM lanes ORDER BY name`)
 	}
 	if err != nil {
@@ -152,7 +153,7 @@ func (s *Store) List(ctx context.Context, status string) ([]*Lane, error) {
 	for rows.Next() {
 		l := &Lane{}
 		if err := rows.Scan(&l.ID, &l.Name, &l.LaneType, &l.Status, &l.Description,
-			&l.Metadata, &l.CreatedAt, &l.UpdatedAt, &l.ClosedAt); err != nil {
+			&l.Intent, &l.Metadata, &l.CreatedAt, &l.UpdatedAt, &l.ClosedAt); err != nil {
 			return nil, fmt.Errorf("lane list scan: %w", err)
 		}
 		lanes = append(lanes, l)
@@ -189,6 +190,22 @@ func (s *Store) Close(ctx context.Context, id string) error {
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("lane close: commit: %w", err)
+	}
+	return nil
+}
+
+// SetIntent updates the strategic intent for a lane.
+func (s *Store) SetIntent(ctx context.Context, id, intent string) error {
+	now := time.Now().Unix()
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE lanes SET intent = ?, updated_at = ? WHERE id = ?`,
+		intent, now, id)
+	if err != nil {
+		return fmt.Errorf("lane set intent: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("lane not found: %s", id)
 	}
 	return nil
 }

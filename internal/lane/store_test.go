@@ -30,7 +30,7 @@ func TestLaneStore_CreateAndGet(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	id, err := store.Create(ctx, "interop", "standing", "Plugin interoperability")
+	id, err := store.Create(ctx, "interop", "standing", "Plugin interoperability", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestLaneStore_GetByName(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	id, err := store.Create(ctx, "kernel", "standing", "Core kernel work")
+	id, err := store.Create(ctx, "kernel", "standing", "Core kernel work", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -78,8 +78,8 @@ func TestLaneStore_ListActive(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	store.Create(ctx, "interop", "standing", "")
-	store.Create(ctx, "kernel", "standing", "")
+	store.Create(ctx, "interop", "standing", "", "")
+	store.Create(ctx, "kernel", "standing", "", "")
 
 	lanes, err := store.List(ctx, "active")
 	if err != nil {
@@ -101,7 +101,7 @@ func TestLaneStore_Close(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	id, _ := store.Create(ctx, "interop", "standing", "")
+	id, _ := store.Create(ctx, "interop", "standing", "", "")
 
 	if err := store.Close(ctx, id); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -134,12 +134,12 @@ func TestLaneStore_DuplicateNameFails(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	_, err := store.Create(ctx, "interop", "standing", "")
+	_, err := store.Create(ctx, "interop", "standing", "", "")
 	if err != nil {
 		t.Fatalf("first Create: %v", err)
 	}
 
-	_, err = store.Create(ctx, "interop", "arc", "")
+	_, err = store.Create(ctx, "interop", "arc", "", "")
 	if err == nil {
 		t.Fatal("expected UNIQUE constraint error on duplicate name")
 	}
@@ -149,7 +149,7 @@ func TestLaneStore_RecordEvent(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	id, _ := store.Create(ctx, "interop", "standing", "")
+	id, _ := store.Create(ctx, "interop", "standing", "", "")
 
 	err := store.RecordEvent(ctx, id, "bead_added", `{"bead_id":"iv-abc1"}`)
 	if err != nil {
@@ -176,7 +176,7 @@ func TestLaneStore_SnapshotMembers(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	id, _ := store.Create(ctx, "interop", "standing", "")
+	id, _ := store.Create(ctx, "interop", "standing", "", "")
 	err := store.SnapshotMembers(ctx, id, []string{"iv-rzt0", "iv-sk8t", "iv-sprh"})
 	if err != nil {
 		t.Fatalf("SnapshotMembers: %v", err)
@@ -209,8 +209,8 @@ func TestLaneStore_GetLanesForBead(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := store.Create(ctx, "interop", "standing", "")
-	id2, _ := store.Create(ctx, "kernel", "standing", "")
+	id1, _ := store.Create(ctx, "interop", "standing", "", "")
+	id2, _ := store.Create(ctx, "kernel", "standing", "", "")
 
 	store.SnapshotMembers(ctx, id1, []string{"iv-abc1", "iv-abc2"})
 	store.SnapshotMembers(ctx, id2, []string{"iv-abc1", "iv-abc3"})

@@ -35,6 +35,8 @@ func cmdLane(ctx context.Context, args []string) int {
 		return cmdLaneMembers(ctx, args[1:])
 	case "velocity":
 		return cmdLaneVelocity(ctx, args[1:])
+	case "update":
+		return cmdLaneUpdate(ctx, args[1:])
 	default:
 		slog.Error("lane: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -42,7 +44,7 @@ func cmdLane(ctx context.Context, args []string) int {
 }
 
 func cmdLaneCreate(ctx context.Context, args []string) int {
-	var name, laneType, description string
+	var name, laneType, description, intent string
 
 	for _, arg := range args {
 		switch {
@@ -52,6 +54,8 @@ func cmdLaneCreate(ctx context.Context, args []string) int {
 			laneType = strings.TrimPrefix(arg, "--type=")
 		case strings.HasPrefix(arg, "--description="):
 			description = strings.TrimPrefix(arg, "--description=")
+		case strings.HasPrefix(arg, "--intent="):
+			intent = strings.TrimPrefix(arg, "--intent=")
 		}
 	}
 
@@ -80,7 +84,7 @@ func cmdLaneCreate(ctx context.Context, args []string) int {
 	}
 
 	store := lane.New(d.SqlDB())
-	id, err := store.Create(ctx, name, laneType, description)
+	id, err := store.Create(ctx, name, laneType, description, intent)
 	if err != nil {
 		slog.Error("lane create failed", "error", err)
 		return 2
@@ -211,6 +215,7 @@ func cmdLaneStatus(ctx context.Context, args []string) int {
 			"lane_type":    l.LaneType,
 			"status":       l.Status,
 			"description":  l.Description,
+			"intent":       l.Intent,
 			"metadata":     l.Metadata,
 			"member_count": len(members),
 			"members":      members,
@@ -227,6 +232,9 @@ func cmdLaneStatus(ctx context.Context, args []string) int {
 		fmt.Printf("Type: %s  Status: %s\n", l.LaneType, l.Status)
 		if l.Description != "" {
 			fmt.Printf("Description: %s\n", l.Description)
+		}
+		if l.Intent != "" {
+			fmt.Printf("Intent: %s\n", l.Intent)
 		}
 		fmt.Printf("Members: %d  Events: %d\n", len(members), len(events))
 		fmt.Printf("Created: %s\n", time.Unix(l.CreatedAt, 0).Format(time.RFC3339))
@@ -496,5 +504,61 @@ func cmdLaneVelocity(ctx context.Context, args []string) int {
 				s.LaneName, s.OpenBeads, s.ClosedLast, s.Throughput, s.Starvation)
 		}
 	}
+	return 0
+}
+
+func cmdLaneUpdate(ctx context.Context, args []string) int {
+	var idOrName, intent string
+	intentSet := false
+
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--name="):
+			idOrName = strings.TrimPrefix(arg, "--name=")
+		case strings.HasPrefix(arg, "--intent="):
+			intent = strings.TrimPrefix(arg, "--intent=")
+			intentSet = true
+		}
+	}
+
+	if idOrName == "" {
+		slog.Error("lane update: --name is required")
+		return 3
+	}
+	if !intentSet {
+		slog.Error("lane update: --intent is required (only supported field)")
+		return 3
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("lane update failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	if err := d.Migrate(ctx); err != nil {
+		slog.Error("lane update: migrate failed", "error", err)
+		return 2
+	}
+
+	store := lane.New(d.SqlDB())
+
+	// Resolve by ID or name
+	l, err := store.Get(ctx, idOrName)
+	if err != nil {
+		l, err = store.GetByName(ctx, idOrName)
+		if err != nil {
+			slog.Error("lane update: not found", "name", idOrName, "error", err)
+			return 2
+		}
+	}
+
+	if err := store.SetIntent(ctx, l.ID, intent); err != nil {
+		slog.Error("lane update failed", "error", err)
+		return 2
+	}
+
+	fmt.Printf("updated %s intent\n", l.Name)
 	return 0
 }
