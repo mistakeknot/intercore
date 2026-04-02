@@ -387,6 +387,14 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 	}
 
+	// Phase 7c: Regenerate interchart ecosystem diagram (best-effort — non-fatal)
+	if interchartRoot, err := FindInterchart(pluginRoot); err == nil {
+		e.out("  Regenerating ecosystem diagram...\n")
+		if err := RegenerateInterchart(interchartRoot, pluginRoot); err != nil {
+			e.out("  warning: interchart: %v\n", err)
+		}
+	}
+
 	// Phase 8: Done
 	if e.store != nil && stateID != "" {
 		e.store.Complete(ctx, stateID)
