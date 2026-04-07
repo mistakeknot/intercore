@@ -13,6 +13,7 @@ import (
 
 	"github.com/mistakeknot/intercore/internal/action"
 	"github.com/mistakeknot/intercore/internal/budget"
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/event"
 	"github.com/mistakeknot/intercore/internal/phase"
@@ -72,78 +73,46 @@ func cmdRun(ctx context.Context, args []string) int {
 }
 
 func cmdRunCreate(ctx context.Context, args []string) int {
-	var project, goal, scopeID, phasesJSON, projects, actionsJSON string
-	var gatesJSON, gatesFile string
-	complexity := 3
-	var tokenBudget int64
-	var maxDispatches, maxAgents int
-	var budgetEnforce bool
-	budgetWarnPct := 80
+	f := cli.ParseFlags(args)
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--project="):
-			project = strings.TrimPrefix(args[i], "--project=")
-		case strings.HasPrefix(args[i], "--projects="):
-			projects = strings.TrimPrefix(args[i], "--projects=")
-		case strings.HasPrefix(args[i], "--goal="):
-			goal = strings.TrimPrefix(args[i], "--goal=")
-		case strings.HasPrefix(args[i], "--complexity="):
-			val := strings.TrimPrefix(args[i], "--complexity=")
-			c, err := strconv.Atoi(val)
-			if err != nil || c < 1 || c > 5 {
-				slog.Error("run create: invalid complexity", "value", val)
-				return 3
-			}
-			complexity = c
-		case strings.HasPrefix(args[i], "--scope-id="):
-			scopeID = strings.TrimPrefix(args[i], "--scope-id=")
-		case strings.HasPrefix(args[i], "--phases="):
-			phasesJSON = strings.TrimPrefix(args[i], "--phases=")
-		case strings.HasPrefix(args[i], "--token-budget="):
-			val := strings.TrimPrefix(args[i], "--token-budget=")
-			v, err := strconv.ParseInt(val, 10, 64)
-			if err != nil || v <= 0 {
-				slog.Error("run create: invalid token-budget", "value", val)
-				return 3
-			}
-			tokenBudget = v
-		case strings.HasPrefix(args[i], "--budget-warn-pct="):
-			val := strings.TrimPrefix(args[i], "--budget-warn-pct=")
-			v, err := strconv.Atoi(val)
-			if err != nil || v < 1 || v > 99 {
-				slog.Error("run create: invalid budget-warn-pct", "value", val)
-				return 3
-			}
-			budgetWarnPct = v
-		case strings.HasPrefix(args[i], "--max-dispatches="):
-			val := strings.TrimPrefix(args[i], "--max-dispatches=")
-			v, err := strconv.Atoi(val)
-			if err != nil || v < 0 {
-				slog.Error("run create: invalid max-dispatches", "value", val)
-				return 3
-			}
-			maxDispatches = v
-		case args[i] == "--budget-enforce":
-			budgetEnforce = true
-		case strings.HasPrefix(args[i], "--max-agents="):
-			val := strings.TrimPrefix(args[i], "--max-agents=")
-			v, err := strconv.Atoi(val)
-			if err != nil || v < 0 {
-				slog.Error("run create: invalid max-agents", "value", val)
-				return 3
-			}
-			maxAgents = v
-		case strings.HasPrefix(args[i], "--actions="):
-			actionsJSON = strings.TrimPrefix(args[i], "--actions=")
-		case strings.HasPrefix(args[i], "--gates="):
-			gatesJSON = strings.TrimPrefix(args[i], "--gates=")
-		case strings.HasPrefix(args[i], "--gates-file="):
-			gatesFile = strings.TrimPrefix(args[i], "--gates-file=")
-		default:
-			slog.Error("run create: unknown flag", "value", args[i])
-			return 3
-		}
+	project := f.String("project", "")
+	projects := f.String("projects", "")
+	goal := f.String("goal", "")
+	scopeID := f.String("scope-id", "")
+	phasesJSON := f.String("phases", "")
+	actionsJSON := f.String("actions", "")
+	gatesJSON := f.String("gates", "")
+	gatesFile := f.String("gates-file", "")
+	budgetEnforce := f.Bool("budget-enforce")
+
+	complexity, err := f.Int("complexity", 3)
+	if err != nil || complexity < 1 || complexity > 5 {
+		slog.Error("run create: invalid complexity", "value", f.String("complexity", ""))
+		return 3
+	}
+
+	tokenBudget, err := f.Int64("token-budget", 0)
+	if err != nil || (f.Has("token-budget") && tokenBudget <= 0) {
+		slog.Error("run create: invalid token-budget", "value", f.String("token-budget", ""))
+		return 3
+	}
+
+	budgetWarnPct, err := f.Int("budget-warn-pct", 80)
+	if err != nil || (f.Has("budget-warn-pct") && (budgetWarnPct < 1 || budgetWarnPct > 99)) {
+		slog.Error("run create: invalid budget-warn-pct", "value", f.String("budget-warn-pct", ""))
+		return 3
+	}
+
+	maxDispatches, err := f.Int("max-dispatches", 0)
+	if err != nil || (f.Has("max-dispatches") && maxDispatches < 0) {
+		slog.Error("run create: invalid max-dispatches", "value", f.String("max-dispatches", ""))
+		return 3
+	}
+
+	maxAgents, err := f.Int("max-agents", 0)
+	if err != nil || (f.Has("max-agents") && maxAgents < 0) {
+		slog.Error("run create: invalid max-agents", "value", f.String("max-agents", ""))
+		return 3
 	}
 
 	if goal == "" {
@@ -406,39 +375,23 @@ func cmdRunStatus(ctx context.Context, args []string) int {
 }
 
 func cmdRunAdvance(ctx context.Context, args []string) int {
-	var id string
-	priority := 1 // TierHard: evaluate AND block on gate failure (was 4/TierNone: skip all gates)
-	disableGates := false
-	skipReason := ""
-	calibrationFile := ""
+	f := cli.ParseFlags(args)
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--priority="):
-			val := strings.TrimPrefix(args[i], "--priority=")
-			p, err := strconv.Atoi(val)
-			if err != nil {
-				slog.Error("run advance: invalid priority", "value", val)
-				return 3
-			}
-			priority = p
-		case args[i] == "--disable-gates":
-			disableGates = true
-		case strings.HasPrefix(args[i], "--skip-reason="):
-			skipReason = strings.TrimPrefix(args[i], "--skip-reason=")
-		case strings.HasPrefix(args[i], "--calibration-file="):
-			calibrationFile = strings.TrimPrefix(args[i], "--calibration-file=")
-		default:
-			positional = append(positional, args[i])
-		}
+	disableGates := f.Bool("disable-gates")
+	skipReason := f.String("skip-reason", "")
+	calibrationFile := f.String("calibration-file", "")
+
+	priority, err := f.Int("priority", 1) // TierHard: evaluate AND block on gate failure
+	if err != nil {
+		slog.Error("run advance: invalid priority", "value", f.String("priority", ""))
+		return 3
 	}
 
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run advance: usage: ic run advance <id> [--priority=N] [--disable-gates] [--skip-reason=S]\n")
 		return 3
 	}
-	id = positional[0]
+	id := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {
@@ -706,26 +659,16 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 }
 
 func cmdRunSkip(ctx context.Context, args []string) int {
-	var reason, actor string
-	var positional []string
+	f := cli.ParseFlags(args)
+	reason := f.String("reason", "")
+	actor := f.String("actor", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--reason="):
-			reason = strings.TrimPrefix(args[i], "--reason=")
-		case strings.HasPrefix(args[i], "--actor="):
-			actor = strings.TrimPrefix(args[i], "--actor=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 2 {
+	if len(f.Positionals) < 2 {
 		fmt.Fprintf(os.Stderr, "ic: run skip: usage: ic run skip <id> <phase> --reason=<text> [--actor=<name>]\n")
 		return 3
 	}
-	runID := positional[0]
-	targetPhase := positional[1]
+	runID := f.Positionals[0]
+	targetPhase := f.Positionals[1]
 
 	if reason == "" {
 		slog.Error("run skip: --reason is required")
@@ -785,21 +728,10 @@ func cmdRunPhase(ctx context.Context, args []string) int {
 }
 
 func cmdRunList(ctx context.Context, args []string) int {
-	activeOnly := false
-	portfolioOnly := false
-	var scopeFilter *string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--active":
-			activeOnly = true
-		case args[i] == "--portfolio":
-			portfolioOnly = true
-		case strings.HasPrefix(args[i], "--scope="):
-			s := strings.TrimPrefix(args[i], "--scope=")
-			scopeFilter = &s
-		}
-	}
+	f := cli.ParseFlags(args)
+	activeOnly := f.Bool("active")
+	portfolioOnly := f.Bool("portfolio")
+	scopeFilter := f.StringPtr("scope")
 
 	d, err := openDB()
 	if err != nil {
@@ -967,32 +899,21 @@ func cmdRunCancel(ctx context.Context, args []string) int {
 }
 
 func cmdRunRollback(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run rollback: usage: ic run rollback <id> --to-phase=<phase> [--reason=<text>] [--dry-run]\n")
 		fmt.Fprintf(os.Stderr, "       ic run rollback <id> --layer=code [--phase=<phase>] [--format=json|text]\n")
 		return 3
 	}
 
-	runID := args[0]
-	var toPhase, reason, layer, filterPhase, format string
-	dryRun := false
-
-	for i := 1; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--to-phase="):
-			toPhase = strings.TrimPrefix(args[i], "--to-phase=")
-		case strings.HasPrefix(args[i], "--reason="):
-			reason = strings.TrimPrefix(args[i], "--reason=")
-		case strings.HasPrefix(args[i], "--layer="):
-			layer = strings.TrimPrefix(args[i], "--layer=")
-		case strings.HasPrefix(args[i], "--phase="):
-			filterPhase = strings.TrimPrefix(args[i], "--phase=")
-		case strings.HasPrefix(args[i], "--format="):
-			format = strings.TrimPrefix(args[i], "--format=")
-		case args[i] == "--dry-run":
-			dryRun = true
-		}
-	}
+	runID := f.Positionals[0]
+	toPhase := f.String("to-phase", "")
+	reason := f.String("reason", "")
+	layer := f.String("layer", "")
+	filterPhase := f.String("phase", "")
+	format := f.String("format", "")
+	dryRun := f.Bool("dry-run")
 
 	// Route: --layer=code → code rollback query
 	if layer == "code" {
@@ -1191,55 +1112,52 @@ func cmdRunRollbackCode(ctx context.Context, runID, filterPhase, format string) 
 }
 
 func cmdRunSet(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run set: usage: ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N]\n")
 		return 3
 	}
+	id := f.Positionals[0]
 
-	id := args[0]
 	var complexity *int
-	var autoAdvance *bool
-	var forceFull *bool
-	var maxDispatches *int
-
-	for i := 1; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--complexity="):
-			val := strings.TrimPrefix(args[i], "--complexity=")
-			c, err := strconv.Atoi(val)
-			if err != nil || c < 1 || c > 5 {
-				slog.Error("run set: invalid complexity", "value", val)
-				return 3
-			}
-			complexity = &c
-		case strings.HasPrefix(args[i], "--auto-advance="):
-			val := strings.TrimPrefix(args[i], "--auto-advance=")
-			b, err := strconv.ParseBool(val)
-			if err != nil {
-				slog.Error("run set: invalid bool", "value", val)
-				return 3
-			}
-			autoAdvance = &b
-		case strings.HasPrefix(args[i], "--force-full="):
-			val := strings.TrimPrefix(args[i], "--force-full=")
-			b, err := strconv.ParseBool(val)
-			if err != nil {
-				slog.Error("run set: invalid bool", "value", val)
-				return 3
-			}
-			forceFull = &b
-		case strings.HasPrefix(args[i], "--max-dispatches="):
-			val := strings.TrimPrefix(args[i], "--max-dispatches=")
-			v, err := strconv.Atoi(val)
-			if err != nil || v < 0 {
-				slog.Error("run set: invalid max-dispatches", "value", val)
-				return 3
-			}
-			maxDispatches = &v
-		default:
-			slog.Error("run set: unknown flag", "value", args[i])
+	if f.Has("complexity") {
+		c, err := f.Int("complexity", 0)
+		if err != nil || c < 1 || c > 5 {
+			slog.Error("run set: invalid complexity", "value", f.String("complexity", ""))
 			return 3
 		}
+		complexity = &c
+	}
+
+	var autoAdvance *bool
+	if raw, ok := f.Raw("auto-advance"); ok {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			slog.Error("run set: invalid bool", "value", raw)
+			return 3
+		}
+		autoAdvance = &b
+	}
+
+	var forceFull *bool
+	if raw, ok := f.Raw("force-full"); ok {
+		b, err := strconv.ParseBool(raw)
+		if err != nil {
+			slog.Error("run set: invalid bool", "value", raw)
+			return 3
+		}
+		forceFull = &b
+	}
+
+	var maxDispatches *int
+	if f.Has("max-dispatches") {
+		v, err := f.Int("max-dispatches", 0)
+		if err != nil || v < 0 {
+			slog.Error("run set: invalid max-dispatches", "value", f.String("max-dispatches", ""))
+			return 3
+		}
+		maxDispatches = &v
 	}
 
 	if complexity == nil && autoAdvance == nil && forceFull == nil && maxDispatches == nil {
@@ -1299,17 +1217,8 @@ func cmdRunSet(ctx context.Context, args []string) int {
 }
 
 func cmdRunCurrent(ctx context.Context, args []string) int {
-	var project string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--project="):
-			project = strings.TrimPrefix(args[i], "--project=")
-		default:
-			slog.Error("run current: unknown flag", "value", args[i])
-			return 3
-		}
-	}
+	f := cli.ParseFlags(args)
+	project := f.String("project", "")
 
 	if project == "" {
 		cwd, err := os.Getwd()
@@ -1377,27 +1286,16 @@ func cmdRunAgent(ctx context.Context, args []string) int {
 }
 
 func cmdRunAgentAdd(ctx context.Context, args []string) int {
-	var agentType, name, dispatchID string
-	var positional []string
+	f := cli.ParseFlags(args)
+	agentType := f.String("type", "")
+	name := f.String("name", "")
+	dispatchID := f.String("dispatch-id", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--type="):
-			agentType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--name="):
-			name = strings.TrimPrefix(args[i], "--name=")
-		case strings.HasPrefix(args[i], "--dispatch-id="):
-			dispatchID = strings.TrimPrefix(args[i], "--dispatch-id=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run agent add: usage: ic run agent add <run_id> --type=<type> [--name=<name>] [--dispatch-id=<id>]\n")
 		return 3
 	}
-	runID := positional[0]
+	runID := f.Positionals[0]
 
 	if agentType == "" {
 		agentType = "claude"
@@ -1482,23 +1380,14 @@ func cmdRunAgentList(ctx context.Context, args []string) int {
 }
 
 func cmdRunAgentUpdate(ctx context.Context, args []string) int {
-	var status string
-	var positional []string
+	f := cli.ParseFlags(args)
+	status := f.String("status", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--status="):
-			status = strings.TrimPrefix(args[i], "--status=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run agent update: usage: ic run agent update <agent_id> --status=<status>\n")
 		return 3
 	}
-	agentID := positional[0]
+	agentID := f.Positionals[0]
 
 	if status == "" {
 		slog.Error("run agent update: --status is required")
@@ -1690,27 +1579,14 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 	}
 
 	runID := args[0]
-	mode := "simulate"
-	allowLive := false
-	limit := 2000
+	rf := cli.ParseFlags(args[1:])
+	mode := rf.String("mode", "simulate")
+	allowLive := rf.Bool("allow-live")
 
-	for _, arg := range args[1:] {
-		switch {
-		case strings.HasPrefix(arg, "--mode="):
-			mode = strings.TrimPrefix(arg, "--mode=")
-		case arg == "--allow-live":
-			allowLive = true
-		case strings.HasPrefix(arg, "--limit="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if err != nil || v <= 0 {
-				slog.Error("run replay: invalid --limit", "value", strings.TrimPrefix(arg, "--limit="))
-				return 3
-			}
-			limit = v
-		default:
-			slog.Error("run replay: unknown flag", "value", arg)
-			return 3
-		}
+	limit, err := rf.Int("limit", 2000)
+	if err != nil || (rf.Has("limit") && limit <= 0) {
+		slog.Error("run replay: invalid --limit", "value", rf.String("limit", ""))
+		return 3
 	}
 
 	if mode != "simulate" && mode != "reexecute" {
@@ -1799,25 +1675,18 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 }
 
 func cmdRunReplayInputs(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run replay inputs: usage: ic run replay inputs <run_id> [--limit=N]\n")
 		return 3
 	}
-	runID := args[0]
-	limit := 1000
-	for _, arg := range args[1:] {
-		switch {
-		case strings.HasPrefix(arg, "--limit="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if err != nil || v <= 0 {
-				slog.Error("run replay inputs: invalid --limit", "value", strings.TrimPrefix(arg, "--limit="))
-				return 3
-			}
-			limit = v
-		default:
-			slog.Error("run replay inputs: unknown flag", "value", arg)
-			return 3
-		}
+	runID := f.Positionals[0]
+
+	limit, err := f.Int("limit", 1000)
+	if err != nil || (f.Has("limit") && limit <= 0) {
+		slog.Error("run replay inputs: invalid --limit", "value", f.String("limit", ""))
+		return 3
 	}
 
 	d, err := openDB()
@@ -1848,38 +1717,27 @@ func cmdRunReplayInputs(ctx context.Context, args []string) int {
 }
 
 func cmdRunReplayRecord(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run replay record: usage: ic run replay record <run_id> --kind=<kind> [--key=<k>] [--payload=<json>] [--artifact-ref=<ref>] [--event-source=<src>] [--event-id=<id>]\n")
 		return 3
 	}
-	runID := args[0]
-	var (
-		kind, key, payload, artifactRef, eventSource string
-		eventID                                      *int64
-	)
-	for _, arg := range args[1:] {
-		switch {
-		case strings.HasPrefix(arg, "--kind="):
-			kind = strings.TrimPrefix(arg, "--kind=")
-		case strings.HasPrefix(arg, "--key="):
-			key = strings.TrimPrefix(arg, "--key=")
-		case strings.HasPrefix(arg, "--payload="):
-			payload = strings.TrimPrefix(arg, "--payload=")
-		case strings.HasPrefix(arg, "--artifact-ref="):
-			artifactRef = strings.TrimPrefix(arg, "--artifact-ref=")
-		case strings.HasPrefix(arg, "--event-source="):
-			eventSource = strings.TrimPrefix(arg, "--event-source=")
-		case strings.HasPrefix(arg, "--event-id="):
-			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--event-id="), 10, 64)
-			if err != nil || v <= 0 {
-				slog.Error("run replay record: invalid --event-id", "value", strings.TrimPrefix(arg, "--event-id="))
-				return 3
-			}
-			eventID = &v
-		default:
-			slog.Error("run replay record: unknown flag", "value", arg)
+	runID := f.Positionals[0]
+	kind := f.String("kind", "")
+	key := f.String("key", "")
+	payload := f.String("payload", "")
+	artifactRef := f.String("artifact-ref", "")
+	eventSource := f.String("event-source", "")
+
+	var eventID *int64
+	if f.Has("event-id") {
+		v, err := f.Int64("event-id", 0)
+		if err != nil || v <= 0 {
+			slog.Error("run replay record: invalid --event-id", "value", f.String("event-id", ""))
 			return 3
 		}
+		eventID = &v
 	}
 	if kind == "" {
 		slog.Error("run replay record: --kind is required")
@@ -1949,29 +1807,17 @@ func cmdRunArtifact(ctx context.Context, args []string) int {
 }
 
 func cmdRunArtifactAdd(ctx context.Context, args []string) int {
-	var artifactPhase, path, artifactType, dispatch string
-	var positional []string
+	f := cli.ParseFlags(args)
+	artifactPhase := f.String("phase", "")
+	path := f.String("path", "")
+	artifactType := f.String("type", "")
+	dispatch := f.String("dispatch", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--phase="):
-			artifactPhase = strings.TrimPrefix(args[i], "--phase=")
-		case strings.HasPrefix(args[i], "--path="):
-			path = strings.TrimPrefix(args[i], "--path=")
-		case strings.HasPrefix(args[i], "--type="):
-			artifactType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--dispatch="):
-			dispatch = strings.TrimPrefix(args[i], "--dispatch=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run artifact add: usage: ic run artifact add <run_id> --phase=<phase> --path=<path> [--type=<type>] [--dispatch=<id>]\n")
 		return 3
 	}
-	runID := positional[0]
+	runID := f.Positionals[0]
 
 	if artifactPhase == "" {
 		slog.Error("run artifact add: --phase is required")
@@ -2024,24 +1870,14 @@ func cmdRunArtifactAdd(ctx context.Context, args []string) int {
 }
 
 func cmdRunArtifactList(ctx context.Context, args []string) int {
-	var phaseFilter *string
-	var positional []string
+	f := cli.ParseFlags(args)
+	phaseFilter := f.StringPtr("phase")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--phase="):
-			s := strings.TrimPrefix(args[i], "--phase=")
-			phaseFilter = &s
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run artifact list: usage: ic run artifact list <run_id> [--phase=<phase>]\n")
 		return 3
 	}
-	runID := positional[0]
+	runID := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {

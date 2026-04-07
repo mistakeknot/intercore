@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/event"
 	"github.com/mistakeknot/intercore/internal/state"
 )
@@ -38,77 +37,61 @@ func cmdEvents(ctx context.Context, args []string) int {
 }
 
 func cmdEventsTail(ctx context.Context, args []string) int {
-	var runID, consumer string
-	var follow bool
-	var sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview int64
-	var allRuns bool
-	pollInterval := 500 * time.Millisecond
-	limit := 100
+	f := cli.ParseFlags(args)
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--follow" || args[i] == "-f":
+	// Handle -f short flag (collected as positional by ParseFlags)
+	follow := f.Bool("follow")
+	var filteredPositionals []string
+	for _, p := range f.Positionals {
+		if p == "-f" {
 			follow = true
-		case args[i] == "--all":
-			allRuns = true
-		case strings.HasPrefix(args[i], "--since-phase="):
-			val := strings.TrimPrefix(args[i], "--since-phase=")
-			n, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				slog.Error("events tail: invalid --since-phase", "value", val)
-				return 3
-			}
-			sincePhase = n
-		case strings.HasPrefix(args[i], "--since-dispatch="):
-			val := strings.TrimPrefix(args[i], "--since-dispatch=")
-			n, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				slog.Error("events tail: invalid --since-dispatch", "value", val)
-				return 3
-			}
-			sinceDispatch = n
-		case strings.HasPrefix(args[i], "--since-discovery="):
-			val := strings.TrimPrefix(args[i], "--since-discovery=")
-			n, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				slog.Error("events tail: invalid --since-discovery", "value", val)
-				return 3
-			}
-			sinceDiscovery = n
-		case strings.HasPrefix(args[i], "--since-review="):
-			val := strings.TrimPrefix(args[i], "--since-review=")
-			n, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				slog.Error("events tail: invalid --since-review", "value", val)
-				return 3
-			}
-			sinceReview = n
-		case strings.HasPrefix(args[i], "--consumer="):
-			consumer = strings.TrimPrefix(args[i], "--consumer=")
-		case strings.HasPrefix(args[i], "--poll-interval="):
-			val := strings.TrimPrefix(args[i], "--poll-interval=")
-			d, err := time.ParseDuration(val)
-			if err != nil {
-				slog.Error("events tail: invalid --poll-interval", "value", val)
-				return 3
-			}
-			pollInterval = d
-		case strings.HasPrefix(args[i], "--limit="):
-			val := strings.TrimPrefix(args[i], "--limit=")
-			n, err := strconv.Atoi(val)
-			if err != nil {
-				slog.Error("events tail: invalid --limit", "value", val)
-				return 3
-			}
-			limit = n
-		default:
-			positional = append(positional, args[i])
+		} else {
+			filteredPositionals = append(filteredPositionals, p)
 		}
 	}
 
-	if len(positional) > 0 {
-		runID = positional[0]
+	allRuns := f.Bool("all")
+	consumer := f.String("consumer", "")
+
+	var sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview int64
+	var err error
+
+	sincePhase, err = f.Int64("since-phase", 0)
+	if err != nil {
+		slog.Error("events tail: invalid --since-phase", "value", f.String("since-phase", ""))
+		return 3
+	}
+	sinceDispatch, err = f.Int64("since-dispatch", 0)
+	if err != nil {
+		slog.Error("events tail: invalid --since-dispatch", "value", f.String("since-dispatch", ""))
+		return 3
+	}
+	sinceDiscovery, err = f.Int64("since-discovery", 0)
+	if err != nil {
+		slog.Error("events tail: invalid --since-discovery", "value", f.String("since-discovery", ""))
+		return 3
+	}
+	sinceReview, err = f.Int64("since-review", 0)
+	if err != nil {
+		slog.Error("events tail: invalid --since-review", "value", f.String("since-review", ""))
+		return 3
+	}
+
+	pollInterval, err := f.Duration("poll-interval", 500*time.Millisecond)
+	if err != nil {
+		slog.Error("events tail: invalid --poll-interval", "value", f.String("poll-interval", ""))
+		return 3
+	}
+
+	limit, err := f.Int("limit", 100)
+	if err != nil {
+		slog.Error("events tail: invalid --limit", "value", f.String("limit", ""))
+		return 3
+	}
+
+	var runID string
+	if len(filteredPositionals) > 0 {
+		runID = filteredPositionals[0]
 	}
 
 	if runID == "" && !allRuns {
@@ -261,24 +244,15 @@ func cmdEventsCursorReset(ctx context.Context, args []string) int {
 }
 
 func cmdEventsCursorRegister(ctx context.Context, args []string) int {
-	var durable bool
-	var positional []string
+	f := cli.ParseFlags(args)
+	durable := f.Bool("durable")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--durable":
-			durable = true
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: events cursor register: usage: ic events cursor register <consumer> [--durable]\n")
 		return 3
 	}
 
-	consumer := positional[0]
+	consumer := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {
@@ -309,27 +283,13 @@ func cmdEventsCursorRegister(ctx context.Context, args []string) int {
 }
 
 func cmdEventsEmit(ctx context.Context, args []string) int {
-	var source, eventType, contextJSON, runID, sessionID, projectDir string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--source="):
-			source = strings.TrimPrefix(args[i], "--source=")
-		case strings.HasPrefix(args[i], "--type="):
-			eventType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--context="):
-			contextJSON = strings.TrimPrefix(args[i], "--context=")
-		case strings.HasPrefix(args[i], "--run="):
-			runID = strings.TrimPrefix(args[i], "--run=")
-		case strings.HasPrefix(args[i], "--session="):
-			sessionID = strings.TrimPrefix(args[i], "--session=")
-		case strings.HasPrefix(args[i], "--project="):
-			projectDir = strings.TrimPrefix(args[i], "--project=")
-		default:
-			slog.Error("events emit: unknown flag", "value", args[i])
-			return 3
-		}
-	}
+	f := cli.ParseFlags(args)
+	source := f.String("source", "")
+	eventType := f.String("type", "")
+	contextJSON := f.String("context", "")
+	runID := f.String("run", "")
+	sessionID := f.String("session", "")
+	projectDir := f.String("project", "")
 
 	if source == "" {
 		slog.Error("events emit: --source is required")
@@ -414,28 +374,18 @@ func cmdEventsEmit(ctx context.Context, args []string) int {
 }
 
 func cmdEventsListReview(ctx context.Context, args []string) int {
-	var since int64
-	limit := 1000
+	f := cli.ParseFlags(args)
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--since="):
-			val := strings.TrimPrefix(args[i], "--since=")
-			n, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				slog.Error("events list-review: invalid --since", "value", val)
-				return 3
-			}
-			since = n
-		case strings.HasPrefix(args[i], "--limit="):
-			val := strings.TrimPrefix(args[i], "--limit=")
-			n, err := strconv.Atoi(val)
-			if err != nil {
-				slog.Error("events list-review: invalid --limit", "value", val)
-				return 3
-			}
-			limit = n
-		}
+	since, err := f.Int64("since", 0)
+	if err != nil {
+		slog.Error("events list-review: invalid --since", "value", f.String("since", ""))
+		return 3
+	}
+
+	limit, err := f.Int("limit", 1000)
+	if err != nil {
+		slog.Error("events list-review: invalid --limit", "value", f.String("limit", ""))
+		return 3
 	}
 
 	d, err := openDB()
@@ -469,27 +419,13 @@ func cmdEventsListReview(ctx context.Context, args []string) int {
 //   - coordination: requires payload.lock_id, owner, pattern, scope; emits to coordination_events
 //   - intent: requires payload.intent_type, bead_id, idempotency_key; emits to intent_events
 func cmdEventsRecord(ctx context.Context, args []string) int {
-	var source, eventType, payloadJSON, runID, sessionID, projectDir string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--source="):
-			source = strings.TrimPrefix(args[i], "--source=")
-		case strings.HasPrefix(args[i], "--type="):
-			eventType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--payload="):
-			payloadJSON = strings.TrimPrefix(args[i], "--payload=")
-		case strings.HasPrefix(args[i], "--run="):
-			runID = strings.TrimPrefix(args[i], "--run=")
-		case strings.HasPrefix(args[i], "--session="):
-			sessionID = strings.TrimPrefix(args[i], "--session=")
-		case strings.HasPrefix(args[i], "--project="):
-			projectDir = strings.TrimPrefix(args[i], "--project=")
-		default:
-			slog.Error("events record: unknown flag", "value", args[i])
-			return 3
-		}
-	}
+	f := cli.ParseFlags(args)
+	source := f.String("source", "")
+	eventType := f.String("type", "")
+	payloadJSON := f.String("payload", "")
+	runID := f.String("run", "")
+	sessionID := f.String("session", "")
+	projectDir := f.String("project", "")
 
 	if source == "" {
 		slog.Error("events record: --source is required (interspect, review, coordination, intent)")
