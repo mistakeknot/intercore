@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/mistakeknot/intercore/internal/action"
+	"github.com/mistakeknot/intercore/internal/cli"
 )
 
 func cmdRunAction(ctx context.Context, args []string) int {
@@ -35,39 +34,24 @@ func cmdRunAction(ctx context.Context, args []string) int {
 }
 
 func cmdRunActionAdd(ctx context.Context, args []string) int {
-	var runID, phase, command, argsJSON, mode, actionType string
-	priority := 0
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
+	command := f.String("command", "")
+	argsJSON := f.String("args", "")
+	mode := f.String("mode", "")
+	actionType := f.String("type", "")
 
-	var positional []string
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--phase="):
-			phase = strings.TrimPrefix(arg, "--phase=")
-		case strings.HasPrefix(arg, "--command="):
-			command = strings.TrimPrefix(arg, "--command=")
-		case strings.HasPrefix(arg, "--args="):
-			argsJSON = strings.TrimPrefix(arg, "--args=")
-		case strings.HasPrefix(arg, "--mode="):
-			mode = strings.TrimPrefix(arg, "--mode=")
-		case strings.HasPrefix(arg, "--type="):
-			actionType = strings.TrimPrefix(arg, "--type=")
-		case strings.HasPrefix(arg, "--priority="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--priority="))
-			if err != nil {
-				slog.Error("run action add: invalid --priority", "value", strings.TrimPrefix(arg, "--priority="))
-				return 3
-			}
-			priority = v
-		default:
-			positional = append(positional, arg)
-		}
+	priority, err := f.Int("priority", 0)
+	if err != nil {
+		slog.Error("run action add: invalid --priority", "value", f.String("priority", ""))
+		return 3
 	}
 
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run action add: usage: ic run action add <run_id> --phase=<p> --command=<c>\n")
 		return 3
 	}
-	runID = positional[0]
+	runID := f.Positionals[0]
 
 	if phase == "" || command == "" {
 		slog.Error("run action add: --phase and --command are required")
@@ -112,23 +96,14 @@ func cmdRunActionAdd(ctx context.Context, args []string) int {
 }
 
 func cmdRunActionList(ctx context.Context, args []string) int {
-	var phase string
-	var positional []string
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--phase="):
-			phase = strings.TrimPrefix(arg, "--phase=")
-		default:
-			positional = append(positional, arg)
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: run action list: usage: ic run action list <run_id> [--phase=<p>]\n")
 		return 3
 	}
-	runID := positional[0]
+	runID := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {
@@ -173,37 +148,27 @@ func cmdRunActionList(ctx context.Context, args []string) int {
 }
 
 func cmdRunActionUpdate(ctx context.Context, args []string) int {
-	var runID, phase, command, argsJSON, mode string
-	priority := -1
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
+	command := f.String("command", "")
+	argsJSON := f.String("args", "")
+	mode := f.String("mode", "")
 
-	var positional []string
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--phase="):
-			phase = strings.TrimPrefix(arg, "--phase=")
-		case strings.HasPrefix(arg, "--command="):
-			command = strings.TrimPrefix(arg, "--command=")
-		case strings.HasPrefix(arg, "--args="):
-			argsJSON = strings.TrimPrefix(arg, "--args=")
-		case strings.HasPrefix(arg, "--mode="):
-			mode = strings.TrimPrefix(arg, "--mode=")
-		case strings.HasPrefix(arg, "--priority="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--priority="))
-			if err != nil {
-				slog.Error("run action update: invalid --priority", "value", strings.TrimPrefix(arg, "--priority="))
-				return 3
-			}
-			priority = v
-		default:
-			positional = append(positional, arg)
+	priority := -1
+	if f.Has("priority") {
+		v, err := f.Int("priority", -1)
+		if err != nil {
+			slog.Error("run action update: invalid --priority", "value", f.String("priority", ""))
+			return 3
 		}
+		priority = v
 	}
 
-	if len(positional) < 1 || phase == "" || command == "" {
+	if len(f.Positionals) < 1 || phase == "" || command == "" {
 		fmt.Fprintf(os.Stderr, "ic: run action update: usage: ic run action update <run_id> --phase=<p> --command=<c> [--args=...] [--mode=...]\n")
 		return 3
 	}
-	runID = positional[0]
+	runID := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {
@@ -237,25 +202,15 @@ func cmdRunActionUpdate(ctx context.Context, args []string) int {
 }
 
 func cmdRunActionDelete(ctx context.Context, args []string) int {
-	var phase, command string
-	var positional []string
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
+	command := f.String("command", "")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--phase="):
-			phase = strings.TrimPrefix(arg, "--phase=")
-		case strings.HasPrefix(arg, "--command="):
-			command = strings.TrimPrefix(arg, "--command=")
-		default:
-			positional = append(positional, arg)
-		}
-	}
-
-	if len(positional) < 1 || phase == "" || command == "" {
+	if len(f.Positionals) < 1 || phase == "" || command == "" {
 		fmt.Fprintf(os.Stderr, "ic: run action delete: usage: ic run action delete <run_id> --phase=<p> --command=<c>\n")
 		return 3
 	}
-	runID := positional[0]
+	runID := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {

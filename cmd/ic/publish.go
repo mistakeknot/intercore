@@ -8,8 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/publish"
 )
 
@@ -38,35 +38,22 @@ func cmdPublish(ctx context.Context, args []string) int {
 }
 
 func cmdPublishRun(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	opts := publish.PublishOpts{}
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--patch":
-			opts.Mode = publish.BumpPatch
-		case args[i] == "--minor":
-			opts.Mode = publish.BumpMinor
-		case args[i] == "--dry-run":
-			opts.DryRun = true
-		case args[i] == "--auto":
-			opts.Auto = true
-		case strings.HasPrefix(args[i], "--cwd="):
-			opts.CWD = strings.TrimPrefix(args[i], "--cwd=")
-		case args[i] == "--cwd" && i+1 < len(args):
-			i++
-			opts.CWD = args[i]
-		case strings.HasPrefix(args[i], "--"):
-			slog.Error("publish: unknown flag", "value", args[i])
-			return 3
-		default:
-			positional = append(positional, args[i])
-		}
+	if f.Bool("patch") {
+		opts.Mode = publish.BumpPatch
 	}
+	if f.Bool("minor") {
+		opts.Mode = publish.BumpMinor
+	}
+	opts.DryRun = f.Bool("dry-run")
+	opts.Auto = f.Bool("auto")
+	opts.CWD = f.String("cwd", "")
 
-	if len(positional) > 0 {
+	if len(f.Positionals) > 0 {
 		opts.Mode = publish.BumpExact
-		opts.Version = positional[0]
+		opts.Version = f.Positionals[0]
 	}
 
 	// For auto mode, default to patch bump
@@ -103,17 +90,11 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 }
 
 func cmdPublishDoctor(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	opts := publish.DoctorOpts{}
 	// --json is a global flag (consumed by main.go), so check flagJSON too
-	opts.JSON = flagJSON
-	for _, arg := range args {
-		switch arg {
-		case "--fix":
-			opts.Fix = true
-		case "--json":
-			opts.JSON = true
-		}
-	}
+	opts.JSON = flagJSON || f.Bool("json")
+	opts.Fix = f.Bool("fix")
 
 	result, err := publish.RunDoctor(ctx, opts)
 	if err != nil {
@@ -170,12 +151,8 @@ func cmdPublishDoctor(ctx context.Context, args []string) int {
 }
 
 func cmdPublishClean(ctx context.Context, args []string) int {
-	dryRun := false
-	for _, arg := range args {
-		if arg == "--dry-run" {
-			dryRun = true
-		}
-	}
+	f := cli.ParseFlags(args)
+	dryRun := f.Bool("dry-run")
 
 	if dryRun {
 		// Just scan and report
@@ -241,12 +218,8 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 }
 
 func cmdPublishStatus(ctx context.Context, args []string) int {
-	showAll := false
-	for _, arg := range args {
-		if arg == "--all" {
-			showAll = true
-		}
-	}
+	f := cli.ParseFlags(args)
+	showAll := f.Bool("all")
 
 	if showAll {
 		return cmdPublishStatusAll(ctx)
@@ -328,15 +301,8 @@ func cmdPublishStatusAll(ctx context.Context) int {
 }
 
 func cmdPublishInit(ctx context.Context, args []string) int {
-	var name string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--name=") {
-			name = strings.TrimPrefix(args[i], "--name=")
-		} else if args[i] == "--name" && i+1 < len(args) {
-			i++
-			name = args[i]
-		}
-	}
+	f := cli.ParseFlags(args)
+	name := f.String("name", "")
 
 	cwd, _ := os.Getwd()
 	root, err := publish.FindPluginRoot(cwd)

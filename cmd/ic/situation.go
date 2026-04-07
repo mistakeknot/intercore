@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/event"
 	"github.com/mistakeknot/intercore/internal/observation"
@@ -30,29 +29,15 @@ func cmdSituation(ctx context.Context, args []string) int {
 }
 
 func cmdSituationSnapshot(ctx context.Context, args []string) int {
-	var runID string
-	var eventLimit int = 20
-
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		switch {
-		case strings.HasPrefix(arg, "--run="):
-			runID = strings.TrimPrefix(arg, "--run=")
-		case arg == "--run" && i+1 < len(args):
-			i++
-			runID = args[i]
-		case strings.HasPrefix(arg, "--events="):
-			n, err := strconv.Atoi(strings.TrimPrefix(arg, "--events="))
-			if err != nil {
-				slog.Error("situation snapshot: invalid --events", "value", arg)
-				return 3
-			}
-			eventLimit = n
-		default:
-			if runID == "" {
-				runID = arg
-			}
-		}
+	f := cli.ParseFlags(args)
+	runID := f.String("run", "")
+	eventLimit, err := f.Int("events", 20)
+	if err != nil {
+		slog.Error("situation snapshot: invalid --events", "value", f.String("events", ""))
+		return 3
+	}
+	if runID == "" && len(f.Positionals) > 0 {
+		runID = f.Positionals[0]
 	}
 
 	d, err := openDB()

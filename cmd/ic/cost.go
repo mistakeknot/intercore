@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/mistakeknot/intercore/internal/budget"
+	"github.com/mistakeknot/intercore/internal/cli"
 	costpkg "github.com/mistakeknot/intercore/internal/cost"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/event"
@@ -35,38 +34,31 @@ func cmdCost(ctx context.Context, args []string) int {
 }
 
 func cmdCostBaseline(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	opts := costpkg.BaselineOpts{
 		LastN: 50,
 		Days:  30,
 	}
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--last="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--last="))
-			if err != nil {
-				slog.Error("cost baseline: invalid --last", "error", err)
-				return 3
-			}
-			opts.LastN = v
-		case strings.HasPrefix(arg, "--days="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--days="))
-			if err != nil {
-				slog.Error("cost baseline: invalid --days", "error", err)
-				return 3
-			}
-			opts.Days = v
-		case arg == "--by-phase":
-			opts.ByPhase = true
-		case arg == "--by-agent":
-			opts.ByAgent = true
-		case strings.HasPrefix(arg, "--script="):
-			opts.InterstatScript = strings.TrimPrefix(arg, "--script=")
-		default:
-			slog.Error("cost baseline: unknown flag", "value", arg)
+	if f.Has("last") {
+		v, err := f.Int("last", 50)
+		if err != nil {
+			slog.Error("cost baseline: invalid --last", "error", err)
 			return 3
 		}
+		opts.LastN = v
 	}
+	if f.Has("days") {
+		v, err := f.Int("days", 30)
+		if err != nil {
+			slog.Error("cost baseline: invalid --days", "error", err)
+			return 3
+		}
+		opts.Days = v
+	}
+	opts.ByPhase = f.Bool("by-phase")
+	opts.ByAgent = f.Bool("by-agent")
+	opts.InterstatScript = f.String("script", "")
 
 	opts.JSON = flagJSON
 
@@ -103,48 +95,31 @@ func cmdCostBaseline(ctx context.Context, args []string) int {
 }
 
 func cmdCostReconcile(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: cost reconcile: usage: ic cost reconcile <run_id> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=manual]\n")
 		return 3
 	}
-	runID := args[0]
+	runID := f.Positionals[0]
 
-	var billedIn, billedOut int64
-	var dispatchID, source string
-	var hasBilledIn, hasBilledOut bool
-
-	for _, arg := range args[1:] {
-		switch {
-		case strings.HasPrefix(arg, "--billed-in="):
-			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--billed-in="), 10, 64)
-			if err != nil {
-				slog.Error("cost reconcile: invalid --billed-in", "error", err)
-				return 3
-			}
-			billedIn = v
-			hasBilledIn = true
-		case strings.HasPrefix(arg, "--billed-out="):
-			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--billed-out="), 10, 64)
-			if err != nil {
-				slog.Error("cost reconcile: invalid --billed-out", "error", err)
-				return 3
-			}
-			billedOut = v
-			hasBilledOut = true
-		case strings.HasPrefix(arg, "--dispatch="):
-			dispatchID = strings.TrimPrefix(arg, "--dispatch=")
-		case strings.HasPrefix(arg, "--source="):
-			source = strings.TrimPrefix(arg, "--source=")
-		default:
-			slog.Error("cost reconcile: unknown flag", "value", arg)
-			return 3
-		}
-	}
-
-	if !hasBilledIn || !hasBilledOut {
+	if !f.Has("billed-in") || !f.Has("billed-out") {
 		slog.Error("cost reconcile: --billed-in and --billed-out are required")
 		return 3
 	}
+
+	billedIn, err := f.Int64("billed-in", 0)
+	if err != nil {
+		slog.Error("cost reconcile: invalid --billed-in", "error", err)
+		return 3
+	}
+	billedOut, err := f.Int64("billed-out", 0)
+	if err != nil {
+		slog.Error("cost reconcile: invalid --billed-out", "error", err)
+		return 3
+	}
+	dispatchID := f.String("dispatch", "")
+	source := f.String("source", "")
 
 	d, err := openDB()
 	if err != nil {
@@ -208,22 +183,18 @@ func cmdCostReconcile(ctx context.Context, args []string) int {
 }
 
 func cmdCostList(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: cost list: usage: ic cost list <run_id> [--limit=N]\n")
 		return 3
 	}
-	runID := args[0]
+	runID := f.Positionals[0]
 
-	limit := 100
-	for _, arg := range args[1:] {
-		if strings.HasPrefix(arg, "--limit=") {
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if err != nil {
-				slog.Error("cost list: invalid --limit", "error", err)
-				return 3
-			}
-			limit = v
-		}
+	limit, err := f.Int("limit", 100)
+	if err != nil {
+		slog.Error("cost list: invalid --limit", "error", err)
+		return 3
 	}
 
 	d, err := openDB()

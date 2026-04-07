@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/lane"
 )
 
@@ -44,20 +45,11 @@ func cmdLane(ctx context.Context, args []string) int {
 }
 
 func cmdLaneCreate(ctx context.Context, args []string) int {
-	var name, laneType, description, intent string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--name="):
-			name = strings.TrimPrefix(arg, "--name=")
-		case strings.HasPrefix(arg, "--type="):
-			laneType = strings.TrimPrefix(arg, "--type=")
-		case strings.HasPrefix(arg, "--description="):
-			description = strings.TrimPrefix(arg, "--description=")
-		case strings.HasPrefix(arg, "--intent="):
-			intent = strings.TrimPrefix(arg, "--intent=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	name := f.String("name", "")
+	laneType := f.String("type", "")
+	description := f.String("description", "")
+	intent := f.String("intent", "")
 
 	if name == "" {
 		slog.Error("lane create: --name is required")
@@ -106,14 +98,10 @@ func cmdLaneCreate(ctx context.Context, args []string) int {
 }
 
 func cmdLaneList(ctx context.Context, args []string) int {
-	status := ""
-	for _, arg := range args {
-		switch {
-		case arg == "--active":
-			status = "active"
-		case strings.HasPrefix(arg, "--status="):
-			status = strings.TrimPrefix(arg, "--status=")
-		}
+	f := cli.ParseFlags(args)
+	status := f.String("status", "")
+	if f.Bool("active") {
+		status = "active"
 	}
 
 	d, err := openDB()
@@ -324,17 +312,17 @@ func cmdLaneEvents(ctx context.Context, args []string) int {
 }
 
 func cmdLaneSync(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: lane sync: usage: ic lane sync <id-or-name> [--bead-ids=id1,id2,...]\n")
 		return 3
 	}
-	idOrName := args[0]
+	idOrName := f.Positionals[0]
 
 	var beadIDs []string
-	for _, arg := range args[1:] {
-		if strings.HasPrefix(arg, "--bead-ids=") {
-			beadIDs = strings.Split(strings.TrimPrefix(arg, "--bead-ids="), ",")
-		}
+	if beadIDsStr := f.String("bead-ids", ""); beadIDsStr != "" {
+		beadIDs = strings.Split(beadIDsStr, ",")
 	}
 
 	if len(beadIDs) == 0 {
@@ -439,20 +427,11 @@ func cmdLaneMembers(ctx context.Context, args []string) int {
 }
 
 func cmdLaneVelocity(ctx context.Context, args []string) int {
-	days := 7
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--days=") {
-			val := strings.TrimPrefix(arg, "--days=")
-			n, err := fmt.Sscanf(val, "%d", &days)
-			if err != nil || n != 1 {
-				slog.Error("lane velocity: invalid --days value", "value", val)
-				return 3
-			}
-			if days < 1 {
-				slog.Error("lane velocity: --days must be >= 1", "days", days)
-				return 3
-			}
-		}
+	f := cli.ParseFlags(args)
+	days, err := f.Int("days", 7)
+	if err != nil || days < 1 {
+		slog.Error("lane velocity: invalid --days value", "value", f.String("days", ""))
+		return 3
 	}
 
 	d, err := openDB()
@@ -508,18 +487,10 @@ func cmdLaneVelocity(ctx context.Context, args []string) int {
 }
 
 func cmdLaneUpdate(ctx context.Context, args []string) int {
-	var idOrName, intent string
-	intentSet := false
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--name="):
-			idOrName = strings.TrimPrefix(arg, "--name=")
-		case strings.HasPrefix(arg, "--intent="):
-			intent = strings.TrimPrefix(arg, "--intent=")
-			intentSet = true
-		}
-	}
+	f := cli.ParseFlags(args)
+	idOrName := f.String("name", "")
+	intent := f.String("intent", "")
+	intentSet := f.Has("intent")
 
 	if idOrName == "" {
 		slog.Error("lane update: --name is required")

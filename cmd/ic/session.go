@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/session"
 )
 
@@ -39,25 +38,13 @@ func cmdSession(ctx context.Context, args []string) int {
 }
 
 func cmdSessionStart(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts session.StartOpts
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--session="):
-			opts.SessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--agent-type="):
-			opts.AgentType = strings.TrimPrefix(arg, "--agent-type=")
-		case strings.HasPrefix(arg, "--model="):
-			opts.Model = strings.TrimPrefix(arg, "--model=")
-		case strings.HasPrefix(arg, "--metadata="):
-			opts.Metadata = strings.TrimPrefix(arg, "--metadata=")
-		default:
-			slog.Error("session start: unknown flag", "value", arg)
-			return 3
-		}
-	}
+	opts.SessionID = f.String("session", "")
+	opts.ProjectDir = f.String("project", "")
+	opts.AgentType = f.String("agent-type", "")
+	opts.Model = f.String("model", "")
+	opts.Metadata = f.String("metadata", "")
 
 	if opts.SessionID == "" || opts.ProjectDir == "" {
 		slog.Error("session start: --session and --project are required")
@@ -91,25 +78,13 @@ func cmdSessionStart(ctx context.Context, args []string) int {
 }
 
 func cmdSessionAttribute(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts session.AttributeOpts
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--session="):
-			opts.SessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--bead="):
-			opts.BeadID = strings.TrimPrefix(arg, "--bead=")
-		case strings.HasPrefix(arg, "--run="):
-			opts.RunID = strings.TrimPrefix(arg, "--run=")
-		case strings.HasPrefix(arg, "--phase="):
-			opts.Phase = strings.TrimPrefix(arg, "--phase=")
-		default:
-			slog.Error("session attribute: unknown flag", "value", arg)
-			return 3
-		}
-	}
+	opts.SessionID = f.String("session", "")
+	opts.ProjectDir = f.String("project", "")
+	opts.BeadID = f.String("bead", "")
+	opts.RunID = f.String("run", "")
+	opts.Phase = f.String("phase", "")
 
 	if opts.SessionID == "" {
 		slog.Error("session attribute: --session is required")
@@ -154,17 +129,8 @@ func cmdSessionAttribute(ctx context.Context, args []string) int {
 }
 
 func cmdSessionEnd(ctx context.Context, args []string) int {
-	var sessionID string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--session="):
-			sessionID = strings.TrimPrefix(arg, "--session=")
-		default:
-			slog.Error("session end: unknown flag", "value", arg)
-			return 3
-		}
-	}
+	f := cli.ParseFlags(args)
+	sessionID := f.String("session", "")
 
 	if sessionID == "" {
 		slog.Error("session end: --session is required")
@@ -196,19 +162,9 @@ func cmdSessionEnd(ctx context.Context, args []string) int {
 }
 
 func cmdSessionCurrent(ctx context.Context, args []string) int {
-	var sessionID, projectDir string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--session="):
-			sessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--project="):
-			projectDir = strings.TrimPrefix(arg, "--project=")
-		default:
-			slog.Error("session current: unknown flag", "value", arg)
-			return 3
-		}
-	}
+	f := cli.ParseFlags(args)
+	sessionID := f.String("session", "")
+	projectDir := f.String("project", "")
 
 	if sessionID == "" {
 		slog.Error("session current: --session is required")
@@ -268,36 +224,27 @@ func cmdSessionCurrent(ctx context.Context, args []string) int {
 }
 
 func cmdSessionList(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts session.ListOpts
-	opts.Limit = 100
+	opts.ProjectDir = f.String("project", "")
+	opts.SessionID = f.String("session", "")
+	opts.ActiveOnly = f.Bool("active-only")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--session="):
-			opts.SessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--since="):
-			t, err := time.Parse(time.RFC3339, strings.TrimPrefix(arg, "--since="))
-			if err != nil {
-				slog.Error("session list: invalid --since (use RFC3339)", "error", err)
-				return 3
-			}
-			opts.Since = t.Unix()
-		case arg == "--active-only":
-			opts.ActiveOnly = true
-		case strings.HasPrefix(arg, "--limit="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if err != nil {
-				slog.Error("session list: invalid --limit", "error", err)
-				return 3
-			}
-			opts.Limit = v
-		default:
-			slog.Error("session list: unknown flag", "value", arg)
+	if sinceStr := f.String("since", ""); sinceStr != "" {
+		t, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			slog.Error("session list: invalid --since (use RFC3339)", "error", err)
 			return 3
 		}
+		opts.Since = t.Unix()
 	}
+
+	limit, err := f.Int("limit", 100)
+	if err != nil {
+		slog.Error("session list: invalid --limit", "error", err)
+		return 3
+	}
+	opts.Limit = limit
 
 	d, err := openDB()
 	if err != nil {
@@ -343,46 +290,31 @@ func cmdSessionList(ctx context.Context, args []string) int {
 }
 
 func cmdSessionTokens(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts session.TokensOpts
+	opts.SessionID = f.String("session", "")
+	opts.ProjectDir = f.String("project", "")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--session="):
-			opts.SessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--input="):
-			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--input="), 10, 64)
-			if err != nil {
-				slog.Error("session tokens: invalid --input", "error", err)
-				return 3
-			}
-			opts.InputTokens = v
-		case strings.HasPrefix(arg, "--output="):
-			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--output="), 10, 64)
-			if err != nil {
-				slog.Error("session tokens: invalid --output", "error", err)
-				return 3
-			}
-			opts.OutputTokens = v
-		case strings.HasPrefix(arg, "--cache-creation="):
-			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--cache-creation="), 10, 64)
-			if err != nil {
-				slog.Error("session tokens: invalid --cache-creation", "error", err)
-				return 3
-			}
-			opts.CacheCreationTokens = v
-		case strings.HasPrefix(arg, "--cache-read="):
-			v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--cache-read="), 10, 64)
-			if err != nil {
-				slog.Error("session tokens: invalid --cache-read", "error", err)
-				return 3
-			}
-			opts.CacheReadTokens = v
-		default:
-			slog.Error("session tokens: unknown flag", "value", arg)
-			return 3
-		}
+	var err error
+	opts.InputTokens, err = f.Int64("input", 0)
+	if err != nil {
+		slog.Error("session tokens: invalid --input", "error", err)
+		return 3
+	}
+	opts.OutputTokens, err = f.Int64("output", 0)
+	if err != nil {
+		slog.Error("session tokens: invalid --output", "error", err)
+		return 3
+	}
+	opts.CacheCreationTokens, err = f.Int64("cache-creation", 0)
+	if err != nil {
+		slog.Error("session tokens: invalid --cache-creation", "error", err)
+		return 3
+	}
+	opts.CacheReadTokens, err = f.Int64("cache-read", 0)
+	if err != nil {
+		slog.Error("session tokens: invalid --cache-read", "error", err)
+		return 3
 	}
 
 	if opts.SessionID == "" {

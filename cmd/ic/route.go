@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/routing"
 )
 
@@ -112,17 +113,10 @@ func loadRoutingConfig() (*routing.Config, error) {
 }
 
 func cmdRouteModel(ctx context.Context, args []string) int {
-	var phase, category, agent string
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--phase="):
-			phase = strings.TrimPrefix(arg, "--phase=")
-		case strings.HasPrefix(arg, "--category="):
-			category = strings.TrimPrefix(arg, "--category=")
-		case strings.HasPrefix(arg, "--agent="):
-			agent = strings.TrimPrefix(arg, "--agent=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
+	category := f.String("category", "")
+	agent := f.String("agent", "")
 
 	cfg, err := loadRoutingConfig()
 	if err != nil {
@@ -154,15 +148,9 @@ func cmdRouteModel(ctx context.Context, args []string) int {
 }
 
 func cmdRouteBatch(ctx context.Context, args []string) int {
-	var phase string
-	var agents []string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--phase=") {
-			phase = strings.TrimPrefix(arg, "--phase=")
-		} else if !strings.HasPrefix(arg, "--") {
-			agents = append(agents, arg)
-		}
-	}
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
+	agents := f.Positionals
 
 	if len(agents) == 0 {
 		fmt.Fprintf(os.Stderr, "ic route batch: provide agent names as positional args\n")
@@ -191,20 +179,12 @@ func cmdRouteBatch(ctx context.Context, args []string) int {
 }
 
 func cmdRouteDispatch(ctx context.Context, args []string) int {
-	var tier, subagentType, currentPhase string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--tier="):
-			tier = strings.TrimPrefix(args[i], "--tier=")
-		case strings.HasPrefix(args[i], "--type="):
-			subagentType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--phase="):
-			currentPhase = strings.TrimPrefix(args[i], "--phase=")
-		default:
-			if !strings.HasPrefix(args[i], "--") && tier == "" && subagentType == "" {
-				tier = args[i]
-			}
-		}
+	f := cli.ParseFlags(args)
+	tier := f.String("tier", "")
+	subagentType := f.String("type", "")
+	currentPhase := f.String("phase", "")
+	if tier == "" && subagentType == "" && len(f.Positionals) > 0 {
+		tier = f.Positionals[0]
 	}
 
 	// When --type is provided, resolve subagent type to model via dispatch tiers
@@ -271,12 +251,8 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 }
 
 func cmdRouteTable(ctx context.Context, args []string) int {
-	var phase string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--phase=") {
-			phase = strings.TrimPrefix(arg, "--phase=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
 
 	cfg, err := loadRoutingConfig()
 	if err != nil {
@@ -367,55 +343,28 @@ func printRouteTable(r *routing.Resolver, cfg *routing.Config, phase string) {
 }
 
 func cmdRouteRecord(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts routing.RecordDecisionOpts
-	var floorApplied bool
-	var complexity string
+	opts.DispatchID = f.String("dispatch", "")
+	opts.RunID = f.String("run", "")
+	opts.SessionID = f.String("session", "")
+	opts.BeadID = f.String("bead", "")
+	opts.ProjectDir = f.String("project", "")
+	opts.Phase = f.String("phase", "")
+	opts.Agent = f.String("agent", "")
+	opts.Category = f.String("category", "")
+	opts.SelectedModel = f.String("model", "")
+	opts.RuleMatched = f.String("rule", "")
+	opts.FloorApplied = f.Bool("floor-applied")
+	opts.FloorFrom = f.String("floor-from", "")
+	opts.FloorTo = f.String("floor-to", "")
+	opts.Candidates = f.String("candidates", "")
+	opts.Excluded = f.String("excluded", "")
+	opts.PolicyHash = f.String("policy-hash", "")
+	opts.OverrideID = f.String("override-id", "")
+	opts.ContextJSON = f.String("context", "")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--dispatch="):
-			opts.DispatchID = strings.TrimPrefix(arg, "--dispatch=")
-		case strings.HasPrefix(arg, "--run="):
-			opts.RunID = strings.TrimPrefix(arg, "--run=")
-		case strings.HasPrefix(arg, "--session="):
-			opts.SessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--bead="):
-			opts.BeadID = strings.TrimPrefix(arg, "--bead=")
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--phase="):
-			opts.Phase = strings.TrimPrefix(arg, "--phase=")
-		case strings.HasPrefix(arg, "--agent="):
-			opts.Agent = strings.TrimPrefix(arg, "--agent=")
-		case strings.HasPrefix(arg, "--category="):
-			opts.Category = strings.TrimPrefix(arg, "--category=")
-		case strings.HasPrefix(arg, "--model="):
-			opts.SelectedModel = strings.TrimPrefix(arg, "--model=")
-		case strings.HasPrefix(arg, "--rule="):
-			opts.RuleMatched = strings.TrimPrefix(arg, "--rule=")
-		case arg == "--floor-applied":
-			floorApplied = true
-		case strings.HasPrefix(arg, "--floor-from="):
-			opts.FloorFrom = strings.TrimPrefix(arg, "--floor-from=")
-		case strings.HasPrefix(arg, "--floor-to="):
-			opts.FloorTo = strings.TrimPrefix(arg, "--floor-to=")
-		case strings.HasPrefix(arg, "--candidates="):
-			opts.Candidates = strings.TrimPrefix(arg, "--candidates=")
-		case strings.HasPrefix(arg, "--excluded="):
-			opts.Excluded = strings.TrimPrefix(arg, "--excluded=")
-		case strings.HasPrefix(arg, "--policy-hash="):
-			opts.PolicyHash = strings.TrimPrefix(arg, "--policy-hash=")
-		case strings.HasPrefix(arg, "--override-id="):
-			opts.OverrideID = strings.TrimPrefix(arg, "--override-id=")
-		case strings.HasPrefix(arg, "--complexity="):
-			complexity = strings.TrimPrefix(arg, "--complexity=")
-		case strings.HasPrefix(arg, "--context="):
-			opts.ContextJSON = strings.TrimPrefix(arg, "--context=")
-		}
-	}
-
-	opts.FloorApplied = floorApplied
-	if complexity != "" {
+	if complexity := f.String("complexity", ""); complexity != "" {
 		if v, err := strconv.Atoi(complexity); err == nil {
 			opts.Complexity = v
 		}
@@ -460,34 +409,28 @@ func cmdRouteRecord(ctx context.Context, args []string) int {
 }
 
 func cmdRouteList(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts routing.ListDecisionOpts
-	var limit string
+	opts.ProjectDir = f.String("project", "")
+	opts.Agent = f.String("agent", "")
+	opts.Model = f.String("model", "")
+	opts.DispatchID = f.String("dispatch", "")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--agent="):
-			opts.Agent = strings.TrimPrefix(arg, "--agent=")
-		case strings.HasPrefix(arg, "--model="):
-			opts.Model = strings.TrimPrefix(arg, "--model=")
-		case strings.HasPrefix(arg, "--dispatch="):
-			opts.DispatchID = strings.TrimPrefix(arg, "--dispatch=")
-		case strings.HasPrefix(arg, "--since="):
-			if v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--since="), 10, 64); err == nil {
-				opts.Since = v
-			}
-		case strings.HasPrefix(arg, "--until="):
-			if v, err := strconv.ParseInt(strings.TrimPrefix(arg, "--until="), 10, 64); err == nil {
-				opts.Until = v
-			}
-		case strings.HasPrefix(arg, "--limit="):
-			limit = strings.TrimPrefix(arg, "--limit=")
+	if f.Has("since") {
+		v, err := f.Int64("since", 0)
+		if err == nil {
+			opts.Since = v
 		}
 	}
-
-	if limit != "" {
-		if v, err := strconv.Atoi(limit); err == nil {
+	if f.Has("until") {
+		v, err := f.Int64("until", 0)
+		if err == nil {
+			opts.Until = v
+		}
+	}
+	if f.Has("limit") {
+		v, err := f.Int("limit", 0)
+		if err == nil {
 			opts.Limit = v
 		}
 	}

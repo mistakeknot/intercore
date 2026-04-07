@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/coordination"
 	"github.com/mistakeknot/intercore/internal/event"
 )
@@ -71,36 +71,32 @@ func coordStore(ctx context.Context) (*coordination.Store, func(), int) {
 }
 
 func cmdCoordReserve(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var lock coordination.Lock
 	lock.Type = coordination.TypeFileReservation
 	lock.Exclusive = true
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--owner="):
-			lock.Owner = strings.TrimPrefix(arg, "--owner=")
-		case strings.HasPrefix(arg, "--scope="):
-			lock.Scope = strings.TrimPrefix(arg, "--scope=")
-		case strings.HasPrefix(arg, "--pattern="):
-			lock.Pattern = strings.TrimPrefix(arg, "--pattern=")
-		case strings.HasPrefix(arg, "--reason="):
-			lock.Reason = strings.TrimPrefix(arg, "--reason=")
-		case strings.HasPrefix(arg, "--type="):
-			lock.Type = strings.TrimPrefix(arg, "--type=")
-		case strings.HasPrefix(arg, "--ttl="):
-			val := strings.TrimPrefix(arg, "--ttl=")
-			var ttl int
-			fmt.Sscanf(val, "%d", &ttl)
-			lock.TTLSeconds = ttl
-		case strings.HasPrefix(arg, "--dispatch="):
-			lock.DispatchID = strings.TrimPrefix(arg, "--dispatch=")
-		case strings.HasPrefix(arg, "--run="):
-			lock.RunID = strings.TrimPrefix(arg, "--run=")
-		case arg == "--exclusive=false":
-			lock.Exclusive = false
-		case arg == "--exclusive":
-			lock.Exclusive = true
+	lock.Owner = f.String("owner", "")
+	lock.Scope = f.String("scope", "")
+	lock.Pattern = f.String("pattern", "")
+	lock.Reason = f.String("reason", "")
+	if f.Has("type") {
+		lock.Type = f.String("type", lock.Type)
+	}
+	if f.Has("ttl") {
+		v, err := f.Int("ttl", 0)
+		if err != nil {
+			slog.Error("coordination reserve: invalid --ttl", "value", f.String("ttl", ""))
+			return 3
 		}
+		lock.TTLSeconds = v
+	}
+	lock.DispatchID = f.String("dispatch", "")
+	lock.RunID = f.String("run", "")
+	if raw, ok := f.Raw("exclusive"); ok {
+		lock.Exclusive = raw != "false"
+	} else if f.Bool("exclusive") {
+		lock.Exclusive = true
 	}
 
 	if lock.Owner == "" || lock.Scope == "" || lock.Pattern == "" {
@@ -138,22 +134,12 @@ func cmdCoordReserve(ctx context.Context, args []string) int {
 }
 
 func cmdCoordRelease(ctx context.Context, args []string) int {
-	var id, owner, scope string
-	var positional []string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--owner="):
-			owner = strings.TrimPrefix(arg, "--owner=")
-		case strings.HasPrefix(arg, "--scope="):
-			scope = strings.TrimPrefix(arg, "--scope=")
-		default:
-			positional = append(positional, arg)
-		}
-	}
-
-	if len(positional) > 0 {
-		id = positional[0]
+	f := cli.ParseFlags(args)
+	owner := f.String("owner", "")
+	scope := f.String("scope", "")
+	id := ""
+	if len(f.Positionals) > 0 {
+		id = f.Positionals[0]
 	}
 	if id == "" && (owner == "" || scope == "") {
 		slog.Error("coordination release: provide <id> or --owner + --scope")
@@ -181,18 +167,10 @@ func cmdCoordRelease(ctx context.Context, args []string) int {
 }
 
 func cmdCoordCheck(ctx context.Context, args []string) int {
-	var scope, pattern, excludeOwner string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--scope="):
-			scope = strings.TrimPrefix(arg, "--scope=")
-		case strings.HasPrefix(arg, "--pattern="):
-			pattern = strings.TrimPrefix(arg, "--pattern=")
-		case strings.HasPrefix(arg, "--exclude-owner="):
-			excludeOwner = strings.TrimPrefix(arg, "--exclude-owner=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	scope := f.String("scope", "")
+	pattern := f.String("pattern", "")
+	excludeOwner := f.String("exclude-owner", "")
 
 	if scope == "" || pattern == "" {
 		slog.Error("coordination check: --scope and --pattern are required")
@@ -229,20 +207,12 @@ func cmdCoordCheck(ctx context.Context, args []string) int {
 }
 
 func cmdCoordList(ctx context.Context, args []string) int {
+	flags := cli.ParseFlags(args)
 	var f coordination.ListFilter
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--scope="):
-			f.Scope = strings.TrimPrefix(arg, "--scope=")
-		case strings.HasPrefix(arg, "--owner="):
-			f.Owner = strings.TrimPrefix(arg, "--owner=")
-		case strings.HasPrefix(arg, "--type="):
-			f.Type = strings.TrimPrefix(arg, "--type=")
-		case arg == "--active":
-			f.Active = true
-		}
-	}
+	f.Scope = flags.String("scope", "")
+	f.Owner = flags.String("owner", "")
+	f.Type = flags.String("type", "")
+	f.Active = flags.Bool("active")
 
 	store, cleanup, code := coordStore(ctx)
 	if code != 0 {
@@ -272,24 +242,15 @@ func cmdCoordList(ctx context.Context, args []string) int {
 }
 
 func cmdCoordSweep(ctx context.Context, args []string) int {
-	var olderThan string
-	var dryRun bool
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--older-than="):
-			olderThan = strings.TrimPrefix(arg, "--older-than=")
-		case arg == "--dry-run":
-			dryRun = true
-		}
-	}
+	f := cli.ParseFlags(args)
+	dryRun := f.Bool("dry-run")
 
 	var dur time.Duration
-	if olderThan != "" {
+	if f.Has("older-than") {
 		var err error
-		dur, err = time.ParseDuration(olderThan)
+		dur, err = f.Duration("older-than", 0)
 		if err != nil {
-			slog.Error("coordination sweep: invalid duration", "value", olderThan)
+			slog.Error("coordination sweep: invalid duration", "value", f.String("older-than", ""))
 			return 3
 		}
 	}
@@ -319,21 +280,11 @@ func cmdCoordSweep(ctx context.Context, args []string) int {
 }
 
 func cmdCoordTransfer(ctx context.Context, args []string) int {
-	var from, to, scope string
-	var force bool
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--from="):
-			from = strings.TrimPrefix(arg, "--from=")
-		case strings.HasPrefix(arg, "--to="):
-			to = strings.TrimPrefix(arg, "--to=")
-		case strings.HasPrefix(arg, "--scope="):
-			scope = strings.TrimPrefix(arg, "--scope=")
-		case arg == "--force":
-			force = true
-		}
-	}
+	f := cli.ParseFlags(args)
+	from := f.String("from", "")
+	to := f.String("to", "")
+	scope := f.String("scope", "")
+	force := f.Bool("force")
 
 	if from == "" || to == "" || scope == "" {
 		slog.Error("coordination transfer: --from, --to, and --scope are required")

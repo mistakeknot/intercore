@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/db"
 	"github.com/mistakeknot/intercore/internal/observability"
 	"github.com/mistakeknot/intercore/internal/sentinel"
@@ -422,32 +423,14 @@ func cmdSentinel(ctx context.Context, args []string) int {
 }
 
 func cmdSentinelCheck(ctx context.Context, args []string) int {
-	// Parse mixed positional + flag args: <name> <scope_id> --interval=<sec>
-	intervalSec := -1
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--interval=") {
-			val := strings.TrimPrefix(args[i], "--interval=")
-			var err error
-			intervalSec, err = strconv.Atoi(val)
-			if err != nil {
-				slog.Error("sentinel check: invalid interval", "value", val)
-				return 3
-			}
-		} else if args[i] == "--interval" && i+1 < len(args) {
-			i++
-			var err error
-			intervalSec, err = strconv.Atoi(args[i])
-			if err != nil {
-				slog.Error("sentinel check: invalid interval", "value", args[i])
-				return 3
-			}
-		} else {
-			positional = append(positional, args[i])
-		}
+	f := cli.ParseFlags(args)
+	intervalSec, err := f.Int("interval", -1)
+	if err != nil {
+		slog.Error("sentinel check: invalid interval", "value", f.String("interval", ""))
+		return 3
 	}
 
-	if len(positional) < 2 || intervalSec < 0 {
+	if len(f.Positionals) < 2 || intervalSec < 0 {
 		fmt.Fprintf(os.Stderr, "ic: sentinel check: usage: ic sentinel check <name> <scope_id> --interval=<seconds>\n")
 		return 3
 	}
@@ -460,7 +443,7 @@ func cmdSentinelCheck(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := sentinel.New(d.SqlDB(), nil)
-	allowed, err := store.Check(ctx, positional[0], positional[1], intervalSec)
+	allowed, err := store.Check(ctx, f.Positionals[0], f.Positionals[1], intervalSec)
 	if err != nil {
 		slog.Error("sentinel check failed", "error", err)
 		return 2
@@ -519,15 +502,8 @@ func cmdSentinelList(ctx context.Context) int {
 }
 
 func cmdSentinelPrune(ctx context.Context, args []string) int {
-	var olderThan string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--older-than=") {
-			olderThan = strings.TrimPrefix(args[i], "--older-than=")
-		} else if args[i] == "--older-than" && i+1 < len(args) {
-			i++
-			olderThan = args[i]
-		}
-	}
+	f := cli.ParseFlags(args)
+	olderThan := f.String("older-than", "")
 	if olderThan == "" {
 		fmt.Fprintf(os.Stderr, "ic: sentinel prune: usage: ic sentinel prune --older-than=<duration>\n")
 		return 3
@@ -581,27 +557,16 @@ func cmdState(ctx context.Context, args []string) int {
 }
 
 func cmdStateSet(ctx context.Context, args []string) int {
-	// Parse mixed positional + flag args: <key> <scope_id> [--ttl=<dur>] [@filepath]
-	var ttlStr string
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--ttl=") {
-			ttlStr = strings.TrimPrefix(args[i], "--ttl=")
-		} else if args[i] == "--ttl" && i+1 < len(args) {
-			i++
-			ttlStr = args[i]
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
+	f := cli.ParseFlags(args)
+	ttlStr := f.String("ttl", "")
 
-	if len(positional) < 2 {
+	if len(f.Positionals) < 2 {
 		fmt.Fprintf(os.Stderr, "ic: state set: usage: ic state set <key> <scope_id> [--ttl=<duration>] [@filepath]\n")
 		return 3
 	}
 
-	key := positional[0]
-	scopeID := positional[1]
+	key := f.Positionals[0]
+	scopeID := f.Positionals[1]
 
 	if err := state.ValidateKey(key); err != nil {
 		slog.Error("state set failed", "error", err)
@@ -621,8 +586,8 @@ func cmdStateSet(ctx context.Context, args []string) int {
 	// Read payload from file or stdin
 	var payload []byte
 	var err error
-	if len(positional) >= 3 && strings.HasPrefix(positional[2], "@") {
-		filePath := positional[2][1:]
+	if len(f.Positionals) >= 3 && strings.HasPrefix(f.Positionals[2], "@") {
+		filePath := f.Positionals[2][1:]
 		// Validate file path is under CWD (same as --db validation)
 		absFile, err := filepath.Abs(filePath)
 		if err != nil {

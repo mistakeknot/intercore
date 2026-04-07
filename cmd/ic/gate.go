@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/mistakeknot/intercore/internal/budget"
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/phase"
 	"github.com/mistakeknot/intercore/internal/portfolio"
@@ -40,32 +40,19 @@ func cmdGate(ctx context.Context, args []string) int {
 }
 
 func cmdGateCheck(ctx context.Context, args []string) int {
-	priority := 3
-	calibrationFile := ""
-	var positional []string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--priority="):
-			val := strings.TrimPrefix(args[i], "--priority=")
-			p, err := strconv.Atoi(val)
-			if err != nil {
-				slog.Error("gate check: invalid priority", "value", val)
-				return 3
-			}
-			priority = p
-		case strings.HasPrefix(args[i], "--calibration-file="):
-			calibrationFile = strings.TrimPrefix(args[i], "--calibration-file=")
-		default:
-			positional = append(positional, args[i])
-		}
+	f := cli.ParseFlags(args)
+	priority, err := f.Int("priority", 3)
+	if err != nil {
+		slog.Error("gate check: invalid priority", "value", f.String("priority", ""))
+		return 3
 	}
+	calibrationFile := f.String("calibration-file", "")
 
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: gate check: usage: ic gate check <run_id> [--priority=N]\n")
 		return 3
 	}
-	runID := positional[0]
+	runID := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {
@@ -233,28 +220,16 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 }
 
 func cmdGateOverride(ctx context.Context, args []string) int {
-	var reason string
-	var justified, expedient bool
-	var positional []string
+	f := cli.ParseFlags(args)
+	reason := f.String("reason", "")
+	justified := f.Bool("justified")
+	expedient := f.Bool("expedient")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--reason="):
-			reason = strings.TrimPrefix(args[i], "--reason=")
-		case args[i] == "--justified":
-			justified = true
-		case args[i] == "--expedient":
-			expedient = true
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: gate override: usage: ic gate override <run_id> --reason=<reason> [--justified|--expedient]\n")
 		return 3
 	}
-	runID := positional[0]
+	runID := f.Positionals[0]
 
 	if reason == "" {
 		slog.Error("gate override: --reason is required")
@@ -369,15 +344,9 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 }
 
 func cmdGateRules(ctx context.Context, args []string) int {
-	var phaseFilter, runID string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--phase="):
-			phaseFilter = strings.TrimPrefix(args[i], "--phase=")
-		case strings.HasPrefix(args[i], "--run="):
-			runID = strings.TrimPrefix(args[i], "--run=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	phaseFilter := f.String("phase", "")
+	runID := f.String("run", "")
 
 	// If --run is specified, show per-run rules (or defaults if no custom gates)
 	if runID != "" {
@@ -443,19 +412,11 @@ func cmdGateRules(ctx context.Context, args []string) int {
 }
 
 func cmdGateSignals(ctx context.Context, args []string) int {
-	var sinceID int64
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--since-id="):
-			val := strings.TrimPrefix(args[i], "--since-id=")
-			n, err := strconv.ParseInt(val, 10, 64)
-			if err != nil {
-				slog.Error("gate signals: invalid --since-id", "value", val)
-				return 3
-			}
-			sinceID = n
-		}
+	f := cli.ParseFlags(args)
+	sinceID, err := f.Int64("since-id", 0)
+	if err != nil {
+		slog.Error("gate signals: invalid --since-id", "value", f.String("since-id", ""))
+		return 3
 	}
 
 	d, err := openDB()

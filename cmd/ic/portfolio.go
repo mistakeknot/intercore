@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/phase"
 	"github.com/mistakeknot/intercore/internal/portfolio"
 )
@@ -57,25 +58,15 @@ func cmdPortfolioDep(ctx context.Context, args []string) int {
 }
 
 func cmdPortfolioDepAdd(ctx context.Context, args []string) int {
-	var portfolioID, upstream, downstream string
+	f := cli.ParseFlags(args)
+	upstream := f.String("upstream", "")
+	downstream := f.String("downstream", "")
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--upstream="):
-			upstream = strings.TrimPrefix(args[i], "--upstream=")
-		case strings.HasPrefix(args[i], "--downstream="):
-			downstream = strings.TrimPrefix(args[i], "--downstream=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 || upstream == "" || downstream == "" {
+	if len(f.Positionals) < 1 || upstream == "" || downstream == "" {
 		fmt.Fprintf(os.Stderr, "ic: portfolio dep add: usage: ic portfolio dep add <portfolio-id> --upstream=<path> --downstream=<path>\n")
 		return 3
 	}
-	portfolioID = positional[0]
+	portfolioID := f.Positionals[0]
 
 	// Normalize paths to absolute to match child project_dir values
 	upstream, err := filepath.Abs(upstream)
@@ -145,25 +136,15 @@ func cmdPortfolioDepList(ctx context.Context, args []string) int {
 }
 
 func cmdPortfolioDepRemove(ctx context.Context, args []string) int {
-	var portfolioID, upstream, downstream string
+	f := cli.ParseFlags(args)
+	upstream := f.String("upstream", "")
+	downstream := f.String("downstream", "")
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--upstream="):
-			upstream = strings.TrimPrefix(args[i], "--upstream=")
-		case strings.HasPrefix(args[i], "--downstream="):
-			downstream = strings.TrimPrefix(args[i], "--downstream=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 || upstream == "" || downstream == "" {
+	if len(f.Positionals) < 1 || upstream == "" || downstream == "" {
 		fmt.Fprintf(os.Stderr, "ic: portfolio dep remove: usage: ic portfolio dep remove <portfolio-id> --upstream=<path> --downstream=<path>\n")
 		return 3
 	}
-	portfolioID = positional[0]
+	portfolioID := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {
@@ -183,30 +164,23 @@ func cmdPortfolioDepRemove(ctx context.Context, args []string) int {
 }
 
 func cmdPortfolioRelay(ctx context.Context, args []string) int {
-	var portfolioID string
+	f := cli.ParseFlags(args)
 	interval := 2 * time.Second
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--interval="):
-			val := strings.TrimPrefix(args[i], "--interval=")
-			d, err := time.ParseDuration(val)
-			if err != nil || d <= 0 {
-				slog.Error("portfolio relay: invalid interval", "value", val)
-				return 3
-			}
-			interval = d
-		default:
-			positional = append(positional, args[i])
+	if f.Has("interval") {
+		d, err := f.Duration("interval", 2*time.Second)
+		if err != nil || d <= 0 {
+			slog.Error("portfolio relay: invalid interval", "value", f.String("interval", ""))
+			return 3
 		}
+		interval = d
 	}
 
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: portfolio relay: usage: ic portfolio relay <portfolio-id> [--interval=2s]\n")
 		return 3
 	}
-	portfolioID = positional[0]
+	portfolioID := f.Positionals[0]
 
 	d, err := openDB()
 	if err != nil {

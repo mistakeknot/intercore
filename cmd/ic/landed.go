@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/landed"
 )
 
@@ -35,49 +34,31 @@ func cmdLanded(ctx context.Context, args []string) int {
 }
 
 func cmdLandedRecord(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts landed.RecordOpts
+	opts.CommitSHA = f.String("commit", "")
+	opts.ProjectDir = f.String("project", "")
+	opts.Branch = f.String("branch", "")
+	opts.DispatchID = f.String("dispatch", "")
+	opts.RunID = f.String("run", "")
+	opts.BeadID = f.String("bead", "")
+	opts.SessionID = f.String("session", "")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--commit="):
-			opts.CommitSHA = strings.TrimPrefix(arg, "--commit=")
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--branch="):
-			opts.Branch = strings.TrimPrefix(arg, "--branch=")
-		case strings.HasPrefix(arg, "--dispatch="):
-			opts.DispatchID = strings.TrimPrefix(arg, "--dispatch=")
-		case strings.HasPrefix(arg, "--run="):
-			opts.RunID = strings.TrimPrefix(arg, "--run=")
-		case strings.HasPrefix(arg, "--bead="):
-			opts.BeadID = strings.TrimPrefix(arg, "--bead=")
-		case strings.HasPrefix(arg, "--session="):
-			opts.SessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--files="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--files="))
-			if err != nil {
-				slog.Error("landed record: invalid --files", "error", err)
-				return 3
-			}
-			opts.FilesChanged = v
-		case strings.HasPrefix(arg, "--insertions="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--insertions="))
-			if err != nil {
-				slog.Error("landed record: invalid --insertions", "error", err)
-				return 3
-			}
-			opts.Insertions = v
-		case strings.HasPrefix(arg, "--deletions="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--deletions="))
-			if err != nil {
-				slog.Error("landed record: invalid --deletions", "error", err)
-				return 3
-			}
-			opts.Deletions = v
-		default:
-			slog.Error("landed record: unknown flag", "value", arg)
-			return 3
-		}
+	var err error
+	opts.FilesChanged, err = f.Int("files", 0)
+	if err != nil {
+		slog.Error("landed record: invalid --files", "error", err)
+		return 3
+	}
+	opts.Insertions, err = f.Int("insertions", 0)
+	if err != nil {
+		slog.Error("landed record: invalid --insertions", "error", err)
+		return 3
+	}
+	opts.Deletions, err = f.Int("deletions", 0)
+	if err != nil {
+		slog.Error("landed record: invalid --deletions", "error", err)
+		return 3
 	}
 
 	if opts.CommitSHA == "" || opts.ProjectDir == "" {
@@ -112,40 +93,29 @@ func cmdLandedRecord(ctx context.Context, args []string) int {
 }
 
 func cmdLandedList(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts landed.ListOpts
-	opts.Limit = 100
+	opts.ProjectDir = f.String("project", "")
+	opts.BeadID = f.String("bead", "")
+	opts.RunID = f.String("run", "")
+	opts.SessionID = f.String("session", "")
+	opts.IncludeReverted = f.Bool("include-reverted")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--bead="):
-			opts.BeadID = strings.TrimPrefix(arg, "--bead=")
-		case strings.HasPrefix(arg, "--run="):
-			opts.RunID = strings.TrimPrefix(arg, "--run=")
-		case strings.HasPrefix(arg, "--session="):
-			opts.SessionID = strings.TrimPrefix(arg, "--session=")
-		case strings.HasPrefix(arg, "--since="):
-			t, err := time.Parse(time.RFC3339, strings.TrimPrefix(arg, "--since="))
-			if err != nil {
-				slog.Error("landed list: invalid --since (use RFC3339)", "error", err)
-				return 3
-			}
-			opts.Since = t.Unix()
-		case arg == "--include-reverted":
-			opts.IncludeReverted = true
-		case strings.HasPrefix(arg, "--limit="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if err != nil {
-				slog.Error("landed list: invalid --limit", "error", err)
-				return 3
-			}
-			opts.Limit = v
-		default:
-			slog.Error("landed list: unknown flag", "value", arg)
+	if sinceStr := f.String("since", ""); sinceStr != "" {
+		t, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			slog.Error("landed list: invalid --since (use RFC3339)", "error", err)
 			return 3
 		}
+		opts.Since = t.Unix()
 	}
+
+	limit, err := f.Int("limit", 100)
+	if err != nil {
+		slog.Error("landed list: invalid --limit", "error", err)
+		return 3
+	}
+	opts.Limit = limit
 
 	d, err := openDB()
 	if err != nil {
@@ -187,21 +157,10 @@ func cmdLandedList(ctx context.Context, args []string) int {
 }
 
 func cmdLandedRevert(ctx context.Context, args []string) int {
-	var commitSHA, projectDir, revertedBy string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--commit="):
-			commitSHA = strings.TrimPrefix(arg, "--commit=")
-		case strings.HasPrefix(arg, "--project="):
-			projectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--reverted-by="):
-			revertedBy = strings.TrimPrefix(arg, "--reverted-by=")
-		default:
-			slog.Error("landed revert: unknown flag", "value", arg)
-			return 3
-		}
-	}
+	f := cli.ParseFlags(args)
+	commitSHA := f.String("commit", "")
+	projectDir := f.String("project", "")
+	revertedBy := f.String("reverted-by", "")
 
 	if commitSHA == "" || projectDir == "" || revertedBy == "" {
 		slog.Error("landed revert: --commit, --project, and --reverted-by are required")
@@ -236,32 +195,26 @@ func cmdLandedRevert(ctx context.Context, args []string) int {
 }
 
 func cmdLandedSummary(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	var opts landed.ListOpts
+	opts.ProjectDir = f.String("project", "")
+	opts.BeadID = f.String("bead", "")
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--project="):
-			opts.ProjectDir = strings.TrimPrefix(arg, "--project=")
-		case strings.HasPrefix(arg, "--bead="):
-			opts.BeadID = strings.TrimPrefix(arg, "--bead=")
-		case strings.HasPrefix(arg, "--since="):
-			t, err := time.Parse(time.RFC3339, strings.TrimPrefix(arg, "--since="))
-			if err != nil {
-				slog.Error("landed summary: invalid --since (use RFC3339)", "error", err)
-				return 3
-			}
-			opts.Since = t.Unix()
-		case strings.HasPrefix(arg, "--days="):
-			v, err := strconv.Atoi(strings.TrimPrefix(arg, "--days="))
-			if err != nil {
-				slog.Error("landed summary: invalid --days", "error", err)
-				return 3
-			}
-			opts.Since = time.Now().AddDate(0, 0, -v).Unix()
-		default:
-			slog.Error("landed summary: unknown flag", "value", arg)
+	if sinceStr := f.String("since", ""); sinceStr != "" {
+		t, err := time.Parse(time.RFC3339, sinceStr)
+		if err != nil {
+			slog.Error("landed summary: invalid --since (use RFC3339)", "error", err)
 			return 3
 		}
+		opts.Since = t.Unix()
+	}
+	if f.Has("days") {
+		v, err := f.Int("days", 0)
+		if err != nil {
+			slog.Error("landed summary: invalid --days", "error", err)
+			return 3
+		}
+		opts.Since = time.Now().AddDate(0, 0, -v).Unix()
 	}
 
 	d, err := openDB()

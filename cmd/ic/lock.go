@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/lock"
 )
 
@@ -38,32 +38,20 @@ func cmdLock(ctx context.Context, args []string) int {
 }
 
 func cmdLockAcquire(ctx context.Context, args []string) int {
-	var timeout string
-	var owner string
-	var positional []string
+	f := cli.ParseFlags(args)
+	owner := f.String("owner", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--timeout="):
-			timeout = strings.TrimPrefix(args[i], "--timeout=")
-		case strings.HasPrefix(args[i], "--owner="):
-			owner = strings.TrimPrefix(args[i], "--owner=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 2 {
+	if len(f.Positionals) < 2 {
 		fmt.Fprintf(os.Stderr, "ic: lock acquire: usage: ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<s>]\n")
 		return 3
 	}
 
 	dur := time.Second
-	if timeout != "" {
+	if f.Has("timeout") {
 		var err error
-		dur, err = time.ParseDuration(timeout)
+		dur, err = f.Duration("timeout", time.Second)
 		if err != nil {
-			slog.Error("lock acquire: invalid timeout", "value", timeout)
+			slog.Error("lock acquire: invalid timeout", "value", f.String("timeout", ""))
 			return 3
 		}
 	}
@@ -74,7 +62,7 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 	}
 
 	mgr := lock.NewManager("")
-	err := mgr.Acquire(ctx, positional[0], positional[1], owner, dur)
+	err := mgr.Acquire(ctx, f.Positionals[0], f.Positionals[1], owner, dur)
 	if err != nil {
 		if errors.Is(err, lock.ErrTimeout) {
 			if flagVerbose {
@@ -87,25 +75,16 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 	}
 
 	if flagVerbose {
-		fmt.Printf("acquired %s/%s\n", positional[0], positional[1])
+		fmt.Printf("acquired %s/%s\n", f.Positionals[0], f.Positionals[1])
 	}
 	return 0
 }
 
 func cmdLockRelease(ctx context.Context, args []string) int {
-	var owner string
-	var positional []string
+	f := cli.ParseFlags(args)
+	owner := f.String("owner", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--owner="):
-			owner = strings.TrimPrefix(args[i], "--owner=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 2 {
+	if len(f.Positionals) < 2 {
 		fmt.Fprintf(os.Stderr, "ic: lock release: usage: ic lock release <name> <scope> [--owner=<s>]\n")
 		return 3
 	}
@@ -116,7 +95,7 @@ func cmdLockRelease(ctx context.Context, args []string) int {
 	}
 
 	mgr := lock.NewManager("")
-	err := mgr.Release(ctx, positional[0], positional[1], owner)
+	err := mgr.Release(ctx, f.Positionals[0], f.Positionals[1], owner)
 	if err != nil {
 		if errors.Is(err, lock.ErrNotFound) {
 			if flagVerbose {
@@ -135,7 +114,7 @@ func cmdLockRelease(ctx context.Context, args []string) int {
 	}
 
 	if flagVerbose {
-		fmt.Printf("released %s/%s\n", positional[0], positional[1])
+		fmt.Printf("released %s/%s\n", f.Positionals[0], f.Positionals[1])
 	}
 	return 0
 }
@@ -159,12 +138,8 @@ func cmdLockList(ctx context.Context) int {
 }
 
 func cmdLockStale(ctx context.Context, args []string) int {
-	olderThan := "5s"
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--older-than=") {
-			olderThan = strings.TrimPrefix(args[i], "--older-than=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	olderThan := f.String("older-than", "5s")
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {
@@ -190,12 +165,8 @@ func cmdLockStale(ctx context.Context, args []string) int {
 }
 
 func cmdLockClean(ctx context.Context, args []string) int {
-	olderThan := "5s"
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--older-than=") {
-			olderThan = strings.TrimPrefix(args[i], "--older-than=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	olderThan := f.String("older-than", "5s")
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {

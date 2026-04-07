@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/discovery"
 )
 
@@ -49,31 +50,16 @@ func cmdDiscovery(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoverySubmit(ctx context.Context, args []string) int {
-	var source, sourceID, title, summary, url, metadataFile, embeddingFile string
-	var scoreStr, dedupStr string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--source="):
-			source = strings.TrimPrefix(args[i], "--source=")
-		case strings.HasPrefix(args[i], "--source-id="):
-			sourceID = strings.TrimPrefix(args[i], "--source-id=")
-		case strings.HasPrefix(args[i], "--title="):
-			title = strings.TrimPrefix(args[i], "--title=")
-		case strings.HasPrefix(args[i], "--summary="):
-			summary = strings.TrimPrefix(args[i], "--summary=")
-		case strings.HasPrefix(args[i], "--url="):
-			url = strings.TrimPrefix(args[i], "--url=")
-		case strings.HasPrefix(args[i], "--metadata="):
-			metadataFile = strings.TrimPrefix(args[i], "--metadata=")
-		case strings.HasPrefix(args[i], "--embedding="):
-			embeddingFile = strings.TrimPrefix(args[i], "--embedding=")
-		case strings.HasPrefix(args[i], "--score="):
-			scoreStr = strings.TrimPrefix(args[i], "--score=")
-		case strings.HasPrefix(args[i], "--dedup-threshold="):
-			dedupStr = strings.TrimPrefix(args[i], "--dedup-threshold=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	source := f.String("source", "")
+	sourceID := f.String("source-id", "")
+	title := f.String("title", "")
+	summary := f.String("summary", "")
+	url := f.String("url", "")
+	metadataFile := f.String("metadata", "")
+	embeddingFile := f.String("embedding", "")
+	scoreStr := f.String("score", "")
+	dedupStr := f.String("dedup-threshold", "")
 
 	if source == "" || sourceID == "" || title == "" {
 		slog.Error("discovery submit: --source, --source-id, and --title are required")
@@ -172,30 +158,15 @@ func cmdDiscoveryStatus(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoveryList(ctx context.Context, args []string) int {
-	var source, status, tier string
-	var limitStr string
+	f := cli.ParseFlags(args)
+	source := f.String("source", "")
+	status := f.String("status", "")
+	tier := f.String("tier", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--source="):
-			source = strings.TrimPrefix(args[i], "--source=")
-		case strings.HasPrefix(args[i], "--status="):
-			status = strings.TrimPrefix(args[i], "--status=")
-		case strings.HasPrefix(args[i], "--tier="):
-			tier = strings.TrimPrefix(args[i], "--tier=")
-		case strings.HasPrefix(args[i], "--limit="):
-			limitStr = strings.TrimPrefix(args[i], "--limit=")
-		}
-	}
-
-	limit := 100
-	if limitStr != "" {
-		var err error
-		limit, err = strconv.Atoi(limitStr)
-		if err != nil {
-			slog.Error("discovery list: invalid limit", "value", limitStr)
-			return 3
-		}
+	limit, err := f.Int("limit", 100)
+	if err != nil {
+		slog.Error("discovery list: invalid limit", "value", f.String("limit", ""))
+		return 3
 	}
 
 	d, err := openDB()
@@ -228,14 +199,11 @@ func cmdDiscoveryList(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoveryScore(ctx context.Context, args []string) int {
-	var id, scoreStr string
-
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--score=") {
-			scoreStr = strings.TrimPrefix(args[i], "--score=")
-		} else if !strings.HasPrefix(args[i], "--") {
-			id = args[i]
-		}
+	f := cli.ParseFlags(args)
+	scoreStr := f.String("score", "")
+	id := ""
+	if len(f.Positionals) > 0 {
+		id = f.Positionals[0]
 	}
 
 	if id == "" || scoreStr == "" {
@@ -266,18 +234,12 @@ func cmdDiscoveryScore(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoveryPromote(ctx context.Context, args []string) int {
-	var id, beadID string
-	force := false
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--bead-id="):
-			beadID = strings.TrimPrefix(args[i], "--bead-id=")
-		case args[i] == "--force":
-			force = true
-		case !strings.HasPrefix(args[i], "--"):
-			id = args[i]
-		}
+	f := cli.ParseFlags(args)
+	beadID := f.String("bead-id", "")
+	force := f.Bool("force")
+	id := ""
+	if len(f.Positionals) > 0 {
+		id = f.Positionals[0]
 	}
 
 	if id == "" || beadID == "" {
@@ -324,19 +286,13 @@ func cmdDiscoveryDismiss(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoveryFeedback(ctx context.Context, args []string) int {
-	var id, signal, dataFile, actor string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--signal="):
-			signal = strings.TrimPrefix(args[i], "--signal=")
-		case strings.HasPrefix(args[i], "--data="):
-			dataFile = strings.TrimPrefix(args[i], "--data=")
-		case strings.HasPrefix(args[i], "--actor="):
-			actor = strings.TrimPrefix(args[i], "--actor=")
-		case !strings.HasPrefix(args[i], "--"):
-			id = args[i]
-		}
+	f := cli.ParseFlags(args)
+	signal := f.String("signal", "")
+	dataFile := f.String("data", "")
+	actor := f.String("actor", "")
+	id := ""
+	if len(f.Positionals) > 0 {
+		id = f.Positionals[0]
 	}
 
 	if id == "" || signal == "" {
@@ -406,16 +362,9 @@ func cmdDiscoveryProfile(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoveryProfileUpdate(ctx context.Context, args []string) int {
-	var kwFile, swFile string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--keyword-weights="):
-			kwFile = strings.TrimPrefix(args[i], "--keyword-weights=")
-		case strings.HasPrefix(args[i], "--source-weights="):
-			swFile = strings.TrimPrefix(args[i], "--source-weights=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	kwFile := f.String("keyword-weights", "")
+	swFile := f.String("source-weights", "")
 
 	if kwFile == "" || swFile == "" {
 		slog.Error("discovery profile update: --keyword-weights and --source-weights are required")
@@ -451,16 +400,9 @@ func cmdDiscoveryProfileUpdate(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoveryDecay(ctx context.Context, args []string) int {
-	var rateStr, minAgeStr string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--rate="):
-			rateStr = strings.TrimPrefix(args[i], "--rate=")
-		case strings.HasPrefix(args[i], "--min-age="):
-			minAgeStr = strings.TrimPrefix(args[i], "--min-age=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	rateStr := f.String("rate", "")
+	minAgeStr := f.String("min-age", "")
 
 	if rateStr == "" {
 		slog.Error("discovery decay: --rate is required")
@@ -502,16 +444,9 @@ func cmdDiscoveryDecay(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoveryRollback(ctx context.Context, args []string) int {
-	var source, sinceStr string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--source="):
-			source = strings.TrimPrefix(args[i], "--source=")
-		case strings.HasPrefix(args[i], "--since="):
-			sinceStr = strings.TrimPrefix(args[i], "--since=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	source := f.String("source", "")
+	sinceStr := f.String("since", "")
 
 	if source == "" || sinceStr == "" {
 		slog.Error("discovery rollback: --source and --since are required")
@@ -543,24 +478,13 @@ func cmdDiscoveryRollback(ctx context.Context, args []string) int {
 }
 
 func cmdDiscoverySearch(ctx context.Context, args []string) int {
-	var embeddingFile, source, tier, status, minScoreStr, limitStr string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--embedding="):
-			embeddingFile = strings.TrimPrefix(args[i], "--embedding=")
-		case strings.HasPrefix(args[i], "--source="):
-			source = strings.TrimPrefix(args[i], "--source=")
-		case strings.HasPrefix(args[i], "--tier="):
-			tier = strings.TrimPrefix(args[i], "--tier=")
-		case strings.HasPrefix(args[i], "--status="):
-			status = strings.TrimPrefix(args[i], "--status=")
-		case strings.HasPrefix(args[i], "--min-score="):
-			minScoreStr = strings.TrimPrefix(args[i], "--min-score=")
-		case strings.HasPrefix(args[i], "--limit="):
-			limitStr = strings.TrimPrefix(args[i], "--limit=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	embeddingFile := f.String("embedding", "")
+	source := f.String("source", "")
+	tier := f.String("tier", "")
+	status := f.String("status", "")
+	minScoreStr := f.String("min-score", "")
+	limitStr := f.String("limit", "")
 
 	if embeddingFile == "" {
 		slog.Error("discovery search: --embedding is required")
