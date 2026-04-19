@@ -77,6 +77,18 @@ func validateModeTransition(base, override Rule) error {
 	return nil
 }
 
+// mergeRequires merges requires maps with the following semantics (see
+// docs/canon/policy-merge.md):
+//
+//   - Numeric keys merge by minimum (stricter).
+//   - Boolean keys merge by AND (stricter).
+//   - A required boolean (base=true) dropped by child without allow_override
+//     is a merge error. With allow_override, the child's drop is honored by
+//     removing the key from the output (drop-to-absent, not drop-to-false):
+//     "requires X=false" has no meaningful semantics, so a dropped requirement
+//     becomes an absent requirement.
+//   - A required boolean explicitly set to false by child with allow_override
+//     is likewise normalized to absent (dropped).
 func mergeRequires(base, override map[string]interface{}, allowOverride bool) (map[string]interface{}, error) {
 	out := map[string]interface{}{}
 	for k, v := range base {
@@ -89,8 +101,11 @@ func mergeRequires(base, override map[string]interface{}, allowOverride bool) (m
 			continue
 		}
 		_, exists := override[key]
-		if !exists && !allowOverride {
-			return nil, fmt.Errorf("cannot remove required boolean %q without allow_override", key)
+		if !exists {
+			if !allowOverride {
+				return nil, fmt.Errorf("cannot remove required boolean %q without allow_override", key)
+			}
+			delete(out, key)
 		}
 	}
 
@@ -114,8 +129,13 @@ func mergeRequires(base, override map[string]interface{}, allowOverride bool) (m
 
 		if oldBool, ok := asBool(oldVal); ok {
 			if newBool, ok := asBool(newVal); ok {
-				if oldBool && !newBool && !allowOverride {
-					return nil, fmt.Errorf("cannot relax boolean %q from true to false without allow_override", key)
+				if oldBool && !newBool {
+					if !allowOverride {
+						return nil, fmt.Errorf("cannot relax boolean %q from true to false without allow_override", key)
+					}
+					// drop-to-absent: requirement is removed entirely.
+					delete(out, key)
+					continue
 				}
 				out[key] = oldBool && newBool
 				continue

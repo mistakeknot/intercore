@@ -33,8 +33,12 @@ func TestMerge_NumericMin(t *testing.T) {
 	}
 }
 
+// TestMerge_BooleanAND covers the spec in docs/canon/policy-merge.md Example 2:
+// a required boolean (base=true) that the child drops is only permitted when
+// the base rule sets allow_override:true. Per spec, a successfully dropped
+// requirement is removed from the merged requires map entirely
+// (drop-to-absent); "requires X=false" has no useful semantics.
 func TestMerge_BooleanAND(t *testing.T) {
-	t.Skip("TODO(sylveste-qdqr): allow_override drop-to-false semantics need spec clarification; merge currently removes key, test expects explicit false")
 	global := &Policy{
 		Version: 1,
 		Rules: []Rule{
@@ -67,12 +71,29 @@ func TestMerge_BooleanAND(t *testing.T) {
 	if idx < 0 {
 		t.Fatal("missing bead-close rule")
 	}
-	got, ok := asBool(merged.Rules[idx].Requires["tests_passed"])
-	if !ok {
-		t.Fatal("tests_passed missing")
+	if _, exists := merged.Rules[idx].Requires["tests_passed"]; exists {
+		t.Fatalf("tests_passed should be absent after allowed override drop; got %v", merged.Rules[idx].Requires["tests_passed"])
 	}
-	if got {
-		t.Fatal("tests_passed should be false after allowed override drop")
+
+	// Explicit false from child with allow_override is normalized to absent.
+	projectFalse := &Policy{
+		Version: 1,
+		Rules: []Rule{
+			{Op: "bead-close", Mode: ModeAuto, Requires: map[string]interface{}{"tests_passed": false}},
+		},
+	}
+	merged2, err := MergePolicies(globalAllow, projectFalse)
+	if err != nil {
+		t.Fatalf("MergePolicies with explicit false: %v", err)
+	}
+	idx2 := findRuleByOp(merged2.Rules, "bead-close")
+	if _, exists := merged2.Rules[idx2].Requires["tests_passed"]; exists {
+		t.Fatalf("tests_passed should be absent after explicit-false override; got %v", merged2.Rules[idx2].Requires["tests_passed"])
+	}
+
+	// Without allow_override, explicit false is rejected.
+	if _, err := MergePolicies(global, projectFalse); err == nil {
+		t.Fatal("expected merge to reject tests_passed=false without allow_override")
 	}
 }
 
