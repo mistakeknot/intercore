@@ -1064,3 +1064,39 @@ func TestMigrate_V20ToV22_EventEnvelopeAndReplayInputs(t *testing.T) {
 		rows.Close()
 	}
 }
+
+func TestMigration032Authorizations(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("Run migrations: %v", err)
+	}
+
+	var count int
+	err = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations')`).Scan(&count)
+	if err != nil {
+		t.Fatalf("pragma_table_info(authorizations): %v", err)
+	}
+	if count != 12 {
+		t.Fatalf("authorizations column count = %d, want 12", count)
+	}
+
+	_, err = d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('x','bead-close','a','s','bogus',1)`)
+	if err == nil {
+		t.Fatalf("expected mode CHECK to reject bogus mode")
+	}
+
+	_, err = d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('y','bead-close','a','   ','auto',1)`)
+	if err == nil {
+		t.Fatalf("expected agent_id CHECK to reject whitespace")
+	}
+}
