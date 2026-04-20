@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 32
-	maxSchemaVersion     = 32
+	currentSchemaVersion = 33
+	maxSchemaVersion     = 33
 )
 
 var (
@@ -389,6 +389,43 @@ func (d *DB) Migrate(ctx context.Context) error {
 		}
 		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_review_events_type ON review_events(event_type)"); err != nil {
 			return fmt.Errorf("migrate v27→v28 idx: %w", err)
+		}
+	}
+
+	// v32 → v33: authz signing columns + cutover marker.
+	// Covers existing v32 DBs (the authorizations table from v32 is missing
+	// the signing columns; schema.sql's CREATE TABLE IF NOT EXISTS is a
+	// no-op for existing tables). The ALTER TABLEs tolerate duplicate-column
+	// errors for idempotency. Cutover marker uses a fixed ID + INSERT OR
+	// IGNORE so re-running is a no-op.
+	if currentVersion >= 32 && currentVersion < 33 {
+		for _, stmt := range []string{
+			"ALTER TABLE authorizations ADD COLUMN sig_version INTEGER NOT NULL DEFAULT 0",
+			"ALTER TABLE authorizations ADD COLUMN signature   BLOB",
+			"ALTER TABLE authorizations ADD COLUMN signed_at   INTEGER",
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v32→v33: %w", err)
+				}
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS authz_unsigned ON authorizations(sig_version, signed_at) WHERE signature IS NULL AND sig_version >= 1"); err != nil {
+			return fmt.Errorf("migrate v32→v33 index: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO authorizations (
+				id, op_type, target, agent_id, mode, created_at, sig_version
+			) VALUES (
+				'migration-033-cutover-marker',
+				'migration.signing-enabled',
+				'authorizations',
+				'system:migration-033',
+				'auto',
+				CAST(strftime('%s','now') AS INTEGER),
+				1
+			)`); err != nil {
+			return fmt.Errorf("migrate v32→v33 marker: %w", err)
 		}
 	}
 

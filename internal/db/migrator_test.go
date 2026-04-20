@@ -118,11 +118,11 @@ func TestMigrator_V22ToV23_AuditTraceID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if applied != 10 {
-		t.Errorf("applied = %d, want 10", applied)
+	if applied != 11 {
+		t.Errorf("applied = %d, want 11", applied)
 	}
 
-	// Verify version is now 32 (v23-v32, includes session_tokens, lane_intent, authorizations)
+	// Verify version is now 33 (v23-v33, includes session_tokens, lane_intent, authorizations, authz_signing)
 	v, err := d.SchemaVersion()
 	if err != nil {
 		t.Fatal(err)

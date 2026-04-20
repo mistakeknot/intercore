@@ -1081,13 +1081,16 @@ func TestMigration032Authorizations(t *testing.T) {
 		t.Fatalf("Run migrations: %v", err)
 	}
 
-	var count int
-	err = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations')`).Scan(&count)
+	// Column count is asserted in TestMigration033AuthzSigning to the
+	// post-v33 shape (12 base + 3 signing). Here we only confirm the
+	// v32-era base columns still exist with the right CHECK behavior.
+	var baseCols int
+	err = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations') WHERE name IN ('id','op_type','target','agent_id','bead_id','mode','policy_match','policy_hash','vetted_sha','vetting','cross_project_id','created_at')`).Scan(&baseCols)
 	if err != nil {
 		t.Fatalf("pragma_table_info(authorizations): %v", err)
 	}
-	if count != 12 {
-		t.Fatalf("authorizations column count = %d, want 12", count)
+	if baseCols != 12 {
+		t.Fatalf("authorizations v32 base column count = %d, want 12", baseCols)
 	}
 
 	_, err = d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('x','bead-close','a','s','bogus',1)`)
@@ -1098,5 +1101,84 @@ func TestMigration032Authorizations(t *testing.T) {
 	_, err = d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('y','bead-close','a','   ','auto',1)`)
 	if err == nil {
 		t.Fatalf("expected agent_id CHECK to reject whitespace")
+	}
+}
+
+// TestMigration033AuthzSigning verifies the v1.5 signing columns and the
+// cutover-marker row. See docs/canon/authz-signing-trust-model.md for why
+// the marker exists and what it bounds.
+func TestMigration033AuthzSigning(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("Run migrations: %v", err)
+	}
+
+	// Column shape: base 12 from migration 032 + 3 new = 15.
+	var count int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations')`).Scan(&count); err != nil {
+		t.Fatalf("pragma_table_info: %v", err)
+	}
+	if count != 15 {
+		t.Fatalf("authorizations column count = %d, want 15 (base 12 + sig_version, signature, signed_at)", count)
+	}
+
+	for _, col := range []string{"sig_version", "signature", "signed_at"} {
+		var present int
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations') WHERE name=?`, col).Scan(&present); err != nil {
+			t.Fatalf("check column %q: %v", col, err)
+		}
+		if present != 1 {
+			t.Fatalf("column %q missing after migration 033", col)
+		}
+	}
+
+	// Partial index for unsigned rows.
+	var idxCount int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='authz_unsigned'`).Scan(&idxCount); err != nil {
+		t.Fatalf("check authz_unsigned index: %v", err)
+	}
+	if idxCount != 1 {
+		t.Fatalf("authz_unsigned partial index missing")
+	}
+
+	// Cutover marker row must exist exactly once with op_type='migration.signing-enabled'.
+	var markerRows int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.signing-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("count markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("cutover marker count = %d, want 1 (idempotent INSERT OR IGNORE)", markerRows)
+	}
+
+	// sig_version defaults to 0 on NEW insert (not via migration).
+	if _, err := d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('z','bead-close','a','test','auto',2)`); err != nil {
+		t.Fatalf("insert new row: %v", err)
+	}
+	var newSigVersion int
+	if err := d.db.QueryRow(`SELECT sig_version FROM authorizations WHERE id='z'`).Scan(&newSigVersion); err != nil {
+		t.Fatalf("read sig_version: %v", err)
+	}
+	if newSigVersion != 0 {
+		t.Fatalf("default sig_version for new row = %d, want 0", newSigVersion)
+	}
+
+	// Re-running migrations must be a no-op (marker remains exactly 1 row).
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("re-run migrations: %v", err)
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.signing-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("recount markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("cutover marker count after re-run = %d, want 1 (idempotency broken)", markerRows)
 	}
 }

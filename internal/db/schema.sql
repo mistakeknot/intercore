@@ -533,6 +533,7 @@ CREATE INDEX IF NOT EXISTS idx_routing_dec_model ON routing_decisions(selected_m
 CREATE INDEX IF NOT EXISTS idx_routing_dec_dispatch ON routing_decisions(dispatch_id) WHERE dispatch_id IS NOT NULL;
 
 -- v32 authorizations (auto-proceed authz framework — sylveste-qdqr)
+-- v33 signing columns appended below (see docs/canon/authz-signing-trust-model.md)
 CREATE TABLE IF NOT EXISTS authorizations (
   id               TEXT PRIMARY KEY,
   op_type          TEXT NOT NULL,
@@ -545,9 +546,28 @@ CREATE TABLE IF NOT EXISTS authorizations (
   vetted_sha       TEXT,
   vetting          TEXT CHECK(vetting IS NULL OR json_valid(vetting)),
   cross_project_id TEXT,
-  created_at       INTEGER NOT NULL
+  created_at       INTEGER NOT NULL,
+  sig_version      INTEGER NOT NULL DEFAULT 0,
+  signature        BLOB,
+  signed_at        INTEGER
 );
 CREATE INDEX IF NOT EXISTS authz_by_bead  ON authorizations(bead_id,  created_at DESC);
 CREATE INDEX IF NOT EXISTS authz_by_op    ON authorizations(op_type,  created_at DESC);
 CREATE INDEX IF NOT EXISTS authz_by_agent ON authorizations(agent_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS authz_by_xproj ON authorizations(cross_project_id) WHERE cross_project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS authz_unsigned ON authorizations(sig_version, signed_at) WHERE signature IS NULL AND sig_version >= 1;
+
+-- v33 cutover marker — demarcates pre-v1.5 rows (sig_version=0, NULL signature =
+-- "never signed") from v1.5+ rows (sig_version ≥ 1). Fixed id + INSERT OR IGNORE
+-- makes this idempotent across re-runs.
+INSERT OR IGNORE INTO authorizations (
+  id, op_type, target, agent_id, mode, created_at, sig_version
+) VALUES (
+  'migration-033-cutover-marker',
+  'migration.signing-enabled',
+  'authorizations',
+  'system:migration-033',
+  'auto',
+  CAST(strftime('%s','now') AS INTEGER),
+  1
+);
