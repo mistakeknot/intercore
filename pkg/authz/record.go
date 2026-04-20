@@ -63,12 +63,16 @@ func Record(db *sql.DB, args RecordArgs) error {
 		vettingJSON = string(data)
 	}
 
+	// sig_version=1 marks the row as signable under the current (v1.5)
+	// signing scheme. Pre-migration rows keep sig_version=0 (via schema
+	// default) — "pre-signing vintage". The column must be set explicitly
+	// here so new post-cutover rows don't inherit the 0 default.
 	_, err := db.Exec(`
 		INSERT INTO authorizations (
 			id, op_type, target, agent_id, bead_id, mode,
 			policy_match, policy_hash, vetted_sha, vetting,
-			cross_project_id, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			cross_project_id, created_at, sig_version
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 	`,
 		args.ID,
 		args.OpType,

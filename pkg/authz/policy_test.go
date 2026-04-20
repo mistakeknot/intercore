@@ -157,7 +157,10 @@ func createAuthorizationsTable(t *testing.T, db *sql.DB) error {
 		  vetted_sha       TEXT,
 		  vetting          TEXT CHECK(vetting IS NULL OR json_valid(vetting)),
 		  cross_project_id TEXT,
-		  created_at       INTEGER NOT NULL
+		  created_at       INTEGER NOT NULL,
+		  sig_version      INTEGER NOT NULL DEFAULT 0,
+		  signature        BLOB,
+		  signed_at        INTEGER
 		)
 	`)
 	return err
