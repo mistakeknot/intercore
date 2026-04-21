@@ -4,6 +4,7 @@ go 1.22
 
 require (
 	github.com/invopop/jsonschema v0.13.0
+	github.com/oklog/ulid/v2 v2.1.1
 	golang.org/x/sys v0.16.0
 	golang.org/x/text v0.21.0
 	gopkg.in/yaml.v3 v3.0.1
