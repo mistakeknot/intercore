@@ -50,6 +50,17 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 	opts.DryRun = f.Bool("dry-run")
 	opts.Auto = f.Bool("auto")
 	opts.CWD = f.String("cwd", "")
+	// v2 authz token env reads happen here at the composition root — the
+	// engine and RequiresApproval never read env vars directly. Empty values
+	// fall through to v1.5 authz-record + marker approval paths.
+	opts.AuthzTokenStr = os.Getenv("CLAVAIN_AUTHZ_TOKEN")
+	opts.AuthzCallerAgentID = os.Getenv("CLAVAIN_AGENT_ID")
+	// Unset so child processes spawned post-approval don't inherit the token
+	// (belt + the CLI policy token consume path also prints an unset block
+	// for interactive-shell eval).
+	if opts.AuthzTokenStr != "" {
+		os.Unsetenv("CLAVAIN_AUTHZ_TOKEN")
+	}
 
 	if len(f.Positionals) > 0 {
 		opts.Mode = publish.BumpExact

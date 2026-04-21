@@ -60,6 +60,14 @@ type PublishOpts struct {
 	DryRun  bool
 	Auto    bool   // suppress prompts, for hook usage
 	CWD     string // override working directory
+
+	// v2 authz token path — set from the composition root (cmd/ic/publish.go)
+	// by reading $CLAVAIN_AUTHZ_TOKEN / $CLAVAIN_AGENT_ID. Empty values fall
+	// through to the v1.5 authz-record + marker approval paths without error.
+	// Engine passes these to RequiresApproval alongside an already-open db
+	// and a loaded pub key (see engine.Publish).
+	AuthzTokenStr      string
+	AuthzCallerAgentID string
 }
 
 // Plugin represents a discovered plugin.

@@ -1,8 +1,10 @@
 package publish
 
 import (
+	"crypto/ed25519"
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,45 +40,109 @@ var agentMessagePatterns = []string{
 // PUBLISH_AUTHZ_FRESHNESS_MIN.
 const defaultAuthzFreshnessMin = 60
 
-// RequiresApproval returns true when the last commit is agent-authored AND
-// neither approval signal is present:
-//   - a fresh, signature-valid ic-publish-patch authz record for this plugin, OR
-//   - a .publish-approved marker file in the plugin root (legacy fallback).
+// ViaPath values returned from RequiresApproval describing how approval was
+// granted (or why it wasn't). Also emitted as the `via` field of the vetting
+// JSON column for adoption telemetry:
+//   SELECT json_extract(vetting, '$.via') FROM authorizations ...
+const (
+	ViaToken       = "token"        // v2 publish-scoped token consumed
+	ViaAuthzRecord = "authz-record" // v1.5 fresh signed authz row matched
+	ViaMarker      = "marker"       // legacy .publish-approved file present
+	ViaHumanCommit = "human-commit" // non-agent HEAD; approval not required
+	ViaNone        = "none"         // approval required; no signal available
+)
+
+// RequiresApproval returns whether human approval is needed to publish this
+// plugin, plus a viaPath describing which signal granted approval (or why
+// approval is required). Dependencies are passed explicitly — the function
+// never reads $CLAVAIN_AUTHZ_TOKEN, never calls sql.Open, never loads keys
+// from disk. The caller (engine.Publish or a test) threads them in.
 //
-// The authz path is preferred. Marker-file fallback is kept through one
-// deprecation window and scheduled for removal in v2. When approval is granted
-// via the marker while an authz path is reachable, a one-line deprecation
-// warning is written to stderr.
-func RequiresApproval(pluginRoot string) bool {
+// Precedence when HEAD is an agent commit (first hit wins):
+//  1. token:        tokenStr non-empty AND valid under pub AND consumed
+//                   successfully → approved via "token". Auth-failure class
+//                   (sig-verify | caller-mismatch | scope-mismatch |
+//                   cross-project | revoked) HARD-FAILS: approval required
+//                   with viaPath="none". Token-state drift (expired,
+//                   already-consumed, not-found, malformed) FALLS THROUGH to
+//                   the legacy paths below.
+//  2. authz-record: fresh signed ic-publish-patch row under pub → approved
+//                   via "authz-record".
+//  3. marker:       .publish-approved file present → approved via "marker".
+//                   Emits a DEPRECATION stderr banner. Marker removal is
+//                   gated on 14-day rolling adoption telemetry measured via
+//                   the authorizations.vetting "via" field.
+//  4. none:         no signal → approval required.
+//
+// Human-authored HEAD short-circuits to (false, "human-commit"); the approval
+// gate only applies to agent commits.
+func RequiresApproval(
+	pluginRoot string,
+	tokenStr string,
+	callerAgentID string,
+	db *sql.DB,
+	pub ed25519.PublicKey,
+	now int64,
+) (bool, string) {
 	if !isAgentCommit(pluginRoot) {
-		return false
+		return false, ViaHumanCommit
 	}
 
-	// Authz path first: fresh, valid signature → approved.
+	target, terr := filepath.Abs(pluginRoot)
+	if terr != nil {
+		target = pluginRoot
+	}
+
+	// v2 token path. Only attempts consume when all deps are present; empty
+	// token / nil db / nil pub fall through cleanly to v1.5 behavior.
+	if tokenStr != "" && db != nil && pub != nil && callerAgentID != "" {
+		_, err := authz.ConsumeToken(db, pub, tokenStr, callerAgentID, "ic-publish-patch", target, now)
+		switch {
+		case err == nil:
+			return false, ViaToken
+		case authz.ExitCode(err) == 4:
+			// Auth-failure: operator intent or cryptographic trust broken.
+			// HARD FAIL — do NOT fall through, since falling back to legacy
+			// would let a legacy path silently override the revoke / scope
+			// / caller mismatch.
+			log.Printf("publish: token auth-failure (%s) — refusing to fall back to legacy: %v",
+				authz.ErrClass(err), err)
+			return true, ViaNone
+		default:
+			// Token-state (2), not-found (3), unexpected (1) — passive drift.
+			// Fall through to the v1.5 paths below.
+			log.Printf("publish: token unusable (%s: %v); trying authz-record + marker paths",
+				authz.ErrClass(err), err)
+		}
+	}
+
+	// v1.5 authz-record path (signature over the full row, freshness window).
 	authzOK, authzReason := checkAuthzApproval(pluginRoot)
 	if authzOK {
-		return false
+		return false, ViaAuthzRecord
 	}
 
+	// Legacy marker fallback with louder deprecation banner.
 	approvalFile := filepath.Join(pluginRoot, ".publish-approved")
 	if _, err := os.Stat(approvalFile); err == nil {
-		// Marker-file approval still wins, but warn when authz was available
-		// and either absent or invalid — surfaces the deprecation path.
+		slug := filepath.Base(pluginRoot)
+		fmt.Fprintf(os.Stderr,
+			"DEPRECATION: .publish-approved marker used for %s.\n"+
+				"  Migration target: clavain-cli policy token issue --op=ic-publish-patch --target=%s\n"+
+				"  Marker removal is gated on 14-day rolling adoption telemetry; see docs/canon/authz-token-model.md §deprecation-gate.\n",
+			pluginRoot, slug)
 		if authzReason != "" {
-			fmt.Fprintf(os.Stderr,
-				"publish: .publish-approved used; authz: %s. "+
-					"Marker-file approval is deprecated — see docs/canon/policy-merge.md.\n",
-				authzReason)
+			fmt.Fprintf(os.Stderr, "  (authz-record path unavailable: %s)\n", authzReason)
 		}
-		return false
+		return false, ViaMarker
 	}
 
-	return true
+	return true, ViaNone
 }
 
 // ConsumeApproval removes the .publish-approved marker after successful publish.
-// Authz records are audit history and are NOT removed — they persist as a
-// permanent record of the approval event.
+// Authz records + tokens are permanent audit history and are NOT removed —
+// token single-use is enforced by consumed_at at consume time.
 func ConsumeApproval(pluginRoot string) {
 	os.Remove(filepath.Join(pluginRoot, ".publish-approved"))
 }
@@ -84,7 +150,8 @@ func ConsumeApproval(pluginRoot string) {
 // checkAuthzApproval returns (true, "") when a fresh valid-signature authz
 // record approves this publish. Returns (false, reason) otherwise, where
 // reason explains why the authz path did not grant approval — used in the
-// marker-fallback warning message.
+// marker-fallback warning message. Opens its own DB connection because this
+// path runs independently of the token path's caller-supplied db.
 func checkAuthzApproval(pluginRoot string) (bool, string) {
 	dbPath := findIntercoreDB(pluginRoot)
 	if dbPath == "" {
@@ -142,6 +209,17 @@ func checkAuthzApproval(pluginRoot string) (bool, string) {
 		return false, "signature verification failed (tampering or key rotation)"
 	}
 	return true, ""
+}
+
+// projectRootForPlugin walks up from a plugin root looking for the nearest
+// project root (parent of a .clavain/ dir). Returns empty string if none
+// is found. Used by engine.Publish to locate the pub key for token verify.
+func projectRootForPlugin(pluginRoot string) string {
+	db := findIntercoreDB(pluginRoot)
+	if db == "" {
+		return ""
+	}
+	return filepath.Dir(filepath.Dir(db))
 }
 
 // findIntercoreDB walks up from start (or its absolute form) looking for

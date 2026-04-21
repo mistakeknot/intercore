@@ -31,6 +31,14 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// DB returns the underlying database handle. Used by callers that need to
+// share the same connection pool (e.g., the v2 token-consume path in
+// RequiresApproval, which must use the same *sql.DB to serialize under
+// MaxOpenConns=1).
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // EnsureTable creates the publish_state table if it doesn't exist.
 func (s *Store) EnsureTable(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, publishStateSchema)

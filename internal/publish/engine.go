@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/mistakeknot/intercore/pkg/authz"
 )
 
 // Engine orchestrates the publish pipeline.
@@ -205,13 +208,34 @@ func (e *Engine) Publish(ctx context.Context) error {
 			return fmt.Errorf("plugin validation: %w", validatorErr)
 		}
 
-		// Human approval gate: block auto-publish of agent-mutated plugins
+		// Human approval gate: block auto-publish of agent-mutated plugins.
+		// Assembles explicit deps for RequiresApproval — token string +
+		// caller agent id come from PublishOpts (composition root), the
+		// shared DB handle from the store (or nil if no state tracking),
+		// and the pub key is loaded from the project root on the fly.
 		if e.opts.Auto {
-			if RequiresApproval(pluginRoot) {
+			var db *sql.DB
+			if e.store != nil {
+				db = e.store.DB()
+			}
+			var pub []byte
+			if projectRoot := projectRootForPlugin(pluginRoot); projectRoot != "" {
+				if loaded, pubErr := authz.LoadPubKey(projectRoot); pubErr == nil {
+					pub = loaded
+				}
+			}
+			needs, via := RequiresApproval(
+				pluginRoot,
+				e.opts.AuthzTokenStr,
+				e.opts.AuthzCallerAgentID,
+				db, pub, time.Now().Unix(),
+			)
+			if needs {
 				err := ErrApprovalRequired
 				setError(PhaseValidation, err)
 				return err
 			}
+			e.out("  Approval granted via %s\n", via)
 		}
 
 		// Run post-bump hook if present (legacy: runs before bump despite the name).
