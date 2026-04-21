@@ -571,3 +571,44 @@ INSERT OR IGNORE INTO authorizations (
   CAST(strftime('%s','now') AS INTEGER),
   1
 );
+
+-- v34 authz_tokens (v2 token protocol — sylveste-qdqr.28)
+-- See docs/canon/authz-token-model.md for semantics.
+-- See docs/canon/authz-token-payload.md for sig_version=2 canonical payload.
+CREATE TABLE IF NOT EXISTS authz_tokens (
+  id            TEXT PRIMARY KEY,
+  op_type       TEXT NOT NULL,
+  target        TEXT NOT NULL,
+  agent_id      TEXT NOT NULL CHECK(length(trim(agent_id)) > 0),
+  bead_id       TEXT,
+  delegate_to   TEXT,
+  expires_at    INTEGER NOT NULL,
+  consumed_at   INTEGER,
+  revoked_at    INTEGER,
+  issued_by     TEXT NOT NULL,
+  parent_token  TEXT REFERENCES authz_tokens(id) ON DELETE RESTRICT,
+  root_token    TEXT,
+  depth         INTEGER NOT NULL DEFAULT 0 CHECK (depth >= 0 AND depth <= 3),
+  sig_version   INTEGER NOT NULL DEFAULT 2,
+  signature     BLOB NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tokens_by_root    ON authz_tokens(root_token, consumed_at, revoked_at);
+CREATE INDEX IF NOT EXISTS tokens_by_parent  ON authz_tokens(parent_token);
+CREATE INDEX IF NOT EXISTS tokens_by_expiry  ON authz_tokens(expires_at) WHERE consumed_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS tokens_by_agent   ON authz_tokens(agent_id, created_at DESC);
+
+-- v34 cutover marker — fixed id + INSERT OR IGNORE, idempotent across re-runs.
+-- Lives in `authorizations` (v1.5-shaped), not `authz_tokens`, so the boundary
+-- is auditable via `policy audit` without joining across tables.
+INSERT OR IGNORE INTO authorizations (
+  id, op_type, target, agent_id, mode, created_at, sig_version
+) VALUES (
+  'migration-034-tokens-enabled',
+  'migration.tokens-enabled',
+  'authz_tokens',
+  'system:migration-034',
+  'auto',
+  CAST(strftime('%s','now') AS INTEGER),
+  1
+);

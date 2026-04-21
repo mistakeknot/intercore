@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 33
-	maxSchemaVersion     = 33
+	currentSchemaVersion = 34
+	maxSchemaVersion     = 34
 )
 
 var (
@@ -426,6 +426,57 @@ func (d *DB) Migrate(ctx context.Context) error {
 				1
 			)`); err != nil {
 			return fmt.Errorf("migrate v32→v33 marker: %w", err)
+		}
+	}
+
+	// v33 → v34: authz_tokens table + indexes + cutover marker.
+	// See docs/canon/authz-token-model.md for semantics.
+	// See docs/canon/authz-token-payload.md for the sig_version=2 canonical payload.
+	// CREATE TABLE IF NOT EXISTS is a no-op if the table already exists (fresh DB
+	// via schema.sql path already has it). Cutover marker uses fixed ID + INSERT OR
+	// IGNORE so re-running is a no-op.
+	if currentVersion >= 33 && currentVersion < 34 {
+		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS authz_tokens (
+				id            TEXT PRIMARY KEY,
+				op_type       TEXT NOT NULL,
+				target        TEXT NOT NULL,
+				agent_id      TEXT NOT NULL CHECK(length(trim(agent_id)) > 0),
+				bead_id       TEXT,
+				delegate_to   TEXT,
+				expires_at    INTEGER NOT NULL,
+				consumed_at   INTEGER,
+				revoked_at    INTEGER,
+				issued_by     TEXT NOT NULL,
+				parent_token  TEXT REFERENCES authz_tokens(id) ON DELETE RESTRICT,
+				root_token    TEXT,
+				depth         INTEGER NOT NULL DEFAULT 0 CHECK (depth >= 0 AND depth <= 3),
+				sig_version   INTEGER NOT NULL DEFAULT 2,
+				signature     BLOB NOT NULL,
+				created_at    INTEGER NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_root    ON authz_tokens(root_token, consumed_at, revoked_at)`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_parent  ON authz_tokens(parent_token)`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_expiry  ON authz_tokens(expires_at) WHERE consumed_at IS NULL AND revoked_at IS NULL`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_agent   ON authz_tokens(agent_id, created_at DESC)`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate v33→v34: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO authorizations (
+				id, op_type, target, agent_id, mode, created_at, sig_version
+			) VALUES (
+				'migration-034-tokens-enabled',
+				'migration.tokens-enabled',
+				'authz_tokens',
+				'system:migration-034',
+				'auto',
+				CAST(strftime('%s','now') AS INTEGER),
+				1
+			)`); err != nil {
+			return fmt.Errorf("migrate v33→v34 marker: %w", err)
 		}
 	}
 

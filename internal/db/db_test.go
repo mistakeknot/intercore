@@ -1182,3 +1182,133 @@ func TestMigration033AuthzSigning(t *testing.T) {
 		t.Fatalf("cutover marker count after re-run = %d, want 1 (idempotency broken)", markerRows)
 	}
 }
+
+func TestMigration034AuthzTokens(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("Run migrations: %v", err)
+	}
+
+	// authz_tokens table exists with the expected 16 columns.
+	var colCount int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authz_tokens')`).Scan(&colCount); err != nil {
+		t.Fatalf("pragma_table_info authz_tokens: %v", err)
+	}
+	if colCount != 16 {
+		t.Fatalf("authz_tokens column count = %d, want 16", colCount)
+	}
+
+	expectedCols := []string{
+		"id", "op_type", "target", "agent_id", "bead_id", "delegate_to",
+		"expires_at", "consumed_at", "revoked_at", "issued_by",
+		"parent_token", "root_token", "depth", "sig_version",
+		"signature", "created_at",
+	}
+	for _, col := range expectedCols {
+		var present int
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authz_tokens') WHERE name=?`, col).Scan(&present); err != nil {
+			t.Fatalf("check column %q: %v", col, err)
+		}
+		if present != 1 {
+			t.Fatalf("authz_tokens column %q missing after migration 034", col)
+		}
+	}
+
+	// All 4 indexes present.
+	for _, idx := range []string{"tokens_by_root", "tokens_by_parent", "tokens_by_expiry", "tokens_by_agent"} {
+		var n int
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, idx).Scan(&n); err != nil {
+			t.Fatalf("check index %q: %v", idx, err)
+		}
+		if n != 1 {
+			t.Fatalf("expected index %q missing after migration 034", idx)
+		}
+	}
+
+	// Depth CHECK constraint rejects > 3.
+	// Insert a parent to satisfy FK on parent_token=NULL (null is allowed for roots).
+	_, err = d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, depth, signature, created_at)
+		VALUES ('TEST-ROOT', 'bead-close', 'x', 'agent', 9999999999, 'user', 4, X'00', 1)`)
+	if err == nil {
+		t.Fatalf("expected CHECK(depth <= 3) to reject depth=4, got nil error")
+	}
+
+	// Depth CHECK constraint rejects < 0.
+	_, err = d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, depth, signature, created_at)
+		VALUES ('TEST-ROOT', 'bead-close', 'x', 'agent', 9999999999, 'user', -1, X'00', 1)`)
+	if err == nil {
+		t.Fatalf("expected CHECK(depth >= 0) to reject depth=-1, got nil error")
+	}
+
+	// agent_id CHECK constraint rejects empty/whitespace.
+	_, err = d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, signature, created_at)
+		VALUES ('TEST-EMPTY', 'bead-close', 'x', '   ', 9999999999, 'user', X'00', 1)`)
+	if err == nil {
+		t.Fatalf("expected CHECK(length(trim(agent_id)) > 0) to reject whitespace, got nil error")
+	}
+
+	// sig_version defaults to 2 on new insert (v2 convention).
+	if _, err := d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, signature, created_at)
+		VALUES ('TEST-ROOT-OK', 'bead-close', 'x', 'agent', 9999999999, 'user', X'00', 1)`); err != nil {
+		t.Fatalf("insert root token: %v", err)
+	}
+	var newSigVersion int
+	if err := d.db.QueryRow(`SELECT sig_version FROM authz_tokens WHERE id='TEST-ROOT-OK'`).Scan(&newSigVersion); err != nil {
+		t.Fatalf("read sig_version: %v", err)
+	}
+	if newSigVersion != 2 {
+		t.Fatalf("default sig_version for new row = %d, want 2", newSigVersion)
+	}
+
+	// Cutover marker row exists exactly once in authorizations (not authz_tokens).
+	var markerRows int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.tokens-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("count tokens markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("v34 cutover marker count = %d, want 1 (idempotent INSERT OR IGNORE)", markerRows)
+	}
+
+	// Marker has the fixed id 'migration-034-tokens-enabled'.
+	var markerID string
+	if err := d.db.QueryRow(`SELECT id FROM authorizations WHERE op_type=?`, "migration.tokens-enabled").Scan(&markerID); err != nil {
+		t.Fatalf("read marker id: %v", err)
+	}
+	if markerID != "migration-034-tokens-enabled" {
+		t.Fatalf("v34 marker id = %q, want %q", markerID, "migration-034-tokens-enabled")
+	}
+
+	// Re-running migrations must be a no-op (marker remains exactly 1 row).
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("re-run migrations: %v", err)
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.tokens-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("recount tokens markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("v34 cutover marker count after re-run = %d, want 1 (idempotency broken)", markerRows)
+	}
+
+	// Schema version is 34 after migration.
+	version, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if version != 34 {
+		t.Fatalf("SchemaVersion = %d, want 34", version)
+	}
+}
+
