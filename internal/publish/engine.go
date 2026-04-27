@@ -108,6 +108,11 @@ func (e *Engine) Publish(ctx context.Context) error {
 			e.out(", %s", rel)
 		}
 		e.out("\n")
+		// Run cheap, side-effect-free validation in dry-run so authors
+		// can preview frontmatter health before committing to a publish.
+		if fmErr := ValidateFrontmatter(pluginRoot); fmErr != nil {
+			return fmt.Errorf("frontmatter validation: %w", fmErr)
+		}
 		e.out("Dry run — no changes made.\n")
 		return nil
 	}
@@ -206,6 +211,14 @@ func (e *Engine) Publish(ctx context.Context) error {
 		if validatorErr := RunPluginValidator(pluginRoot); validatorErr != nil {
 			setError(PhaseValidation, validatorErr)
 			return fmt.Errorf("plugin validation: %w", validatorErr)
+		}
+
+		// Frontmatter YAML check — clavain 0.6.245 shipped a broken description
+		// (unquoted colon) that silently took the entire plugin out of
+		// skill_listing. See sylveste-ulp8.
+		if fmErr := ValidateFrontmatter(pluginRoot); fmErr != nil {
+			setError(PhaseValidation, fmErr)
+			return fmt.Errorf("frontmatter validation: %w", fmErr)
 		}
 
 		// Human approval gate: block auto-publish of agent-mutated plugins.
