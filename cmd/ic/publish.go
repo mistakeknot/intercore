@@ -166,26 +166,11 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 	dryRun := f.Bool("dry-run")
 
 	if dryRun {
-		// Just scan and report
-		entries, err := publish.ListCacheEntries()
+		orphaned, stale, err := publish.CountStaleAcrossMarketplaces()
 		if err != nil {
 			slog.Error("publish clean failed", "error", err)
 			return 2
 		}
-
-		orphaned := 0
-		stale := 0
-		for pluginName, versions := range entries {
-			installedVer := publish.ReadInstalledVersion(pluginName)
-			for _, v := range versions {
-				if v.Orphaned {
-					orphaned++
-				} else if !v.IsSymlink && v.Version != installedVer {
-					stale++
-				}
-			}
-		}
-
 		fmt.Printf("Would clean:\n")
 		fmt.Printf("  %d orphaned cache directories\n", orphaned)
 		fmt.Printf("  %d stale version directories\n", stale)
@@ -213,7 +198,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 		totalCount += count
 	}
 
-	count, bytes, err = publish.PruneStaleVersions(1)
+	count, bytes, err = publish.PruneStaleVersionsAcrossMarketplaces(1)
 	if err != nil {
 		slog.Error("publish clean: stale versions failed", "error", err)
 	}

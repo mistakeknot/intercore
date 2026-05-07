@@ -389,8 +389,10 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  warning: CC marketplace refresh: %v\n", err)
 	}
 
-	// Prune stale cache versions (keep only the newly published one)
-	if pruned, freed, err := PruneStaleVersions(1); err != nil {
+	// Prune stale cache versions across ALL marketplaces, not just interagency.
+	// This is a multi-marketplace sweep so plugins from claude-plugins-official,
+	// clonal-plugins, etc. don't accumulate stale versions either.
+	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1); err != nil {
 		e.out("  warning: stale version prune: %v\n", err)
 	} else if pruned > 0 {
 		e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n", pruned, float64(freed)/1024/1024)
