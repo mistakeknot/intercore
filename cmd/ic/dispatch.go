@@ -42,8 +42,6 @@ func cmdDispatch(ctx context.Context, args []string) int {
 		return cmdDispatchPrune(ctx, args[1:])
 	case "tokens":
 		return cmdDispatchTokens(ctx, args[1:])
-	case "retry":
-		return cmdDispatchRetry(ctx, args[1:])
 	default:
 		slog.Error("dispatch: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -571,78 +569,6 @@ func printDispatch(d *dispatch.Dispatch) {
 	if d.ErrorMessage != nil {
 		fmt.Printf("Error:   %s\n", *d.ErrorMessage)
 	}
-}
-
-func cmdDispatchRetry(ctx context.Context, args []string) int {
-	f := cli.ParseFlags(args)
-	policy := dispatch.DefaultRetryPolicy()
-
-	if f.Has("max-retries") {
-		v, err := f.Int("max-retries", 0)
-		if err != nil {
-			slog.Error("dispatch retry: invalid --max-retries", "value", f.String("max-retries", ""))
-			return 3
-		}
-		policy.MaxRetries = v
-	}
-	if f.Has("base-backoff") {
-		dur, err := f.Duration("base-backoff", 0)
-		if err != nil {
-			slog.Error("dispatch retry: invalid --base-backoff", "value", f.String("base-backoff", ""))
-			return 3
-		}
-		policy.BaseBackoff = dur
-	}
-	if f.Has("max-backoff") {
-		dur, err := f.Duration("max-backoff", 0)
-		if err != nil {
-			slog.Error("dispatch retry: invalid --max-backoff", "value", f.String("max-backoff", ""))
-			return 3
-		}
-		policy.MaxBackoff = dur
-	}
-	if f.Bool("no-retry-timeout") {
-		policy.RetryOnTimeout = false
-	}
-	waitBackoff := f.Bool("wait")
-
-	if len(f.Positionals) < 1 {
-		fmt.Fprintf(os.Stderr, "ic: dispatch retry: usage: ic dispatch retry <id> [--max-retries=N] [--base-backoff=<dur>] [--max-backoff=<dur>] [--no-retry-timeout] [--wait]\n")
-		return 3
-	}
-	id := f.Positionals[0]
-
-	d, err := openDB()
-	if err != nil {
-		slog.Error("dispatch retry failed", "error", err)
-		return 2
-	}
-	defer d.Close()
-
-	store := dispatch.New(d.SqlDB(), nil)
-
-	var result *dispatch.RetryResult
-	if waitBackoff {
-		result, err = dispatch.RetryWithBackoff(ctx, store, id, policy)
-	} else {
-		result, err = dispatch.Retry(ctx, store, id, policy)
-	}
-	if err != nil {
-		slog.Error("dispatch retry failed", "error", err)
-		return 1
-	}
-
-	if flagJSON {
-		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-			"original_id": result.OriginalID,
-			"new_id":      result.NewID,
-			"attempt":     result.Attempt,
-			"backoff_ms":  result.BackoffMs,
-		})
-	} else {
-		fmt.Printf("Retry %d: %s → %s (backoff %dms)\n", result.Attempt, result.OriginalID, result.NewID, result.BackoffMs)
-	}
-	return 0
 }
 
 // checkPortfolioDispatchLimit checks if the dispatch limit for a portfolio run is exceeded.

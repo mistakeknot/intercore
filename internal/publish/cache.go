@@ -53,21 +53,33 @@ func ForceRebuildCache(pluginName, version, srcRoot string) error {
 	return copyDirExcludeGit(srcRoot, dest)
 }
 
-// CleanOrphans removes cache directories with .orphaned_at markers.
+// CleanOrphans removes cache directories with .orphaned_at markers across ALL
+// marketplaces. A marker only triggers removal when it sits at the expected
+// plugin-version-root depth (cache/<marketplace>/<plugin>/<version>/.orphaned_at).
+// Markers found at other depths are stale artifacts from an older layout or
+// false positives (e.g. a file literally named .orphaned_at deep inside a
+// plugin's source tree) and are ignored.
+//
 // Returns the count of removed dirs and bytes freed.
 func CleanOrphans() (count int, bytesFreed int64, err error) {
-	base := CacheBase()
-	if base == "" {
-		return 0, 0, fmt.Errorf("cannot determine cache base")
+	root := CacheRoot()
+	if root == "" {
+		return 0, 0, fmt.Errorf("cannot determine cache root")
 	}
+	rootDepth := strings.Count(root, string(os.PathSeparator))
+	expectedMarkerDepth := rootDepth + 4 // <root>/<marketplace>/<plugin>/<version>/.orphaned_at
 
-	err = filepath.WalkDir(base, func(path string, d fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip inaccessible entries
 		}
 		if d.Name() == ".orphaned_at" && !d.IsDir() {
+			// Depth check: only trust markers at <root>/<mkt>/<plugin>/<ver>/
+			if strings.Count(path, string(os.PathSeparator)) != expectedMarkerDepth {
+				return nil
+			}
 			orphanDir := filepath.Dir(path)
-			// Don't remove temp_git dirs
+			// Don't remove temp_git dirs (handled separately)
 			if strings.Contains(orphanDir, "temp_git_") {
 				return nil
 			}
@@ -270,6 +282,14 @@ func listAllCacheEntriesIn(root string) (map[string][]CacheEntry, error) {
 			continue
 		}
 		marketplaceName := m.Name()
+		// Skip temp_git_* directories — those are leftover from interrupted
+		// git operations, not real marketplaces, and they confuse the walk
+		// (their internal .orphaned_at files would each register as a separate
+		// fake "orphaned plugin"). CleanOrphans already skips temp_git for
+		// removal; we extend the same hygiene to listing.
+		if strings.HasPrefix(marketplaceName, "temp_git_") {
+			continue
+		}
 		marketplaceDir := filepath.Join(root, marketplaceName)
 
 		plugins, err := os.ReadDir(marketplaceDir)
