@@ -391,7 +391,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 
 	// Prune stale cache versions across ALL marketplaces, not just interagency.
 	// This is a multi-marketplace sweep so plugins from claude-plugins-official,
-	// clonal-plugins, etc. don't accumulate stale versions either.
+	// arouth-plugins, etc. don't accumulate stale versions either.
 	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1); err != nil {
 		e.out("  warning: stale version prune: %v\n", err)
 	} else if pruned > 0 {
