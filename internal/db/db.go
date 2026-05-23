@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 34
-	maxSchemaVersion     = 34
+	currentSchemaVersion = 35
+	maxSchemaVersion     = 35
 )
 
 var (
@@ -477,6 +477,62 @@ func (d *DB) Migrate(ctx context.Context) error {
 				1
 			)`); err != nil {
 			return fmt.Errorf("migrate v33→v34 marker: %w", err)
+		}
+	}
+
+	// v34 → v35: action_receipts table + INSERT-only triggers + cutover marker.
+	// See docs/canon/signed-receipts-v1.md §Storage for the schema rationale.
+	// v1 substrate is SQLite (amended from canon's original "Dolt" language);
+	// v1.1 ports to Dolt for content-addressed row history. DELETE/UPDATE are
+	// blocked by triggers because SQLite has no per-grant DELETE deny.
+	if currentVersion >= 34 && currentVersion < 35 {
+		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS action_receipts (
+				receipt_id        TEXT PRIMARY KEY,
+				timestamp         TEXT NOT NULL,
+				agent_id          TEXT NOT NULL,
+				model             TEXT NOT NULL,
+				tool_calls_json   TEXT NOT NULL,
+				parent_run_id     TEXT,
+				content_hash      TEXT NOT NULL,
+				schema_version    INTEGER NOT NULL,
+				signature         TEXT NOT NULL,
+				signature_alg     TEXT NOT NULL,
+				key_id            TEXT NOT NULL,
+				signed_at         TEXT NOT NULL,
+				payload_canonical BLOB NOT NULL,
+				inserted_at       INTEGER NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS receipts_by_agent_time ON action_receipts(agent_id, timestamp)`,
+			`CREATE INDEX IF NOT EXISTS receipts_by_parent ON action_receipts(parent_run_id) WHERE parent_run_id IS NOT NULL`,
+			`CREATE TRIGGER IF NOT EXISTS action_receipts_no_delete
+				BEFORE DELETE ON action_receipts
+				BEGIN
+					SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+				END`,
+			`CREATE TRIGGER IF NOT EXISTS action_receipts_no_update
+				BEFORE UPDATE ON action_receipts
+				BEGIN
+					SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+				END`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate v34→v35: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO authorizations (
+				id, op_type, target, agent_id, mode, created_at, sig_version
+			) VALUES (
+				'migration-035-receipts-enabled',
+				'migration.receipts-enabled',
+				'action_receipts',
+				'system:migration-035',
+				'auto',
+				CAST(strftime('%s','now') AS INTEGER),
+				1
+			)`); err != nil {
+			return fmt.Errorf("migrate v34→v35 marker: %w", err)
 		}
 	}
 

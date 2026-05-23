@@ -1302,13 +1302,15 @@ func TestMigration034AuthzTokens(t *testing.T) {
 		t.Fatalf("v34 cutover marker count after re-run = %d, want 1 (idempotency broken)", markerRows)
 	}
 
-	// Schema version is 34 after migration.
+	// Schema version is at least 34 after migration (later migrations may
+	// have bumped it further — this test verifies the v34 effects, not
+	// that v34 is the terminal schema).
 	version, err := d.SchemaVersion()
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != 34 {
-		t.Fatalf("SchemaVersion = %d, want 34", version)
+	if version < 34 {
+		t.Fatalf("SchemaVersion = %d, want >= 34", version)
 	}
 }
 

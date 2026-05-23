@@ -612,3 +612,51 @@ INSERT OR IGNORE INTO authorizations (
   CAST(strftime('%s','now') AS INTEGER),
   1
 );
+
+-- v35 — action_receipts: signed HMAC-SHA256 receipt store.
+-- See docs/canon/signed-receipts-v1.md.
+CREATE TABLE IF NOT EXISTS action_receipts (
+    receipt_id        TEXT PRIMARY KEY,
+    timestamp         TEXT NOT NULL,
+    agent_id          TEXT NOT NULL,
+    model             TEXT NOT NULL,
+    tool_calls_json   TEXT NOT NULL,
+    parent_run_id     TEXT,
+    content_hash      TEXT NOT NULL,
+    schema_version    INTEGER NOT NULL,
+    signature         TEXT NOT NULL,
+    signature_alg     TEXT NOT NULL,
+    key_id            TEXT NOT NULL,
+    signed_at         TEXT NOT NULL,
+    payload_canonical BLOB NOT NULL,
+    inserted_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS receipts_by_agent_time ON action_receipts(agent_id, timestamp);
+CREATE INDEX IF NOT EXISTS receipts_by_parent ON action_receipts(parent_run_id) WHERE parent_run_id IS NOT NULL;
+
+-- INSERT-only: triggers RAISE on UPDATE/DELETE per canon §Trust claim
+-- "Receipt-row deletion is forbidden by schema."
+CREATE TRIGGER IF NOT EXISTS action_receipts_no_delete
+BEFORE DELETE ON action_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+END;
+
+CREATE TRIGGER IF NOT EXISTS action_receipts_no_update
+BEFORE UPDATE ON action_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+END;
+
+-- v35 cutover marker — fixed id + INSERT OR IGNORE, idempotent.
+INSERT OR IGNORE INTO authorizations (
+    id, op_type, target, agent_id, mode, created_at, sig_version
+) VALUES (
+    'migration-035-receipts-enabled',
+    'migration.receipts-enabled',
+    'action_receipts',
+    'system:migration-035',
+    'auto',
+    CAST(strftime('%s','now') AS INTEGER),
+    1
+);

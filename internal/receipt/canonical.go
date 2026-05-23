@@ -55,6 +55,16 @@ func Canonicalize(r *Receipt) []byte {
 	return b.Bytes()
 }
 
+// CanonicalizeToolCalls returns the canonical-JSON encoding of just the
+// tool_calls array (without surrounding object braces). The Store uses this
+// to populate the tool_calls_json column without re-encoding through any
+// non-canonical path.
+func CanonicalizeToolCalls(calls []ToolCall) []byte {
+	var b bytes.Buffer
+	writeToolCalls(&b, calls)
+	return b.Bytes()
+}
+
 func writeKey(b *bytes.Buffer, k string) {
 	writeString(b, k)
 	b.WriteByte(':')
