@@ -105,6 +105,26 @@ type PublishState struct {
 	Error       string // last error, empty if clean
 }
 
+// staleThresholdSecs bounds how long a publish_state record may sit without an
+// update before it is treated as abandoned rather than in-flight. Real
+// publishes complete in seconds; an hour of inactivity means the process died
+// — usually a SIGKILL or crash that never recorded an error. Records that DID
+// record an error are stale immediately, regardless of age.
+const staleThresholdSecs int64 = 3600
+
+// IsStale reports whether this record is a dead publish attempt rather than a
+// genuinely in-flight one. It is stale if the publish recorded an error (it
+// failed and never recovered) or if it has not been updated within
+// staleThresholdSecs (the process vanished without recording an error). A
+// stale record must not block a fresh publish. `now` is a unix timestamp in
+// seconds, injected so the predicate stays pure and testable.
+func (st *PublishState) IsStale(now int64) bool {
+	if st.Error != "" {
+		return true
+	}
+	return now-st.UpdatedAt > staleThresholdSecs
+}
+
 // Errors
 var (
 	ErrNotPlugin         = errors.New("not a plugin directory (no .claude-plugin/plugin.json found)")

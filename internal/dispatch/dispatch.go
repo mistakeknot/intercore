@@ -128,13 +128,13 @@ func (s *Store) Create(ctx context.Context, d *Dispatch) (string, error) {
 			id, agent_type, status, project_dir, prompt_file, prompt_hash,
 			output_file, verdict_file, name, model, sandbox, sandbox_spec,
 			timeout_sec, scope_id, parent_id, base_repo_commit,
-			spawn_depth, parent_dispatch_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			spawn_depth, parent_dispatch_id, retry_count
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, d.AgentType, StatusSpawned, d.ProjectDir,
 		d.PromptFile, d.PromptHash, d.OutputFile, d.VerdictFile,
 		d.Name, d.Model, d.Sandbox, d.SandboxSpec,
 		d.TimeoutSec, d.ScopeID, d.ParentID, d.BaseRepoCommit,
-		d.SpawnDepth, d.ParentDispatchID,
+		d.SpawnDepth, d.ParentDispatchID, d.RetryCount,
 	)
 	if err != nil {
 		return "", fmt.Errorf("dispatch create: %w", err)
