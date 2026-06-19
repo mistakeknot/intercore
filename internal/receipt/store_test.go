@@ -252,6 +252,9 @@ func TestBulkVerifyPerf(t *testing.T) {
 	if testing.Short() {
 		t.Skip("perf test skipped in -short mode")
 	}
+	if raceEnabled {
+		t.Skip("perf assertion invalid under -race (instrumentation slows execution ~10x)")
+	}
 	s := tempStore(t)
 	ks := goldenStore()
 	ctx := context.Background()
