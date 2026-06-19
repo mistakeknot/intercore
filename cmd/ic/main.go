@@ -256,6 +256,8 @@ Commands:
   session list [--project=<dir>] [--active-only]    List sessions
   session tokens --session=<id> --input=N --output=N [opts]  Add token counts
   situation snapshot [opts]      Unified observation layer (OODAR)
+  receipt verify <receipt_id>   Verify a signed action receipt (exit 0=valid,1=not-found,2=bad-sig,3=bad-schema,4=unknown-key)
+  receipt verify --since=<dur>  Bulk-verify recent receipts; JSONL summary
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 
