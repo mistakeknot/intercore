@@ -141,6 +141,8 @@ func main() {
 		exitCode = cmdSession(ctx, subArgs)
 	case "situation":
 		exitCode = cmdSituation(ctx, subArgs)
+	case "receipt":
+		exitCode = cmdReceipt(ctx, subArgs)
 	default:
 		slog.Error("unknown command", "command", subcommand)
 		printUsage()
