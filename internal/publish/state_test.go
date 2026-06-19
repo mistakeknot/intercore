@@ -91,6 +91,32 @@ func TestStoreUpdate(t *testing.T) {
 	}
 }
 
+func TestPublishStateIsStale(t *testing.T) {
+	const now int64 = 1_000_000_000
+	tests := []struct {
+		name string
+		st   PublishState
+		want bool
+	}{
+		// A recorded error means the attempt failed — stale regardless of age.
+		{"failed-recent", PublishState{Error: "git worktree has uncommitted changes", UpdatedAt: now - 5}, true},
+		{"failed-old", PublishState{Error: "boom", UpdatedAt: now - 100_000}, true},
+		// Clean (no error) records are live until they age past the threshold.
+		{"clean-recent", PublishState{Error: "", UpdatedAt: now - 30}, false},
+		{"clean-just-under-threshold", PublishState{Error: "", UpdatedAt: now - (staleThresholdSecs - 1)}, false},
+		{"clean-at-threshold", PublishState{Error: "", UpdatedAt: now - staleThresholdSecs}, false}, // strictly greater-than
+		{"clean-just-over-threshold", PublishState{Error: "", UpdatedAt: now - (staleThresholdSecs + 1)}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.st.IsStale(now); got != tt.want {
+				t.Errorf("IsStale(%d) = %v, want %v (UpdatedAt=%d, Error=%q)",
+					now, got, tt.want, tt.st.UpdatedAt, tt.st.Error)
+			}
+		})
+	}
+}
+
 func TestStoreGetActive(t *testing.T) {
 	db := setupTestDB(t)
 	store := NewStore(db)
