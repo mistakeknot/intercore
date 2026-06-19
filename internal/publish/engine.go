@@ -131,13 +131,29 @@ func (e *Engine) Publish(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("check active: %w", err)
 		}
-		if active != nil && !e.opts.Auto {
-			return fmt.Errorf("%w: %s at phase %s (id: %s) — use 'ic publish status' to inspect, or re-run to force",
-				ErrActivePublish, active.PluginName, active.Phase, active.ID)
-		}
-		if active != nil && e.opts.Auto {
-			// Auto mode: delete stale state and proceed
-			e.store.Delete(ctx, active.ID)
+		if active != nil {
+			switch {
+			case e.opts.Auto || active.IsStale(time.Now().Unix()):
+				// Clear and proceed. Auto mode (hooks) always clears; interactive
+				// mode clears only records that are provably dead (failed or
+				// abandoned), so a genuinely-running publish in another terminal
+				// is never stomped. A failed attempt thus self-heals on the next
+				// plain `ic publish` — no --auto required.
+				if !e.opts.Auto {
+					reason := "no update in over an hour"
+					if active.Error != "" {
+						reason = "previous attempt failed: " + active.Error
+					}
+					e.out("Clearing stale publish state %s (phase %s; %s)\n", active.ID, active.Phase, reason)
+				}
+				if delErr := e.store.Delete(ctx, active.ID); delErr != nil {
+					return fmt.Errorf("clear stale publish state %s: %w", active.ID, delErr)
+				}
+			default:
+				// Genuinely in flight — a publish is actively running elsewhere.
+				return fmt.Errorf("%w: %s at phase %s (id: %s) — another publish is running; wait for it to finish. If it has crashed, retry once the state goes stale (1h of inactivity), or run 'ic publish --auto' to clear it now",
+					ErrActivePublish, active.PluginName, active.Phase, active.ID)
+			}
 		}
 	}
 
