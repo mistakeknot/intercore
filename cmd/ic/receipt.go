@@ -55,6 +55,31 @@ func cmdReceipt(ctx context.Context, args []string) int {
 	}
 }
 
+// parseSinceDuration parses a lookback window, extending Go's
+// time.ParseDuration (ns..h only) with `d` (days) and `w` (weeks) suffixes so
+// `--since=1d` / `--since=2w` work as the canon CLI examples show.
+func parseSinceDuration(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
+	if n, ok := strings.CutSuffix(s, "d"); ok {
+		days, err := strconv.ParseFloat(n, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid days %q", s)
+		}
+		return time.Duration(days * 24 * float64(time.Hour)), nil
+	}
+	if n, ok := strings.CutSuffix(s, "w"); ok {
+		weeks, err := strconv.ParseFloat(n, 64)
+		if err != nil {
+			return 0, fmt.Errorf("invalid weeks %q", s)
+		}
+		return time.Duration(weeks * 7 * 24 * float64(time.Hour)), nil
+	}
+	return time.ParseDuration(s)
+}
+
 // defaultEpoch returns the current calendar quarter as a rotation epoch,
 // e.g. "2026-q2". Per canon §Key handling, a new key is provisioned per
 // quarter; this gives `emit`/`keygen` a sensible default when --epoch is unset.
