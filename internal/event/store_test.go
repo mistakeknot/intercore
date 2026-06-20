@@ -58,6 +58,13 @@ func TestAddDispatchEvent(t *testing.T) {
 }
 
 func TestAddDispatchEvent_DefaultEnvelope(t *testing.T) {
+	// Isolate from ambient OTel trace propagation: the default envelope
+	// prefers IC_TRACE_ID over runID, so a propagated trace context in the
+	// runner's environment would override the runID fallback this test asserts.
+	t.Setenv("IC_TRACE_ID", "")
+	t.Setenv("IC_SPAN_ID", "")
+	t.Setenv("IC_PARENT_SPAN_ID", "")
+
 	store, d := setupTestStore(t)
 	ctx := context.Background()
 
@@ -138,6 +145,13 @@ func TestListEvents_MergesPhaseAndDispatch(t *testing.T) {
 }
 
 func TestListEvents_CausalReconstructionByTraceID(t *testing.T) {
+	// Isolate from ambient OTel trace propagation: the default envelope
+	// prefers IC_TRACE_ID over runID, so a propagated trace context in the
+	// runner's environment would override the runID fallback this test asserts.
+	t.Setenv("IC_TRACE_ID", "")
+	t.Setenv("IC_SPAN_ID", "")
+	t.Setenv("IC_PARENT_SPAN_ID", "")
+
 	store, d := setupTestStore(t)
 	ctx := context.Background()
 
