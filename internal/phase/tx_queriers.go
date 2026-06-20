@@ -65,6 +65,22 @@ func (t *txVerdictQuerier) HasVerdict(ctx context.Context, scopeID string) (bool
 	return count > 0, nil
 }
 
+// CountUncleanVerdicts mirrors dispatch.Store.CountUncleanVerdicts (sylveste-0ly7).
+func (t *txVerdictQuerier) CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error) {
+	if scopeID == "" {
+		return 0, nil
+	}
+	var count int
+	err := t.q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dispatches
+			WHERE scope_id = ? AND verdict_status IN ('fail', 'error')`,
+		scopeID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("tx count unclean verdicts: %w", err)
+	}
+	return count, nil
+}
+
 // txPortfolioQuerier runs portfolio queries on a transaction.
 // Replicates the SQL from phase.Store.GetChildren.
 type txPortfolioQuerier struct {

@@ -448,6 +448,25 @@ func (s *Store) HasVerdict(ctx context.Context, scopeID string) (bool, error) {
 	return count > 0, nil
 }
 
+// CountUncleanVerdicts returns the number of dispatches in scope whose
+// verdict_status indicates a non-clean outcome (fail/error). The verdict_clean
+// ship gate blocks when this is > 0 (sylveste-0ly7). 'warn' and 'pass' are
+// treated as clean (they infer exit code 0 in collect.go:inferExitCode).
+func (s *Store) CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error) {
+	if scopeID == "" {
+		return 0, nil
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dispatches
+			WHERE scope_id = ? AND verdict_status IN ('fail', 'error')`,
+		scopeID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count unclean verdicts: %w", err)
+	}
+	return count, nil
+}
+
 // CancelByRun marks all non-terminal dispatches as cancelled for a run.
 // Dispatches are scoped to runs via scope_id = run_id.
 // Returns the number of dispatches cancelled.
