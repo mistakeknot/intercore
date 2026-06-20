@@ -237,9 +237,9 @@ func cmdReceiptVerify(ctx context.Context, args []string) int {
 // per-receipt verdicts in the JSONL carry the detail. Used by CI gates and
 // the routing-calibration loop to detect store tampering.
 func receiptVerifyBulk(ctx context.Context, store *receipt.Store, ks receipt.KeyStore, f *cli.Flags) int {
-	dur, err := f.Duration("since", 0)
+	dur, err := parseSinceDuration(f.String("since", ""))
 	if err != nil || dur <= 0 {
-		fmt.Fprintf(os.Stderr, "ic: receipt verify: --since requires a positive duration, e.g. --since=24h\n")
+		fmt.Fprintf(os.Stderr, "ic: receipt verify: --since requires a positive duration, e.g. --since=24h, --since=7d, --since=2w\n")
 		return rcExitOpError
 	}
 	since := time.Now().Add(-dur)
