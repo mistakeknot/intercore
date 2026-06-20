@@ -36,17 +36,151 @@ const defaultReceiptKeyRoot = ".clavain/keys/receipts"
 
 func cmdReceipt(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: receipt: usage: ic receipt verify <receipt_id> | ic receipt verify --since=<dur>\n")
+		fmt.Fprintf(os.Stderr, "ic: receipt: usage: ic receipt <emit|verify|keygen> [args]\n")
 		return rcExitOpError
 	}
 	switch args[0] {
+	case "emit":
+		return cmdReceiptEmit(ctx, args[1:])
 	case "verify":
 		return cmdReceiptVerify(ctx, args[1:])
+	case "keygen":
+		return cmdReceiptKeygen(ctx, args[1:])
 	default:
 		slog.Error("receipt: unknown subcommand", "subcommand", args[0])
-		fmt.Fprintf(os.Stderr, "ic: receipt: unknown subcommand %q (want: verify)\n", args[0])
+		fmt.Fprintf(os.Stderr, "ic: receipt: unknown subcommand %q (want: emit, verify, keygen)\n", args[0])
 		return rcExitOpError
 	}
+}
+
+// defaultEpoch returns the current calendar quarter as a rotation epoch,
+// e.g. "2026-q2". Per canon §Key handling, a new key is provisioned per
+// quarter; this gives `emit`/`keygen` a sensible default when --epoch is unset.
+func defaultEpoch(t time.Time) string {
+	q := (int(t.Month())-1)/3 + 1
+	return fmt.Sprintf("%d-q%d", t.Year(), q)
+}
+
+// cmdReceiptEmit signs and stores a single action receipt. It self-provisions
+// the agent's signing key on first use (EnsureFileKey), so the closed loop
+// needs no separate setup. Prints the new receipt_id to stdout (so bash
+// callers can capture it).
+//
+//	ic receipt emit --agent=<id> --model=<m> (--content-hash=<hex> | --content=<str>)
+//	               [--parent-run=<id>] [--tool-calls=<json>] [--epoch=<e>] [--keys=<dir>]
+func cmdReceiptEmit(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	agentID := f.String("agent", "")
+	model := f.String("model", "")
+	if agentID == "" || model == "" {
+		fmt.Fprintf(os.Stderr, "ic: receipt emit: --agent=<id> and --model=<m> are required\n")
+		return rcExitOpError
+	}
+
+	// content_hash is the SHA-256 of the action's primary output. Accept it
+	// precomputed (--content-hash) or hash a raw string (--content).
+	contentHash := f.String("content-hash", "")
+	if contentHash == "" {
+		if c, ok := f.Raw("content"); ok {
+			sum := sha256.Sum256([]byte(c))
+			contentHash = hex.EncodeToString(sum[:])
+		}
+	}
+	if contentHash == "" {
+		fmt.Fprintf(os.Stderr, "ic: receipt emit: one of --content-hash=<hex> or --content=<str> is required\n")
+		return rcExitOpError
+	}
+
+	keyRoot := f.String("keys", defaultReceiptKeyRoot)
+	epoch := f.String("epoch", defaultEpoch(time.Now()))
+
+	var toolCalls []receipt.ToolCall
+	if tc, ok := f.Raw("tool-calls"); ok && tc != "" {
+		parsed, err := receipt.ParseToolCallsJSON(tc)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ic: receipt emit: invalid --tool-calls JSON: %v\n", err)
+			return rcExitOpError
+		}
+		toolCalls = parsed
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("receipt emit: cannot open db", "error", err)
+		return rcExitOpError
+	}
+	defer d.Close()
+	store := receipt.NewStore(d.SqlDB())
+
+	keyID, created, err := receipt.EnsureFileKey(keyRoot, agentID, epoch)
+	if err != nil {
+		slog.Error("receipt emit: key provisioning failed", "agent", agentID, "error", err)
+		return rcExitOpError
+	}
+	if created {
+		fmt.Fprintf(os.Stderr, "ic: receipt emit: provisioned new signing key %s\n", keyID)
+	}
+
+	now := time.Now()
+	r := receipt.Receipt{
+		ReceiptID:     receipt.NewID(now),
+		Timestamp:     receipt.FormatTimestamp(now),
+		AgentID:       agentID,
+		Model:         model,
+		ToolCalls:     toolCalls,
+		ContentHash:   contentHash,
+		SchemaVersion: receipt.SchemaVersion,
+	}
+	if p, ok := f.Raw("parent-run"); ok && p != "" {
+		r.ParentRunID = &p
+	}
+
+	ks := &receipt.FileKeyStore{Root: keyRoot}
+	canon, err := receipt.Sign(&r, ks, now)
+	if err != nil {
+		slog.Error("receipt emit: sign failed", "error", err)
+		return rcExitOpError
+	}
+	if err := store.Insert(ctx, &r, canon); err != nil {
+		slog.Error("receipt emit: insert failed", "error", err)
+		return rcExitOpError
+	}
+
+	if flagJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"receipt_id": r.ReceiptID,
+			"key_id":     r.KeyID,
+			"agent_id":   r.AgentID,
+		})
+	} else {
+		fmt.Println(r.ReceiptID)
+	}
+	return rcExitValid
+}
+
+// cmdReceiptKeygen provisions (or rotates) a signing key for an agent.
+//
+//	ic receipt keygen --agent=<id> [--epoch=<e>] [--keys=<dir>] [--force]
+func cmdReceiptKeygen(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	agentID := f.String("agent", "")
+	if agentID == "" {
+		fmt.Fprintf(os.Stderr, "ic: receipt keygen: --agent=<id> is required\n")
+		return rcExitOpError
+	}
+	keyRoot := f.String("keys", defaultReceiptKeyRoot)
+	epoch := f.String("epoch", defaultEpoch(time.Now()))
+	keyID, err := receipt.GenerateFileKey(keyRoot, agentID, epoch, f.Bool("force"))
+	if err != nil {
+		slog.Error("receipt keygen failed", "error", err)
+		return rcExitOpError
+	}
+	if flagJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"key_id": keyID})
+	} else {
+		fmt.Printf("provisioned signing key: %s\n", keyID)
+	}
+	return rcExitValid
 }
 
 // cmdReceiptVerify verifies a single receipt by ID, or (with --since=<dur>)
