@@ -51,8 +51,8 @@ func TestEvaluate_ClockSkewTolerance(t *testing.T) {
 	}
 
 	ok, _ := Evaluate(rule, CheckInput{
-		Now:               now,
-		VettedAt:          now.Add(-64 * time.Minute),
+		Now:                now,
+		VettedAt:           now.Add(-64 * time.Minute),
 		ClockSkewTolerance: 5 * time.Minute,
 	})
 	if !ok {
@@ -60,8 +60,8 @@ func TestEvaluate_ClockSkewTolerance(t *testing.T) {
 	}
 
 	ok, _ = Evaluate(rule, CheckInput{
-		Now:               now,
-		VettedAt:          now.Add(-66 * time.Minute),
+		Now:                now,
+		VettedAt:           now.Add(-66 * time.Minute),
 		ClockSkewTolerance: 5 * time.Minute,
 	})
 	if ok {
@@ -89,5 +89,40 @@ func TestEvaluate_MultiRepoShasAllMatch(t *testing.T) {
 	})
 	if !ok {
 		t.Fatalf("Evaluate returned false: %s", reason)
+	}
+}
+
+// committed_by_this_session was a stub that always failed when required; it now
+// reads CheckInput.CommittedByThisSession like the other boolean requirements.
+func TestEvaluate_CommittedByThisSession(t *testing.T) {
+	rule := Rule{
+		Op:   "git-push-main",
+		Mode: ModeAuto,
+		Requires: map[string]interface{}{
+			"committed_by_this_session": true,
+		},
+	}
+
+	// Satisfied: HEAD was committed this session.
+	if ok, reason := Evaluate(rule, CheckInput{CommittedByThisSession: true}); !ok {
+		t.Errorf("require true + input true: Evaluate returned false: %s", reason)
+	}
+
+	// Unsatisfied: pre-existing unpushed work, not committed this session.
+	if ok, _ := Evaluate(rule, CheckInput{CommittedByThisSession: false}); ok {
+		t.Error("require true + input false: expected failure, got pass")
+	}
+
+	// require:false must pass only when the input is also false.
+	ruleFalse := Rule{
+		Op:       "git-push-main",
+		Mode:     ModeAuto,
+		Requires: map[string]interface{}{"committed_by_this_session": false},
+	}
+	if ok, _ := Evaluate(ruleFalse, CheckInput{CommittedByThisSession: true}); ok {
+		t.Error("require false + input true: expected failure, got pass")
+	}
+	if ok, reason := Evaluate(ruleFalse, CheckInput{CommittedByThisSession: false}); !ok {
+		t.Errorf("require false + input false: Evaluate returned false: %s", reason)
 	}
 }
