@@ -2,6 +2,7 @@ package landed
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -10,6 +11,14 @@ import (
 )
 
 func testStore(t *testing.T) *Store {
+	t.Helper()
+	store, _ := testStoreWithDB(t)
+	return store
+}
+
+// testStoreWithDB returns the store plus the underlying *sql.DB so tests can
+// seed referenced tables (dispatches, runs, sessions) directly.
+func testStoreWithDB(t *testing.T) (*Store, *sql.DB) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
@@ -22,7 +31,7 @@ func testStore(t *testing.T) *Store {
 	if err := d.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return NewStore(d.SqlDB())
+	return NewStore(d.SqlDB()), d.SqlDB()
 }
 
 func TestRecord(t *testing.T) {
@@ -194,5 +203,209 @@ func TestSummary(t *testing.T) {
 	// b2's only commit was reverted, so it shouldn't appear in ByBead (which excludes reverted)
 	if summary.ByBead["b2"] != 0 {
 		t.Errorf("ByBead[b2] = %d, want 0 (reverted)", summary.ByBead["b2"])
+	}
+}
+
+// seedDispatch inserts a minimal valid dispatches row (id is the TEXT PK).
+func seedDispatch(t *testing.T, sqlDB *sql.DB, id string) {
+	t.Helper()
+	_, err := sqlDB.ExecContext(context.Background(),
+		`INSERT INTO dispatches (id, project_dir) VALUES (?, ?)`, id, "/project")
+	if err != nil {
+		t.Fatalf("seed dispatch %q: %v", id, err)
+	}
+}
+
+// seedRun inserts a minimal valid runs row (id is the TEXT PK).
+func seedRun(t *testing.T, sqlDB *sql.DB, id string) {
+	t.Helper()
+	_, err := sqlDB.ExecContext(context.Background(),
+		`INSERT INTO runs (id, project_dir, goal) VALUES (?, ?, ?)`, id, "/project", "goal")
+	if err != nil {
+		t.Fatalf("seed run %q: %v", id, err)
+	}
+}
+
+// seedSession inserts a minimal valid sessions row (session_id is a column,
+// unique only together with project_dir).
+func seedSession(t *testing.T, sqlDB *sql.DB, sessionID string) {
+	t.Helper()
+	_, err := sqlDB.ExecContext(context.Background(),
+		`INSERT INTO sessions (session_id, project_dir) VALUES (?, ?)`, sessionID, "/project")
+	if err != nil {
+		t.Fatalf("seed session %q: %v", sessionID, err)
+	}
+}
+
+// TestAudit_CleanRefs: a landed row whose dispatch/run/session all reference
+// existing rows produces zero orphans.
+func TestAudit_CleanRefs(t *testing.T) {
+	store, sqlDB := testStoreWithDB(t)
+	ctx := context.Background()
+
+	seedDispatch(t, sqlDB, "dispatch-ok")
+	seedRun(t, sqlDB, "run-ok")
+	seedSession(t, sqlDB, "session-ok")
+
+	if _, err := store.Record(ctx, RecordOpts{
+		CommitSHA:  "clean-commit",
+		ProjectDir: "/project",
+		DispatchID: "dispatch-ok",
+		RunID:      "run-ok",
+		SessionID:  "session-ok",
+		BeadID:     "iv-bead-ok",
+	}); err != nil {
+		t.Fatalf("Record clean: %v", err)
+	}
+
+	res, err := store.Audit(ctx)
+	if err != nil {
+		t.Fatalf("Audit: %v", err)
+	}
+
+	if res.DispatchOrphans != 0 {
+		t.Errorf("DispatchOrphans = %d, want 0", res.DispatchOrphans)
+	}
+	if res.RunOrphans != 0 {
+		t.Errorf("RunOrphans = %d, want 0", res.RunOrphans)
+	}
+	if res.SessionOrphans != 0 {
+		t.Errorf("SessionOrphans = %d, want 0", res.SessionOrphans)
+	}
+	if res.TotalOrphans != 0 {
+		t.Errorf("TotalOrphans = %d, want 0", res.TotalOrphans)
+	}
+	// bead_id is structurally present but not auditable against a local table.
+	if res.BeadRefsPresent != 1 {
+		t.Errorf("BeadRefsPresent = %d, want 1", res.BeadRefsPresent)
+	}
+	if res.BeadAudited {
+		t.Error("BeadAudited = true, want false (no local beads table)")
+	}
+}
+
+// TestAudit_BogusRefs: landed rows with bogus dispatch_id/run_id/session_id are
+// counted as orphans; a clean row alongside them is not.
+func TestAudit_BogusRefs(t *testing.T) {
+	store, sqlDB := testStoreWithDB(t)
+	ctx := context.Background()
+
+	// One fully-valid reference set.
+	seedDispatch(t, sqlDB, "dispatch-ok")
+	seedRun(t, sqlDB, "run-ok")
+	seedSession(t, sqlDB, "session-ok")
+
+	// Clean row — references the seeded rows.
+	if _, err := store.Record(ctx, RecordOpts{
+		CommitSHA:  "clean-commit",
+		ProjectDir: "/project",
+		DispatchID: "dispatch-ok",
+		RunID:      "run-ok",
+		SessionID:  "session-ok",
+	}); err != nil {
+		t.Fatalf("Record clean: %v", err)
+	}
+
+	// Bogus dispatch_id (run/session valid) — 1 dispatch orphan.
+	if _, err := store.Record(ctx, RecordOpts{
+		CommitSHA:  "bad-dispatch",
+		ProjectDir: "/project",
+		DispatchID: "dispatch-MISSING",
+		RunID:      "run-ok",
+		SessionID:  "session-ok",
+	}); err != nil {
+		t.Fatalf("Record bad-dispatch: %v", err)
+	}
+
+	// Bogus run_id (dispatch/session valid) — 1 run orphan.
+	if _, err := store.Record(ctx, RecordOpts{
+		CommitSHA:  "bad-run",
+		ProjectDir: "/project",
+		DispatchID: "dispatch-ok",
+		RunID:      "run-MISSING",
+		SessionID:  "session-ok",
+	}); err != nil {
+		t.Fatalf("Record bad-run: %v", err)
+	}
+
+	// Bogus session_id (dispatch/run valid) — 1 session orphan.
+	if _, err := store.Record(ctx, RecordOpts{
+		CommitSHA:  "bad-session",
+		ProjectDir: "/project",
+		DispatchID: "dispatch-ok",
+		RunID:      "run-ok",
+		SessionID:  "session-MISSING",
+	}); err != nil {
+		t.Fatalf("Record bad-session: %v", err)
+	}
+
+	// All-bogus row — counts once in each of the three columns.
+	if _, err := store.Record(ctx, RecordOpts{
+		CommitSHA:  "all-bad",
+		ProjectDir: "/project",
+		DispatchID: "dispatch-XXX",
+		RunID:      "run-XXX",
+		SessionID:  "session-XXX",
+	}); err != nil {
+		t.Fatalf("Record all-bad: %v", err)
+	}
+
+	res, err := store.Audit(ctx)
+	if err != nil {
+		t.Fatalf("Audit: %v", err)
+	}
+
+	// bad-dispatch + all-bad = 2 dispatch orphans.
+	if res.DispatchOrphans != 2 {
+		t.Errorf("DispatchOrphans = %d, want 2", res.DispatchOrphans)
+	}
+	// bad-run + all-bad = 2 run orphans.
+	if res.RunOrphans != 2 {
+		t.Errorf("RunOrphans = %d, want 2", res.RunOrphans)
+	}
+	// bad-session + all-bad = 2 session orphans.
+	if res.SessionOrphans != 2 {
+		t.Errorf("SessionOrphans = %d, want 2", res.SessionOrphans)
+	}
+	if res.TotalOrphans != 6 {
+		t.Errorf("TotalOrphans = %d, want 6", res.TotalOrphans)
+	}
+}
+
+// TestAudit_NullRefsNotOrphans: NULL FK columns are never orphans (only
+// non-NULL ids with no referent count).
+func TestAudit_NullRefsNotOrphans(t *testing.T) {
+	store, _ := testStoreWithDB(t)
+	ctx := context.Background()
+
+	// No dispatch/run/session ids at all — all NULL after NULLIF(?, '').
+	if _, err := store.Record(ctx, RecordOpts{
+		CommitSHA:  "null-refs",
+		ProjectDir: "/project",
+	}); err != nil {
+		t.Fatalf("Record null-refs: %v", err)
+	}
+
+	res, err := store.Audit(ctx)
+	if err != nil {
+		t.Fatalf("Audit: %v", err)
+	}
+	if res.TotalOrphans != 0 {
+		t.Errorf("TotalOrphans = %d, want 0 (NULL refs are not orphans)", res.TotalOrphans)
+	}
+	if res.BeadRefsPresent != 0 {
+		t.Errorf("BeadRefsPresent = %d, want 0", res.BeadRefsPresent)
+	}
+}
+
+// TestAudit_EmptyTable: auditing an empty table returns all-zero counts.
+func TestAudit_EmptyTable(t *testing.T) {
+	store := testStore(t)
+	res, err := store.Audit(context.Background())
+	if err != nil {
+		t.Fatalf("Audit: %v", err)
+	}
+	if res.TotalOrphans != 0 || res.BeadRefsPresent != 0 {
+		t.Errorf("empty audit = %+v, want all zero", res)
 	}
 }
