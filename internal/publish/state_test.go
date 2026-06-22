@@ -205,6 +205,70 @@ func TestStoreDelete(t *testing.T) {
 	}
 }
 
+func TestStoreClearLocksScopedAndAll(t *testing.T) {
+	db := setupTestDB(t)
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Two active locks for different plugins plus one already-done row.
+	store.Create(ctx, &PublishState{
+		PluginName: "interflux", FromVersion: "0.1.0", ToVersion: "0.2.0",
+		Phase: PhaseValidation, PluginRoot: "/tmp", MarketRoot: "/tmp",
+	})
+	store.Create(ctx, &PublishState{
+		PluginName: "clavain", FromVersion: "1.0.0", ToVersion: "1.1.0",
+		Phase: PhaseValidation, PluginRoot: "/tmp", MarketRoot: "/tmp",
+	})
+	doneSt := &PublishState{
+		PluginName: "interflux", FromVersion: "0.0.9", ToVersion: "0.1.0",
+		Phase: PhaseDiscovery, PluginRoot: "/tmp", MarketRoot: "/tmp",
+	}
+	store.Create(ctx, doneSt)
+	store.Complete(ctx, doneSt.ID)
+
+	// ListActive must report only the two incomplete rows.
+	active, err := store.ListActive(ctx)
+	if err != nil {
+		t.Fatalf("list active: %v", err)
+	}
+	if len(active) != 2 {
+		t.Fatalf("ListActive = %d rows, want 2", len(active))
+	}
+
+	// Scoped clear removes only the named plugin's lock.
+	n, err := store.ClearLocks(ctx, "interflux")
+	if err != nil {
+		t.Fatalf("clear locks (interflux): %v", err)
+	}
+	if n != 1 {
+		t.Errorf("ClearLocks(interflux) = %d, want 1", n)
+	}
+	if a, _ := store.GetActive(ctx, "interflux"); a != nil {
+		t.Error("interflux lock should be cleared")
+	}
+	if a, _ := store.GetActive(ctx, "clavain"); a == nil {
+		t.Error("clavain lock should survive scoped clear")
+	}
+
+	// Global clear sweeps the rest.
+	n, err = store.ClearLocks(ctx, "")
+	if err != nil {
+		t.Fatalf("clear locks (all): %v", err)
+	}
+	if n != 1 {
+		t.Errorf("ClearLocks(all) = %d, want 1", n)
+	}
+	active, _ = store.ListActive(ctx)
+	if len(active) != 0 {
+		t.Errorf("ListActive after global clear = %d, want 0", len(active))
+	}
+
+	// The completed row must remain untouched by both clears.
+	if got, err := store.Get(ctx, doneSt.ID); err != nil || got.Phase != PhaseDone {
+		t.Errorf("completed row should survive ClearLocks (err=%v)", err)
+	}
+}
+
 func TestPhaseIndex(t *testing.T) {
 	if PhaseIndex(PhaseDiscovery) != 0 {
 		t.Error("discovery should be 0")

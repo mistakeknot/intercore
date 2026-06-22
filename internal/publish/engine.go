@@ -151,7 +151,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 				}
 			default:
 				// Genuinely in flight — a publish is actively running elsewhere.
-				return fmt.Errorf("%w: %s at phase %s (id: %s) — another publish is running; wait for it to finish. If it has crashed, retry once the state goes stale (1h of inactivity), or run 'ic publish --auto' to clear it now",
+				return fmt.Errorf("%w: %s at phase %s (id: %s) — another publish is running; wait for it to finish. If it has crashed, run 'ic publish unlock' to clear the lock now (or 'ic publish --auto'); it also self-clears once the state goes stale (1h of inactivity)",
 					ErrActivePublish, active.PluginName, active.Phase, active.ID)
 			}
 		}
@@ -174,6 +174,21 @@ func (e *Engine) Publish(ctx context.Context) error {
 			stateID = st.ID
 		}
 	}
+
+	// Lock cleanup: every failure path below returns early without reaching the
+	// PhaseDone Complete() call, which historically left the publish_state row
+	// behind at its failed phase. A leaked row blocks the next publish until it
+	// ages past the stale threshold (or an --auto run clears it). Track success
+	// and, on any non-success exit, delete the row so the lock self-clears
+	// immediately. See sylveste-2uhz.
+	succeeded := false
+	defer func() {
+		if !succeeded && e.store != nil && stateID != "" {
+			if delErr := e.store.Delete(ctx, stateID); delErr != nil {
+				e.out("warning: cannot clear publish lock %s: %v\n", stateID, delErr)
+			}
+		}
+	}()
 
 	// Helper to update state
 	setPhase := func(phase Phase) {
@@ -451,6 +466,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 	}
 
 	// Phase 8: Done
+	succeeded = true
 	if e.store != nil && stateID != "" {
 		e.store.Complete(ctx, stateID)
 	}

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/publish"
@@ -26,6 +27,8 @@ func cmdPublish(ctx context.Context, args []string) int {
 		return cmdPublishClean(ctx, args[1:])
 	case "status":
 		return cmdPublishStatus(ctx, args[1:])
+	case "unlock":
+		return cmdPublishUnlock(ctx, args[1:])
 	case "init":
 		return cmdPublishInit(ctx, args[1:])
 	case "help", "--help", "-h":
@@ -266,6 +269,23 @@ func cmdPublishStatus(ctx context.Context, args []string) int {
 		}
 	}
 
+	// Surface any in-flight or stuck publish lock for this plugin.
+	if d, err := openDB(); err == nil {
+		defer d.Close()
+		store := publish.NewStore(d.SqlDB())
+		if active, err := store.GetActive(ctx, plugin.Name); err == nil && active != nil {
+			state := "in progress"
+			if active.IsStale(timeNowUnix()) {
+				state = "STUCK — run 'ic publish unlock' to clear"
+			}
+			fmt.Printf("Publish lock: %s at phase %s (id: %s) — %s\n",
+				active.PluginName, active.Phase, active.ID, state)
+			if active.Error != "" {
+				fmt.Printf("  last error: %s\n", active.Error)
+			}
+		}
+	}
+
 	return 0
 }
 
@@ -392,6 +412,63 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 	return 0
 }
 
+func cmdPublishUnlock(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	all := f.Bool("all")
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("publish unlock: cannot open state DB", "error", err)
+		return 2
+	}
+	defer d.Close()
+	store := publish.NewStore(d.SqlDB())
+	if err := store.EnsureTable(ctx); err != nil {
+		slog.Error("publish unlock: cannot ensure table", "error", err)
+		return 2
+	}
+
+	pluginName := ""
+	if !all {
+		// Scope to the current plugin unless --all was passed.
+		cwd, _ := os.Getwd()
+		root, err := publish.FindPluginRoot(cwd)
+		if err != nil {
+			slog.Error("publish unlock: not in a plugin (use --all to clear every lock)", "error", err)
+			return 2
+		}
+		plugin, err := publish.ReadPlugin(root)
+		if err != nil {
+			slog.Error("publish unlock failed", "error", err)
+			return 2
+		}
+		pluginName = plugin.Name
+	}
+
+	n, err := store.ClearLocks(ctx, pluginName)
+	if err != nil {
+		slog.Error("publish unlock failed", "error", err)
+		return 2
+	}
+	switch {
+	case n == 0 && pluginName != "":
+		fmt.Printf("No publish lock for %s.\n", pluginName)
+	case n == 0:
+		fmt.Println("No publish locks to clear.")
+	case pluginName != "":
+		fmt.Printf("Cleared %d publish lock(s) for %s.\n", n, pluginName)
+	default:
+		fmt.Printf("Cleared %d publish lock(s).\n", n)
+	}
+	return 0
+}
+
+// timeNowUnix returns the current unix time in seconds. Wrapped so the staleness
+// check in publish status is easy to reason about.
+func timeNowUnix() int64 {
+	return time.Now().Unix()
+}
+
 func printPublishUsage() {
 	fmt.Println(`ic publish — plugin publishing pipeline
 
@@ -411,6 +488,9 @@ Usage:
 
   ic publish status              Show publish state for current plugin
   ic publish status --all        Show all plugins' publish health
+
+  ic publish unlock              Clear a stuck publish lock for current plugin
+  ic publish unlock --all        Clear every stuck publish lock
 
   ic publish init                Register new plugin in marketplace
   ic publish init --name=<name>  Register with explicit name`)
