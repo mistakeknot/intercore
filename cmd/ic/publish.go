@@ -8,8 +8,9 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
+	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/publish"
 )
 
@@ -26,6 +27,8 @@ func cmdPublish(ctx context.Context, args []string) int {
 		return cmdPublishClean(ctx, args[1:])
 	case "status":
 		return cmdPublishStatus(ctx, args[1:])
+	case "unlock":
+		return cmdPublishUnlock(ctx, args[1:])
 	case "init":
 		return cmdPublishInit(ctx, args[1:])
 	case "help", "--help", "-h":
@@ -38,35 +41,33 @@ func cmdPublish(ctx context.Context, args []string) int {
 }
 
 func cmdPublishRun(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	opts := publish.PublishOpts{}
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--patch":
-			opts.Mode = publish.BumpPatch
-		case args[i] == "--minor":
-			opts.Mode = publish.BumpMinor
-		case args[i] == "--dry-run":
-			opts.DryRun = true
-		case args[i] == "--auto":
-			opts.Auto = true
-		case strings.HasPrefix(args[i], "--cwd="):
-			opts.CWD = strings.TrimPrefix(args[i], "--cwd=")
-		case args[i] == "--cwd" && i+1 < len(args):
-			i++
-			opts.CWD = args[i]
-		case strings.HasPrefix(args[i], "--"):
-			slog.Error("publish: unknown flag", "value", args[i])
-			return 3
-		default:
-			positional = append(positional, args[i])
-		}
+	if f.Bool("patch") {
+		opts.Mode = publish.BumpPatch
+	}
+	if f.Bool("minor") {
+		opts.Mode = publish.BumpMinor
+	}
+	opts.DryRun = f.Bool("dry-run")
+	opts.Auto = f.Bool("auto")
+	opts.CWD = f.String("cwd", "")
+	// v2 authz token env reads happen here at the composition root — the
+	// engine and RequiresApproval never read env vars directly. Empty values
+	// fall through to v1.5 authz-record + marker approval paths.
+	opts.AuthzTokenStr = os.Getenv("CLAVAIN_AUTHZ_TOKEN")
+	opts.AuthzCallerAgentID = os.Getenv("CLAVAIN_AGENT_ID")
+	// Unset so child processes spawned post-approval don't inherit the token
+	// (belt + the CLI policy token consume path also prints an unset block
+	// for interactive-shell eval).
+	if opts.AuthzTokenStr != "" {
+		os.Unsetenv("CLAVAIN_AUTHZ_TOKEN")
 	}
 
-	if len(positional) > 0 {
+	if len(f.Positionals) > 0 {
 		opts.Mode = publish.BumpExact
-		opts.Version = positional[0]
+		opts.Version = f.Positionals[0]
 	}
 
 	// For auto mode, default to patch bump
@@ -103,17 +104,11 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 }
 
 func cmdPublishDoctor(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
 	opts := publish.DoctorOpts{}
 	// --json is a global flag (consumed by main.go), so check flagJSON too
-	opts.JSON = flagJSON
-	for _, arg := range args {
-		switch arg {
-		case "--fix":
-			opts.Fix = true
-		case "--json":
-			opts.JSON = true
-		}
-	}
+	opts.JSON = flagJSON || f.Bool("json")
+	opts.Fix = f.Bool("fix")
 
 	result, err := publish.RunDoctor(ctx, opts)
 	if err != nil {
@@ -170,34 +165,15 @@ func cmdPublishDoctor(ctx context.Context, args []string) int {
 }
 
 func cmdPublishClean(ctx context.Context, args []string) int {
-	dryRun := false
-	for _, arg := range args {
-		if arg == "--dry-run" {
-			dryRun = true
-		}
-	}
+	f := cli.ParseFlags(args)
+	dryRun := f.Bool("dry-run")
 
 	if dryRun {
-		// Just scan and report
-		entries, err := publish.ListCacheEntries()
+		orphaned, stale, err := publish.CountStaleAcrossMarketplaces()
 		if err != nil {
 			slog.Error("publish clean failed", "error", err)
 			return 2
 		}
-
-		orphaned := 0
-		stale := 0
-		for pluginName, versions := range entries {
-			installedVer := publish.ReadInstalledVersion(pluginName)
-			for _, v := range versions {
-				if v.Orphaned {
-					orphaned++
-				} else if !v.IsSymlink && v.Version != installedVer {
-					stale++
-				}
-			}
-		}
-
 		fmt.Printf("Would clean:\n")
 		fmt.Printf("  %d orphaned cache directories\n", orphaned)
 		fmt.Printf("  %d stale version directories\n", stale)
@@ -225,7 +201,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 		totalCount += count
 	}
 
-	count, bytes, err = publish.PruneStaleVersions(1)
+	count, bytes, err = publish.PruneStaleVersionsAcrossMarketplaces(1)
 	if err != nil {
 		slog.Error("publish clean: stale versions failed", "error", err)
 	}
@@ -241,12 +217,8 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 }
 
 func cmdPublishStatus(ctx context.Context, args []string) int {
-	showAll := false
-	for _, arg := range args {
-		if arg == "--all" {
-			showAll = true
-		}
-	}
+	f := cli.ParseFlags(args)
+	showAll := f.Bool("all")
 
 	if showAll {
 		return cmdPublishStatusAll(ctx)
@@ -297,6 +269,23 @@ func cmdPublishStatus(ctx context.Context, args []string) int {
 		}
 	}
 
+	// Surface any in-flight or stuck publish lock for this plugin.
+	if d, err := openDB(); err == nil {
+		defer d.Close()
+		store := publish.NewStore(d.SqlDB())
+		if active, err := store.GetActive(ctx, plugin.Name); err == nil && active != nil {
+			state := "in progress"
+			if active.IsStale(timeNowUnix()) {
+				state = "STUCK — run 'ic publish unlock' to clear"
+			}
+			fmt.Printf("Publish lock: %s at phase %s (id: %s) — %s\n",
+				active.PluginName, active.Phase, active.ID, state)
+			if active.Error != "" {
+				fmt.Printf("  last error: %s\n", active.Error)
+			}
+		}
+	}
+
 	return 0
 }
 
@@ -328,15 +317,8 @@ func cmdPublishStatusAll(ctx context.Context) int {
 }
 
 func cmdPublishInit(ctx context.Context, args []string) int {
-	var name string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--name=") {
-			name = strings.TrimPrefix(args[i], "--name=")
-		} else if args[i] == "--name" && i+1 < len(args) {
-			i++
-			name = args[i]
-		}
-	}
+	f := cli.ParseFlags(args)
+	name := f.String("name", "")
 
 	cwd, _ := os.Getwd()
 	root, err := publish.FindPluginRoot(cwd)
@@ -430,6 +412,63 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 	return 0
 }
 
+func cmdPublishUnlock(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	all := f.Bool("all")
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("publish unlock: cannot open state DB", "error", err)
+		return 2
+	}
+	defer d.Close()
+	store := publish.NewStore(d.SqlDB())
+	if err := store.EnsureTable(ctx); err != nil {
+		slog.Error("publish unlock: cannot ensure table", "error", err)
+		return 2
+	}
+
+	pluginName := ""
+	if !all {
+		// Scope to the current plugin unless --all was passed.
+		cwd, _ := os.Getwd()
+		root, err := publish.FindPluginRoot(cwd)
+		if err != nil {
+			slog.Error("publish unlock: not in a plugin (use --all to clear every lock)", "error", err)
+			return 2
+		}
+		plugin, err := publish.ReadPlugin(root)
+		if err != nil {
+			slog.Error("publish unlock failed", "error", err)
+			return 2
+		}
+		pluginName = plugin.Name
+	}
+
+	n, err := store.ClearLocks(ctx, pluginName)
+	if err != nil {
+		slog.Error("publish unlock failed", "error", err)
+		return 2
+	}
+	switch {
+	case n == 0 && pluginName != "":
+		fmt.Printf("No publish lock for %s.\n", pluginName)
+	case n == 0:
+		fmt.Println("No publish locks to clear.")
+	case pluginName != "":
+		fmt.Printf("Cleared %d publish lock(s) for %s.\n", n, pluginName)
+	default:
+		fmt.Printf("Cleared %d publish lock(s).\n", n)
+	}
+	return 0
+}
+
+// timeNowUnix returns the current unix time in seconds. Wrapped so the staleness
+// check in publish status is easy to reason about.
+func timeNowUnix() int64 {
+	return time.Now().Unix()
+}
+
 func printPublishUsage() {
 	fmt.Println(`ic publish — plugin publishing pipeline
 
@@ -449,6 +488,9 @@ Usage:
 
   ic publish status              Show publish state for current plugin
   ic publish status --all        Show all plugins' publish health
+
+  ic publish unlock              Clear a stuck publish lock for current plugin
+  ic publish unlock --all        Clear every stuck publish lock
 
   ic publish init                Register new plugin in marketplace
   ic publish init --name=<name>  Register with explicit name`)

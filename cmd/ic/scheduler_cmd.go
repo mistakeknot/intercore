@@ -6,10 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strconv"
-	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/scheduler"
 )
 
@@ -43,42 +42,17 @@ func cmdScheduler(ctx context.Context, args []string) int {
 }
 
 func cmdSchedulerSubmit(ctx context.Context, args []string) int {
-	var (
-		promptFile  string
-		projectDir  string
-		agentType   string
-		sessionName string
-		name        string
-		priority    int
-	)
+	f := cli.ParseFlags(args)
+	promptFile := f.String("prompt-file", "")
+	projectDir := f.String("project", "")
+	agentType := f.String("type", "codex")
+	sessionName := f.String("session", "")
+	name := f.String("name", "")
 
-	priority = int(scheduler.PriorityNormal)
-	agentType = "codex"
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--prompt-file="):
-			promptFile = strings.TrimPrefix(args[i], "--prompt-file=")
-		case strings.HasPrefix(args[i], "--project="):
-			projectDir = strings.TrimPrefix(args[i], "--project=")
-		case strings.HasPrefix(args[i], "--type="):
-			agentType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--session="):
-			sessionName = strings.TrimPrefix(args[i], "--session=")
-		case strings.HasPrefix(args[i], "--name="):
-			name = strings.TrimPrefix(args[i], "--name=")
-		case strings.HasPrefix(args[i], "--priority="):
-			val := strings.TrimPrefix(args[i], "--priority=")
-			p, err := strconv.Atoi(val)
-			if err != nil {
-				slog.Error("scheduler submit: invalid priority", "value", val)
-				return 3
-			}
-			priority = p
-		default:
-			slog.Error("scheduler submit: unknown flag", "value", args[i])
-			return 3
-		}
+	priority, err := f.Int("priority", int(scheduler.PriorityNormal))
+	if err != nil {
+		slog.Error("scheduler submit: invalid priority", "value", f.String("priority", ""))
+		return 3
 	}
 
 	if promptFile == "" {
@@ -197,22 +171,12 @@ func cmdSchedulerStats(ctx context.Context) int {
 }
 
 func cmdSchedulerList(ctx context.Context, args []string) int {
-	var statusFilter string
-	limit := 50
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--status="):
-			statusFilter = strings.TrimPrefix(args[i], "--status=")
-		case strings.HasPrefix(args[i], "--limit="):
-			val := strings.TrimPrefix(args[i], "--limit=")
-			n, err := strconv.Atoi(val)
-			if err != nil {
-				slog.Error("scheduler list: invalid limit", "value", val)
-				return 3
-			}
-			limit = n
-		}
+	f := cli.ParseFlags(args)
+	statusFilter := f.String("status", "")
+	limit, err := f.Int("limit", 50)
+	if err != nil {
+		slog.Error("scheduler list: invalid limit", "value", f.String("limit", ""))
+		return 3
 	}
 
 	d, err := openDB()
@@ -330,12 +294,8 @@ func cmdSchedulerCancel(ctx context.Context, args []string) int {
 }
 
 func cmdSchedulerPrune(ctx context.Context, args []string) int {
-	olderThan := "24h"
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--older-than=") {
-			olderThan = strings.TrimPrefix(args[i], "--older-than=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	olderThan := f.String("older-than", "24h")
 
 	dur, err := time.ParseDuration(olderThan)
 	if err != nil {

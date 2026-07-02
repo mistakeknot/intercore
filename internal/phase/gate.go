@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+
+	exported "github.com/mistakeknot/intercore/pkg/phase"
 )
 
 // EventOverride is the event type for manual gate overrides.
@@ -11,12 +14,13 @@ const EventOverride = "override"
 
 // Check type constants for gateRules.
 const (
-	CheckArtifactExists      = "artifact_exists"
-	CheckAgentsComplete      = "agents_complete"
-	CheckVerdictExists       = "verdict_exists"
-	CheckChildrenAtPhase     = "children_at_phase"
-	CheckUpstreamsAtPhase    = "upstreams_at_phase"
-	CheckBudgetNotExceeded   = "budget_not_exceeded"
+	CheckArtifactExists    = "artifact_exists"
+	CheckAgentsComplete    = "agents_complete"
+	CheckVerdictExists     = "verdict_exists"
+	CheckVerdictClean      = "verdict_clean"
+	CheckChildrenAtPhase   = "children_at_phase"
+	CheckUpstreamsAtPhase  = "upstreams_at_phase"
+	CheckBudgetNotExceeded = "budget_not_exceeded"
 )
 
 // RuntrackQuerier abstracts runtrack.Store queries needed by gate evaluation.
@@ -30,6 +34,10 @@ type RuntrackQuerier interface {
 // Implemented by dispatch.Store; tests can use stubs.
 type VerdictQuerier interface {
 	HasVerdict(ctx context.Context, scopeID string) (bool, error)
+	// CountUncleanVerdicts returns the number of dispatches in scope whose
+	// verdict_status indicates a non-clean outcome (fail/error). Used by the
+	// verdict_clean ship gate (sylveste-0ly7).
+	CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error)
 }
 
 // PortfolioQuerier abstracts queries for portfolio run children.
@@ -80,7 +88,14 @@ type GateCheckResult struct {
 	ToPhase   string
 	Result    string
 	Tier      string
+	Source    string // "default", "calibrated", "spec", "per-run"
 	Evidence  *GateEvidence
+}
+
+// GateCalibrationKey returns the canonical map key for calibrated tier lookups.
+// Delegates to pkg/phase.GateCalibrationKey for internal callers.
+func GateCalibrationKey(checkType, fromPhase, toPhase string) string {
+	return exported.GateCalibrationKey(checkType, fromPhase, toPhase)
 }
 
 // gateRule defines a single gate check to perform for a phase transition.
@@ -120,10 +135,11 @@ var gateRules = map[[2]string][]gateRule{
 }
 
 // evaluateGate checks whether a phase transition should be allowed.
-// Returns gate result, tier, structured evidence, and any error.
-func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier) (result, tier string, evidence *GateEvidence, err error) {
+// Returns gate result, tier, source, structured evidence, and any error.
+func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier) (result, tier, source string, evidence *GateEvidence, err error) {
 	if cfg.DisableAll {
-		return GateNone, TierNone, nil, nil
+		slog.Warn("gate bypass: --disable-gates used", "run_id", run.ID, "from", from, "to", to)
+		return GateNone, TierNone, "default", nil, nil
 	}
 
 	// Determine tier from priority
@@ -133,25 +149,34 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	case cfg.Priority <= 3:
 		tier = TierSoft
 	default:
-		return GateNone, TierNone, nil, nil
+		slog.Warn("gate bypass: priority >= 4 disables all gate checks", "run_id", run.ID, "priority", cfg.Priority, "from", from, "to", to)
+		return GateNone, TierNone, "default", nil, nil
 	}
 
 	// Look up rules for this transition.
 	// Precedence: per-run stored rules > agency spec rules > hardcoded defaults.
 	var rules []gateRule
+	usingDefaults := false
 	key := from + "→" + to
 	if run.GateRules != nil {
+		source = "per-run"
 		if rr, ok := run.GateRules[key]; ok {
 			for _, r := range rr {
 				rules = append(rules, gateRule{check: r.Check, phase: r.Phase, tier: r.Tier})
 			}
 		}
 	} else if len(cfg.SpecRules) > 0 {
+		source = "spec"
 		for _, sr := range cfg.SpecRules {
 			rules = append(rules, gateRule{check: sr.Check, phase: sr.Phase, tier: sr.Tier})
 		}
 	} else if hr, ok := gateRules[[2]string{from, to}]; ok {
+		source = "default"
+		usingDefaults = true
 		rules = hr
+	} else {
+		source = "default"
+		usingDefaults = true
 	}
 
 	// Portfolio runs: inject children_at_phase check for every transition
@@ -171,7 +196,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	}
 
 	if len(rules) == 0 {
-		return GatePass, tier, nil, nil
+		return GatePass, tier, source, nil, nil
 	}
 
 	// Per-rule tier overrides: escalate overall tier if any rule is stricter.
@@ -183,6 +208,20 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 		}
 		if rule.tier == TierSoft && tier != TierHard {
 			tier = TierSoft
+		}
+	}
+
+	// Calibrated tier overrides: only apply when using hardcoded defaults.
+	// Per-run and spec rules represent explicit user configuration — calibration
+	// should not override those. Calibration can only escalate (soft→hard).
+	if usingDefaults && cfg.CalibratedTiers != nil {
+		for _, rule := range rules {
+			calKey := GateCalibrationKey(rule.check, from, to)
+			if calTier, ok := cfg.CalibratedTiers[calKey]; ok && calTier == TierHard {
+				tier = TierHard
+				source = "calibrated"
+				break // can't escalate further
+			}
 		}
 	}
 
@@ -205,7 +244,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			}
 			count, qerr := rt.CountArtifacts(ctx, run.ID, rule.phase)
 			if qerr != nil {
-				return "", "", nil, fmt.Errorf("gate check: %w", qerr)
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
 			}
 			cond.Count = &count
 			if count > 0 {
@@ -225,7 +264,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			}
 			count, qerr := rt.CountActiveAgents(ctx, run.ID)
 			if qerr != nil {
-				return "", "", nil, fmt.Errorf("gate check: %w", qerr)
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
 			}
 			cond.Count = &count
 			if count == 0 {
@@ -249,13 +288,52 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			}
 			has, qerr := vq.HasVerdict(ctx, scopeID)
 			if qerr != nil {
-				return "", "", nil, fmt.Errorf("gate check: %w", qerr)
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
 			}
 			if has {
 				cond.Result = GatePass
 			} else {
 				cond.Result = GateFail
 				cond.Detail = "no passing verdict found"
+				allPass = false
+			}
+
+		case CheckVerdictClean:
+			// verdict_clean: the strongest ship gate. Requires that a verdict
+			// exists AND that zero dispatches in scope returned a non-clean
+			// (fail/error) verdict — i.e. no NEEDS_ATTENTION findings survive.
+			// Wires the executor for the spec's review_clean=verdict_clean gate
+			// (sylveste-0ly7); previously declared in YAML with no evaluator.
+			if vq == nil {
+				cond.Result = GateFail
+				cond.Detail = "no verdict querier provided"
+				allPass = false
+				break
+			}
+			scopeID := ""
+			if run.ScopeID != nil {
+				scopeID = *run.ScopeID
+			}
+			has, qerr := vq.HasVerdict(ctx, scopeID)
+			if qerr != nil {
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
+			}
+			if !has {
+				cond.Result = GateFail
+				cond.Detail = "no verdict found — review did not run (fail-closed)"
+				allPass = false
+				break
+			}
+			unclean, qerr := vq.CountUncleanVerdicts(ctx, scopeID)
+			if qerr != nil {
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
+			}
+			cond.Count = &unclean
+			if unclean == 0 {
+				cond.Result = GatePass
+			} else {
+				cond.Result = GateFail
+				cond.Detail = fmt.Sprintf("%d verdict(s) NEEDS_ATTENTION (fail/error) — not clean", unclean)
 				allPass = false
 			}
 
@@ -268,7 +346,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			}
 			children, qerr := pq.GetChildren(ctx, run.ID)
 			if qerr != nil {
-				return "", "", nil, fmt.Errorf("gate check: %w", qerr)
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
 			}
 			behind := 0
 			for _, child := range children {
@@ -305,7 +383,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			}
 			upstreams, qerr := dq.GetUpstream(ctx, *run.ParentRunID, run.ProjectDir)
 			if qerr != nil {
-				return "", "", nil, fmt.Errorf("gate check: get upstreams: %w", qerr)
+				return "", "", "", nil, fmt.Errorf("gate check: get upstreams: %w", qerr)
 			}
 			if len(upstreams) == 0 {
 				cond.Result = GatePass
@@ -315,7 +393,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			// Load all siblings to find upstream runs
 			siblings, qerr := pq.GetChildren(ctx, *run.ParentRunID)
 			if qerr != nil {
-				return "", "", nil, fmt.Errorf("gate check: get siblings: %w", qerr)
+				return "", "", "", nil, fmt.Errorf("gate check: get siblings: %w", qerr)
 			}
 			siblingByProject := make(map[string]*Run)
 			for _, s := range siblings {
@@ -362,7 +440,7 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			}
 			exceeded, qerr := bq.IsBudgetExceeded(ctx, run.ID)
 			if qerr != nil {
-				return "", "", nil, fmt.Errorf("gate check: budget: %w", qerr)
+				return "", "", "", nil, fmt.Errorf("gate check: budget: %w", qerr)
 			}
 			if !exceeded {
 				cond.Result = GatePass
@@ -382,9 +460,9 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	}
 
 	if allPass {
-		return GatePass, tier, evidence, nil
+		return GatePass, tier, source, evidence, nil
 	}
-	return GateFail, tier, evidence, nil
+	return GateFail, tier, source, evidence, nil
 }
 
 // EvaluateGate performs a dry-run gate check for the next transition.
@@ -407,7 +485,7 @@ func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfi
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}
-	result, tier, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq, pq, dq, bq)
+	result, tier, source, evidence, err := evaluateGate(ctx, run, cfg, run.Phase, toPhase, rt, vq, pq, dq, bq)
 	if err != nil {
 		return nil, fmt.Errorf("evaluate gate: %w", err)
 	}
@@ -418,6 +496,7 @@ func EvaluateGate(ctx context.Context, store *Store, runID string, cfg GateConfi
 		ToPhase:   toPhase,
 		Result:    result,
 		Tier:      tier,
+		Source:    source,
 		Evidence:  evidence,
 	}, nil
 }
@@ -465,6 +544,27 @@ func GateRulesInfo() []struct {
 		rules = append(rules, entry)
 	}
 	return rules
+}
+
+// GateRuleInfo is an exported view of an internal gateRule for calibration.
+type GateRuleInfo struct {
+	Check string
+	Phase string
+	Tier  string
+}
+
+// GateRulesForCalibration returns a copy of the hardcoded gateRules table
+// for use by calibration loading (promotion-only enforcement).
+func GateRulesForCalibration() map[[2]string][]GateRuleInfo {
+	result := make(map[[2]string][]GateRuleInfo, len(gateRules))
+	for key, rules := range gateRules {
+		exported := make([]GateRuleInfo, len(rules))
+		for i, r := range rules {
+			exported[i] = GateRuleInfo{Check: r.check, Phase: r.phase, Tier: r.tier}
+		}
+		result[key] = exported
+	}
+	return result
 }
 
 // GateChecksForTransition returns the check names required for a specific

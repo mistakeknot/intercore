@@ -181,6 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_interspect_events_created ON interspect_events(cr
 CREATE INDEX IF NOT EXISTS idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;
 
 -- v24: review events (disagreement resolution pipeline)
+-- v28: added event_type column for execution_defect support
 CREATE TABLE IF NOT EXISTS review_events (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id            TEXT,
@@ -190,12 +191,14 @@ CREATE TABLE IF NOT EXISTS review_events (
     dismissal_reason  TEXT,
     chosen_severity   TEXT NOT NULL,
     impact            TEXT NOT NULL,
+    event_type        TEXT NOT NULL DEFAULT 'disagreement_resolved',
     session_id        TEXT,
     project_dir       TEXT,
     created_at        INTEGER NOT NULL DEFAULT (unixepoch())
 );
 CREATE INDEX IF NOT EXISTS idx_review_events_finding ON review_events(finding_id);
 CREATE INDEX IF NOT EXISTS idx_review_events_created ON review_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_review_events_type ON review_events(event_type);
 
 -- v9: discovery pipeline
 CREATE TABLE IF NOT EXISTS discoveries (
@@ -233,6 +236,21 @@ CREATE TABLE IF NOT EXISTS discovery_events (
 CREATE INDEX IF NOT EXISTS idx_discovery_events_discovery ON discovery_events(discovery_id);
 CREATE INDEX IF NOT EXISTS idx_discovery_events_created ON discovery_events(created_at);
 
+-- v29: intent submission audit trail
+CREATE TABLE IF NOT EXISTS intent_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    intent_type     TEXT NOT NULL,
+    bead_id         TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    session_id      TEXT NOT NULL,
+    run_id          TEXT,
+    success         INTEGER NOT NULL DEFAULT 0,
+    error_detail    TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_intent_events_bead ON intent_events(bead_id);
+CREATE INDEX IF NOT EXISTS idx_intent_events_created ON intent_events(created_at);
+
 CREATE TABLE IF NOT EXISTS feedback_signals (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     discovery_id    TEXT NOT NULL,
@@ -269,6 +287,7 @@ CREATE TABLE IF NOT EXISTS lanes (
     lane_type   TEXT NOT NULL DEFAULT 'standing',  -- 'standing' or 'arc'
     status      TEXT NOT NULL DEFAULT 'active',    -- 'active', 'closed', 'archived'
     description TEXT NOT NULL DEFAULT '',
+    intent      TEXT NOT NULL DEFAULT '',           -- strategic intent for autonomous epic execution
     metadata    TEXT NOT NULL DEFAULT '{}',         -- JSON: pollard config, starvation weights
     created_at  INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at  INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -410,6 +429,31 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_status ON scheduler_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_session ON scheduler_jobs(session_name);
 
+-- v25: canonical landed-change entity (iv-fo0rx)
+CREATE TABLE IF NOT EXISTS landed_changes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    commit_sha      TEXT NOT NULL,
+    project_dir     TEXT NOT NULL,
+    branch          TEXT NOT NULL DEFAULT 'main',
+    dispatch_id     TEXT,
+    run_id          TEXT,
+    bead_id         TEXT,
+    session_id      TEXT,
+    merge_intent_id INTEGER,
+    landed_at       INTEGER NOT NULL DEFAULT (unixepoch()),
+    reverted_at     INTEGER,
+    reverted_by     TEXT,
+    files_changed   INTEGER,
+    insertions      INTEGER,
+    deletions       INTEGER,
+    UNIQUE(commit_sha, project_dir)
+);
+CREATE INDEX IF NOT EXISTS idx_landed_changes_project ON landed_changes(project_dir, landed_at);
+CREATE INDEX IF NOT EXISTS idx_landed_changes_bead ON landed_changes(bead_id) WHERE bead_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_landed_changes_dispatch ON landed_changes(dispatch_id) WHERE dispatch_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_landed_changes_run ON landed_changes(run_id) WHERE run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_landed_changes_session ON landed_changes(session_id) WHERE session_id IS NOT NULL;
+
 -- v22: replay input capture for deterministic run replay
 CREATE TABLE IF NOT EXISTS run_replay_inputs (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -426,3 +470,193 @@ CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_created
     ON run_replay_inputs(run_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_kind
     ON run_replay_inputs(run_id, kind, created_at, id);
+
+-- v26: durable session attribution ledger (iv-30zy3)
+CREATE TABLE IF NOT EXISTS sessions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL,
+    project_dir     TEXT NOT NULL,
+    agent_type      TEXT NOT NULL DEFAULT 'claude-code',
+    model           TEXT,
+    started_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+    ended_at        INTEGER,
+    metadata        TEXT,
+    input_tokens    INTEGER NOT NULL DEFAULT 0,
+    output_tokens   INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(session_id, project_dir)
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_dir, started_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
+
+CREATE TABLE IF NOT EXISTS session_attributions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL,
+    project_dir     TEXT NOT NULL,
+    bead_id         TEXT,
+    run_id          TEXT,
+    phase           TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_session_attr_session ON session_attributions(session_id, project_dir, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_session_attr_bead ON session_attributions(bead_id) WHERE bead_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_session_attr_created ON session_attributions(created_at);
+
+-- v27: routing decision records (iv-godia)
+CREATE TABLE IF NOT EXISTS routing_decisions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    dispatch_id     TEXT,
+    run_id          TEXT,
+    session_id      TEXT,
+    bead_id         TEXT,
+    project_dir     TEXT NOT NULL,
+    phase           TEXT,
+    agent           TEXT NOT NULL,
+    category        TEXT,
+    selected_model  TEXT NOT NULL,
+    rule_matched    TEXT NOT NULL,
+    floor_applied   INTEGER NOT NULL DEFAULT 0,
+    floor_from      TEXT,
+    floor_to        TEXT,
+    candidates      TEXT,
+    excluded        TEXT,
+    policy_hash     TEXT,
+    override_id     TEXT,
+    complexity      INTEGER,
+    context_json    TEXT,
+    decided_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX IF NOT EXISTS idx_routing_dec_project ON routing_decisions(project_dir, decided_at DESC);
+CREATE INDEX IF NOT EXISTS idx_routing_dec_agent ON routing_decisions(agent, decided_at DESC);
+CREATE INDEX IF NOT EXISTS idx_routing_dec_model ON routing_decisions(selected_model, decided_at DESC);
+CREATE INDEX IF NOT EXISTS idx_routing_dec_dispatch ON routing_decisions(dispatch_id) WHERE dispatch_id IS NOT NULL;
+
+-- v32 authorizations (auto-proceed authz framework — sylveste-qdqr)
+-- v33 signing columns appended below (see docs/canon/authz-signing-trust-model.md)
+CREATE TABLE IF NOT EXISTS authorizations (
+  id               TEXT PRIMARY KEY,
+  op_type          TEXT NOT NULL,
+  target           TEXT NOT NULL,
+  agent_id         TEXT NOT NULL CHECK(length(trim(agent_id)) > 0),
+  bead_id          TEXT,
+  mode             TEXT NOT NULL CHECK(mode IN ('auto','confirmed','blocked','force_auto')),
+  policy_match     TEXT,
+  policy_hash      TEXT,
+  vetted_sha       TEXT,
+  vetting          TEXT CHECK(vetting IS NULL OR json_valid(vetting)),
+  cross_project_id TEXT,
+  created_at       INTEGER NOT NULL,
+  sig_version      INTEGER NOT NULL DEFAULT 0,
+  signature        BLOB,
+  signed_at        INTEGER
+);
+CREATE INDEX IF NOT EXISTS authz_by_bead  ON authorizations(bead_id,  created_at DESC);
+CREATE INDEX IF NOT EXISTS authz_by_op    ON authorizations(op_type,  created_at DESC);
+CREATE INDEX IF NOT EXISTS authz_by_agent ON authorizations(agent_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS authz_by_xproj ON authorizations(cross_project_id) WHERE cross_project_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS authz_unsigned ON authorizations(sig_version, signed_at) WHERE signature IS NULL AND sig_version >= 1;
+
+-- v33 cutover marker — demarcates pre-v1.5 rows (sig_version=0, NULL signature =
+-- "never signed") from v1.5+ rows (sig_version ≥ 1). Fixed id + INSERT OR IGNORE
+-- makes this idempotent across re-runs.
+INSERT OR IGNORE INTO authorizations (
+  id, op_type, target, agent_id, mode, created_at, sig_version
+) VALUES (
+  'migration-033-cutover-marker',
+  'migration.signing-enabled',
+  'authorizations',
+  'system:migration-033',
+  'auto',
+  CAST(strftime('%s','now') AS INTEGER),
+  1
+);
+
+-- v34 authz_tokens (v2 token protocol — sylveste-qdqr.28)
+-- See docs/canon/authz-token-model.md for semantics.
+-- See docs/canon/authz-token-payload.md for sig_version=2 canonical payload.
+CREATE TABLE IF NOT EXISTS authz_tokens (
+  id            TEXT PRIMARY KEY,
+  op_type       TEXT NOT NULL,
+  target        TEXT NOT NULL,
+  agent_id      TEXT NOT NULL CHECK(length(trim(agent_id)) > 0),
+  bead_id       TEXT,
+  delegate_to   TEXT,
+  expires_at    INTEGER NOT NULL,
+  consumed_at   INTEGER,
+  revoked_at    INTEGER,
+  issued_by     TEXT NOT NULL,
+  parent_token  TEXT REFERENCES authz_tokens(id) ON DELETE RESTRICT,
+  root_token    TEXT,
+  depth         INTEGER NOT NULL DEFAULT 0 CHECK (depth >= 0 AND depth <= 3),
+  sig_version   INTEGER NOT NULL DEFAULT 2,
+  signature     BLOB NOT NULL,
+  created_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS tokens_by_root    ON authz_tokens(root_token, consumed_at, revoked_at);
+CREATE INDEX IF NOT EXISTS tokens_by_parent  ON authz_tokens(parent_token);
+CREATE INDEX IF NOT EXISTS tokens_by_expiry  ON authz_tokens(expires_at) WHERE consumed_at IS NULL AND revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS tokens_by_agent   ON authz_tokens(agent_id, created_at DESC);
+
+-- v34 cutover marker — fixed id + INSERT OR IGNORE, idempotent across re-runs.
+-- Lives in `authorizations` (v1.5-shaped), not `authz_tokens`, so the boundary
+-- is auditable via `policy audit` without joining across tables.
+INSERT OR IGNORE INTO authorizations (
+  id, op_type, target, agent_id, mode, created_at, sig_version
+) VALUES (
+  'migration-034-tokens-enabled',
+  'migration.tokens-enabled',
+  'authz_tokens',
+  'system:migration-034',
+  'auto',
+  CAST(strftime('%s','now') AS INTEGER),
+  1
+);
+
+-- v35 — action_receipts: signed HMAC-SHA256 receipt store.
+-- See docs/canon/signed-receipts-v1.md.
+CREATE TABLE IF NOT EXISTS action_receipts (
+    receipt_id        TEXT PRIMARY KEY,
+    timestamp         TEXT NOT NULL,
+    agent_id          TEXT NOT NULL,
+    model             TEXT NOT NULL,
+    tool_calls_json   TEXT NOT NULL,
+    parent_run_id     TEXT,
+    content_hash      TEXT NOT NULL,
+    schema_version    INTEGER NOT NULL,
+    signature         TEXT NOT NULL,
+    signature_alg     TEXT NOT NULL,
+    key_id            TEXT NOT NULL,
+    signed_at         TEXT NOT NULL,
+    payload_canonical BLOB NOT NULL,
+    inserted_at       INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS receipts_by_agent_time ON action_receipts(agent_id, timestamp);
+CREATE INDEX IF NOT EXISTS receipts_by_parent ON action_receipts(parent_run_id) WHERE parent_run_id IS NOT NULL;
+
+-- INSERT-only: triggers RAISE on UPDATE/DELETE per canon §Trust claim
+-- "Receipt-row deletion is forbidden by schema."
+CREATE TRIGGER IF NOT EXISTS action_receipts_no_delete
+BEFORE DELETE ON action_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+END;
+
+CREATE TRIGGER IF NOT EXISTS action_receipts_no_update
+BEFORE UPDATE ON action_receipts
+BEGIN
+    SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+END;
+
+-- v35 cutover marker — fixed id + INSERT OR IGNORE, idempotent.
+INSERT OR IGNORE INTO authorizations (
+    id, op_type, target, agent_id, mode, created_at, sig_version
+) VALUES (
+    'migration-035-receipts-enabled',
+    'migration.receipts-enabled',
+    'action_receipts',
+    'system:migration-035',
+    'auto',
+    CAST(strftime('%s','now') AS INTEGER),
+    1
+);

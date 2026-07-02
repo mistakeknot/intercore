@@ -91,6 +91,32 @@ func TestStoreUpdate(t *testing.T) {
 	}
 }
 
+func TestPublishStateIsStale(t *testing.T) {
+	const now int64 = 1_000_000_000
+	tests := []struct {
+		name string
+		st   PublishState
+		want bool
+	}{
+		// A recorded error means the attempt failed — stale regardless of age.
+		{"failed-recent", PublishState{Error: "git worktree has uncommitted changes", UpdatedAt: now - 5}, true},
+		{"failed-old", PublishState{Error: "boom", UpdatedAt: now - 100_000}, true},
+		// Clean (no error) records are live until they age past the threshold.
+		{"clean-recent", PublishState{Error: "", UpdatedAt: now - 30}, false},
+		{"clean-just-under-threshold", PublishState{Error: "", UpdatedAt: now - (staleThresholdSecs - 1)}, false},
+		{"clean-at-threshold", PublishState{Error: "", UpdatedAt: now - staleThresholdSecs}, false}, // strictly greater-than
+		{"clean-just-over-threshold", PublishState{Error: "", UpdatedAt: now - (staleThresholdSecs + 1)}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.st.IsStale(now); got != tt.want {
+				t.Errorf("IsStale(%d) = %v, want %v (UpdatedAt=%d, Error=%q)",
+					now, got, tt.want, tt.st.UpdatedAt, tt.st.Error)
+			}
+		})
+	}
+}
+
 func TestStoreGetActive(t *testing.T) {
 	db := setupTestDB(t)
 	store := NewStore(db)
@@ -176,6 +202,70 @@ func TestStoreDelete(t *testing.T) {
 	_, err := store.Get(ctx, st.ID)
 	if err != ErrNoActivePublish {
 		t.Errorf("expected ErrNoActivePublish after delete, got %v", err)
+	}
+}
+
+func TestStoreClearLocksScopedAndAll(t *testing.T) {
+	db := setupTestDB(t)
+	store := NewStore(db)
+	ctx := context.Background()
+
+	// Two active locks for different plugins plus one already-done row.
+	store.Create(ctx, &PublishState{
+		PluginName: "interflux", FromVersion: "0.1.0", ToVersion: "0.2.0",
+		Phase: PhaseValidation, PluginRoot: "/tmp", MarketRoot: "/tmp",
+	})
+	store.Create(ctx, &PublishState{
+		PluginName: "clavain", FromVersion: "1.0.0", ToVersion: "1.1.0",
+		Phase: PhaseValidation, PluginRoot: "/tmp", MarketRoot: "/tmp",
+	})
+	doneSt := &PublishState{
+		PluginName: "interflux", FromVersion: "0.0.9", ToVersion: "0.1.0",
+		Phase: PhaseDiscovery, PluginRoot: "/tmp", MarketRoot: "/tmp",
+	}
+	store.Create(ctx, doneSt)
+	store.Complete(ctx, doneSt.ID)
+
+	// ListActive must report only the two incomplete rows.
+	active, err := store.ListActive(ctx)
+	if err != nil {
+		t.Fatalf("list active: %v", err)
+	}
+	if len(active) != 2 {
+		t.Fatalf("ListActive = %d rows, want 2", len(active))
+	}
+
+	// Scoped clear removes only the named plugin's lock.
+	n, err := store.ClearLocks(ctx, "interflux")
+	if err != nil {
+		t.Fatalf("clear locks (interflux): %v", err)
+	}
+	if n != 1 {
+		t.Errorf("ClearLocks(interflux) = %d, want 1", n)
+	}
+	if a, _ := store.GetActive(ctx, "interflux"); a != nil {
+		t.Error("interflux lock should be cleared")
+	}
+	if a, _ := store.GetActive(ctx, "clavain"); a == nil {
+		t.Error("clavain lock should survive scoped clear")
+	}
+
+	// Global clear sweeps the rest.
+	n, err = store.ClearLocks(ctx, "")
+	if err != nil {
+		t.Fatalf("clear locks (all): %v", err)
+	}
+	if n != 1 {
+		t.Errorf("ClearLocks(all) = %d, want 1", n)
+	}
+	active, _ = store.ListActive(ctx)
+	if len(active) != 0 {
+		t.Errorf("ListActive after global clear = %d, want 0", len(active))
+	}
+
+	// The completed row must remain untouched by both clears.
+	if got, err := store.Get(ctx, doneSt.ID); err != nil || got.Phase != PhaseDone {
+		t.Errorf("completed row should survive ClearLocks (err=%v)", err)
 	}
 }
 

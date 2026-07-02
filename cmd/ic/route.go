@@ -7,8 +7,11 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/routing"
 )
 
@@ -24,7 +27,10 @@ Subcommands:
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
+  dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
   table   [--phase=<p>]                             Show full routing table
+  record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
+  list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
 `)
 		return 3
 	}
@@ -38,6 +44,10 @@ Subcommands:
 		return cmdRouteDispatch(ctx, args[1:])
 	case "table":
 		return cmdRouteTable(ctx, args[1:])
+	case "record":
+		return cmdRouteRecord(ctx, args[1:])
+	case "list":
+		return cmdRouteList(ctx, args[1:])
 	default:
 		slog.Error("route: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -103,17 +113,10 @@ func loadRoutingConfig() (*routing.Config, error) {
 }
 
 func cmdRouteModel(ctx context.Context, args []string) int {
-	var phase, category, agent string
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--phase="):
-			phase = strings.TrimPrefix(arg, "--phase=")
-		case strings.HasPrefix(arg, "--category="):
-			category = strings.TrimPrefix(arg, "--category=")
-		case strings.HasPrefix(arg, "--agent="):
-			agent = strings.TrimPrefix(arg, "--agent=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
+	category := f.String("category", "")
+	agent := f.String("agent", "")
 
 	cfg, err := loadRoutingConfig()
 	if err != nil {
@@ -145,15 +148,9 @@ func cmdRouteModel(ctx context.Context, args []string) int {
 }
 
 func cmdRouteBatch(ctx context.Context, args []string) int {
-	var phase string
-	var agents []string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--phase=") {
-			phase = strings.TrimPrefix(arg, "--phase=")
-		} else if !strings.HasPrefix(arg, "--") {
-			agents = append(agents, arg)
-		}
-	}
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
+	agents := f.Positionals
 
 	if len(agents) == 0 {
 		fmt.Fprintf(os.Stderr, "ic route batch: provide agent names as positional args\n")
@@ -182,17 +179,49 @@ func cmdRouteBatch(ctx context.Context, args []string) int {
 }
 
 func cmdRouteDispatch(ctx context.Context, args []string) int {
-	var tier string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--tier=") {
-			tier = strings.TrimPrefix(arg, "--tier=")
-		} else if !strings.HasPrefix(arg, "--") && tier == "" {
-			tier = arg
-		}
+	f := cli.ParseFlags(args)
+	tier := f.String("tier", "")
+	subagentType := f.String("type", "")
+	currentPhase := f.String("phase", "")
+	if tier == "" && subagentType == "" && len(f.Positionals) > 0 {
+		tier = f.Positionals[0]
 	}
 
+	// When --type is provided, resolve subagent type to model via dispatch tiers
+	if subagentType != "" {
+		cfg, err := loadRoutingConfig()
+		if err != nil {
+			slog.Error("route dispatch", "error", err)
+			return 2
+		}
+		r := routing.NewResolver(cfg)
+
+		// Try type:phase first, then type alone
+		var model string
+		if currentPhase != "" {
+			model = r.ResolveDispatchTier(subagentType + ":" + currentPhase)
+		}
+		if model == "" {
+			model = r.ResolveDispatchTier(subagentType)
+		}
+
+		if flagJSON {
+			out := map[string]string{"type": subagentType, "phase": currentPhase, "model": model}
+			enc := json.NewEncoder(os.Stdout)
+			enc.Encode(out)
+		} else {
+			if model == "" {
+				fmt.Fprintf(os.Stderr, "type %q: no dispatch tier found\n", subagentType)
+				return 1
+			}
+			fmt.Println(model)
+		}
+		return 0
+	}
+
+	// Original --tier path (backward compat)
 	if tier == "" {
-		fmt.Fprintf(os.Stderr, "ic route dispatch: provide --tier=<name> or tier name as arg\n")
+		fmt.Fprintf(os.Stderr, "ic route dispatch: requires --tier=<name> or --type=<name>\n")
 		return 3
 	}
 
@@ -222,12 +251,8 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 }
 
 func cmdRouteTable(ctx context.Context, args []string) int {
-	var phase string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--phase=") {
-			phase = strings.TrimPrefix(arg, "--phase=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	phase := f.String("phase", "")
 
 	cfg, err := loadRoutingConfig()
 	if err != nil {
@@ -315,4 +340,131 @@ func printRouteTable(r *routing.Resolver, cfg *routing.Config, phase string) {
 		}
 		fmt.Printf("%-40s %-12s %-8s %s\n", e.Agent, e.Category, e.Model, floor)
 	}
+}
+
+func cmdRouteRecord(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	var opts routing.RecordDecisionOpts
+	opts.DispatchID = f.String("dispatch", "")
+	opts.RunID = f.String("run", "")
+	opts.SessionID = f.String("session", "")
+	opts.BeadID = f.String("bead", "")
+	opts.ProjectDir = f.String("project", "")
+	opts.Phase = f.String("phase", "")
+	opts.Agent = f.String("agent", "")
+	opts.Category = f.String("category", "")
+	opts.SelectedModel = f.String("model", "")
+	opts.RuleMatched = f.String("rule", "")
+	opts.FloorApplied = f.Bool("floor-applied")
+	opts.FloorFrom = f.String("floor-from", "")
+	opts.FloorTo = f.String("floor-to", "")
+	opts.Candidates = f.String("candidates", "")
+	opts.Excluded = f.String("excluded", "")
+	opts.PolicyHash = f.String("policy-hash", "")
+	opts.OverrideID = f.String("override-id", "")
+	opts.ContextJSON = f.String("context", "")
+
+	if complexity := f.String("complexity", ""); complexity != "" {
+		if v, err := strconv.Atoi(complexity); err == nil {
+			opts.Complexity = v
+		}
+	}
+
+	if opts.Agent == "" || opts.SelectedModel == "" || opts.RuleMatched == "" {
+		slog.Error("route record: --agent, --model, and --rule are required")
+		return 3
+	}
+	if opts.ProjectDir == "" {
+		if wd, err := os.Getwd(); err == nil {
+			opts.ProjectDir = wd
+		}
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route record failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := routing.NewDecisionStore(d.SqlDB())
+	id, err := store.Record(ctx, opts)
+	if err != nil {
+		slog.Error("route record failed", "error", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"id":    id,
+			"agent": opts.Agent,
+			"model": opts.SelectedModel,
+			"rule":  opts.RuleMatched,
+		})
+	} else {
+		fmt.Printf("Routing decision recorded: id=%d agent=%s model=%s rule=%s\n",
+			id, opts.Agent, opts.SelectedModel, opts.RuleMatched)
+	}
+	return 0
+}
+
+func cmdRouteList(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	var opts routing.ListDecisionOpts
+	opts.ProjectDir = f.String("project", "")
+	opts.Agent = f.String("agent", "")
+	opts.Model = f.String("model", "")
+	opts.DispatchID = f.String("dispatch", "")
+
+	if f.Has("since") {
+		v, err := f.Int64("since", 0)
+		if err == nil {
+			opts.Since = v
+		}
+	}
+	if f.Has("until") {
+		v, err := f.Int64("until", 0)
+		if err == nil {
+			opts.Until = v
+		}
+	}
+	if f.Has("limit") {
+		v, err := f.Int("limit", 0)
+		if err == nil {
+			opts.Limit = v
+		}
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route list failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	store := routing.NewDecisionStore(d.SqlDB())
+	decisions, err := store.List(ctx, opts)
+	if err != nil {
+		slog.Error("route list failed", "error", err)
+		return 2
+	}
+
+	if flagJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(decisions)
+	} else {
+		if len(decisions) == 0 {
+			fmt.Println("No routing decisions found.")
+			return 0
+		}
+		fmt.Printf("%-6s %-35s %-8s %-18s %s\n", "ID", "AGENT", "MODEL", "RULE", "DECIDED")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, dec := range decisions {
+			fmt.Printf("%-6d %-35s %-8s %-18s %s\n",
+				dec.ID, dec.Agent, dec.SelectedModel, dec.RuleMatched,
+				time.Unix(dec.DecidedAt, 0).Format("2006-01-02 15:04"))
+		}
+	}
+	return 0
 }

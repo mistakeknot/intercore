@@ -9,27 +9,26 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
 // SpawnOptions configures a dispatch spawn.
 type SpawnOptions struct {
-	AgentType        string // "codex" (default)
-	ProjectDir       string // required: working directory for the agent
-	PromptFile       string // required: path to prompt file
-	OutputFile       string // optional: path for agent output
-	Name             string // optional: human label
-	Model            string // optional: codex model
-	Sandbox          string // optional: sandbox mode (default: "workspace-write")
-	SandboxSpec      string // optional: JSON sandbox specification
-	TimeoutSec       int    // optional: agent timeout in seconds
-	ScopeID          string // optional: grouping scope
-	ParentID         string // optional: parent dispatch ID
-	DispatchSH       string // optional: explicit path to dispatch.sh
-	ParentDispatchID string // optional: parent dispatch for spawn depth tracking
-	Policy           *SpawnPolicy   // optional: spawn policy to enforce
-	BudgetQuerier    BudgetQuerier  // optional: budget checker (required if Policy.BudgetEnforce)
+	AgentType        string        // "codex" (default)
+	ProjectDir       string        // required: working directory for the agent
+	PromptFile       string        // required: path to prompt file
+	OutputFile       string        // optional: path for agent output
+	Name             string        // optional: human label
+	Model            string        // optional: codex model
+	Sandbox          string        // optional: sandbox mode (default: "workspace-write")
+	SandboxSpec      string        // optional: JSON sandbox specification
+	TimeoutSec       int           // optional: agent timeout in seconds
+	ScopeID          string        // optional: grouping scope
+	ParentID         string        // optional: parent dispatch ID
+	DispatchSH       string        // optional: explicit path to dispatch.sh
+	ParentDispatchID string        // optional: parent dispatch for spawn depth tracking
+	Policy           *SpawnPolicy  // optional: spawn policy to enforce
+	BudgetQuerier    BudgetQuerier // optional: budget checker (required if Policy.BudgetEnforce)
 }
 
 // SpawnResult holds the result of a spawn operation.
@@ -72,11 +71,11 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 
 	// Build the dispatch record
 	d := &Dispatch{
-		AgentType:  opts.AgentType,
-		ProjectDir: opts.ProjectDir,
-		PromptFile: &opts.PromptFile,
-		PromptHash: &promptHash,
-		OutputFile: &outputFile,
+		AgentType:   opts.AgentType,
+		ProjectDir:  opts.ProjectDir,
+		PromptFile:  &opts.PromptFile,
+		PromptHash:  &promptHash,
+		OutputFile:  &outputFile,
 		VerdictFile: &verdictFile,
 	}
 	if opts.Name != "" {
@@ -184,7 +183,7 @@ func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 	}
 
 	// New process group for clean signal propagation
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = platformSysProcAttr()
 
 	// Detach stdin, let stdout/stderr go to /dev/null
 	// (dispatch.sh handles its own output redirection)

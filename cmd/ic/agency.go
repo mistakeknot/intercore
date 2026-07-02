@@ -8,10 +8,10 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/mistakeknot/intercore/internal/action"
 	"github.com/mistakeknot/intercore/internal/agency"
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/phase"
 	"github.com/mistakeknot/intercore/internal/state"
 )
@@ -39,21 +39,12 @@ func cmdAgency(ctx context.Context, args []string) int {
 // cmdAgencyLoad loads one or all agency specs into the kernel for a run.
 // Usage: ic agency load <stage|all> --run=<id> [--spec-dir=<path>]
 func cmdAgencyLoad(ctx context.Context, args []string) int {
-	var runID, specDir, target string
-
-	var positional []string
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--run="):
-			runID = strings.TrimPrefix(arg, "--run=")
-		case strings.HasPrefix(arg, "--spec-dir="):
-			specDir = strings.TrimPrefix(arg, "--spec-dir=")
-		default:
-			positional = append(positional, arg)
-		}
-	}
-	if len(positional) > 0 {
-		target = positional[0]
+	f := cli.ParseFlags(args)
+	runID := f.String("run", "")
+	specDir := f.String("spec-dir", "")
+	target := ""
+	if len(f.Positionals) > 0 {
+		target = f.Positionals[0]
 	}
 
 	if runID == "" {
@@ -197,20 +188,10 @@ func cmdAgencyLoad(ctx context.Context, args []string) int {
 // cmdAgencyValidate validates one or all agency spec files.
 // Usage: ic agency validate <file> [--spec-dir=<path>] [--all]
 func cmdAgencyValidate(ctx context.Context, args []string) int {
-	var specDir string
-	var all bool
-	var files []string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--spec-dir="):
-			specDir = strings.TrimPrefix(arg, "--spec-dir=")
-		case arg == "--all":
-			all = true
-		default:
-			files = append(files, arg)
-		}
-	}
+	f := cli.ParseFlags(args)
+	specDir := f.String("spec-dir", "")
+	all := f.Bool("all")
+	files := append([]string{}, f.Positionals...)
 
 	if all {
 		if specDir == "" {
@@ -257,13 +238,11 @@ func cmdAgencyValidate(ctx context.Context, args []string) int {
 // cmdAgencyShow displays a parsed agency spec as JSON.
 // Usage: ic agency show <stage> --spec-dir=<path>
 func cmdAgencyShow(ctx context.Context, args []string) int {
-	var specDir, target string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--spec-dir=") {
-			specDir = strings.TrimPrefix(arg, "--spec-dir=")
-		} else {
-			target = arg
-		}
+	f := cli.ParseFlags(args)
+	specDir := f.String("spec-dir", "")
+	target := ""
+	if len(f.Positionals) > 0 {
+		target = f.Positionals[0]
 	}
 	if target == "" || specDir == "" {
 		fmt.Fprintf(os.Stderr, "ic: agency show: usage: ic agency show <stage> --spec-dir=<path>\n")

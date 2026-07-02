@@ -2,6 +2,7 @@ package event
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -57,6 +58,13 @@ func TestAddDispatchEvent(t *testing.T) {
 }
 
 func TestAddDispatchEvent_DefaultEnvelope(t *testing.T) {
+	// Isolate from ambient OTel trace propagation: the default envelope
+	// prefers IC_TRACE_ID over runID, so a propagated trace context in the
+	// runner's environment would override the runID fallback this test asserts.
+	t.Setenv("IC_TRACE_ID", "")
+	t.Setenv("IC_SPAN_ID", "")
+	t.Setenv("IC_PARENT_SPAN_ID", "")
+
 	store, d := setupTestStore(t)
 	ctx := context.Background()
 
@@ -137,6 +145,13 @@ func TestListEvents_MergesPhaseAndDispatch(t *testing.T) {
 }
 
 func TestListEvents_CausalReconstructionByTraceID(t *testing.T) {
+	// Isolate from ambient OTel trace propagation: the default envelope
+	// prefers IC_TRACE_ID over runID, so a propagated trace context in the
+	// runner's environment would override the runID fallback this test asserts.
+	t.Setenv("IC_TRACE_ID", "")
+	t.Setenv("IC_SPAN_ID", "")
+	t.Setenv("IC_PARENT_SPAN_ID", "")
+
 	store, d := setupTestStore(t)
 	ctx := context.Background()
 
@@ -290,7 +305,7 @@ func TestListAllEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +373,7 @@ func TestListAllEvents_IncludesDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -587,7 +602,7 @@ func TestAddReviewEvent(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	id, err := store.AddReviewEvent(ctx, "run001", "AR-001", `{"fd-architecture":"P1","fd-quality":"P2"}`, "discarded", "agent_wrong", "P2", "decision_changed", "sess-abc", "/tmp/project")
+	id, err := store.AddReviewEvent(ctx, "run001", "AR-001", `{"fd-architecture":"P1","fd-quality":"P2"}`, "discarded", "agent_wrong", "P2", "decision_changed", "", "sess-abc", "/tmp/project")
 	if err != nil {
 		t.Fatalf("AddReviewEvent: %v", err)
 	}
@@ -622,13 +637,45 @@ func TestAddReviewEvent(t *testing.T) {
 	if e.Impact != "decision_changed" {
 		t.Errorf("Impact = %q, want %q", e.Impact, "decision_changed")
 	}
+	if e.EventType != "disagreement_resolved" {
+		t.Errorf("EventType = %q, want %q", e.EventType, "disagreement_resolved")
+	}
+}
+
+func TestAddReviewEvent_ExecutionDefect(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	id, err := store.AddReviewEvent(ctx, "run002", "BUG-001", `{"reporter":"agent-a","target":"agent-b"}`, "reported", "", "P1", "execution_defect", "execution_defect", "sess-xyz", "/tmp/project")
+	if err != nil {
+		t.Fatalf("AddReviewEvent: %v", err)
+	}
+	if id < 1 {
+		t.Errorf("expected id >= 1, got %d", id)
+	}
+
+	events, err := store.ListReviewEvents(ctx, 0, 100)
+	if err != nil {
+		t.Fatalf("ListReviewEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.EventType != "execution_defect" {
+		t.Errorf("EventType = %q, want %q", e.EventType, "execution_defect")
+	}
+	if e.FindingID != "BUG-001" {
+		t.Errorf("FindingID = %q, want %q", e.FindingID, "BUG-001")
+	}
 }
 
 func TestAddReviewEvent_OptionalFields(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	id, err := store.AddReviewEvent(ctx, "", "AR-002", `{"fd-safety":"P0"}`, "accepted", "", "P0", "severity_overridden", "", "")
+	id, err := store.AddReviewEvent(ctx, "", "AR-002", `{"fd-safety":"P0"}`, "accepted", "", "P0", "severity_overridden", "", "", "")
 	if err != nil {
 		t.Fatalf("AddReviewEvent: %v", err)
 	}
@@ -655,9 +702,9 @@ func TestListReviewEvents_SinceCursor(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "")
-	store.AddReviewEvent(ctx, "", "F-2", `{}`, "discarded", "agent_wrong", "P2", "decision_changed", "", "")
-	store.AddReviewEvent(ctx, "", "F-3", `{}`, "accepted", "", "P0", "severity_overridden", "", "")
+	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "", "")
+	store.AddReviewEvent(ctx, "", "F-2", `{}`, "discarded", "agent_wrong", "P2", "decision_changed", "", "", "")
+	store.AddReviewEvent(ctx, "", "F-3", `{}`, "accepted", "", "P0", "severity_overridden", "", "", "")
 
 	all, err := store.ListReviewEvents(ctx, 0, 100)
 	if err != nil {
@@ -680,7 +727,7 @@ func TestMaxReviewEventID(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
 
-	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "")
+	store.AddReviewEvent(ctx, "", "F-1", `{}`, "accepted", "", "P1", "decision_changed", "", "", "")
 
 	maxID, err := store.MaxReviewEventID(ctx)
 	if err != nil {
@@ -688,5 +735,161 @@ func TestMaxReviewEventID(t *testing.T) {
 	}
 	if maxID < 1 {
 		t.Errorf("expected maxID >= 1, got %d", maxID)
+	}
+}
+
+func TestListEvents_PerSourceRepresentation(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	insertTestRun(t, d, "run-nucleation")
+
+	// Insert 100 coordination events (high volume)
+	for i := 0; i < 100; i++ {
+		err := store.AddCoordinationEvent(ctx, "lock_acquired", fmt.Sprintf("lock-%d", i),
+			"agent-a", "*.go", "project", "", "run-nucleation", nil)
+		if err != nil {
+			t.Fatalf("AddCoordinationEvent %d: %v", i, err)
+		}
+	}
+
+	// Insert 5 phase events (low volume)
+	for i := 0; i < 5; i++ {
+		_, err := d.SqlDB().ExecContext(ctx, `
+			INSERT INTO phase_events (run_id, from_phase, to_phase, event_type)
+			VALUES (?, ?, ?, ?)`, "run-nucleation", "brainstorm", "planned", "advance")
+		if err != nil {
+			t.Fatalf("insert phase event %d: %v", i, err)
+		}
+	}
+
+	// List with limit=20 — both sources should be represented
+	events, err := store.ListEvents(ctx, "run-nucleation", 0, 0, 0, 0, 20)
+	if err != nil {
+		t.Fatalf("ListEvents: %v", err)
+	}
+
+	if len(events) == 0 {
+		t.Fatal("expected events, got none")
+	}
+
+	sources := map[string]int{}
+	for _, e := range events {
+		sources[e.Source]++
+	}
+
+	if sources["phase"] == 0 {
+		t.Errorf("phase events crowded out: got %d phase, %d coordination", sources["phase"], sources["coordination"])
+	}
+	if sources["coordination"] == 0 {
+		t.Error("expected coordination events")
+	}
+
+	// Phase should have exactly 5 (perSourceLimit(20,4)=5, and we inserted 5)
+	if sources["phase"] != 5 {
+		t.Errorf("phase events = %d, want 5", sources["phase"])
+	}
+
+	// Coordination capped at perSource=5 (out of 100 available)
+	if sources["coordination"] > 5 {
+		t.Errorf("coordination events %d exceeds per-source limit of 5", sources["coordination"])
+	}
+
+	t.Logf("sources: %v (total: %d)", sources, len(events))
+}
+
+func TestListEvents_EdgeCases(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	insertTestRun(t, d, "run-edge")
+
+	// Insert 2 phase events only
+	for i := 0; i < 2; i++ {
+		_, err := d.SqlDB().ExecContext(ctx, `
+			INSERT INTO phase_events (run_id, from_phase, to_phase, event_type)
+			VALUES (?, ?, ?, ?)`, "run-edge", "brainstorm", "planned", "advance")
+		if err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	// limit=1: perSourceLimit(1,4)=1, outer limit=1
+	events, err := store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 1)
+	if err != nil {
+		t.Fatalf("ListEvents limit=1: %v", err)
+	}
+	if len(events) != 1 {
+		t.Errorf("limit=1: got %d events, want 1", len(events))
+	}
+
+	// limit > total: should return all 2
+	events, err = store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 200)
+	if err != nil {
+		t.Fatalf("ListEvents limit=200: %v", err)
+	}
+	if len(events) != 2 {
+		t.Errorf("limit=200: got %d events, want 2", len(events))
+	}
+}
+
+func TestEvent_Validate(t *testing.T) {
+	tests := []struct {
+		source  string
+		wantErr bool
+	}{
+		{SourcePhase, false},
+		{SourceDispatch, false},
+		{SourceInterspect, false},
+		{SourceDiscovery, false},
+		{SourceCoordination, false},
+		{SourceReview, false},
+		{SourceIntent, false},
+		{"unknown", true},
+		{"", true},
+	}
+	for _, tt := range tests {
+		e := Event{Source: tt.source}
+		err := e.Validate()
+		if (err != nil) != tt.wantErr {
+			t.Errorf("Validate(%q) error = %v, wantErr %v", tt.source, err, tt.wantErr)
+		}
+	}
+}
+
+func TestValidSources_CountMatchesConstants(t *testing.T) {
+	// Guard against adding a Source* constant without updating validSources.
+	// If this fails, add the new constant to validSources in event.go.
+	const expectedSources = 7
+	valid := 0
+	for _, src := range []string{
+		SourcePhase, SourceDispatch, SourceInterspect,
+		SourceDiscovery, SourceCoordination, SourceReview, SourceIntent,
+	} {
+		e := Event{Source: src}
+		if err := e.Validate(); err == nil {
+			valid++
+		}
+	}
+	if valid != expectedSources {
+		t.Errorf("validSources has %d entries, expected %d — update validSources when adding Source* constants", valid, expectedSources)
+	}
+}
+
+func TestPerSourceLimit(t *testing.T) {
+	tests := []struct {
+		total, sources, want int
+	}{
+		{20, 4, 5},
+		{20, 5, 4},
+		{3, 5, 1},
+		{1, 4, 1},
+		{100, 1, 100},
+		{0, 4, 0},
+		{10, 0, 10},
+	}
+	for _, tt := range tests {
+		got := perSourceLimit(tt.total, tt.sources)
+		if got != tt.want {
+			t.Errorf("perSourceLimit(%d, %d) = %d, want %d", tt.total, tt.sources, got, tt.want)
+		}
 	}
 }

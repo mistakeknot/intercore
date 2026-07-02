@@ -12,13 +12,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/db"
 	"github.com/mistakeknot/intercore/internal/observability"
 	"github.com/mistakeknot/intercore/internal/sentinel"
 	"github.com/mistakeknot/intercore/internal/state"
 )
 
-const version = "0.3.1"
+const version = "0.3.2"
 
 var (
 	flagDB      string
@@ -134,8 +135,14 @@ func main() {
 		exitCode = cmdCoordination(ctx, subArgs)
 	case "publish":
 		exitCode = cmdPublish(ctx, subArgs)
+	case "landed":
+		exitCode = cmdLanded(ctx, subArgs)
+	case "session":
+		exitCode = cmdSession(ctx, subArgs)
 	case "situation":
 		exitCode = cmdSituation(ctx, subArgs)
+	case "receipt":
+		exitCode = cmdReceipt(ctx, subArgs)
 	default:
 		slog.Error("unknown command", "command", subcommand)
 		printUsage()
@@ -196,6 +203,7 @@ Commands:
   run artifact list <run> [--phase=<p>]  List artifacts for run
   events tail <run_id|--all> [--follow] [--consumer=<name>]
   events tail ... [--since-phase=N] [--since-dispatch=N] [--limit=N]
+  events record --source=<s> --type=<t> --payload=<json> [opts]  Record event
   events cursor list             List named cursors
   events cursor reset <name>     Reset a named cursor
   gate check <run_id> [--priority=N]   Dry-run gate evaluation (0=pass, 1=fail)
@@ -231,6 +239,8 @@ Commands:
   route batch --phase=<p> <agents...>  Resolve models for multiple agents
   route dispatch --tier=<name>  Resolve dispatch tier to model
   route table [--phase=<p>]     Show full routing table
+  route record --agent=<a> --model=<m> --rule=<r>  Record a routing decision
+  route list [--agent=<a>] [--model=<m>]  List routing decisions
   cost reconcile <run> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
   cost list <run> [--limit=N]   List past reconciliations
   publish <ver>                  Publish plugin (bump + push + sync)
@@ -239,7 +249,17 @@ Commands:
   publish clean                  Prune orphaned cache dirs
   publish status [--all]         Show publish health
   publish init                   Register new plugin in marketplace
+  session start --session=<id> --project=<dir> [opts]  Register a session
+  session attribute --session=<id> [--bead=<id>] [opts]  Record attribution
+  session end --session=<id>    End a session
+  session current --session=<id> [--project=<dir>]  Show latest attribution
+  session list [--project=<dir>] [--active-only]    List sessions
+  session tokens --session=<id> --input=N --output=N [opts]  Add token counts
   situation snapshot [opts]      Unified observation layer (OODAR)
+  receipt emit --agent=<id> --model=<m> --content=<s>  Sign + store an action receipt (prints receipt_id)
+  receipt verify <receipt_id>   Verify a signed action receipt (exit 0=valid,1=not-found,2=bad-sig,3=bad-schema,4=unknown-key)
+  receipt verify --since=<dur>  Bulk-verify recent receipts; JSONL summary
+  receipt keygen --agent=<id>   Provision/rotate an agent signing key
   compat status                 Show migration status
   compat check <key>            Check if key has data in DB
 
@@ -409,32 +429,14 @@ func cmdSentinel(ctx context.Context, args []string) int {
 }
 
 func cmdSentinelCheck(ctx context.Context, args []string) int {
-	// Parse mixed positional + flag args: <name> <scope_id> --interval=<sec>
-	intervalSec := -1
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--interval=") {
-			val := strings.TrimPrefix(args[i], "--interval=")
-			var err error
-			intervalSec, err = strconv.Atoi(val)
-			if err != nil {
-				slog.Error("sentinel check: invalid interval", "value", val)
-				return 3
-			}
-		} else if args[i] == "--interval" && i+1 < len(args) {
-			i++
-			var err error
-			intervalSec, err = strconv.Atoi(args[i])
-			if err != nil {
-				slog.Error("sentinel check: invalid interval", "value", args[i])
-				return 3
-			}
-		} else {
-			positional = append(positional, args[i])
-		}
+	f := cli.ParseFlags(args)
+	intervalSec, err := f.Int("interval", -1)
+	if err != nil {
+		slog.Error("sentinel check: invalid interval", "value", f.String("interval", ""))
+		return 3
 	}
 
-	if len(positional) < 2 || intervalSec < 0 {
+	if len(f.Positionals) < 2 || intervalSec < 0 {
 		fmt.Fprintf(os.Stderr, "ic: sentinel check: usage: ic sentinel check <name> <scope_id> --interval=<seconds>\n")
 		return 3
 	}
@@ -447,7 +449,7 @@ func cmdSentinelCheck(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := sentinel.New(d.SqlDB(), nil)
-	allowed, err := store.Check(ctx, positional[0], positional[1], intervalSec)
+	allowed, err := store.Check(ctx, f.Positionals[0], f.Positionals[1], intervalSec)
 	if err != nil {
 		slog.Error("sentinel check failed", "error", err)
 		return 2
@@ -506,15 +508,8 @@ func cmdSentinelList(ctx context.Context) int {
 }
 
 func cmdSentinelPrune(ctx context.Context, args []string) int {
-	var olderThan string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--older-than=") {
-			olderThan = strings.TrimPrefix(args[i], "--older-than=")
-		} else if args[i] == "--older-than" && i+1 < len(args) {
-			i++
-			olderThan = args[i]
-		}
-	}
+	f := cli.ParseFlags(args)
+	olderThan := f.String("older-than", "")
 	if olderThan == "" {
 		fmt.Fprintf(os.Stderr, "ic: sentinel prune: usage: ic sentinel prune --older-than=<duration>\n")
 		return 3
@@ -568,27 +563,16 @@ func cmdState(ctx context.Context, args []string) int {
 }
 
 func cmdStateSet(ctx context.Context, args []string) int {
-	// Parse mixed positional + flag args: <key> <scope_id> [--ttl=<dur>] [@filepath]
-	var ttlStr string
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--ttl=") {
-			ttlStr = strings.TrimPrefix(args[i], "--ttl=")
-		} else if args[i] == "--ttl" && i+1 < len(args) {
-			i++
-			ttlStr = args[i]
-		} else {
-			positional = append(positional, args[i])
-		}
-	}
+	f := cli.ParseFlags(args)
+	ttlStr := f.String("ttl", "")
 
-	if len(positional) < 2 {
+	if len(f.Positionals) < 2 {
 		fmt.Fprintf(os.Stderr, "ic: state set: usage: ic state set <key> <scope_id> [--ttl=<duration>] [@filepath]\n")
 		return 3
 	}
 
-	key := positional[0]
-	scopeID := positional[1]
+	key := f.Positionals[0]
+	scopeID := f.Positionals[1]
 
 	if err := state.ValidateKey(key); err != nil {
 		slog.Error("state set failed", "error", err)
@@ -608,8 +592,8 @@ func cmdStateSet(ctx context.Context, args []string) int {
 	// Read payload from file or stdin
 	var payload []byte
 	var err error
-	if len(positional) >= 3 && strings.HasPrefix(positional[2], "@") {
-		filePath := positional[2][1:]
+	if len(f.Positionals) >= 3 && strings.HasPrefix(f.Positionals[2], "@") {
+		filePath := f.Positionals[2][1:]
 		// Validate file path is under CWD (same as --db validation)
 		absFile, err := filepath.Abs(filePath)
 		if err != nil {
