@@ -39,8 +39,9 @@ func ReadPlugin(root string) (*Plugin, error) {
 	}
 
 	var raw struct {
-		Name    string `json:"name"`
-		Version string `json:"version"`
+		Name        string `json:"name"`
+		Version     string `json:"version"`
+		Description string `json:"description"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, fmt.Errorf("parse plugin.json: %w", err)
@@ -54,10 +55,11 @@ func ReadPlugin(root string) (*Plugin, error) {
 	}
 
 	return &Plugin{
-		Name:       raw.Name,
-		Version:    raw.Version,
-		Root:       root,
-		PluginJSON: pluginJSON,
+		Name:        raw.Name,
+		Version:     raw.Version,
+		Root:        root,
+		PluginJSON:  pluginJSON,
+		description: raw.Description,
 	}, nil
 }
 

@@ -34,9 +34,23 @@ const (
 	IntentStatusFailed    = "failed"
 )
 
+// CompletedIntent holds the fields available when a merge intent completes.
+// Passed to the OnComplete callback so consumers can record outcomes
+// without coupling to IntentStore internals.
+type CompletedIntent struct {
+	IntentID     int64
+	DispatchID   string
+	RunID        string // may be empty
+	ResultCommit string
+}
+
 // IntentStore provides merge intent operations.
 type IntentStore struct {
 	db *sql.DB
+	// OnComplete is called after a merge intent is successfully completed.
+	// Used to auto-record landed changes. Errors are logged but do not
+	// fail the intent completion.
+	OnComplete func(ctx context.Context, ci CompletedIntent)
 }
 
 // NewIntentStore creates an intent store.
@@ -82,6 +96,24 @@ func (s *IntentStore) CompleteIntent(ctx context.Context, intentID int64, result
 	if n == 0 {
 		return fmt.Errorf("complete intent: no pending intent with id %d", intentID)
 	}
+
+	if s.OnComplete != nil {
+		// Look up the full intent to get dispatch_id and run_id
+		intent, err := s.getIntentByID(ctx, intentID)
+		if err == nil && intent != nil {
+			runID := ""
+			if intent.RunID != nil {
+				runID = *intent.RunID
+			}
+			s.OnComplete(ctx, CompletedIntent{
+				IntentID:     intentID,
+				DispatchID:   intent.DispatchID,
+				RunID:        runID,
+				ResultCommit: resultCommit,
+			})
+		}
+	}
+
 	return nil
 }
 
@@ -142,6 +174,19 @@ func (s *IntentStore) GetByDispatch(ctx context.Context, dispatchID string) (*Me
 		ORDER BY created_at DESC
 		LIMIT 1`,
 		dispatchID,
+	)
+	return scanIntent(row)
+}
+
+// getIntentByID returns an intent by its primary key.
+func (s *IntentStore) getIntentByID(ctx context.Context, id int64) (*MergeIntent, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT id, dispatch_id, run_id, base_commit, patch_hash,
+			status, result_commit, conflict_files, error_message,
+			created_at, completed_at
+		FROM merge_intents
+		WHERE id = ?`,
+		id,
 	)
 	return scanIntent(row)
 }

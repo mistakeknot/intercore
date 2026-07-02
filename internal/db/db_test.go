@@ -69,12 +69,12 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d, want 24", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want 27", v)
 	}
 
 	// Verify tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events", "interspect_events", "merge_intents", "coordination_locks", "coordination_events", "run_replay_inputs"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events", "interspect_events", "merge_intents", "coordination_locks", "coordination_events", "run_replay_inputs", "landed_changes", "sessions", "session_attributions", "routing_decisions"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -138,8 +138,8 @@ func TestMigrate_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d after concurrent migrate, want 24", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d after concurrent migrate, want 26", v)
 	}
 }
 
@@ -238,8 +238,8 @@ func TestMigrate_V1ToV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 24", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d after v1→v7 migrate, want 26", v)
 	}
 
 	// Verify dispatches table exists
@@ -317,8 +317,8 @@ func TestMigrate_V2ToV3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 24", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d after v2→v7 migrate, want 26", v)
 	}
 
 	// Verify runs + phase_events + v4 tables exist
@@ -409,8 +409,8 @@ func TestMigrate_V3ToV4(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 24", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d after v3→v7 migrate, want 26", v)
 	}
 
 	// Verify new tables exist
@@ -571,8 +571,8 @@ func TestMigrate_V5ToV6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d, want 24", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want 27", v)
 	}
 
 	// Verify new columns on runs
@@ -636,8 +636,8 @@ func TestMigrate_V5ToV6_Idempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Errorf("SchemaVersion = %d, want 24", v)
+	if v != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want 27", v)
 	}
 }
 
@@ -682,8 +682,8 @@ func TestMigrate_V7ToV8_ArtifactStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Fatalf("expected schema version 24, got %d", v)
+	if v != currentSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", currentSchemaVersion, v)
 	}
 
 	// Verify status column exists on run_artifacts with default 'active'
@@ -740,8 +740,8 @@ func TestMigrate_V8ToV9_DiscoveryTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Fatalf("expected schema version 24, got %d", v)
+	if v != currentSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", currentSchemaVersion, v)
 	}
 
 	// Verify discoveries table exists and accepts inserts
@@ -792,8 +792,8 @@ func TestMigrate_V12ToV13_LaneTables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Fatalf("expected schema version 24, got %d", v)
+	if v != currentSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", currentSchemaVersion, v)
 	}
 
 	// Verify lanes table exists with correct columns
@@ -861,8 +861,8 @@ func TestMigrate_V16ToV17_CostReconciliations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Fatalf("expected schema version 24, got %d", v)
+	if v != currentSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", currentSchemaVersion, v)
 	}
 
 	// Verify cost_reconciliations table exists with correct columns
@@ -907,8 +907,8 @@ func TestMigrate_V17ToV18_SandboxSpec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Fatalf("expected schema version 24, got %d", v)
+	if v != currentSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", currentSchemaVersion, v)
 	}
 
 	// Verify sandbox_spec and sandbox_effective columns exist on dispatches
@@ -1047,8 +1047,8 @@ func TestMigrate_V20ToV22_EventEnvelopeAndReplayInputs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v != 24 {
-		t.Fatalf("expected schema version 24, got %d", v)
+	if v != currentSchemaVersion {
+		t.Fatalf("expected schema version %d, got %d", currentSchemaVersion, v)
 	}
 
 	for _, q := range []string{
@@ -1064,3 +1064,253 @@ func TestMigrate_V20ToV22_EventEnvelopeAndReplayInputs(t *testing.T) {
 		rows.Close()
 	}
 }
+
+func TestMigration032Authorizations(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("Run migrations: %v", err)
+	}
+
+	// Column count is asserted in TestMigration033AuthzSigning to the
+	// post-v33 shape (12 base + 3 signing). Here we only confirm the
+	// v32-era base columns still exist with the right CHECK behavior.
+	var baseCols int
+	err = d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations') WHERE name IN ('id','op_type','target','agent_id','bead_id','mode','policy_match','policy_hash','vetted_sha','vetting','cross_project_id','created_at')`).Scan(&baseCols)
+	if err != nil {
+		t.Fatalf("pragma_table_info(authorizations): %v", err)
+	}
+	if baseCols != 12 {
+		t.Fatalf("authorizations v32 base column count = %d, want 12", baseCols)
+	}
+
+	_, err = d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('x','bead-close','a','s','bogus',1)`)
+	if err == nil {
+		t.Fatalf("expected mode CHECK to reject bogus mode")
+	}
+
+	_, err = d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('y','bead-close','a','   ','auto',1)`)
+	if err == nil {
+		t.Fatalf("expected agent_id CHECK to reject whitespace")
+	}
+}
+
+// TestMigration033AuthzSigning verifies the v1.5 signing columns and the
+// cutover-marker row. See docs/canon/authz-signing-trust-model.md for why
+// the marker exists and what it bounds.
+func TestMigration033AuthzSigning(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("Run migrations: %v", err)
+	}
+
+	// Column shape: base 12 from migration 032 + 3 new = 15.
+	var count int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations')`).Scan(&count); err != nil {
+		t.Fatalf("pragma_table_info: %v", err)
+	}
+	if count != 15 {
+		t.Fatalf("authorizations column count = %d, want 15 (base 12 + sig_version, signature, signed_at)", count)
+	}
+
+	for _, col := range []string{"sig_version", "signature", "signed_at"} {
+		var present int
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authorizations') WHERE name=?`, col).Scan(&present); err != nil {
+			t.Fatalf("check column %q: %v", col, err)
+		}
+		if present != 1 {
+			t.Fatalf("column %q missing after migration 033", col)
+		}
+	}
+
+	// Partial index for unsigned rows.
+	var idxCount int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='authz_unsigned'`).Scan(&idxCount); err != nil {
+		t.Fatalf("check authz_unsigned index: %v", err)
+	}
+	if idxCount != 1 {
+		t.Fatalf("authz_unsigned partial index missing")
+	}
+
+	// Cutover marker row must exist exactly once with op_type='migration.signing-enabled'.
+	var markerRows int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.signing-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("count markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("cutover marker count = %d, want 1 (idempotent INSERT OR IGNORE)", markerRows)
+	}
+
+	// sig_version defaults to 0 on NEW insert (not via migration).
+	if _, err := d.db.Exec(`INSERT INTO authorizations (id,op_type,target,agent_id,mode,created_at) VALUES ('z','bead-close','a','test','auto',2)`); err != nil {
+		t.Fatalf("insert new row: %v", err)
+	}
+	var newSigVersion int
+	if err := d.db.QueryRow(`SELECT sig_version FROM authorizations WHERE id='z'`).Scan(&newSigVersion); err != nil {
+		t.Fatalf("read sig_version: %v", err)
+	}
+	if newSigVersion != 0 {
+		t.Fatalf("default sig_version for new row = %d, want 0", newSigVersion)
+	}
+
+	// Re-running migrations must be a no-op (marker remains exactly 1 row).
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("re-run migrations: %v", err)
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.signing-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("recount markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("cutover marker count after re-run = %d, want 1 (idempotency broken)", markerRows)
+	}
+}
+
+func TestMigration034AuthzTokens(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("Run migrations: %v", err)
+	}
+
+	// authz_tokens table exists with the expected 16 columns.
+	var colCount int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authz_tokens')`).Scan(&colCount); err != nil {
+		t.Fatalf("pragma_table_info authz_tokens: %v", err)
+	}
+	if colCount != 16 {
+		t.Fatalf("authz_tokens column count = %d, want 16", colCount)
+	}
+
+	expectedCols := []string{
+		"id", "op_type", "target", "agent_id", "bead_id", "delegate_to",
+		"expires_at", "consumed_at", "revoked_at", "issued_by",
+		"parent_token", "root_token", "depth", "sig_version",
+		"signature", "created_at",
+	}
+	for _, col := range expectedCols {
+		var present int
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('authz_tokens') WHERE name=?`, col).Scan(&present); err != nil {
+			t.Fatalf("check column %q: %v", col, err)
+		}
+		if present != 1 {
+			t.Fatalf("authz_tokens column %q missing after migration 034", col)
+		}
+	}
+
+	// All 4 indexes present.
+	for _, idx := range []string{"tokens_by_root", "tokens_by_parent", "tokens_by_expiry", "tokens_by_agent"} {
+		var n int
+		if err := d.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, idx).Scan(&n); err != nil {
+			t.Fatalf("check index %q: %v", idx, err)
+		}
+		if n != 1 {
+			t.Fatalf("expected index %q missing after migration 034", idx)
+		}
+	}
+
+	// Depth CHECK constraint rejects > 3.
+	// Insert a parent to satisfy FK on parent_token=NULL (null is allowed for roots).
+	_, err = d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, depth, signature, created_at)
+		VALUES ('TEST-ROOT', 'bead-close', 'x', 'agent', 9999999999, 'user', 4, X'00', 1)`)
+	if err == nil {
+		t.Fatalf("expected CHECK(depth <= 3) to reject depth=4, got nil error")
+	}
+
+	// Depth CHECK constraint rejects < 0.
+	_, err = d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, depth, signature, created_at)
+		VALUES ('TEST-ROOT', 'bead-close', 'x', 'agent', 9999999999, 'user', -1, X'00', 1)`)
+	if err == nil {
+		t.Fatalf("expected CHECK(depth >= 0) to reject depth=-1, got nil error")
+	}
+
+	// agent_id CHECK constraint rejects empty/whitespace.
+	_, err = d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, signature, created_at)
+		VALUES ('TEST-EMPTY', 'bead-close', 'x', '   ', 9999999999, 'user', X'00', 1)`)
+	if err == nil {
+		t.Fatalf("expected CHECK(length(trim(agent_id)) > 0) to reject whitespace, got nil error")
+	}
+
+	// sig_version defaults to 2 on new insert (v2 convention).
+	if _, err := d.db.Exec(`
+		INSERT INTO authz_tokens (id, op_type, target, agent_id, expires_at, issued_by, signature, created_at)
+		VALUES ('TEST-ROOT-OK', 'bead-close', 'x', 'agent', 9999999999, 'user', X'00', 1)`); err != nil {
+		t.Fatalf("insert root token: %v", err)
+	}
+	var newSigVersion int
+	if err := d.db.QueryRow(`SELECT sig_version FROM authz_tokens WHERE id='TEST-ROOT-OK'`).Scan(&newSigVersion); err != nil {
+		t.Fatalf("read sig_version: %v", err)
+	}
+	if newSigVersion != 2 {
+		t.Fatalf("default sig_version for new row = %d, want 2", newSigVersion)
+	}
+
+	// Cutover marker row exists exactly once in authorizations (not authz_tokens).
+	var markerRows int
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.tokens-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("count tokens markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("v34 cutover marker count = %d, want 1 (idempotent INSERT OR IGNORE)", markerRows)
+	}
+
+	// Marker has the fixed id 'migration-034-tokens-enabled'.
+	var markerID string
+	if err := d.db.QueryRow(`SELECT id FROM authorizations WHERE op_type=?`, "migration.tokens-enabled").Scan(&markerID); err != nil {
+		t.Fatalf("read marker id: %v", err)
+	}
+	if markerID != "migration-034-tokens-enabled" {
+		t.Fatalf("v34 marker id = %q, want %q", markerID, "migration-034-tokens-enabled")
+	}
+
+	// Re-running migrations must be a no-op (marker remains exactly 1 row).
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("re-run migrations: %v", err)
+	}
+	if err := d.db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE op_type=?`, "migration.tokens-enabled").Scan(&markerRows); err != nil {
+		t.Fatalf("recount tokens markers: %v", err)
+	}
+	if markerRows != 1 {
+		t.Fatalf("v34 cutover marker count after re-run = %d, want 1 (idempotency broken)", markerRows)
+	}
+
+	// Schema version is at least 34 after migration (later migrations may
+	// have bumped it further — this test verifies the v34 effects, not
+	// that v34 is the terminal schema).
+	version, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if version < 34 {
+		t.Fatalf("SchemaVersion = %d, want >= 34", version)
+	}
+}
+

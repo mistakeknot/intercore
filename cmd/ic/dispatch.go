@@ -8,10 +8,9 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/mistakeknot/intercore/internal/budget"
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/phase"
 	"github.com/mistakeknot/intercore/internal/scheduler"
@@ -50,49 +49,30 @@ func cmdDispatch(ctx context.Context, args []string) int {
 }
 
 func cmdDispatchSpawn(ctx context.Context, args []string) int {
-	opts := dispatch.SpawnOptions{}
-	var scheduled bool
-	var schedulerSession string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--scheduled":
-			scheduled = true
-		case strings.HasPrefix(args[i], "--scheduler-session="):
-			schedulerSession = strings.TrimPrefix(args[i], "--scheduler-session=")
-		case strings.HasPrefix(args[i], "--type="):
-			opts.AgentType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--prompt-file="):
-			opts.PromptFile = strings.TrimPrefix(args[i], "--prompt-file=")
-		case strings.HasPrefix(args[i], "--project="):
-			opts.ProjectDir = strings.TrimPrefix(args[i], "--project=")
-		case strings.HasPrefix(args[i], "--output="):
-			opts.OutputFile = strings.TrimPrefix(args[i], "--output=")
-		case strings.HasPrefix(args[i], "--name="):
-			opts.Name = strings.TrimPrefix(args[i], "--name=")
-		case strings.HasPrefix(args[i], "--model="):
-			opts.Model = strings.TrimPrefix(args[i], "--model=")
-		case strings.HasPrefix(args[i], "--sandbox="):
-			opts.Sandbox = strings.TrimPrefix(args[i], "--sandbox=")
-		case strings.HasPrefix(args[i], "--sandbox-spec="):
-			opts.SandboxSpec = strings.TrimPrefix(args[i], "--sandbox-spec=")
-		case strings.HasPrefix(args[i], "--timeout="):
-			val := strings.TrimPrefix(args[i], "--timeout=")
-			dur, err := time.ParseDuration(val)
-			if err != nil {
-				slog.Error("dispatch spawn: invalid timeout", "value", val)
-				return 3
-			}
-			opts.TimeoutSec = int(dur.Seconds())
-		case strings.HasPrefix(args[i], "--scope-id="):
-			opts.ScopeID = strings.TrimPrefix(args[i], "--scope-id=")
-		case strings.HasPrefix(args[i], "--parent-id="):
-			opts.ParentID = strings.TrimPrefix(args[i], "--parent-id=")
-		case strings.HasPrefix(args[i], "--dispatch-sh="):
-			opts.DispatchSH = strings.TrimPrefix(args[i], "--dispatch-sh=")
-		default:
-			slog.Error("dispatch spawn: unknown flag", "value", args[i])
+	f := cli.ParseFlags(args)
+	opts := dispatch.SpawnOptions{
+		AgentType:  f.String("type", ""),
+		PromptFile: f.String("prompt-file", ""),
+		ProjectDir: f.String("project", ""),
+		OutputFile: f.String("output", ""),
+		Name:       f.String("name", ""),
+		Model:      f.String("model", ""),
+		Sandbox:    f.String("sandbox", ""),
+		SandboxSpec: f.String("sandbox-spec", ""),
+		ScopeID:    f.String("scope-id", ""),
+		ParentID:   f.String("parent-id", ""),
+		DispatchSH: f.String("dispatch-sh", ""),
+	}
+	scheduled := f.Bool("scheduled")
+	schedulerSession := f.String("scheduler-session", "")
+
+	if f.Has("timeout") {
+		dur, err := f.Duration("timeout", 0)
+		if err != nil {
+			slog.Error("dispatch spawn: invalid timeout", "value", f.String("timeout", ""))
 			return 3
 		}
+		opts.TimeoutSec = int(dur.Seconds())
 	}
 
 	if opts.PromptFile == "" {
@@ -210,18 +190,9 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 }
 
 func cmdDispatchList(ctx context.Context, args []string) int {
-	var activeOnly bool
-	var scopeFilter *string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case args[i] == "--active":
-			activeOnly = true
-		case strings.HasPrefix(args[i], "--scope="):
-			s := strings.TrimPrefix(args[i], "--scope=")
-			scopeFilter = &s
-		}
-	}
+	f := cli.ParseFlags(args)
+	activeOnly := f.Bool("active")
+	scopeFilter := f.StringPtr("scope")
 
 	d, err := openDB()
 	if err != nil {
@@ -294,46 +265,24 @@ func cmdDispatchPoll(ctx context.Context, args []string) int {
 }
 
 func cmdDispatchWait(ctx context.Context, args []string) int {
-	var id string
-	var timeoutStr string
-	var pollStr string
+	f := cli.ParseFlags(args)
 
-	var positional []string
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--timeout="):
-			timeoutStr = strings.TrimPrefix(args[i], "--timeout=")
-		case strings.HasPrefix(args[i], "--poll="):
-			pollStr = strings.TrimPrefix(args[i], "--poll=")
-		default:
-			positional = append(positional, args[i])
-		}
-	}
-
-	if len(positional) < 1 {
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: dispatch wait: usage: ic dispatch wait <id> [--timeout=<dur>] [--poll=<dur>]\n")
 		return 3
 	}
-	id = positional[0]
+	id := f.Positionals[0]
 
-	var timeout time.Duration
-	if timeoutStr != "" {
-		var err error
-		timeout, err = time.ParseDuration(timeoutStr)
-		if err != nil {
-			slog.Error("dispatch wait: invalid timeout", "value", timeoutStr)
-			return 3
-		}
+	timeout, err := f.Duration("timeout", 0)
+	if err != nil {
+		slog.Error("dispatch wait: invalid timeout", "value", f.String("timeout", ""))
+		return 3
 	}
 
-	var pollInterval time.Duration
-	if pollStr != "" {
-		var err error
-		pollInterval, err = time.ParseDuration(pollStr)
-		if err != nil {
-			slog.Error("dispatch wait: invalid poll interval", "value", pollStr)
-			return 3
-		}
+	pollInterval, err := f.Duration("poll", 0)
+	if err != nil {
+		slog.Error("dispatch wait: invalid poll interval", "value", f.String("poll", ""))
+		return 3
 	}
 
 	d, err := openDB()
@@ -394,21 +343,14 @@ func cmdDispatchKill(ctx context.Context, args []string) int {
 }
 
 func cmdDispatchPrune(ctx context.Context, args []string) int {
-	var olderThan string
-	for i := 0; i < len(args); i++ {
-		if strings.HasPrefix(args[i], "--older-than=") {
-			olderThan = strings.TrimPrefix(args[i], "--older-than=")
-		} else if args[i] == "--older-than" && i+1 < len(args) {
-			i++
-			olderThan = args[i]
-		}
-	}
-	if olderThan == "" {
+	f := cli.ParseFlags(args)
+
+	if !f.Has("older-than") {
 		fmt.Fprintf(os.Stderr, "ic: dispatch prune: usage: ic dispatch prune --older-than=<duration>\n")
 		return 3
 	}
 
-	dur, err := time.ParseDuration(olderThan)
+	dur, err := f.Duration("older-than", 0)
 	if err != nil {
 		slog.Error("dispatch prune: invalid duration", "error", err)
 		return 3
@@ -433,42 +375,41 @@ func cmdDispatchPrune(ctx context.Context, args []string) int {
 }
 
 func cmdDispatchTokens(ctx context.Context, args []string) int {
-	var positional []string
+	f := cli.ParseFlags(args)
 	fields := dispatch.UpdateFields{}
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--in="):
-			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--in="))
-			if err != nil {
-				slog.Error("dispatch tokens: invalid --in", "value", args[i])
-				return 3
-			}
-			fields["input_tokens"] = v
-		case strings.HasPrefix(args[i], "--out="):
-			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--out="))
-			if err != nil {
-				slog.Error("dispatch tokens: invalid --out", "value", args[i])
-				return 3
-			}
-			fields["output_tokens"] = v
-		case strings.HasPrefix(args[i], "--cache="):
-			v, err := strconv.Atoi(strings.TrimPrefix(args[i], "--cache="))
-			if err != nil {
-				slog.Error("dispatch tokens: invalid --cache", "value", args[i])
-				return 3
-			}
-			fields["cache_hits"] = v
-		default:
-			positional = append(positional, args[i])
+	if f.Has("in") {
+		v, err := f.Int("in", 0)
+		if err != nil {
+			slog.Error("dispatch tokens: invalid --in", "value", f.String("in", ""))
+			return 3
 		}
+		fields["input_tokens"] = v
 	}
 
-	if len(positional) < 1 {
+	if f.Has("out") {
+		v, err := f.Int("out", 0)
+		if err != nil {
+			slog.Error("dispatch tokens: invalid --out", "value", f.String("out", ""))
+			return 3
+		}
+		fields["output_tokens"] = v
+	}
+
+	if f.Has("cache") {
+		v, err := f.Int("cache", 0)
+		if err != nil {
+			slog.Error("dispatch tokens: invalid --cache", "value", f.String("cache", ""))
+			return 3
+		}
+		fields["cache_hits"] = v
+	}
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: dispatch tokens: usage: ic dispatch tokens <id> [--in=N] [--out=N] [--cache=N]\n")
 		return 3
 	}
-	id := positional[0]
+	id := f.Positionals[0]
 
 	if len(fields) == 0 {
 		slog.Error("dispatch tokens: at least one of --in, --out, --cache is required")

@@ -66,6 +66,12 @@ var CLIContracts = []ContractType{
 // EventContracts lists types used for the event bus.
 var EventContracts = []ContractType{
 	{Name: "event", Instance: event.Event{}},
+	{Name: "review-event", Instance: event.ReviewEvent{}},
 	{Name: "interspect-event", Instance: event.InterspectEvent{}},
 	{Name: "event-envelope", Instance: event.EventEnvelope{}},
+	// v2 envelope + typed payloads (og7m.2.1). Keep v1 above until og7m.2.6.
+	{Name: "event-envelope-v2", Instance: event.EventEnvelopeV2{}},
+	{Name: "event-phase-payload", Instance: event.PhasePayload{}},
+	{Name: "event-dispatch-payload", Instance: event.DispatchPayload{}},
+	{Name: "event-coordination-payload", Instance: event.CoordinationPayload{}},
 }

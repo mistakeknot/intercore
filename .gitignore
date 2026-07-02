@@ -8,6 +8,11 @@
 .clavain/intercore.db.backup-*
 .clavain/interspect/
 
+# Authz signing keys — private ONLY; pubkey is intentionally committed for verifiers.
+.clavain/keys/*.key
+.clavain/keys/*.archive
+!.clavain/keys/*.pub
+
 # Runtime
 *.db.backup-*
 /ic

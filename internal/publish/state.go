@@ -31,6 +31,14 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// DB returns the underlying database handle. Used by callers that need to
+// share the same connection pool (e.g., the v2 token-consume path in
+// RequiresApproval, which must use the same *sql.DB to serialize under
+// MaxOpenConns=1).
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // EnsureTable creates the publish_state table if it doesn't exist.
 func (s *Store) EnsureTable(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, publishStateSchema)
@@ -118,6 +126,56 @@ func (s *Store) Complete(ctx context.Context, id string) error {
 func (s *Store) Delete(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, "DELETE FROM publish_state WHERE id = ?", id)
 	return err
+}
+
+// ListActive returns all incomplete publish records (phase != done/idle),
+// regardless of plugin. Used by `ic publish status` to surface in-flight or
+// stuck locks and by `ic publish unlock --all`.
+func (s *Store) ListActive(ctx context.Context) ([]*PublishState, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, plugin, from_ver, to_ver, phase, root, market, started_at, updated_at, error
+		FROM publish_state
+		WHERE phase != 'done' AND phase != 'idle'
+		ORDER BY started_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list active: %w", err)
+	}
+	defer rows.Close()
+
+	var states []*PublishState
+	for rows.Next() {
+		var st PublishState
+		var phase string
+		if err := rows.Scan(&st.ID, &st.PluginName, &st.FromVersion, &st.ToVersion,
+			&phase, &st.PluginRoot, &st.MarketRoot, &st.StartedAt, &st.UpdatedAt, &st.Error); err != nil {
+			return nil, fmt.Errorf("scan active: %w", err)
+		}
+		st.Phase = Phase(phase)
+		states = append(states, &st)
+	}
+	return states, rows.Err()
+}
+
+// ClearLocks deletes incomplete publish_state rows (phase != done/idle). When
+// pluginName is non-empty, only that plugin's locks are cleared; otherwise all
+// active locks are cleared. Returns the number of rows removed. Backs
+// `ic publish unlock`.
+func (s *Store) ClearLocks(ctx context.Context, pluginName string) (int, error) {
+	query := "DELETE FROM publish_state WHERE phase != 'done' AND phase != 'idle'"
+	var (
+		res sql.Result
+		err error
+	)
+	if pluginName != "" {
+		res, err = s.db.ExecContext(ctx, query+" AND plugin = ?", pluginName)
+	} else {
+		res, err = s.db.ExecContext(ctx, query)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("clear locks: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // List returns all publish state records.

@@ -66,6 +66,36 @@ func TestCompleteIntent(t *testing.T) {
 	}
 }
 
+func TestCompleteIntent_Callback(t *testing.T) {
+	is, _ := testIntentStore(t)
+	ctx := context.Background()
+
+	var called bool
+	var gotCI CompletedIntent
+	is.OnComplete = func(ctx context.Context, ci CompletedIntent) {
+		called = true
+		gotCI = ci
+	}
+
+	id, _ := is.RecordIntent(ctx, "dispatch-cb", "run-cb", "abc123", "")
+	if err := is.CompleteIntent(ctx, id, "result-sha"); err != nil {
+		t.Fatalf("CompleteIntent: %v", err)
+	}
+
+	if !called {
+		t.Fatal("OnComplete callback was not called")
+	}
+	if gotCI.DispatchID != "dispatch-cb" {
+		t.Errorf("DispatchID = %q, want %q", gotCI.DispatchID, "dispatch-cb")
+	}
+	if gotCI.RunID != "run-cb" {
+		t.Errorf("RunID = %q, want %q", gotCI.RunID, "run-cb")
+	}
+	if gotCI.ResultCommit != "result-sha" {
+		t.Errorf("ResultCommit = %q, want %q", gotCI.ResultCommit, "result-sha")
+	}
+}
+
 func TestCompleteIntent_NotPending(t *testing.T) {
 	is, _ := testIntentStore(t)
 	ctx := context.Background()

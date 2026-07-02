@@ -8,6 +8,7 @@ import (
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/event"
 	"github.com/mistakeknot/intercore/internal/phase"
+	pkgphase "github.com/mistakeknot/intercore/pkg/phase"
 )
 
 // Snapshot is a unified observation of system state at a point in time.
@@ -21,9 +22,15 @@ type Snapshot struct {
 }
 
 // RunSummary is a condensed view of a phase run.
+//
+// OODARCRole is the per-turn OODARC leg an agent predominantly performs while
+// the run sits in its current lifecycle Phase, derived from the single source
+// of truth in pkg/phase. It is omitted when the phase has no known role, so a
+// consumer never sees a wrong/defaulted role — absence means "no known role".
 type RunSummary struct {
 	ID         string `json:"id"`
 	Phase      string `json:"phase"`
+	OODARCRole string `json:"oodarc_role,omitempty"`
 	Status     string `json:"status"`
 	ProjectDir string `json:"project_dir"`
 	Goal       string `json:"goal"`
@@ -83,8 +90,8 @@ type DispatchQuerier interface {
 
 // EventQuerier is the subset of event.Store needed by the Collector.
 type EventQuerier interface {
-	ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]event.Event, error)
-	ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceReviewID int64, limit int) ([]event.Event, error)
+	ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceCoordinationID, sinceReviewID int64, limit int) ([]event.Event, error)
+	ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceCoordinationID, sinceReviewID int64, limit int) ([]event.Event, error)
 }
 
 // SchedulerQuerier is the subset of scheduler.Store needed by the Collector.
@@ -169,7 +176,7 @@ func (c *Collector) Collect(ctx context.Context, opts CollectOptions) (*Snapshot
 		if opts.RunID != "" {
 			evts, err = c.events.ListEvents(ctx, opts.RunID, 0, 0, 0, 0, opts.EventLimit)
 		} else {
-			evts, err = c.events.ListAllEvents(ctx, 0, 0, 0, 0, opts.EventLimit)
+			evts, err = c.events.ListAllEvents(ctx, 0, 0, 0, 0, 0, opts.EventLimit)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("observation: list events: %w", err)
@@ -218,10 +225,17 @@ func (c *Collector) Collect(ctx context.Context, opts CollectOptions) (*Snapshot
 }
 
 // runToSummary converts a phase.Run to a RunSummary.
+//
+// r.Phase carries the same string values as pkg/phase's DefaultChain constants
+// (internal/phase re-exports them — see internal/phase/phase.go), so the
+// OODARCRole lookup keys on them directly. An unknown phase leaves the role
+// empty (comma-ok), which omitempty drops from the JSON.
 func runToSummary(r *phase.Run) RunSummary {
+	role, _ := pkgphase.OODARCRole(r.Phase)
 	return RunSummary{
 		ID:         r.ID,
 		Phase:      r.Phase,
+		OODARCRole: role,
 		Status:     r.Status,
 		ProjectDir: r.ProjectDir,
 		Goal:       r.Goal,

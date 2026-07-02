@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/events/event-dispatch-payload.json",
+  "properties": {
+    "dispatch_id": {
+      "type": "string"
+    },
+    "capability_scope": {
+      "type": "string"
+    },
+    "requested_sandbox": {
+      "type": "string"
+    },
+    "effective_sandbox": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object"
+}

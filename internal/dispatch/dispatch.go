@@ -128,13 +128,13 @@ func (s *Store) Create(ctx context.Context, d *Dispatch) (string, error) {
 			id, agent_type, status, project_dir, prompt_file, prompt_hash,
 			output_file, verdict_file, name, model, sandbox, sandbox_spec,
 			timeout_sec, scope_id, parent_id, base_repo_commit,
-			spawn_depth, parent_dispatch_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			spawn_depth, parent_dispatch_id, retry_count
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, d.AgentType, StatusSpawned, d.ProjectDir,
 		d.PromptFile, d.PromptHash, d.OutputFile, d.VerdictFile,
 		d.Name, d.Model, d.Sandbox, d.SandboxSpec,
 		d.TimeoutSec, d.ScopeID, d.ParentID, d.BaseRepoCommit,
-		d.SpawnDepth, d.ParentDispatchID,
+		d.SpawnDepth, d.ParentDispatchID, d.RetryCount,
 	)
 	if err != nil {
 		return "", fmt.Errorf("dispatch create: %w", err)
@@ -446,6 +446,25 @@ func (s *Store) HasVerdict(ctx context.Context, scopeID string) (bool, error) {
 		return false, fmt.Errorf("has verdict: %w", err)
 	}
 	return count > 0, nil
+}
+
+// CountUncleanVerdicts returns the number of dispatches in scope whose
+// verdict_status indicates a non-clean outcome (fail/error). The verdict_clean
+// ship gate blocks when this is > 0 (sylveste-0ly7). 'warn' and 'pass' are
+// treated as clean (they infer exit code 0 in collect.go:inferExitCode).
+func (s *Store) CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error) {
+	if scopeID == "" {
+		return 0, nil
+	}
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM dispatches
+			WHERE scope_id = ? AND verdict_status IN ('fail', 'error')`,
+		scopeID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count unclean verdicts: %w", err)
+	}
+	return count, nil
 }
 
 // CancelByRun marks all non-terminal dispatches as cancelled for a run.

@@ -13,3 +13,12 @@ f127495eb5a8259cf32fdc58a89ff66d748797cc:internal/redaction/redaction_test.go:ge
 
 # Quoted API key in research doc — not a live credential
 541bc24f845600f27da30964ffe45a2bc3504478:docs/research/fd-safety-review-interspect.md:generic-api-key:159
+
+# Synthetic authz-token test fixtures (ULID literals per the <ulid>.<sighex>
+# token format) in pkg/authz/token_test.go, introduced by sylveste-qdqr.28.
+# Not credentials. If these lines are edited, the new commit will re-flag —
+# re-review and re-waive deliberately at that point.
+ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key:66
+ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key:67
+ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key:960
+ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key:961

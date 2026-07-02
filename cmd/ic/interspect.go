@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/event"
 )
 
@@ -29,29 +29,14 @@ func cmdInterspect(ctx context.Context, args []string) int {
 }
 
 func cmdInterspectRecord(ctx context.Context, args []string) int {
-	var runID, agent, eventType, reason, contextJSON, session, project string
-
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--run="):
-			runID = strings.TrimPrefix(args[i], "--run=")
-		case strings.HasPrefix(args[i], "--agent="):
-			agent = strings.TrimPrefix(args[i], "--agent=")
-		case strings.HasPrefix(args[i], "--type="):
-			eventType = strings.TrimPrefix(args[i], "--type=")
-		case strings.HasPrefix(args[i], "--reason="):
-			reason = strings.TrimPrefix(args[i], "--reason=")
-		case strings.HasPrefix(args[i], "--context="):
-			contextJSON = strings.TrimPrefix(args[i], "--context=")
-		case strings.HasPrefix(args[i], "--session="):
-			session = strings.TrimPrefix(args[i], "--session=")
-		case strings.HasPrefix(args[i], "--project="):
-			project = strings.TrimPrefix(args[i], "--project=")
-		default:
-			slog.Error("interspect record: unknown flag", "value", args[i])
-			return 3
-		}
-	}
+	f := cli.ParseFlags(args)
+	runID := f.String("run", "")
+	agent := f.String("agent", "")
+	eventType := f.String("type", "")
+	reason := f.String("reason", "")
+	contextJSON := f.String("context", "")
+	session := f.String("session", "")
+	project := f.String("project", "")
 
 	if agent == "" {
 		slog.Error("interspect record: --agent is required")
@@ -81,30 +66,18 @@ func cmdInterspectRecord(ctx context.Context, args []string) int {
 }
 
 func cmdInterspectQuery(ctx context.Context, args []string) int {
-	var agent string
-	var since int64
-	limit := 100
+	f := cli.ParseFlags(args)
+	agent := f.String("agent", "")
 
-	for i := 0; i < len(args); i++ {
-		switch {
-		case strings.HasPrefix(args[i], "--agent="):
-			agent = strings.TrimPrefix(args[i], "--agent=")
-		case strings.HasPrefix(args[i], "--since="):
-			val := strings.TrimPrefix(args[i], "--since=")
-			if _, err := fmt.Sscanf(val, "%d", &since); err != nil {
-				slog.Error("interspect query: invalid --since", "value", val)
-				return 3
-			}
-		case strings.HasPrefix(args[i], "--limit="):
-			val := strings.TrimPrefix(args[i], "--limit=")
-			if _, err := fmt.Sscanf(val, "%d", &limit); err != nil {
-				slog.Error("interspect query: invalid --limit", "value", val)
-				return 3
-			}
-		default:
-			slog.Error("interspect query: unknown flag", "value", args[i])
-			return 3
-		}
+	since, err := f.Int64("since", 0)
+	if err != nil {
+		slog.Error("interspect query: invalid --since", "value", f.String("since", ""))
+		return 3
+	}
+	limit, err2 := f.Int("limit", 100)
+	if err2 != nil {
+		slog.Error("interspect query: invalid --limit", "value", f.String("limit", ""))
+		return 3
 	}
 
 	d, err := openDB()

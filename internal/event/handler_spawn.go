@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+
+	"github.com/mistakeknot/intercore/pkg/phase"
 )
 
 // AgentQuerier queries run agents. Decouples from runtrack package.
@@ -27,7 +29,7 @@ func (f AgentSpawnerFunc) SpawnByAgentID(ctx context.Context, agentID string) er
 // reaches "executing". No-op for other phase transitions or dispatch events.
 func NewSpawnHandler(querier AgentQuerier, spawner AgentSpawner, logger *slog.Logger) Handler {
 	return func(ctx context.Context, e Event) error {
-		if e.Source != SourcePhase || e.ToState != "executing" {
+		if e.Source != SourcePhase || e.ToState != phase.Executing {
 			return nil
 		}
 

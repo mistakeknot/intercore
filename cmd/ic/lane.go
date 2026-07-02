@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/lane"
 )
 
@@ -35,6 +36,8 @@ func cmdLane(ctx context.Context, args []string) int {
 		return cmdLaneMembers(ctx, args[1:])
 	case "velocity":
 		return cmdLaneVelocity(ctx, args[1:])
+	case "update":
+		return cmdLaneUpdate(ctx, args[1:])
 	default:
 		slog.Error("lane: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -42,18 +45,11 @@ func cmdLane(ctx context.Context, args []string) int {
 }
 
 func cmdLaneCreate(ctx context.Context, args []string) int {
-	var name, laneType, description string
-
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, "--name="):
-			name = strings.TrimPrefix(arg, "--name=")
-		case strings.HasPrefix(arg, "--type="):
-			laneType = strings.TrimPrefix(arg, "--type=")
-		case strings.HasPrefix(arg, "--description="):
-			description = strings.TrimPrefix(arg, "--description=")
-		}
-	}
+	f := cli.ParseFlags(args)
+	name := f.String("name", "")
+	laneType := f.String("type", "")
+	description := f.String("description", "")
+	intent := f.String("intent", "")
 
 	if name == "" {
 		slog.Error("lane create: --name is required")
@@ -80,7 +76,7 @@ func cmdLaneCreate(ctx context.Context, args []string) int {
 	}
 
 	store := lane.New(d.SqlDB())
-	id, err := store.Create(ctx, name, laneType, description)
+	id, err := store.Create(ctx, name, laneType, description, intent)
 	if err != nil {
 		slog.Error("lane create failed", "error", err)
 		return 2
@@ -102,14 +98,10 @@ func cmdLaneCreate(ctx context.Context, args []string) int {
 }
 
 func cmdLaneList(ctx context.Context, args []string) int {
-	status := ""
-	for _, arg := range args {
-		switch {
-		case arg == "--active":
-			status = "active"
-		case strings.HasPrefix(arg, "--status="):
-			status = strings.TrimPrefix(arg, "--status=")
-		}
+	f := cli.ParseFlags(args)
+	status := f.String("status", "")
+	if f.Bool("active") {
+		status = "active"
 	}
 
 	d, err := openDB()
@@ -211,6 +203,7 @@ func cmdLaneStatus(ctx context.Context, args []string) int {
 			"lane_type":    l.LaneType,
 			"status":       l.Status,
 			"description":  l.Description,
+			"intent":       l.Intent,
 			"metadata":     l.Metadata,
 			"member_count": len(members),
 			"members":      members,
@@ -227,6 +220,9 @@ func cmdLaneStatus(ctx context.Context, args []string) int {
 		fmt.Printf("Type: %s  Status: %s\n", l.LaneType, l.Status)
 		if l.Description != "" {
 			fmt.Printf("Description: %s\n", l.Description)
+		}
+		if l.Intent != "" {
+			fmt.Printf("Intent: %s\n", l.Intent)
 		}
 		fmt.Printf("Members: %d  Events: %d\n", len(members), len(events))
 		fmt.Printf("Created: %s\n", time.Unix(l.CreatedAt, 0).Format(time.RFC3339))
@@ -316,17 +312,17 @@ func cmdLaneEvents(ctx context.Context, args []string) int {
 }
 
 func cmdLaneSync(ctx context.Context, args []string) int {
-	if len(args) < 1 {
+	f := cli.ParseFlags(args)
+
+	if len(f.Positionals) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: lane sync: usage: ic lane sync <id-or-name> [--bead-ids=id1,id2,...]\n")
 		return 3
 	}
-	idOrName := args[0]
+	idOrName := f.Positionals[0]
 
 	var beadIDs []string
-	for _, arg := range args[1:] {
-		if strings.HasPrefix(arg, "--bead-ids=") {
-			beadIDs = strings.Split(strings.TrimPrefix(arg, "--bead-ids="), ",")
-		}
+	if beadIDsStr := f.String("bead-ids", ""); beadIDsStr != "" {
+		beadIDs = strings.Split(beadIDsStr, ",")
 	}
 
 	if len(beadIDs) == 0 {
@@ -431,20 +427,11 @@ func cmdLaneMembers(ctx context.Context, args []string) int {
 }
 
 func cmdLaneVelocity(ctx context.Context, args []string) int {
-	days := 7
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--days=") {
-			val := strings.TrimPrefix(arg, "--days=")
-			n, err := fmt.Sscanf(val, "%d", &days)
-			if err != nil || n != 1 {
-				slog.Error("lane velocity: invalid --days value", "value", val)
-				return 3
-			}
-			if days < 1 {
-				slog.Error("lane velocity: --days must be >= 1", "days", days)
-				return 3
-			}
-		}
+	f := cli.ParseFlags(args)
+	days, err := f.Int("days", 7)
+	if err != nil || days < 1 {
+		slog.Error("lane velocity: invalid --days value", "value", f.String("days", ""))
+		return 3
 	}
 
 	d, err := openDB()
@@ -496,5 +483,53 @@ func cmdLaneVelocity(ctx context.Context, args []string) int {
 				s.LaneName, s.OpenBeads, s.ClosedLast, s.Throughput, s.Starvation)
 		}
 	}
+	return 0
+}
+
+func cmdLaneUpdate(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	idOrName := f.String("name", "")
+	intent := f.String("intent", "")
+	intentSet := f.Has("intent")
+
+	if idOrName == "" {
+		slog.Error("lane update: --name is required")
+		return 3
+	}
+	if !intentSet {
+		slog.Error("lane update: --intent is required (only supported field)")
+		return 3
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("lane update failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	if err := d.Migrate(ctx); err != nil {
+		slog.Error("lane update: migrate failed", "error", err)
+		return 2
+	}
+
+	store := lane.New(d.SqlDB())
+
+	// Resolve by ID or name
+	l, err := store.Get(ctx, idOrName)
+	if err != nil {
+		l, err = store.GetByName(ctx, idOrName)
+		if err != nil {
+			slog.Error("lane update: not found", "name", idOrName, "error", err)
+			return 2
+		}
+	}
+
+	if err := store.SetIntent(ctx, l.ID, intent); err != nil {
+		slog.Error("lane update failed", "error", err)
+		return 2
+	}
+
+	fmt.Printf("updated %s intent\n", l.Name)
 	return 0
 }

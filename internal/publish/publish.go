@@ -60,14 +60,28 @@ type PublishOpts struct {
 	DryRun  bool
 	Auto    bool   // suppress prompts, for hook usage
 	CWD     string // override working directory
+
+	// v2 authz token path — set from the composition root (cmd/ic/publish.go)
+	// by reading $CLAVAIN_AUTHZ_TOKEN / $CLAVAIN_AGENT_ID. Empty values fall
+	// through to the v1.5 authz-record + marker approval paths without error.
+	// Engine passes these to RequiresApproval alongside an already-open db
+	// and a loaded pub key (see engine.Publish).
+	AuthzTokenStr      string
+	AuthzCallerAgentID string
 }
 
 // Plugin represents a discovered plugin.
 type Plugin struct {
-	Name       string // from plugin.json .name
-	Version    string // current version from plugin.json .version
-	Root       string // absolute path to plugin root (parent of .claude-plugin/)
-	PluginJSON string // absolute path to plugin.json
+	Name        string // from plugin.json .name
+	Version     string // current version from plugin.json .version
+	Root        string // absolute path to plugin root (parent of .claude-plugin/)
+	PluginJSON  string // absolute path to plugin.json
+	description string // from plugin.json .description (lazy-loaded)
+}
+
+// Description returns the plugin's description from plugin.json.
+func (p *Plugin) Description() string {
+	return p.description
 }
 
 // VersionFile is a file that contains a derived version string.
@@ -91,6 +105,26 @@ type PublishState struct {
 	Error       string // last error, empty if clean
 }
 
+// staleThresholdSecs bounds how long a publish_state record may sit without an
+// update before it is treated as abandoned rather than in-flight. Real
+// publishes complete in seconds; an hour of inactivity means the process died
+// — usually a SIGKILL or crash that never recorded an error. Records that DID
+// record an error are stale immediately, regardless of age.
+const staleThresholdSecs int64 = 3600
+
+// IsStale reports whether this record is a dead publish attempt rather than a
+// genuinely in-flight one. It is stale if the publish recorded an error (it
+// failed and never recovered) or if it has not been updated within
+// staleThresholdSecs (the process vanished without recording an error). A
+// stale record must not block a fresh publish. `now` is a unix timestamp in
+// seconds, injected so the predicate stays pure and testable.
+func (st *PublishState) IsStale(now int64) bool {
+	if st.Error != "" {
+		return true
+	}
+	return now-st.UpdatedAt > staleThresholdSecs
+}
+
 // Errors
 var (
 	ErrNotPlugin         = errors.New("not a plugin directory (no .claude-plugin/plugin.json found)")
@@ -101,4 +135,5 @@ var (
 	ErrRemoteUnreachable = errors.New("git remote is unreachable")
 	ErrActivePublish     = errors.New("another publish is in progress")
 	ErrNoActivePublish   = errors.New("no active publish to resume")
+	ErrApprovalRequired  = errors.New("agent-mutated plugin requires human approval — create .publish-approved or run 'ic publish' manually")
 )
