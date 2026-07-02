@@ -848,6 +848,7 @@ func ParseGateRules(jsonStr string) (map[string][]SpecGateRule, error) {
 		CheckArtifactExists:    true,
 		CheckAgentsComplete:    true,
 		CheckVerdictExists:     true,
+		CheckVerdictClean:      true,
 		CheckBudgetNotExceeded: true,
 	}
 	validTiers := map[string]bool{"hard": true, "soft": true, "": true}

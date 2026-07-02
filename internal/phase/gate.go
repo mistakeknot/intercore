@@ -17,6 +17,7 @@ const (
 	CheckArtifactExists    = "artifact_exists"
 	CheckAgentsComplete    = "agents_complete"
 	CheckVerdictExists     = "verdict_exists"
+	CheckVerdictClean      = "verdict_clean"
 	CheckChildrenAtPhase   = "children_at_phase"
 	CheckUpstreamsAtPhase  = "upstreams_at_phase"
 	CheckBudgetNotExceeded = "budget_not_exceeded"
@@ -33,6 +34,10 @@ type RuntrackQuerier interface {
 // Implemented by dispatch.Store; tests can use stubs.
 type VerdictQuerier interface {
 	HasVerdict(ctx context.Context, scopeID string) (bool, error)
+	// CountUncleanVerdicts returns the number of dispatches in scope whose
+	// verdict_status indicates a non-clean outcome (fail/error). Used by the
+	// verdict_clean ship gate (sylveste-0ly7).
+	CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error)
 }
 
 // PortfolioQuerier abstracts queries for portfolio run children.
@@ -290,6 +295,45 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			} else {
 				cond.Result = GateFail
 				cond.Detail = "no passing verdict found"
+				allPass = false
+			}
+
+		case CheckVerdictClean:
+			// verdict_clean: the strongest ship gate. Requires that a verdict
+			// exists AND that zero dispatches in scope returned a non-clean
+			// (fail/error) verdict — i.e. no NEEDS_ATTENTION findings survive.
+			// Wires the executor for the spec's review_clean=verdict_clean gate
+			// (sylveste-0ly7); previously declared in YAML with no evaluator.
+			if vq == nil {
+				cond.Result = GateFail
+				cond.Detail = "no verdict querier provided"
+				allPass = false
+				break
+			}
+			scopeID := ""
+			if run.ScopeID != nil {
+				scopeID = *run.ScopeID
+			}
+			has, qerr := vq.HasVerdict(ctx, scopeID)
+			if qerr != nil {
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
+			}
+			if !has {
+				cond.Result = GateFail
+				cond.Detail = "no verdict found — review did not run (fail-closed)"
+				allPass = false
+				break
+			}
+			unclean, qerr := vq.CountUncleanVerdicts(ctx, scopeID)
+			if qerr != nil {
+				return "", "", "", nil, fmt.Errorf("gate check: %w", qerr)
+			}
+			cond.Count = &unclean
+			if unclean == 0 {
+				cond.Result = GatePass
+			} else {
+				cond.Result = GateFail
+				cond.Detail = fmt.Sprintf("%d verdict(s) NEEDS_ATTENTION (fail/error) — not clean", unclean)
 				allPass = false
 			}
 

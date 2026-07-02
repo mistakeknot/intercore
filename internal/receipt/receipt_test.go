@@ -365,6 +365,71 @@ func TestNewIDFormat(t *testing.T) {
 	}
 }
 
+func TestGenerateFileKey(t *testing.T) {
+	root := t.TempDir()
+	const agent = "sylveste://agent/interspect"
+
+	keyID, err := GenerateFileKey(root, agent, "2026-q2", false)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if keyID != agent+"#2026-q2" {
+		t.Fatalf("keyID = %q, want %q", keyID, agent+"#2026-q2")
+	}
+
+	// The generated key round-trips through FileKeyStore (the active pointer
+	// and the key file are both written and readable).
+	fs := &FileKeyStore{Root: root}
+	gotID, gotKey, err := fs.Active(agent)
+	if err != nil {
+		t.Fatalf("active after generate: %v", err)
+	}
+	if gotID != keyID || len(gotKey) != 32 {
+		t.Fatalf("active = (%q, %d bytes), want (%q, 32 bytes)", gotID, len(gotKey), keyID)
+	}
+
+	// A signed receipt verifies against the file-provisioned key — the whole
+	// point of provisioning.
+	r := Receipt{
+		ReceiptID: NewID(time.Now()), Timestamp: FormatTimestamp(time.Now()),
+		AgentID: agent, Model: "m", ContentHash: strings.Repeat("0", 64), SchemaVersion: 1,
+	}
+	if _, err := Sign(&r, fs, time.Now()); err != nil {
+		t.Fatalf("sign with file key: %v", err)
+	}
+	if err := Verify(&r, fs); err != nil {
+		t.Fatalf("verify with file key: %v", err)
+	}
+
+	// Refuses to overwrite an existing epoch without force.
+	if _, err := GenerateFileKey(root, agent, "2026-q2", false); err == nil {
+		t.Fatal("expected refusal to overwrite existing epoch, got nil")
+	}
+	if _, err := GenerateFileKey(root, agent, "2026-q2", true); err != nil {
+		t.Fatalf("force overwrite should succeed: %v", err)
+	}
+}
+
+func TestEnsureFileKey(t *testing.T) {
+	root := t.TempDir()
+	const agent = "sylveste://agent/clavain"
+
+	id1, created1, err := EnsureFileKey(root, agent, "2026-q2")
+	if err != nil || !created1 {
+		t.Fatalf("first EnsureFileKey: id=%q created=%v err=%v (want created=true)", id1, created1, err)
+	}
+	id2, created2, err := EnsureFileKey(root, agent, "2026-q3")
+	if err != nil {
+		t.Fatalf("second EnsureFileKey: %v", err)
+	}
+	if created2 {
+		t.Fatal("second EnsureFileKey created a new key; should have returned the existing active key")
+	}
+	if id2 != id1 {
+		t.Fatalf("second EnsureFileKey returned %q, want existing %q", id2, id1)
+	}
+}
+
 func TestFormatTimestampMicroseconds(t *testing.T) {
 	got := FormatTimestamp(time.Date(2026, 5, 23, 19, 42, 1, 234_567_000, time.UTC))
 	want := "2026-05-23T19:42:01.234567Z"

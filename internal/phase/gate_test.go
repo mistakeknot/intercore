@@ -674,3 +674,98 @@ func TestGate_Source_Calibrated(t *testing.T) {
 		t.Errorf("Source = %q, want %q", result.Source, "calibrated")
 	}
 }
+
+// --- verdict_clean ship gate tests (sylveste-0ly7) ---
+
+func TestGate_VerdictClean_Pass(t *testing.T) {
+	store, rtStore, sqlDB, ctx := setupMachineTest(t)
+
+	scopeID := "test-vclean-pass"
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+		ScopeID: &scopeID,
+		GateRules: map[string][]SpecGateRule{
+			"review→polish": {{Check: CheckVerdictClean, Tier: "hard"}},
+		},
+	})
+	advanceToPhase(t, store, id, PhaseReview, rtStore)
+
+	dStore := dispatch.New(sqlDB, nil)
+	dStore.Create(ctx, &dispatch.Dispatch{AgentType: "claude", ProjectDir: "/tmp", ScopeID: &scopeID})
+	dispatches, _ := dStore.List(ctx, &scopeID)
+	if len(dispatches) == 0 {
+		t.Fatal("No dispatches found")
+	}
+	// A clean (passing) verdict — must NOT count as unclean.
+	dStore.UpdateStatus(ctx, dispatches[0].ID, dispatch.StatusCompleted, dispatch.UpdateFields{
+		"verdict_status": "pass",
+	})
+
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if !result.Advanced {
+		t.Errorf("Expected verdict_clean gate to pass with a clean verdict. Result: %+v", result)
+	}
+}
+
+func TestGate_VerdictClean_Fail(t *testing.T) {
+	store, rtStore, sqlDB, ctx := setupMachineTest(t)
+
+	scopeID := "test-vclean-fail"
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+		ScopeID: &scopeID,
+		GateRules: map[string][]SpecGateRule{
+			"review→polish": {{Check: CheckVerdictClean, Tier: "hard"}},
+		},
+	})
+	advanceToPhase(t, store, id, PhaseReview, rtStore)
+
+	dStore := dispatch.New(sqlDB, nil)
+	dStore.Create(ctx, &dispatch.Dispatch{AgentType: "claude", ProjectDir: "/tmp", ScopeID: &scopeID})
+	dispatches, _ := dStore.List(ctx, &scopeID)
+	if len(dispatches) == 0 {
+		t.Fatal("No dispatches found")
+	}
+	// A failing verdict — NEEDS_ATTENTION-equivalent. Gate must block.
+	dStore.UpdateStatus(ctx, dispatches[0].ID, dispatch.StatusCompleted, dispatch.UpdateFields{
+		"verdict_status": "fail",
+	})
+
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if result.Advanced {
+		t.Error("Expected verdict_clean gate to BLOCK with a failing verdict, but advance succeeded")
+	}
+	if result.GateResult != GateFail {
+		t.Errorf("GateResult = %q, want %q", result.GateResult, GateFail)
+	}
+}
+
+func TestGate_VerdictClean_NoVerdict_FailsClosed(t *testing.T) {
+	store, rtStore, sqlDB, ctx := setupMachineTest(t)
+
+	scopeID := "test-vclean-noverdict"
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+		ScopeID: &scopeID,
+		GateRules: map[string][]SpecGateRule{
+			"review→polish": {{Check: CheckVerdictClean, Tier: "hard"}},
+		},
+	})
+	advanceToPhase(t, store, id, PhaseReview, rtStore)
+
+	dStore := dispatch.New(sqlDB, nil)
+	// No verdict at all — review never ran. verdict_clean must fail closed.
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if result.Advanced {
+		t.Error("Expected verdict_clean to fail closed with no verdict, but advance succeeded")
+	}
+}

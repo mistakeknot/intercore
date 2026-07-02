@@ -17,6 +17,9 @@
     "Tier": {
       "type": "string"
     },
+    "Source": {
+      "type": "string"
+    },
     "Evidence": {
       "properties": {
         "conditions": {
@@ -63,6 +66,7 @@
     "ToPhase",
     "Result",
     "Tier",
+    "Source",
     "Evidence"
   ]
 }

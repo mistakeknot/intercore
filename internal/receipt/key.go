@@ -150,3 +150,54 @@ func (f *FileKeyStore) Get(keyID string) ([]byte, error) {
 func agentSegment(agentID string) string {
 	return strings.ReplaceAll(agentID, "://", "_")
 }
+
+// GenerateFileKey provisions a fresh 256-bit signing key for agentID at epoch
+// under root, writing <root>/<seg>/<epoch>.key (0600) and pointing
+// <root>/<seg>/active at epoch. Returns the resulting key_id
+// ("<agentID>#<epoch>").
+//
+// Unless force is set, it refuses to overwrite an existing key for the same
+// epoch: that key may have signed receipts still inside the trust window
+// (canon §Key handling), so rotation must use a NEW epoch rather than clobber
+// the old key. crypto/rand per canon "v1 generates keys with crypto/rand".
+func GenerateFileKey(root, agentID, epoch string, force bool) (string, error) {
+	seg := agentSegment(agentID)
+	dir := filepath.Join(root, seg)
+	keyPath := filepath.Join(dir, epoch+".key")
+	if !force {
+		if _, statErr := os.Stat(keyPath); statErr == nil {
+			return "", fmt.Errorf("key already exists for %s#%s (rotate to a new epoch, or pass force): %s",
+				agentID, epoch, keyPath)
+		}
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return "", fmt.Errorf("generate key: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("create key dir: %w", err)
+	}
+	if err := os.WriteFile(keyPath, key, 0o600); err != nil {
+		return "", fmt.Errorf("write key: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "active"), []byte(epoch), 0o600); err != nil {
+		return "", fmt.Errorf("write active pointer: %w", err)
+	}
+	return agentID + "#" + epoch, nil
+}
+
+// EnsureFileKey returns the active key_id for agentID, provisioning a fresh key
+// at defaultEpoch if the agent has no active key yet. Lets `ic receipt emit`
+// self-provision on first use so the closed loop needs no separate setup step.
+// Returns (keyID, created).
+func EnsureFileKey(root, agentID, defaultEpoch string) (string, bool, error) {
+	fs := &FileKeyStore{Root: root}
+	if id, _, err := fs.Active(agentID); err == nil {
+		return id, false, nil
+	}
+	id, err := GenerateFileKey(root, agentID, defaultEpoch, false)
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}

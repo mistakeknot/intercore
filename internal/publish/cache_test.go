@@ -31,7 +31,7 @@ func TestListAllCacheEntries_MultipleMarketplaces(t *testing.T) {
 		{"claude-plugins-official", "vercel", "0.42.1"},
 		{"interagency-marketplace", "tldr-swinton", "0.7.18"},
 		{"interagency-marketplace", "tldr-swinton", "0.7.19"},
-		{"clonal-plugins", "interops", "0.2.10"},
+		{"arouth-plugins", "interops", "0.2.10"},
 	})
 
 	entries, err := listAllCacheEntriesIn(root)
@@ -50,7 +50,7 @@ func TestListAllCacheEntries_MultipleMarketplaces(t *testing.T) {
 	}{
 		{"vercel@claude-plugins-official", 3},
 		{"tldr-swinton@interagency-marketplace", 2},
-		{"interops@clonal-plugins", 1},
+		{"interops@arouth-plugins", 1},
 	}
 	for _, c := range cases {
 		got, ok := entries[c.key]
