@@ -17,6 +17,9 @@
     "Description": {
       "type": "string"
     },
+    "Intent": {
+      "type": "string"
+    },
     "Metadata": {
       "type": "string"
     },
@@ -38,6 +41,7 @@
     "LaneType",
     "Status",
     "Description",
+    "Intent",
     "Metadata",
     "CreatedAt",
     "UpdatedAt",
