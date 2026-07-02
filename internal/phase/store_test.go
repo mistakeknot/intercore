@@ -845,3 +845,393 @@ func TestStore_CreateWithoutGateRules(t *testing.T) {
 		t.Errorf("GateRules = %v, want nil for run without custom gates", got.GateRules)
 	}
 }
+
+func TestGetGateSignals_Empty(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	signals, cursor, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals) != 0 {
+		t.Errorf("signals = %d, want 0", len(signals))
+	}
+	if cursor != 0 {
+		t.Errorf("cursor = %d, want 0", cursor)
+	}
+}
+
+func TestGetGateSignals_TP_Block(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Block event with evidence containing check type
+	reason := `{"conditions":[{"check":"artifact_exists","phase":"brainstorm","result":"fail"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventBlock, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason),
+	})
+
+	signals, cursor, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if cursor == 0 {
+		t.Error("cursor should be > 0")
+	}
+	if len(signals) != 1 {
+		t.Fatalf("signals = %d, want 1", len(signals))
+	}
+	if signals[0].SignalType != "tp" {
+		t.Errorf("signal type = %q, want tp", signals[0].SignalType)
+	}
+	if signals[0].CheckType != "artifact_exists" {
+		t.Errorf("check type = %q, want artifact_exists", signals[0].CheckType)
+	}
+	if signals[0].RunID != id {
+		t.Errorf("run_id = %q, want %q", signals[0].RunID, id)
+	}
+}
+
+func TestGetGateSignals_FP_Override(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Override event — pre-F5 (no override_category in reason)
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventOverride, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr("manual override: testing"),
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("signals = %d, want 1", len(signals))
+	}
+	if signals[0].SignalType != "fp" {
+		t.Errorf("signal type = %q, want fp", signals[0].SignalType)
+	}
+	if signals[0].Category != "uncategorized" {
+		t.Errorf("category = %q, want uncategorized", signals[0].Category)
+	}
+}
+
+func TestGetGateSignals_FP_OverrideWithCategory(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Override with F5-style category
+	reason := `{"override_category":"justified","reason":"gate was too strict"}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventOverride, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason),
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("signals = %d, want 1", len(signals))
+	}
+	if signals[0].Category != "justified" {
+		t.Errorf("category = %q, want justified", signals[0].Category)
+	}
+}
+
+func TestGetGateSignals_TN_AdvancePass(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Advance with gate pass
+	reason := `{"conditions":[{"check":"artifact_exists","phase":"brainstorm","result":"pass"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventAdvance, GateResult: strPtr(GatePass), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason),
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("signals = %d, want 1", len(signals))
+	}
+	if signals[0].SignalType != "tn" {
+		t.Errorf("signal type = %q, want tn", signals[0].SignalType)
+	}
+}
+
+func TestGetGateSignals_FP_SoftGateAdvance(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Advance with gate fail but soft tier — soft gate override-by-advance
+	reason := `{"conditions":[{"check":"verdict_exists","result":"fail"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseReview, ToPhase: PhasePolish,
+		EventType: EventAdvance, GateResult: strPtr(GateFail), GateTier: strPtr(TierSoft),
+		Reason: strPtr(reason),
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("signals = %d, want 1", len(signals))
+	}
+	if signals[0].SignalType != "fp" {
+		t.Errorf("signal type = %q, want fp", signals[0].SignalType)
+	}
+}
+
+func TestGetGateSignals_FN_RollbackReclassifies(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// TN: advance from review→polish with gate pass
+	reason := `{"conditions":[{"check":"verdict_exists","result":"pass"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseReview, ToPhase: PhasePolish,
+		EventType: EventAdvance, GateResult: strPtr(GatePass), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason),
+	})
+
+	// Rollback from polish back to review (covers the advance we just recorded)
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhasePolish, ToPhase: PhaseReview,
+		EventType: EventRollback,
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("signals = %d, want 1", len(signals))
+	}
+	if signals[0].SignalType != "fn" {
+		t.Errorf("signal type = %q, want fn (rollback reclassified TN)", signals[0].SignalType)
+	}
+}
+
+func TestGetGateSignals_BlockOverrideNoDoubleCount(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Block event (candidate TP)
+	blockReason := `{"conditions":[{"check":"artifact_exists","phase":"brainstorm","result":"fail"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventBlock, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr(blockReason),
+	})
+
+	// Override of the same transition (FP) — the block was wrong since human overrode it
+	overrideReason := `{"override_category":"expedient","reason":"need to proceed"}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventOverride, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr(overrideReason),
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+
+	// Should have exactly 1 FP (override), NOT a TP+FP pair
+	if len(signals) != 1 {
+		t.Fatalf("signals = %d, want 1 (no double-count)", len(signals))
+	}
+	if signals[0].SignalType != "fp" {
+		t.Errorf("signal type = %q, want fp", signals[0].SignalType)
+	}
+	if signals[0].Category != "expedient" {
+		t.Errorf("category = %q, want expedient", signals[0].Category)
+	}
+}
+
+func TestGetGateSignals_MultiPhaseRollback(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// TN: executing→review
+	reason1 := `{"conditions":[{"check":"agents_complete","result":"pass"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseExecuting, ToPhase: PhaseReview,
+		EventType: EventAdvance, GateResult: strPtr(GatePass), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason1),
+	})
+
+	// TN: review→polish
+	reason2 := `{"conditions":[{"check":"verdict_exists","result":"pass"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseReview, ToPhase: PhasePolish,
+		EventType: EventAdvance, GateResult: strPtr(GatePass), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason2),
+	})
+
+	// Multi-phase rollback: polish back to executing (covers both review and polish)
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhasePolish, ToPhase: PhaseExecuting,
+		EventType: EventRollback,
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+
+	// Both TNs should be reclassified as FN
+	if len(signals) != 2 {
+		t.Fatalf("signals = %d, want 2", len(signals))
+	}
+	for i, sig := range signals {
+		if sig.SignalType != "fn" {
+			t.Errorf("signals[%d].SignalType = %q, want fn", i, sig.SignalType)
+		}
+	}
+}
+
+func TestGetGateSignals_SinceID_Pagination(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Two block events
+	reason := `{"conditions":[{"check":"artifact_exists","phase":"brainstorm","result":"fail"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventBlock, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason),
+	})
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventBlock, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason),
+	})
+
+	// Get first batch
+	signals1, cursor1, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals1) != 2 {
+		t.Fatalf("first batch signals = %d, want 2", len(signals1))
+	}
+
+	// Get second batch (should be empty since we're past cursor)
+	signals2, cursor2, err := store.GetGateSignals(ctx, cursor1)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals2) != 0 {
+		t.Errorf("second batch signals = %d, want 0", len(signals2))
+	}
+	if cursor2 != cursor1 {
+		t.Errorf("cursor2 = %d, want %d (unchanged)", cursor2, cursor1)
+	}
+}
+
+func TestGetGateSignals_MultipleCheckTypes(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Block event with multiple check conditions
+	reason := `{"conditions":[{"check":"artifact_exists","result":"fail"},{"check":"agents_complete","result":"fail"}]}`
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseExecuting, ToPhase: PhaseReview,
+		EventType: EventBlock, GateResult: strPtr(GateFail), GateTier: strPtr(TierHard),
+		Reason: strPtr(reason),
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	// One signal per check type
+	if len(signals) != 2 {
+		t.Fatalf("signals = %d, want 2 (one per check type)", len(signals))
+	}
+	checks := map[string]bool{}
+	for _, s := range signals {
+		checks[s.CheckType] = true
+		if s.SignalType != "tp" {
+			t.Errorf("signal for %s: type = %q, want tp", s.CheckType, s.SignalType)
+		}
+	}
+	if !checks["artifact_exists"] || !checks["agents_complete"] {
+		t.Errorf("checks = %v, want artifact_exists and agents_complete", checks)
+	}
+}
+
+func TestGetGateSignals_SkipsNoneGateResult(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+	})
+
+	// Advance with gate_result=none (TierNone bypasses gates) — should NOT produce signal
+	store.AddEvent(ctx, &PhaseEvent{
+		RunID: id, FromPhase: PhaseBrainstorm, ToPhase: PhaseBrainstormReviewed,
+		EventType: EventAdvance, GateResult: strPtr(GateNone), GateTier: strPtr(TierNone),
+	})
+
+	signals, _, err := store.GetGateSignals(ctx, 0)
+	if err != nil {
+		t.Fatalf("GetGateSignals: %v", err)
+	}
+	if len(signals) != 0 {
+		t.Errorf("signals = %d, want 0 (gate_result=none should be skipped)", len(signals))
+	}
+}

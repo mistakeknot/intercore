@@ -96,6 +96,48 @@ func writeJSONVersion(path, key, version string) error {
 	return atomicWrite(path, []byte(updated))
 }
 
+// removeJSONKey removes a top-level key from a JSON file, preserving formatting.
+// Returns true if the key was present and removed, false if not found.
+func removeJSONKey(path, key string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+
+	// Validate JSON and check key exists
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false, fmt.Errorf("invalid JSON: %w", err)
+	}
+	if _, ok := raw[key]; !ok {
+		return false, nil // key not present
+	}
+
+	// Use regex to remove the key-value pair, preserving surrounding formatting.
+	// Match: optional leading comma/whitespace, "key": <value>, optional trailing comma
+	// Handle both cases: key is last (preceded by comma) or not last (followed by comma)
+	content := string(data)
+
+	// Pattern 1: key with trailing comma (not last entry)
+	p1 := regexp.MustCompile(`(?m)\s*"` + regexp.QuoteMeta(key) + `"\s*:\s*(?:"[^"]*"|[^\n,}]+)\s*,?\s*\n?`)
+	if p1.MatchString(content) {
+		updated := p1.ReplaceAllString(content, "\n")
+		// Clean up double newlines
+		updated = regexp.MustCompile(`\n{3,}`).ReplaceAllString(updated, "\n\n")
+		// Clean up trailing comma before closing brace
+		updated = regexp.MustCompile(`,(\s*\n\s*})`).ReplaceAllString(updated, "$1")
+		return true, atomicWrite(path, []byte(updated))
+	}
+
+	// Fallback: full JSON rewrite
+	delete(raw, key)
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	return true, atomicWrite(path, append(out, '\n'))
+}
+
 // writeTOMLVersion updates the version field in a TOML file.
 func writeTOMLVersion(path, version string) error {
 	data, err := os.ReadFile(path)

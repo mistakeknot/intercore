@@ -64,7 +64,7 @@ This requires solving the reflexive control loop problem: ensuring the system ca
 ## Design Principles
 
 ### 1. Observe Before Acting
-Phase 1 collects evidence for 4 weeks before any modifications are proposed. The product ships value (observability, debugging UX) before it ships risk (modifications). Autonomy is opt-in, earned through demonstrated quality, and instantly revocable.
+Phase 1 collects evidence before any modifications are proposed. The product ships value (observability, debugging UX) before it ships risk (modifications). Autonomy is opt-in, earned through demonstrated quality, and instantly revocable.
 
 ### 2. Overlays, Not Rewrites
 Canonical agent prompts are never directly edited. Changes are layered via feature-flag overlays that can be toggled independently. This means instant rollback (disable overlay, not git revert), A/B testability (toggle overlays), and upstream mergeability (no long-lived prompt forks).
@@ -76,7 +76,7 @@ Meta-rules are human-owned. The counting rules, canary thresholds, protected pat
 Override rate alone is a trap (Goodhart's Law). Three metrics — override rate, false positive rate, and finding density — cross-check each other. Galiana's defect escape rate provides an independent recall signal. Counterfactual shadow evaluation builds paired comparison datasets before changes go live. When metrics conflict, conservatism wins.
 
 ### 5. Evidence Compounds; Assumptions Don't
-Phase 1 collects evidence for 4 weeks before any modifications are attempted. Counting-rule thresholds are simple and debuggable — no weighted formulas until real data proves they add value. Type 3 (prompt tuning) requires a real eval corpus, not synthetic tests. Types 4-6 are deferred not because they're bad ideas but because there's no evidence they're needed yet.
+Phase 1 collects evidence before any modifications are attempted. Counting-rule thresholds are simple and debuggable — no weighted formulas until real data proves they add value. Type 3 (prompt tuning) requires a real eval corpus, not synthetic tests. Types 4-6 are deferred not because they're bad ideas but because there's no evidence they're needed yet.
 
 ## The Broader Context
 
@@ -94,9 +94,9 @@ Interspect's contribution is not inventing a new algorithm. It's building the di
 
 | Horizon | Timeframe | What Success Looks Like |
 |---------|-----------|------------------------|
-| v1 | 3-6 months | Override rate decreasing, >80% proposal acceptance, <10% canary alert rate, user can debug agent behavior in 10 seconds |
-| v2 | 6-12 months | Eval corpus covers 80% of agent domains, cross-model shadow testing operational, bandit routing outperforming static rules |
-| v3 | 12-24 months | Self-calibrating thresholds, adaptive evidence collection, formal verification of safety invariants |
+| v1 | Phase 1 | Override rate decreasing, >80% proposal acceptance, <10% canary alert rate, user can debug agent behavior in 10 seconds |
+| v2 | Phase 2 | Eval corpus covers 80% of agent domains, cross-model shadow testing operational, bandit routing outperforming static rules |
+| v3 | Phase 3 | Self-calibrating thresholds, adaptive evidence collection, formal verification of safety invariants |
 
 ## What This Is Not
 

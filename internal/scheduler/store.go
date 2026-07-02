@@ -136,6 +136,30 @@ func (s *Store) RecoverPending(ctx context.Context) ([]*SpawnJob, error) {
 	return jobs, nil
 }
 
+// CountByStatus returns a map of status -> count for all jobs.
+func (s *Store) CountByStatus(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT status, COUNT(*) FROM scheduler_jobs GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("store.count-by-status: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var status string
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("store.count-by-status: scan: %w", err)
+		}
+		counts[status] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store.count-by-status: rows: %w", err)
+	}
+	return counts, nil
+}
+
 // Prune deletes completed/failed/cancelled jobs older than the given age.
 func (s *Store) Prune(ctx context.Context, olderThan time.Duration) (int64, error) {
 	cutoff := time.Now().Add(-olderThan).Unix()

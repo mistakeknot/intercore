@@ -71,11 +71,14 @@ func RunDoctor(ctx context.Context, opts DoctorOpts) (*DoctorResult, error) {
 	// Check 6: .git in cache
 	checkGitInCache(result, opts)
 
-	// Check 7: plugin.json schema validation
+	// Check 7: Stale cache versions
+	checkStaleCacheVersions(result, opts)
+
+	// Check 8: plugin.json schema validation
 	checkPluginSchemas(result, opts)
 
-	// Check 8: Undeclared hooks
-	checkUndeclaredHooks(result)
+	// Check 9: Hook declaration correctness
+	checkUndeclaredHooks(result, opts)
 
 	return result, nil
 }
@@ -140,7 +143,23 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 			})
 			if opts.Fix {
 				cachePath := filepath.Join(CacheBase(), name, mktVer)
-				UpdateInstalled(name, mktVer, cachePath)
+				UpdateInstalled(name, mktVer, cachePath, "")
+
+				// Also rebuild cache content from source
+				for _, dir := range result.PluginDirs {
+					p, err := ReadPlugin(dir)
+					if err == nil && p.Name == name {
+						if err := ForceRebuildCache(name, mktVer, dir); err == nil {
+							result.Findings = append(result.Findings, Finding{
+								Severity: "info",
+								Category: "cache",
+								Plugin:   name,
+								Message:  fmt.Sprintf("rebuilt cache from source (v%s)", mktVer),
+							})
+						}
+						break
+					}
+				}
 			}
 		}
 	}
@@ -296,6 +315,42 @@ func checkGitInCache(result *DoctorResult, opts DoctorOpts) {
 	}
 }
 
+func checkStaleCacheVersions(result *DoctorResult, opts DoctorOpts) {
+	entries, err := ListCacheEntries()
+	if err != nil {
+		return
+	}
+
+	staleCount := 0
+	for pluginName, versions := range entries {
+		installedVer := ReadInstalledVersion(pluginName)
+		for _, v := range versions {
+			if !v.IsSymlink && !v.Orphaned && v.Version != installedVer {
+				staleCount++
+			}
+		}
+	}
+
+	if staleCount > 0 {
+		result.Findings = append(result.Findings, Finding{
+			Severity: "warning",
+			Category: "cache",
+			Message:  fmt.Sprintf("%d stale cache version(s) found", staleCount),
+			Fix:      "run: ic publish clean",
+		})
+		if opts.Fix {
+			count, bytes, _ := PruneStaleVersions(1)
+			if count > 0 {
+				result.Findings = append(result.Findings, Finding{
+					Severity: "info",
+					Category: "cache",
+					Message:  fmt.Sprintf("pruned %d stale version(s) (%.1f MB freed)", count, float64(bytes)/1024/1024),
+				})
+			}
+		}
+	}
+}
+
 func checkPluginSchemas(result *DoctorResult, opts DoctorOpts) {
 	allowedKeys := map[string]bool{
 		"name": true, "version": true, "description": true, "author": true,
@@ -367,7 +422,21 @@ func checkPluginSchemas(result *DoctorResult, opts DoctorOpts) {
 	}
 }
 
-func checkUndeclaredHooks(result *DoctorResult) {
+// checkUndeclaredHooks validates hook declarations against Claude Code's auto-loading behavior.
+//
+// Claude Code auto-loads hooks/hooks.json from the standard path. If plugin.json
+// ALSO declares "hooks": "./hooks/hooks.json", hooks get loaded twice, causing
+// a "hook-load-failed" error that blocks the entire plugin.
+//
+// Logic:
+//   - Standard-path hooks on disk + NOT declared → info (correct, auto-loaded)
+//   - Standard-path hooks on disk + declared      → error (duplicate, will break)
+//   - Non-standard hooks declared + exists         → fine
+//   - Non-standard hooks declared + missing        → error
+func checkUndeclaredHooks(result *DoctorResult, opts DoctorOpts) {
+	// Standard paths that Claude Code auto-loads (no declaration needed)
+	standardPaths := []string{"hooks/hooks.json", ".claude-plugin/hooks/hooks.json"}
+
 	for _, dir := range result.PluginDirs {
 		pluginJSON := filepath.Join(dir, ".claude-plugin", "plugin.json")
 		data, err := os.ReadFile(pluginJSON)
@@ -380,34 +449,82 @@ func checkUndeclaredHooks(result *DoctorResult) {
 			continue
 		}
 
-		_, hooksInJSON := raw["hooks"]
-
-		// Check if hooks exist on disk
-		hookPaths := []string{
-			filepath.Join(dir, "hooks", "hooks.json"),
-			filepath.Join(dir, ".claude-plugin", "hooks", "hooks.json"),
+		p, _ := ReadPlugin(dir)
+		name := filepath.Base(dir)
+		if p != nil {
+			name = p.Name
 		}
 
-		hooksOnDisk := false
-		for _, hp := range hookPaths {
-			if _, err := os.Stat(hp); err == nil {
-				hooksOnDisk = true
+		// Get declared hooks path (if any)
+		var declaredPath string
+		if hooksRaw, ok := raw["hooks"]; ok {
+			json.Unmarshal(hooksRaw, &declaredPath)
+		}
+		// Normalize: strip leading ./
+		normDeclared := strings.TrimPrefix(declaredPath, "./")
+
+		// Check which standard paths exist on disk
+		var standardOnDisk string
+		for _, sp := range standardPaths {
+			if _, err := os.Stat(filepath.Join(dir, sp)); err == nil {
+				standardOnDisk = sp
 				break
 			}
 		}
 
-		if hooksOnDisk && !hooksInJSON {
-			p, _ := ReadPlugin(dir)
-			name := filepath.Base(dir)
-			if p != nil {
-				name = p.Name
+		if declaredPath != "" {
+			// Hooks field is declared in plugin.json
+			isStandardPath := false
+			for _, sp := range standardPaths {
+				if normDeclared == sp {
+					isStandardPath = true
+					break
+				}
 			}
+
+			if isStandardPath {
+				// ERROR: declaring a standard path causes duplicate loading
+				result.Findings = append(result.Findings, Finding{
+					Severity: "error",
+					Category: "hooks",
+					Plugin:   name,
+					Message:  fmt.Sprintf("hooks field %q duplicates Claude Code auto-loading — causes hook-load-failed error", declaredPath),
+					Fix:      "remove \"hooks\" key from plugin.json (standard path is auto-loaded)",
+				})
+				if opts.Fix {
+					removed, err := removeJSONKey(pluginJSON, "hooks")
+					if removed && err == nil {
+						result.Findings = append(result.Findings, Finding{
+							Severity: "info",
+							Category: "hooks",
+							Plugin:   name,
+							Message:  "removed duplicate hooks declaration from plugin.json",
+						})
+					}
+					// Rebuild cache to propagate fix
+					if p != nil && p.Version != "" {
+						ForceRebuildCache(name, p.Version, dir)
+					}
+				}
+			} else {
+				// Non-standard path declared — check it exists
+				resolved := filepath.Join(dir, normDeclared)
+				if _, err := os.Stat(resolved); os.IsNotExist(err) {
+					result.Findings = append(result.Findings, Finding{
+						Severity: "error",
+						Category: "hooks",
+						Plugin:   name,
+						Message:  fmt.Sprintf("declared hooks file %q does not exist", declaredPath),
+					})
+				}
+			}
+		} else if standardOnDisk != "" {
+			// No declaration, but standard hooks exist on disk — this is correct
 			result.Findings = append(result.Findings, Finding{
-				Severity: "warning",
+				Severity: "info",
 				Category: "hooks",
 				Plugin:   name,
-				Message:  "hooks found on disk but not declared in plugin.json",
-				Fix:      "add \"hooks\": \"./hooks/hooks.json\" to plugin.json",
+				Message:  fmt.Sprintf("hooks at %s will be auto-loaded (no declaration needed)", standardOnDisk),
 			})
 		}
 	}

@@ -183,6 +183,23 @@ CREATE INDEX idx_interspect_events_agent ON interspect_events(agent_name);
 CREATE INDEX idx_interspect_events_created ON interspect_events(created_at);
 CREATE INDEX idx_interspect_events_run ON interspect_events(run_id) WHERE run_id IS NOT NULL;
 
+-- v24: review events (disagreement resolution pipeline)
+CREATE TABLE review_events (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id            TEXT,
+    finding_id        TEXT NOT NULL,
+    agents_json       TEXT NOT NULL,
+    resolution        TEXT NOT NULL,
+    dismissal_reason  TEXT,
+    chosen_severity   TEXT NOT NULL,
+    impact            TEXT NOT NULL,
+    session_id        TEXT,
+    project_dir       TEXT,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX idx_review_events_finding ON review_events(finding_id);
+CREATE INDEX idx_review_events_created ON review_events(created_at);
+
 -- v9: discovery pipeline
 CREATE TABLE discoveries (
     id              TEXT PRIMARY KEY,
@@ -218,6 +235,20 @@ CREATE TABLE discovery_events (
 );
 CREATE INDEX idx_discovery_events_discovery ON discovery_events(discovery_id);
 CREATE INDEX idx_discovery_events_created ON discovery_events(created_at);
+
+CREATE TABLE intent_events (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    intent_type     TEXT NOT NULL,
+    bead_id         TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    session_id      TEXT NOT NULL,
+    run_id          TEXT,
+    success         INTEGER NOT NULL DEFAULT 0,
+    error_detail    TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX idx_intent_events_bead ON intent_events(bead_id);
+CREATE INDEX idx_intent_events_created ON intent_events(created_at);
 
 CREATE TABLE feedback_signals (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

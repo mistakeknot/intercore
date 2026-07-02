@@ -30,6 +30,30 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
+// eventually polls cond every 10ms until it returns true or timeout elapses.
+// It replaces fixed sleeps used as async-completion barriers: hooks run in a
+// detached goroutine, so the completion condition (output file written, log
+// line emitted) may hold well before or after any fixed delay. Fails the test
+// with msg if the condition is not satisfied within timeout.
+func eventually(t *testing.T, cond func() bool, timeout time.Duration, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		if cond() {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("condition not met within %s: %s", timeout, msg)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// pollTimeout is a generous upper bound for hook-goroutine completion in tests.
+// The production hook timeout is 5s; this matches it so a slow subprocess under
+// concurrent/-race load still completes before the poll gives up.
+const pollTimeout = 5 * time.Second
+
 func TestHookHandler_ExecutesPhaseHook(t *testing.T) {
 	dir := t.TempDir()
 	hookDir := filepath.Join(dir, ".clavain", "hooks")
@@ -58,8 +82,11 @@ func TestHookHandler_ExecutesPhaseHook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Hook runs in a goroutine — wait for completion
-	time.Sleep(200 * time.Millisecond)
+	// Hook runs in a goroutine — poll for the output file to be written.
+	eventually(t, func() bool {
+		info, statErr := os.Stat(outputFile)
+		return statErr == nil && info.Size() > 0
+	}, pollTimeout, "hook output file was not written")
 
 	data, err := os.ReadFile(outputFile)
 	if err != nil {
@@ -117,7 +144,10 @@ func TestHookHandler_FailingHookIsFireAndForget(t *testing.T) {
 		t.Fatalf("hook failure should not return error, got: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Hook runs in a goroutine — poll for the failure log line to be emitted.
+	eventually(t, func() bool {
+		return strings.Contains(buf.String(), "hook failed")
+	}, pollTimeout, "failure log containing 'hook failed' was not emitted")
 
 	logOut := buf.String()
 	if !strings.Contains(logOut, "hook failed") {
@@ -139,7 +169,11 @@ func TestHookHandler_DispatchEvent(t *testing.T) {
 	e := Event{Source: SourceDispatch, Type: "status_change", RunID: "run001"}
 	h(context.Background(), e)
 
-	time.Sleep(200 * time.Millisecond)
+	// Hook runs in a goroutine — poll for the output file to be created.
+	eventually(t, func() bool {
+		_, statErr := os.Stat(outputFile)
+		return statErr == nil
+	}, pollTimeout, "dispatch hook output file was not created")
 
 	if _, err := os.Stat(outputFile); err != nil {
 		t.Fatalf("dispatch hook not executed: %v", err)

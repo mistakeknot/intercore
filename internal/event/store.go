@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/mistakeknot/intercore/pkg/redaction"
 )
 
 // Store provides event read/write operations.
 type Store struct {
-	db *sql.DB
+	db        *sql.DB
+	redactCfg *redaction.Config
 }
 
 // NewStore creates an event store.
@@ -19,8 +22,35 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// SetRedactionConfig enables automatic redaction of user-content fields
+// before persistence. Pass nil to disable.
+func (s *Store) SetRedactionConfig(cfg *redaction.Config) {
+	s.redactCfg = cfg
+}
+
+// redactStr applies redaction to a string if a config is set.
+// Returns the input unchanged if redaction is disabled.
+func (s *Store) redactStr(input string) string {
+	if s.redactCfg == nil || input == "" {
+		return input
+	}
+	output, _ := redaction.Redact(input, *s.redactCfg)
+	return output
+}
+
+// redactStrPtr applies redaction to a *string if a config is set.
+func (s *Store) redactStrPtr(input *string) *string {
+	if s.redactCfg == nil || input == nil || *input == "" {
+		return input
+	}
+	output, _ := redaction.Redact(*input, *s.redactCfg)
+	return &output
+}
+
 // AddDispatchEvent records a dispatch lifecycle event.
 func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromStatus, toStatus, eventType, reason string, envelope *EventEnvelope) error {
+	reason = s.redactStr(reason)
+
 	if envelope == nil {
 		envelope = s.defaultDispatchEnvelope(ctx, dispatchID, runID, fromStatus, toStatus)
 	}
@@ -28,6 +58,7 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 	if err != nil {
 		return fmt.Errorf("add dispatch event: marshal envelope: %w", err)
 	}
+	envelopeJSON = s.redactStrPtr(envelopeJSON)
 
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO dispatch_events (
@@ -62,38 +93,69 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 }
 
 // ListEvents returns unified events for a run, merging phase_events,
-// dispatch_events, coordination_events, and discovery_events, ordered by
-// timestamp. Uses separate per-table cursors to avoid conflating independent
-// AUTOINCREMENT ID spaces.
-func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]Event, error) {
+// dispatch_events, coordination_events, and review_events, ordered by
+// timestamp. Uses per-source sub-limits to prevent high-volume sources
+// from crowding out low-volume ones. Discovery events are excluded
+// (system-level, no run_id column — use ListAllEvents for those).
+//
+// Per-source sub-limits mean each source gets at most ceil(limit/4) rows.
+// Callers debugging a single source should use source-specific query methods.
+// Polling callers must loop until fewer than limit rows are returned to
+// guarantee all events are drained.
+func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceCoordinationID, sinceReviewID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 
-	// Note: discovery_events are system-level (no run_id column) and excluded
-	// from run-scoped queries. Use ListAllEvents for cross-run streams including
-	// discovery events. The sinceDiscoveryID param is accepted but unused here
-	// to keep the signature aligned with ListAllEvents.
+	// Per-source sub-limit guarantees each source gets representation.
+	// 4 sources in run-scoped query (discovery excluded — no run_id column).
+	perSource := perSourceLimit(limit, 4)
+
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
-			COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM phase_events
-		WHERE run_id = ? AND id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, run_id, 'phase' AS source, event_type, from_phase AS from_state, to_phase AS to_state,
+				COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM phase_events
+			WHERE run_id = ? AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
-			from_status, to_status, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM dispatch_events
-		WHERE (run_id = ? OR ? = '') AND id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
+				from_status AS from_state, to_status AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM dispatch_events
+			WHERE (run_id = ? OR ? = '') AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
-			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM coordination_events
-		WHERE (run_id = ? OR ? = '') AND id > 0
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
+				owner AS from_state, pattern AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM coordination_events
+			WHERE (run_id = ? OR ? = '') AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
+		UNION ALL
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
+				finding_id AS from_state, resolution AS to_state, COALESCE(agents_json, '{}') AS reason,
+				'' AS envelope_json, created_at
+			FROM review_events
+			WHERE (run_id = ? OR ? = '') AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
-		runID, sincePhaseID,
-		runID, runID, sinceDispatchID,
-		runID, runID,
+		runID, sincePhaseID, perSource,
+		runID, runID, sinceDispatchID, perSource,
+		runID, runID, sinceCoordinationID, perSource,
+		runID, runID, sinceReviewID, perSource,
 		limit,
 	)
 	if err != nil {
@@ -104,36 +166,73 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 	return scanEvents(rows)
 }
 
-// ListAllEvents returns events across all runs, merging all four event tables.
-func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID int64, limit int) ([]Event, error) {
+// ListAllEvents returns events across all runs, merging all five event tables.
+// Per-source sub-limits ensure each source is represented regardless of volume.
+// Polling callers must loop until fewer than limit rows are returned.
+func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceCoordinationID, sinceReviewID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 
+	perSource := perSourceLimit(limit, 5)
+
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, run_id, 'phase' AS source, event_type, from_phase, to_phase,
-			COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM phase_events
-		WHERE id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, run_id, 'phase' AS source, event_type, from_phase AS from_state, to_phase AS to_state,
+				COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM phase_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
-			from_status, to_status, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM dispatch_events
-		WHERE id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'dispatch' AS source, event_type,
+				from_status AS from_state, to_status AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM dispatch_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		-- discovery_events: discovery_id AS run_id is for column alignment only
-		SELECT id, COALESCE(discovery_id, '') AS run_id, 'discovery' AS source, event_type,
-			from_status, to_status, COALESCE(payload, '{}') AS reason, '' AS envelope_json, created_at
-		FROM discovery_events
-		WHERE id > ?
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(discovery_id, '') AS run_id, 'discovery' AS source, event_type,
+				from_status AS from_state, to_status AS to_state, COALESCE(payload, '{}') AS reason,
+				'' AS envelope_json, created_at
+			FROM discovery_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		UNION ALL
-		SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
-			owner, pattern, COALESCE(reason, '') AS reason, COALESCE(envelope_json, '') AS envelope_json, created_at
-		FROM coordination_events
-		WHERE id > 0
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'coordination' AS source, event_type,
+				owner AS from_state, pattern AS to_state, COALESCE(reason, '') AS reason,
+				COALESCE(envelope_json, '') AS envelope_json, created_at
+			FROM coordination_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
+		UNION ALL
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'review' AS source, 'disagreement_resolved' AS event_type,
+				finding_id AS from_state, resolution AS to_state, COALESCE(agents_json, '{}') AS reason,
+				'' AS envelope_json, created_at
+			FROM review_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
-		sincePhaseID, sinceDispatchID, sinceDiscoveryID, limit,
+		sincePhaseID, perSource,
+		sinceDispatchID, perSource,
+		sinceDiscoveryID, perSource,
+		sinceCoordinationID, perSource,
+		sinceReviewID, perSource,
+		limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list all events: %w", err)
@@ -184,6 +283,8 @@ func (s *Store) MaxDiscoveryEventID(ctx context.Context) (int64, error) {
 
 // AddCoordinationEvent records a coordination lock lifecycle event.
 func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, owner, pattern, scope, reason, runID string, envelope *EventEnvelope) error {
+	reason = s.redactStr(reason)
+
 	if envelope == nil {
 		envelope = defaultCoordinationEnvelope(eventType, lockID, pattern, scope, runID)
 	}
@@ -191,6 +292,7 @@ func (s *Store) AddCoordinationEvent(ctx context.Context, eventType, lockID, own
 	if err != nil {
 		return fmt.Errorf("add coordination event: marshal envelope: %w", err)
 	}
+	envelopeJSON = s.redactStrPtr(envelopeJSON)
 
 	res, err := s.db.ExecContext(ctx, `
 		INSERT INTO coordination_events (
@@ -239,6 +341,9 @@ func (s *Store) MaxCoordinationEventID(ctx context.Context) (int64, error) {
 
 // AddInterspectEvent records a human correction or agent dispatch signal.
 func (s *Store) AddInterspectEvent(ctx context.Context, runID, agentName, eventType, overrideReason, contextJSON, sessionID, projectDir string) (int64, error) {
+	overrideReason = s.redactStr(overrideReason)
+	contextJSON = s.redactStr(contextJSON)
+
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO interspect_events (run_id, agent_name, event_type, override_reason, context_json, session_id, project_dir)
 		VALUES (NULLIF(?, ''), ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''))`,
@@ -317,6 +422,115 @@ func (s *Store) MaxInterspectEventID(ctx context.Context) (int64, error) {
 		return 0, nil
 	}
 	return id.Int64, nil
+}
+
+// AddReviewEvent records a disagreement resolution or execution defect event.
+func (s *Store) AddReviewEvent(ctx context.Context, runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType, sessionID, projectDir string) (int64, error) {
+	agentsJSON = s.redactStr(agentsJSON)
+	resolution = s.redactStr(resolution)
+	dismissalReason = s.redactStr(dismissalReason)
+	impact = s.redactStr(impact)
+
+	if eventType == "" {
+		eventType = "disagreement_resolved"
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO review_events (run_id, finding_id, agents_json, resolution, dismissal_reason, chosen_severity, impact, event_type, session_id, project_dir)
+		VALUES (NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''))`,
+		runID, findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType, sessionID, projectDir,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("add review event: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	// Create replay input (consistent with dispatch/coordination pattern, per PRD F1)
+	if runID != "" {
+		payload := reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType)
+		if err := insertReplayInput(ctx, s.db.ExecContext, runID, "review_event", findingID, payload, "", SourceReview, &id); err != nil {
+			return id, fmt.Errorf("add review event: replay input: %w", err)
+		}
+	}
+
+	return id, nil
+}
+
+// ListReviewEvents returns review events since a cursor position.
+func (s *Store) ListReviewEvents(ctx context.Context, since int64, limit int) ([]ReviewEvent, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(run_id, '') AS run_id, finding_id, agents_json, resolution,
+			COALESCE(dismissal_reason, '') AS dismissal_reason, chosen_severity, impact,
+			COALESCE(event_type, 'disagreement_resolved') AS event_type,
+			COALESCE(session_id, '') AS session_id,
+			COALESCE(project_dir, '') AS project_dir,
+			created_at
+		FROM review_events
+		WHERE id > ?
+		ORDER BY created_at ASC, id ASC
+		LIMIT ?`,
+		since, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list review events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []ReviewEvent
+	for rows.Next() {
+		var e ReviewEvent
+		var ts int64
+		if err := rows.Scan(&e.ID, &e.RunID, &e.FindingID, &e.AgentsJSON, &e.Resolution,
+			&e.DismissalReason, &e.ChosenSeverity, &e.Impact, &e.EventType,
+			&e.SessionID, &e.ProjectDir, &ts); err != nil {
+			return nil, fmt.Errorf("scan review event: %w", err)
+		}
+		e.Timestamp = time.Unix(ts, 0)
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
+// MaxReviewEventID returns the highest review_events.id (for cursor init).
+func (s *Store) MaxReviewEventID(ctx context.Context) (int64, error) {
+	var id sql.NullInt64
+	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM review_events").Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if !id.Valid {
+		return 0, nil
+	}
+	return id.Int64, nil
+}
+
+// AddIntentEvent records an intent submission event for audit trail.
+func (s *Store) AddIntentEvent(ctx context.Context, intentType, beadID, idempotencyKey, sessionID, runID string, success bool, errorDetail string) error {
+	errorDetail = s.redactStr(errorDetail)
+
+	successInt := 0
+	if success {
+		successInt = 1
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO intent_events (
+			intent_type, bead_id, idempotency_key, session_id, run_id, success, error_detail
+		) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''))`,
+		intentType, beadID, idempotencyKey, sessionID, runID, successInt, errorDetail,
+	)
+	if err != nil {
+		return fmt.Errorf("add intent event: %w", err)
+	}
+	return nil
 }
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {
@@ -435,4 +649,13 @@ func statusRef(v string) []string {
 		return nil
 	}
 	return []string{v}
+}
+
+// perSourceLimit computes per-source sub-limit for UNION ALL queries.
+// Each source gets ceil(total / sourceCount) to guarantee representation.
+func perSourceLimit(total, sourceCount int) int {
+	if sourceCount <= 0 {
+		return total
+	}
+	return (total + sourceCount - 1) / sourceCount
 }

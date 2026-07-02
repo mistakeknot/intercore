@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 23
-	maxSchemaVersion     = 23
+	currentSchemaVersion = 35
+	maxSchemaVersion     = 35
 )
 
 var (
@@ -350,6 +350,189 @@ func (d *DB) Migrate(ctx context.Context) error {
 		}
 		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_audit_log_trace ON audit_log(trace_id) WHERE trace_id != ''"); err != nil {
 			return fmt.Errorf("migrate v22→v23 idx_audit_log_trace: %w", err)
+		}
+	}
+
+	// v23 → v24: review events (disagreement resolution pipeline)
+	if currentVersion >= 20 && currentVersion < 24 {
+		v24Stmts := []string{
+			`CREATE TABLE IF NOT EXISTS review_events (
+				id                INTEGER PRIMARY KEY AUTOINCREMENT,
+				run_id            TEXT,
+				finding_id        TEXT NOT NULL,
+				agents_json       TEXT NOT NULL,
+				resolution        TEXT NOT NULL,
+				dismissal_reason  TEXT,
+				chosen_severity   TEXT NOT NULL,
+				impact            TEXT NOT NULL,
+				session_id        TEXT,
+				project_dir       TEXT,
+				created_at        INTEGER NOT NULL DEFAULT (unixepoch())
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_review_events_finding ON review_events(finding_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_review_events_created ON review_events(created_at)`,
+		}
+		for _, stmt := range v24Stmts {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate v23→v24: %w", err)
+			}
+		}
+	}
+
+	// v27 → v28: add event_type column to review_events
+	// Covers both existing v24+ DBs and fresh v20+ DBs where v24 inline migration just ran
+	if currentVersion >= 20 && currentVersion < 28 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE review_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'disagreement_resolved'"); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migrate v27→v28 event_type: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS idx_review_events_type ON review_events(event_type)"); err != nil {
+			return fmt.Errorf("migrate v27→v28 idx: %w", err)
+		}
+	}
+
+	// v32 → v33: authz signing columns + cutover marker.
+	// Covers existing v32 DBs (the authorizations table from v32 is missing
+	// the signing columns; schema.sql's CREATE TABLE IF NOT EXISTS is a
+	// no-op for existing tables). The ALTER TABLEs tolerate duplicate-column
+	// errors for idempotency. Cutover marker uses a fixed ID + INSERT OR
+	// IGNORE so re-running is a no-op.
+	if currentVersion >= 32 && currentVersion < 33 {
+		for _, stmt := range []string{
+			"ALTER TABLE authorizations ADD COLUMN sig_version INTEGER NOT NULL DEFAULT 0",
+			"ALTER TABLE authorizations ADD COLUMN signature   BLOB",
+			"ALTER TABLE authorizations ADD COLUMN signed_at   INTEGER",
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				if !isDuplicateColumnError(err) {
+					return fmt.Errorf("migrate v32→v33: %w", err)
+				}
+			}
+		}
+		if _, err := tx.ExecContext(ctx, "CREATE INDEX IF NOT EXISTS authz_unsigned ON authorizations(sig_version, signed_at) WHERE signature IS NULL AND sig_version >= 1"); err != nil {
+			return fmt.Errorf("migrate v32→v33 index: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO authorizations (
+				id, op_type, target, agent_id, mode, created_at, sig_version
+			) VALUES (
+				'migration-033-cutover-marker',
+				'migration.signing-enabled',
+				'authorizations',
+				'system:migration-033',
+				'auto',
+				CAST(strftime('%s','now') AS INTEGER),
+				1
+			)`); err != nil {
+			return fmt.Errorf("migrate v32→v33 marker: %w", err)
+		}
+	}
+
+	// v33 → v34: authz_tokens table + indexes + cutover marker.
+	// See docs/canon/authz-token-model.md for semantics.
+	// See docs/canon/authz-token-payload.md for the sig_version=2 canonical payload.
+	// CREATE TABLE IF NOT EXISTS is a no-op if the table already exists (fresh DB
+	// via schema.sql path already has it). Cutover marker uses fixed ID + INSERT OR
+	// IGNORE so re-running is a no-op.
+	if currentVersion >= 33 && currentVersion < 34 {
+		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS authz_tokens (
+				id            TEXT PRIMARY KEY,
+				op_type       TEXT NOT NULL,
+				target        TEXT NOT NULL,
+				agent_id      TEXT NOT NULL CHECK(length(trim(agent_id)) > 0),
+				bead_id       TEXT,
+				delegate_to   TEXT,
+				expires_at    INTEGER NOT NULL,
+				consumed_at   INTEGER,
+				revoked_at    INTEGER,
+				issued_by     TEXT NOT NULL,
+				parent_token  TEXT REFERENCES authz_tokens(id) ON DELETE RESTRICT,
+				root_token    TEXT,
+				depth         INTEGER NOT NULL DEFAULT 0 CHECK (depth >= 0 AND depth <= 3),
+				sig_version   INTEGER NOT NULL DEFAULT 2,
+				signature     BLOB NOT NULL,
+				created_at    INTEGER NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_root    ON authz_tokens(root_token, consumed_at, revoked_at)`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_parent  ON authz_tokens(parent_token)`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_expiry  ON authz_tokens(expires_at) WHERE consumed_at IS NULL AND revoked_at IS NULL`,
+			`CREATE INDEX IF NOT EXISTS tokens_by_agent   ON authz_tokens(agent_id, created_at DESC)`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate v33→v34: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO authorizations (
+				id, op_type, target, agent_id, mode, created_at, sig_version
+			) VALUES (
+				'migration-034-tokens-enabled',
+				'migration.tokens-enabled',
+				'authz_tokens',
+				'system:migration-034',
+				'auto',
+				CAST(strftime('%s','now') AS INTEGER),
+				1
+			)`); err != nil {
+			return fmt.Errorf("migrate v33→v34 marker: %w", err)
+		}
+	}
+
+	// v34 → v35: action_receipts table + INSERT-only triggers + cutover marker.
+	// See docs/canon/signed-receipts-v1.md §Storage for the schema rationale.
+	// v1 substrate is SQLite (amended from canon's original "Dolt" language);
+	// v1.1 ports to Dolt for content-addressed row history. DELETE/UPDATE are
+	// blocked by triggers because SQLite has no per-grant DELETE deny.
+	if currentVersion >= 34 && currentVersion < 35 {
+		for _, stmt := range []string{
+			`CREATE TABLE IF NOT EXISTS action_receipts (
+				receipt_id        TEXT PRIMARY KEY,
+				timestamp         TEXT NOT NULL,
+				agent_id          TEXT NOT NULL,
+				model             TEXT NOT NULL,
+				tool_calls_json   TEXT NOT NULL,
+				parent_run_id     TEXT,
+				content_hash      TEXT NOT NULL,
+				schema_version    INTEGER NOT NULL,
+				signature         TEXT NOT NULL,
+				signature_alg     TEXT NOT NULL,
+				key_id            TEXT NOT NULL,
+				signed_at         TEXT NOT NULL,
+				payload_canonical BLOB NOT NULL,
+				inserted_at       INTEGER NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS receipts_by_agent_time ON action_receipts(agent_id, timestamp)`,
+			`CREATE INDEX IF NOT EXISTS receipts_by_parent ON action_receipts(parent_run_id) WHERE parent_run_id IS NOT NULL`,
+			`CREATE TRIGGER IF NOT EXISTS action_receipts_no_delete
+				BEFORE DELETE ON action_receipts
+				BEGIN
+					SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+				END`,
+			`CREATE TRIGGER IF NOT EXISTS action_receipts_no_update
+				BEFORE UPDATE ON action_receipts
+				BEGIN
+					SELECT RAISE(ABORT, 'action_receipts is INSERT-only per docs/canon/signed-receipts-v1.md');
+				END`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("migrate v34→v35: %w", err)
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT OR IGNORE INTO authorizations (
+				id, op_type, target, agent_id, mode, created_at, sig_version
+			) VALUES (
+				'migration-035-receipts-enabled',
+				'migration.receipts-enabled',
+				'action_receipts',
+				'system:migration-035',
+				'auto',
+				CAST(strftime('%s','now') AS INTEGER),
+				1
+			)`); err != nil {
+			return fmt.Errorf("migrate v34→v35 marker: %w", err)
 		}
 	}
 

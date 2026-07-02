@@ -11,8 +11,8 @@ func TestLaneVelocity_RelativeStarvation(t *testing.T) {
 	v := NewVelocityCalculator(store)
 
 	// Create two lanes
-	interopID, _ := store.Create(ctx, "interop", "standing", "")
-	kernelID, _ := store.Create(ctx, "kernel", "standing", "")
+	interopID, _ := store.Create(ctx, "interop", "standing", "", "")
+	kernelID, _ := store.Create(ctx, "kernel", "standing", "", "")
 
 	// interop: 5 open P2 beads, 0 closed
 	store.SnapshotMembers(ctx, interopID, []string{"iv-a1", "iv-a2", "iv-a3", "iv-a4", "iv-a5"})
@@ -63,7 +63,7 @@ func TestLaneVelocity_ThroughputReducesStarvation(t *testing.T) {
 	ctx := context.Background()
 	v := NewVelocityCalculator(store)
 
-	id, _ := store.Create(ctx, "active-lane", "standing", "")
+	id, _ := store.Create(ctx, "active-lane", "standing", "", "")
 	store.SnapshotMembers(ctx, id, []string{"iv-c1", "iv-c2", "iv-c3"})
 
 	// All open, some recently closed (via bead status)
@@ -111,7 +111,7 @@ func TestLaneVelocity_FromDB(t *testing.T) {
 	ctx := context.Background()
 	v := NewVelocityCalculator(store)
 
-	id, _ := store.Create(ctx, "db-lane", "standing", "")
+	id, _ := store.Create(ctx, "db-lane", "standing", "", "")
 	store.SnapshotMembers(ctx, id, []string{"iv-d1", "iv-d2", "iv-d3"})
 
 	scores, err := v.ComputeStarvationFromDB(ctx, 7)

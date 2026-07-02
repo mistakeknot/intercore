@@ -1,213 +1,167 @@
-# AGENTS.md — Intercore
+# AGENTS.md -- Intercore
 
-## Overview
+Kernel layer (Layer 1) of the Demarch autonomous software agency platform. Host-agnostic Go CLI (`ic`) backed by a single SQLite WAL database providing the durable system of record for runs, phases, gates, dispatches, events, token budgets, coordination locks, discovery pipelines, work lanes, scheduling, sessions, routing decisions, landed changes, and replay inputs.
 
-Intercore is the kernel layer (Layer 1) of the Demarch autonomous software agency platform. It is a host-agnostic Go CLI (`ic`) backed by a single SQLite WAL database that provides the durable system of record for runs, phases, gates, dispatches, events, token budgets, coordination locks, discovery pipelines, work lanes, and scheduling. The kernel is mechanism, not policy — it does not know what "brainstorm" means, only that a phase transition happened and needs recording.
+## Canonical References
+1. [`PHILOSOPHY.md`](../../PHILOSOPHY.md) -- direction for ideation and planning decisions.
+2. `CLAUDE.md` -- implementation details, architecture, testing, and release workflow.
 
-In the three-layer architecture, Intercore sits beneath the OS (Clavain, Layer 2) and plugins (Interverse, Layer 3). If the host platform changes, the kernel and all its data survive untouched. Bash hooks and the Clavain sprint pipeline call `ic` for all state operations.
+## Quick Reference
+
+```bash
+go build -o ic ./cmd/ic                    # Build
+go test ./...                              # Unit tests
+bash test-integration.sh                   # Integration tests
+ic init                                    # Create/migrate DB
+ic health                                  # Check DB + schema
+ic version                                 # CLI + schema versions
+```
 
 **Module:** `github.com/mistakeknot/intercore`
 **Location:** `core/intercore/`
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
-**Schema:** v20 (24 tables, `PRAGMA user_version` tracked)
-**CLI version:** 0.3.0
+**Schema:** v30 (31 tables, `PRAGMA user_version` tracked)
+**CLI version:** 0.3.2
 
-## Architecture
-
-```
-cmd/ic/          CLI entry point + 15 subcommand files (run, dispatch, gate, lock, events, coordination, scheduler, lane, discovery, portfolio, cost, interspect, agency, action, config)
-internal/        22 packages — key ones: db/, state/, dispatch/, phase/, event/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, audit/, redaction/
-lib-intercore.sh Bash wrappers for hooks (45 functions)
-```
-
-## CLI Commands
-
-### Core
+## Directory Layout
 
 ```
-ic init                                    Create/migrate the database
-ic health                                  Check DB readable, schema current, disk space
-ic version                                 Print CLI and schema versions
-ic compat status                           Show legacy temp file vs DB coverage
-ic compat check <key>                      Check if key has data in DB
+cmd/ic/          CLI entry point + 21 subcommand files
+internal/        28 packages (see Modules section)
+pkg/             2 packages: contract/, redaction/
+contracts/       JSON Schema contract registry + codegen (cli/, events/, overrides/)
+config/          costs.yaml (model pricing)
+scripts/         validate-gitleaks-waivers.sh
+agents/          Topic guide markdown files
+lib-intercore.sh Bash wrappers for hooks (44 functions)
 ```
 
-### State & Sentinels
+## Topic Guides
 
-```
-ic state set <key> <scope> [--ttl=<dur>]   Write JSON (stdin or @filepath)
-ic state get <key> <scope>                 Read JSON (exit 0=found, 1=not found)
-ic state delete <key> <scope>              Remove a state entry
-ic state list <key>                        List scope_ids for a key
-ic state prune                             Remove expired state entries
-ic sentinel check <name> <scope> --interval=<sec>   Atomic claim (exit 0=allowed, 1=throttled)
-ic sentinel reset <name> <scope>           Clear a sentinel
-ic sentinel list                           List all sentinels
-ic sentinel prune --older-than=<dur>       Remove old sentinels
-```
+| Topic | File | Covers |
+|-------|------|--------|
+| CLI Reference | [agents/cli-reference.md](agents/cli-reference.md) | All `ic` commands, flags, exit codes, publish pipeline |
+| Modules | [agents/modules.md](agents/modules.md) | Dispatch, Phase, Gate, Event, Coordination, Scheduler, Lane, Discovery, Cost, Portfolio, Lock, supporting libraries |
+| Architecture | [agents/architecture.md](agents/architecture.md) | Security model, SQLite patterns, schema upgrade |
+| Bash Wrappers | [agents/bash-wrappers.md](agents/bash-wrappers.md) | lib-intercore.sh (44 functions) |
+| Testing & Recovery | [agents/testing.md](agents/testing.md) | Test suites, DB corruption, stuck locks, schema mismatch |
 
-### Dispatch
+## Modules
 
-```
-ic dispatch spawn [flags]                  Spawn an agent dispatch (prints ID)
-ic dispatch status <id>                    Show dispatch details
-ic dispatch list [--active] [--scope=<s>]  List dispatches
-ic dispatch poll <id>                      Check liveness, update stats
-ic dispatch wait <id> [--timeout=<dur>]    Block until terminal or timeout
-ic dispatch kill <id>                      SIGTERM then SIGKILL a dispatch
-ic dispatch tokens <id> --set --in=N --out=N [--cache=N]   Update token counts
-ic dispatch prune --older-than=<dur>       Remove old terminal dispatches
-```
+28 internal packages organized by domain:
 
-### Run
+### Core Infrastructure
 
-```
-ic run create --project=<dir> --goal=<text> [--complexity=N] [--scope-id=S] [--phases='[...]'] [--token-budget=N] [--budget-warn-pct=N] [--budget-enforce] [--max-agents=N] [--actions='{}']
-ic run status <id>                         Show run details
-ic run advance <id> [--priority=N] [--disable-gates] [--skip-reason=S]
-ic run phase <id>                          Print current phase (scripting)
-ic run list [--active] [--scope=S] [--portfolio]  List runs
-ic run events <id>                         Phase event audit trail
-ic run cancel <id>                         Cancel a run
-ic run current [--project=<dir>]           Print active run ID for project
-ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N]
-ic run skip <id> <phase> [--reason=<text>] [--actor=<name>]   Pre-skip a phase
-ic run rollback <id> --to-phase=<phase> --reason=<text> [--dry-run]   Workflow rollback
-ic run rollback <id> --layer=code [--phase=<p>] [--format=json|text]  Code rollback metadata
-ic run tokens <id> [--project=<dir>] [--json]   Token aggregation across dispatches
-ic run budget <id> [--json]                Check budget thresholds (exit 1=exceeded)
-ic run agent add <run> --type=<t> [--name=<n>] [--dispatch-id=<id>]
-ic run agent list <run>                    List agents for a run
-ic run agent update <id> --status=<s>      Update agent status (active|completed|failed)
-ic run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
-ic run artifact list <run> [--phase=<p>]   List artifacts for a run
-ic run action add <run> --phase=<p> --command=<cmd> [--args=<json>] [--mode=<m>] [--type=<t>] [--priority=N]
-ic run action list <run> [--phase=<p>]     List actions for a run
-ic run action update <run> --phase=<p> --command=<cmd> [--args=<json>]
-ic run action delete <run> --phase=<p> --command=<cmd>
-```
+**db** -- SQLite database management. Embeds `schema.sql` (31 tables), handles WAL mode, PRAGMAs, `SetMaxOpenConns(1)`, auto-backup before migration, `PRAGMA user_version` tracking. 15 incremental migration files (v16-v30) in `internal/db/migrations/`.
 
-### Gate
+**state** -- Key-value state store with optional TTL. Used by event cursors, budget state, and coordination metadata.
 
-```
-ic gate check <run_id> [--priority=N]      Dry-run gate evaluation (exit 0=pass, 1=fail)
-ic gate override <run_id> --reason=<text>  Force-advance past a failed gate
-ic gate rules [--phase=<p>]                Display gate rules table
-```
+**sentinel** -- Idempotency/rate-limiting via atomic claim-or-throttle. Prune support for old entries.
 
-### Lock (filesystem-only, no SQLite)
+**observability** -- Distributed trace context propagation via `IC_TRACE_ID`, `IC_SPAN_ID`, `IC_PARENT_SPAN_ID` environment variables. Generates OTel-compatible 128-bit trace IDs and 64-bit span IDs. Provides `slog.JSONHandler` that auto-injects trace attributes.
 
-```
-ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<id>]
-ic lock release <name> <scope> [--owner=<id>]
-ic lock list                               List all held locks
-ic lock stale [--older-than=<dur>]         List stale locks
-ic lock clean [--older-than=<dur>]         Remove stale locks (PID-liveness check)
-```
+### Run Lifecycle
 
-### Events
+**phase** -- Run lifecycle state machine with optimistic concurrency (`WHERE phase = ?`). Default chain: `brainstorm -> brainstorm-reviewed -> strategized -> planned -> executing -> review -> polish -> reflect -> done`. Custom chains via `--phases`. Phase skip, rollback, gate evaluation, and evidence tracking.
 
-```
-ic events tail <run_id> [--consumer=<name>] [--follow] [--since-phase=N] [--since-dispatch=N] [--limit=N] [--poll-interval=<dur>]
-ic events tail --all [flags]               Tail events across all runs
-ic events cursor list                      List consumer cursors
-ic events cursor reset <consumer>          Reset a consumer cursor
-```
+**runtrack** -- Run agent tracking, artifact tracking, and code rollback metadata. Tables: `run_agents`, `run_artifacts`.
 
-### Coordination (SQLite-backed, v20)
+**action** -- Phase action registry. CRUD for per-phase commands with template variable resolution and batch operations.
 
-```
-ic coordination reserve --owner=<o> --scope=<s> --pattern=<p> [--type=file_reservation|named_lock|write_set] [--ttl=<sec>] [--exclusive] [--reason=<text>] [--dispatch=<id>] [--run=<id>]
-ic coordination release <id>               Release by lock ID
-ic coordination release --owner=<o> --scope=<s>   Release by owner+scope
-ic coordination check --scope=<s> --pattern=<p> [--exclude-owner=<o>]   Check for conflicts (exit 0=clear, 1=conflict)
-ic coordination list [--scope=<s>] [--owner=<o>] [--type=<t>] [--active]
-ic coordination sweep                      Expire TTL-based locks
-ic coordination transfer <id> --to=<new-owner>   Transfer lock ownership
-```
+**lifecycle** -- Agent state machine: `waiting -> generating -> thinking -> idle -> stalled -> error -> completed`. Stall detection via configurable velocity thresholds (tokens-per-minute).
 
-### Scheduler (v19)
+### Dispatch & Coordination
 
-```
-ic scheduler submit --prompt-file=<f> --project=<dir> [--type=codex] [--session=<name>] [--name=<label>] [--priority=N]
-ic scheduler status <job-id>               Check job status
-ic scheduler stats                         Queue stats by status
-ic scheduler list [--status=pending]       List jobs
-ic scheduler cancel <job-id>               Cancel a job
-ic scheduler pause                         Pause processing
-ic scheduler resume                        Resume processing
-ic scheduler prune --older-than=<dur>      Clean completed jobs
-```
+**dispatch** -- Agent dispatch lifecycle tracking in SQLite. Lifecycle: `spawned -> running -> completed | failed | timeout | cancelled`. Spawn policy (budget, concurrency, agent cap, spawn depth), write-set conflict detection, merge intents (transactional outbox pattern).
 
-### Lane (v13)
+**coordination** -- Unified SQLite-backed coordination locks replacing filesystem locks for multi-agent file coordination. Three types: `file_reservation`, `named_lock`, `write_set`. NFA-based glob overlap detection with DoS guards (50-token, 10-wildcard limits). TTL-based expiration, event emission.
 
-```
-ic lane create --name=<n> [--type=standing|arc] [--description=<d>]
-ic lane list [--active] [--status=<s>]     List lanes
-ic lane status <id-or-name>                Show lane details + members
-ic lane close <id-or-name>                 Close a lane
-ic lane events <id-or-name>                Lane event history
-ic lane sync <id-or-name>                  Sync lane membership
-ic lane members <id-or-name>               List bead members
-ic lane velocity [--window=<days>]         Compute starvation/throughput scores
-```
+**lock** -- Process-level mutual exclusion using POSIX `mkdir` atomicity. Entirely filesystem-based, no SQLite. Layout: `/tmp/intercore/locks/<name>/<scope>/owner.json`. PID-liveness stale detection.
 
-### Discovery (v9)
+**scheduler** -- Fair spawn scheduler with priority queue (0=critical, 4=backlog), per-agent rate limiting, per-agent concurrency caps, exponential backoff, session-based fair scheduling, pause/resume. Table: `scheduler_jobs` (v19).
 
-```
-ic discovery submit --source=<s> --source-id=<id> --title=<t> [--score=<0-1>] [--summary=<s>] [--url=<u>] [--metadata=@<file>] [--embedding=@<file>]
-ic discovery status <id> [--json]
-ic discovery list [--source=<s>] [--status=<s>] [--tier=<t>] [--limit=N]
-ic discovery score <id> --score=<0.0-1.0>
-ic discovery promote <id> --bead-id=<bid> [--force]
-ic discovery dismiss <id>
-ic discovery feedback <id> --signal=<type> [--data=@<file>] [--actor=<name>]
-ic discovery profile [--json]
-ic discovery profile update --keyword-weights=<json> --source-weights=<json>
-ic discovery decay --rate=<0.0-1.0> [--min-age=<sec>]
-ic discovery rollback --source=<s> --since=<unix-ts>
-ic discovery search --embedding=@<file> [--source=<s>] [--min-score=<f>] [--limit=N]
-```
+### Events & Audit
 
-### Cost
+**event** -- Reactive event bus with 5 source types (`phase`, `dispatch`, `interspect`, `discovery`, `coordination`). In-process `Notifier` with callback-based wiring. Handlers: LogHandler (stderr), HookHandler (async shell hooks, 5s timeout), SpawnHandler (auto-spawn on executing phase). Dual cursors for independent phase/dispatch sequences. Additional tables: `dispatch_events`, `interspect_events`, `review_events`, `intent_events`.
 
-```
-ic cost reconcile <run_id> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
-ic cost list <run_id> [--limit=N]
-```
+**audit** -- Tamper-evident audit trail with SHA-256 hash chain. Per-session sequence numbers detect deletion gaps. Auto-redacts sensitive values before persistence. Table: `audit_log` (v15).
 
-### Interspect
+### Budget & Cost
 
-```
-ic interspect record --agent=<name> --type=<type> [--run=<id>] [--reason=<text>] [--context=<json>] [--session=<id>] [--project=<dir>]
-ic interspect query [--agent=<name>] [--since=<id>] [--limit=N]
-```
+**budget** -- Token budget enforcement. Warning thresholds, exceeded checks, composition/meet semantics, reconciliation against billing API data.
 
-### Portfolio
+**cost** -- Cost reconciliation: compares billing API data against self-reported dispatch token counts. Discrepancies emit events. Table: `cost_reconciliations` (v17).
 
-```
-ic run create --projects=<p1>,<p2> --goal=<text> [--max-dispatches=N]
-ic portfolio dep add <id> --upstream=<path> --downstream=<path>
-ic portfolio dep list <id>
-ic portfolio dep remove <id> --upstream=<path> --downstream=<path>
-ic portfolio relay <id> [--interval=2s]
-ic portfolio order <id>                    Topological build order (deterministic)
-ic portfolio status <id>                   Per-child readiness with blocked-by details
-```
+### Discovery & Scoring
 
-### Config & Agency
+**discovery** -- Research discovery tracking. Lifecycle: `new -> scored -> promoted | proposed | dismissed`. Confidence tiers (high>=0.8, medium>=0.5, low>=0.3, discard<0.3). Source dedup, relevance decay, semantic search via embeddings (BLOB), feedback signals, interest profiles. Tables: `discoveries` (v9), `discovery_events`, `feedback_signals`, `interest_profile`.
 
-```
-ic config set <key> <value>                Set kernel config (global_max_dispatches, max_spawn_depth)
-ic config get <key>                        Get kernel config value
-ic config list [--verbose]                 List all kernel config values
-ic agency load <stage|all> --run=<id> --spec-dir=<path>
-ic agency validate <file> | --all --spec-dir=<path>
-ic agency show <stage> --spec-dir=<path>
-ic agency capabilities <run-id>
-```
+**scoring** -- Multi-factor assignment scoring for (agent, task) pairs. Factors: base priority, agent type bonus, profile tag affinity, file focus overlap, context exhaustion penalty, file reservation conflict penalty.
 
-### Exit Codes
+### Portfolio & Lanes
+
+**portfolio** -- Cross-project coordination through parent/child run hierarchies. Dependency graph with cycle detection (DFS). Deterministic topological build order (Kahn's algorithm, lexicographic tie-breaking). Event relay from child project databases (read-only `DBPool`). Gates: `children_at_phase`, `upstreams_at_phase`.
+
+**lane** -- Thematic work lanes for organizing beads by theme. Types: `standing` (permanent) and `arc` (temporary). Velocity scoring: starvation and throughput per lane based on bead membership within a sliding window. Tables: `lanes` (v13), `lane_events`, `lane_members`.
+
+### Sessions & Routing
+
+**session** -- Agent session registration and attribution tracking. Tracks session lifecycle (start/end), token accumulation (additive updates per turn), and point-in-time attribution changes (bead, run, phase). Tables: `sessions`, `session_attributions` (v26, v30).
+
+**routing** -- Cost-aware capability matching for model/agent selection. Unified routing logic replacing `lib-routing.sh` + `agent-roles.yaml` + `interserve classify`. Hierarchical resolution: per-agent override > phase-category > phase-model > default-category > default-model > "sonnet" fallback. Safety floor clamping from `agent-roles.yaml`. Dispatch tier resolution with 3-hop fallback chain. Batch resolution with category inference from agent name patterns. Routing decisions persisted for audit. Cost table: effective cost formula `input_per_mtok + 15 * output_per_mtok`. Tables: `routing_decisions` (v27).
+
+### Landed Changes & Replay
+
+**landed** -- Tracks commits that reached the trunk branch. Links commits to dispatches, runs, beads, sessions, and merge intents. Revert tracking. Summary aggregation by bead and run. Table: `landed_changes` (v25).
+
+**replay** -- Deterministic replay infrastructure. Records nondeterministic inputs (e.g., LLM responses, external API results) associated with runs. `BuildTimeline` reconstructs phase/dispatch decisions and links them to recorded inputs for reproducibility analysis. Table: `run_replay_inputs` (v22).
+
+### Agency & Handoff
+
+**agency** -- YAML-based agency spec loading and validation. Validates stage names, phases, duplicate agents. Multi-stage loading for run initialization.
+
+**handoff** -- Structured session handoff format (~400 tokens). Required fields: `Goal` (what was accomplished), `Now` (what to do next). Statuses: complete, partial, blocked.
+
+### Supporting
+
+**observation** -- Unified system observation via `Collector`. Aggregates state from phase, dispatch, event, and scheduler stores into a `Snapshot` (runs, dispatches, events, queue depth, budget). Used by `ic situation snapshot`.
+
+**publish** -- Plugin publish pipeline. Phases: discovery -> validation -> bump -> commit plugin -> push plugin -> update marketplace -> sync local -> sync agent-rig.json -> done. Crash recovery via SQLite-tracked phase progress.
+
+## Contracts
+
+The `contracts/` package provides a JSON Schema contract registry for `ic` CLI output types. Schemas are generated via `go generate ./contracts/...` and written to `contracts/cli/` (24 schemas) and `contracts/events/` (4 schemas). This enables downstream consumers to validate `ic` JSON output without importing Go types.
+
+Registered contract types cover: coordination, dispatch, phase/run, runtrack, scheduler, lane, discovery, and events.
+
+## CLI Commands (Summary)
+
+21 subcommand files covering:
+
+| Domain | Commands |
+|--------|----------|
+| Core | `init`, `health`, `version`, `compat` |
+| State/Sentinel | `state set/get/delete/list/prune`, `sentinel check/reset/list/prune` |
+| Run | `run create/status/advance/phase/list/events/cancel/current/set/skip/rollback/tokens/budget/agent/artifact/action` |
+| Dispatch | `dispatch spawn/status/list/poll/wait/kill/tokens/prune` |
+| Gate | `gate check/override/rules` |
+| Lock | `lock acquire/release/list/stale/clean` |
+| Events | `events tail/record/cursor` |
+| Coordination | `coordination reserve/release/check/list/sweep/transfer` |
+| Scheduler | `scheduler submit/status/stats/list/cancel/pause/resume/prune` |
+| Lane | `lane create/list/status/close/events/sync/members/velocity` |
+| Discovery | `discovery submit/status/list/score/promote/dismiss/feedback/profile/decay/rollback/search` |
+| Cost | `cost reconcile/list` |
+| Interspect | `interspect record/query` |
+| Portfolio | `portfolio dep/relay/order/status` |
+| Situation | `situation snapshot` |
+| Config/Agency | `config set/get/list`, `agency load/validate/show/capabilities` |
+| Publish | `publish <version>/--patch/--minor/--auto/--dry-run/init/status/doctor/clean` |
+| Route | `route model/batch/dispatch/table/record/list` |
+| Landed | `landed record/list/revert/summary` |
+| Session | `session start/attribute/end/current/list/tokens` |
+
+## Exit Codes
 
 | Code | Meaning | Example |
 |------|---------|---------|
@@ -216,243 +170,31 @@ ic agency capabilities <run-id>
 | 2 | Unexpected error | Invalid JSON, DB corruption |
 | 3 | Usage error | Missing required argument |
 
-### Global Flags
-
-- `--db=<path>` — Database path (default: `.clavain/intercore.db`, auto-discovered)
-- `--timeout=<dur>` — SQLite busy timeout (default: 100ms)
-- `--verbose` — Verbose output
-- `--json` — JSON output (must appear before subcommand)
-
-## Dispatch Module
-
-Tracks agent dispatch lifecycle in SQLite. Go owns lifecycle tracking; `dispatch.sh` remains the execution engine.
-
-**Lifecycle:** `spawned -> running -> completed | failed | timeout | cancelled`
-
-**Spawn policy** (`dispatch/policy.go`) — checked before every `dispatch spawn`:
-- Budget enforcement (if `budget_enforce=true`)
-- Per-run concurrency (active dispatches vs `max_dispatches`)
-- Global concurrency (all active dispatches vs `kernel.global_max_dispatches`)
-- Agent cap (lifetime dispatches vs `max_agents`)
-- Spawn depth (nested depth vs `kernel.max_spawn_depth`)
-
-**Write-set conflict detection** (`dispatch/conflict.go`) — at merge time, detects file-level conflicts between concurrent dispatches.
-
-**Merge intents** (`dispatch/intent.go`) — transactional outbox pattern for SQLite+git coordination.
-
-## Phase Module
-
-Implements a run lifecycle state machine. Intercore owns phase transitions instead of relying on LLM prompt instructions.
-
-**Default chain:** `brainstorm -> brainstorm-reviewed -> strategized -> planned -> executing -> review -> polish -> reflect -> done`
-
-Custom chains via `--phases='["a","b","c"]'` (min 2 phases, no duplicates, last is terminal).
-
-**Phase skip:** `ic run skip` pre-marks phases. `Advance()` automatically walks past skipped phases.
-
-**Optimistic concurrency:** `UpdatePhase` uses `WHERE phase = ?`. Concurrent `ic run advance` calls get `ErrStalePhase` instead of double-advancing.
-
-## Gate System
-
-Gates enforce conditions before phase transitions. Defined in `gateRules` (`internal/phase/gate.go`).
-
-**Checks:** `artifact_exists`, `agents_complete`, `verdict_exists`, `children_at_phase` (portfolio), `upstreams_at_phase` (child runs with deps), `budget_not_exceeded` (when `budget_enforce=true`).
-
-**Gate tiers** (set by `--priority`): 0-1 = Hard (block), 2-3 = Soft (warn), 4+ = None (skip).
-
-**Evidence:** Every evaluation produces `GateEvidence` with per-condition results (JSON in event `reason` field).
-
-**Interfaces:** `RuntrackQuerier`, `VerdictQuerier`, `PortfolioQuerier`, `DepQuerier` prevent cross-package coupling.
-
-## Event Bus Module
-
-Reactive notification of state changes across 5 source types. In-process `Notifier` with callback-based wiring.
-
-**Sources:** `phase`, `dispatch`, `interspect`, `discovery`, `coordination`
-
-**Flow:** State change -> callback (after DB commit) -> `Notifier.Notify()` -> handlers. Handler errors logged but never fail the parent operation.
-
-**Handlers:**
-
-| Handler | Behavior |
-|---------|----------|
-| LogHandler | Logs events to stderr (quiet mode suppresses) |
-| HookHandler | Executes `.clavain/hooks/on-event.sh` async (goroutine, 5s timeout) |
-| SpawnHandler | Auto-spawns agents on phase transition to "executing" |
-
-**Dual cursors:** `ic events tail` tracks separate high-water marks for phase and dispatch events (independent AUTOINCREMENT sequences). Cursors stored in `state` table with 24h TTL.
-
-## Coordination Module
-
-Unified SQLite-backed coordination locks replacing the filesystem lock module for multi-agent file coordination. Three lock types: `file_reservation`, `named_lock`, `write_set`.
-
-**Glob overlap detection:** NFA-based pattern matching (copied from Intermute to avoid L1-to-L1 coupling). `ValidateComplexity` rejects patterns with >50 tokens or >10 wildcards (DoS guard).
-
-**Reserve behavior:** `BEGIN IMMEDIATE` transaction, conflict check against active locks in same scope via glob overlap, TTL-based expiration. Returns `ReserveResult` with either the lock or `ConflictInfo`.
-
-**Event emission:** Fires `coordination.acquired`, `.released`, `.conflict`, `.expired`, `.transferred` events after DB commit. Events stored in `coordination_events` table.
-
-## Scheduler Module
-
-Fair spawn scheduler that serializes and paces all agent dispatches to prevent resource exhaustion and rate limit errors.
-
-**Features:** Priority queue (0=critical, 4=backlog), per-agent rate limiting, per-agent concurrency caps, exponential backoff for resource errors, session-based fair scheduling, pause/resume.
-
-**Integration:** `ic dispatch spawn --scheduled` creates a scheduler job instead of direct execution. The scheduler dequeues and executes spawns at a controlled pace.
-
-**Tables:** `scheduler_jobs` (v19) — status lifecycle: `pending -> running -> completed | failed | cancelled`.
-
-## Lane Module
-
-Thematic work lanes for organizing beads (work items) by theme. Two types: `standing` (permanent, e.g., "tech-debt") and `arc` (temporary, e.g., "q1-launch").
-
-**Velocity scoring:** `VelocityCalculator` computes starvation and throughput per lane based on bead membership and closure events within a sliding window. Higher starvation score = lane needs attention.
-
-**Tables:** `lanes` (v13), `lane_events`, `lane_members`.
-
-## Discovery Pipeline
-
-Research discovery tracking from submission through scoring, promotion, and decay.
-
-**Lifecycle:** `new -> scored -> promoted | proposed | dismissed`
-
-**Confidence tiers:** high (>=0.8), medium (>=0.5), low (>=0.3), discard (<0.3).
-
-**Features:** Source dedup (UNIQUE on source+source_id), relevance decay over time, semantic search via embeddings (BLOB), feedback signals (boost/penalize/promote/dismiss), interest profile for personalized scoring.
-
-**Tables:** `discoveries` (v9), `discovery_events`, `feedback_signals`, `interest_profile`.
-
-## Cost Reconciliation
-
-Compares billing API data against self-reported dispatch token counts. Exit 0 = tokens match, exit 1 = discrepancy found. Discrepancies emit `cost.reconciliation_discrepancy` events.
-
-**Table:** `cost_reconciliations` (v17).
-
-## Supporting Libraries
-
-**audit** — Tamper-evident audit trail with SHA-256 hash chain. Each entry includes `prev_hash` of previous entry. Per-session sequence numbers detect deletion gaps. Auto-redacts sensitive values before persistence. Table: `audit_log` (v15).
-
-**redaction** — Scans strings for sensitive patterns (API keys, tokens, secrets). Four modes: `off`, `warn` (report only), `redact` (replace with placeholders), `block` (set Blocked flag). Category-based allowlists.
-
-**scoring** — Multi-factor assignment scoring for (agent, task) pairs. Factors: base priority, agent type bonus, profile tag affinity, file focus overlap, context exhaustion penalty, file reservation conflict penalty.
-
-**lifecycle** — Agent state machine: `waiting -> generating -> thinking -> idle -> stalled -> error -> completed`. Stall detection via configurable velocity thresholds (tokens-per-minute).
-
-**handoff** — Structured session handoff format (~400 tokens). Required fields: `Goal` (what was accomplished), `Now` (what to do next). Statuses: complete, partial, blocked.
-
-## Portfolio Orchestration
-
-Cross-project coordination through parent/child run hierarchies.
-
-**Portfolio runs:** Created with `ic run create --projects=p1,p2`. Children linked via `parent_run_id`. Cancellation cascades to all active children.
-
-**Dependencies:** `project_deps` table with cycle detection (DFS + transactional add). `ic portfolio order` computes deterministic topological build order (Kahn's algorithm, lexicographic tie-breaking).
-
-**Event relay:** `ic portfolio relay` polls child project databases (read-only via `DBPool`), relays phase events as `child_advanced`/`child_blocked`/`child_cancelled`/`child_rolledback`/`upstream_changed`. Dispatch count written to state table.
-
-**Gates:** `children_at_phase` blocks portfolio advancement until all active children have reached the target phase. `upstreams_at_phase` blocks child advancement until upstream deps have reached the phase. Terminal runs (completed/cancelled/failed) do not block.
-
-## Lock Module
-
-Process-level mutual exclusion using POSIX `mkdir` atomicity — entirely filesystem-based, no SQLite.
-
-**Layout:** `/tmp/intercore/locks/<name>/<scope>/owner.json`
-
-**Acquire:** Atomic `os.Mkdir` -> spin-wait with 100ms sleep -> stale detection (5s default) -> stale-break (sequential remove, not `os.RemoveAll`).
-
-**Clean:** `syscall.Kill(pid, 0)` liveness check. `nil`/`EPERM` = alive (skip), `ESRCH` = gone (remove).
-
-## Security
-
-### Path Traversal Protection
-
-The `--db` flag is validated: must end in `.db`, no `..` components, must resolve under CWD, parent directory must not be a symlink.
-
-### JSON Payload Validation
-
-Max 1MB size, 20 levels nesting, 1000-char keys, 100KB string values, 10000-element arrays.
-
-### Lock Input Validation
-
-Name and scope components reject `/`, `\`, `..`, empty, `.`. Resolved path must remain under `BaseDir`.
-
-## SQLite Patterns
-
-- `SetMaxOpenConns(1)` — single writer for WAL mode correctness
-- PRAGMAs set explicitly after `sql.Open` (DSN `_pragma` unreliable with modernc driver)
-- `busy_timeout` set to prevent immediate `SQLITE_BUSY`
-- `modernc.org/sqlite` does NOT support CTE + UPDATE RETURNING — use direct `UPDATE ... RETURNING`
-- Transaction isolation varies by operation (see `internal/` package docs for specifics)
-- Pre-migration backup created automatically (`.backup-YYYYMMDD-HHMMSS`)
-- Schema version inside transaction prevents TOCTOU
-- `CREATE TABLE IF NOT EXISTS` makes migration idempotent
-
-### Deployment: Schema Upgrade
-
-```bash
-go build -o /home/mk/go/bin/ic ./cmd/ic   # Rebuild (schema is //go:embed'd)
-ic init                                     # Migrate live DB (creates backup)
-ic version                                  # Verify schema version
-```
-
-## Bash Wrappers (lib-intercore.sh)
-
-45 wrapper functions for use from bash hooks and scripts. Key groups:
-
-**State/Sentinel:** `intercore_available`, `intercore_state_set/get`, `intercore_sentinel_check/reset`, `intercore_check_or_die`, `intercore_cleanup_stale`
-
-**Dispatch:** `intercore_dispatch_spawn/status/wait/list_active/kill/tokens`
-
-**Run:** `intercore_run_current/phase/advance/skip/tokens/budget`, `intercore_run_agent_add`, `intercore_run_artifact_add`, `intercore_run_rollback/rollback_dry/code_rollback`
-
-**Actions:** `intercore_run_action_add/list/update/delete`
-
-**Gates:** `intercore_gate_check/override`
-
-**Locks:** `intercore_lock_available/lock/unlock/lock_clean`
-
-**Events:** `intercore_events_tail/tail_all/cursor_get/cursor_set/cursor_reset`
-
-**Agency:** `intercore_agency_load/validate`
+## Global Flags
+
+- `--db=<path>` -- Database path (default: `.clavain/intercore.db`, auto-discovered)
+- `--timeout=<dur>` -- SQLite busy timeout (default: 5s)
+- `--verbose` -- Verbose output (slog info level)
+- `--vv` -- Debug-level verbose output
+- `--json` -- JSON output (must appear before subcommand)
 
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~529 test functions across 23 packages)
+go test ./...                    # Unit tests (~687 test functions across 28 packages)
 go test -race ./...              # Race detector
 bash test-integration.sh         # Full CLI integration test (1320-line bash suite)
 ```
 
-## Recovery Procedures
+## Decay Policy
 
-### DB Corruption
-```bash
-ic health                        # Diagnose
-cp .clavain/intercore.db.backup-* .clavain/intercore.db  # Restore latest backup
-ic health                        # Verify
-```
+Operational state (C1) follows intermem's decay model adapted for kernel data:
 
-### Schema Mismatch
-```bash
-ic version                       # Shows "schema: v<N>"
-# If binary too old: upgrade intercore binary
-# If DB too old: ic init (auto-migrates)
-```
+| Data type | Grace period | TTL | Hysteresis | Action |
+|-----------|-------------|-----|------------|--------|
+| Completed runs | 30 days | 30d from completion | N/A | Pruned from active queries (retained in DB for audit) |
+| Coordination locks | Per-lock TTL | Lock-specific (default 60s) | N/A | Auto-released at expiry |
+| Dispatch records | 30 days | 30d from completion | N/A | Excluded from cost aggregation |
+| Event stream | 90 days | 90d retention | N/A | Old events excluded from reactor processing |
 
-### Sentinel Stuck After Crash
-```bash
-ic sentinel reset <name> <scope_id>
-```
-
-### Lock Stuck After Crash
-```bash
-ic lock stale --older-than=5s
-ic lock clean --older-than=5s    # Checks PID liveness before removal
-```
-
-### Coordination Lock Stuck
-```bash
-ic coordination list --active
-ic coordination sweep            # Expire TTL-based locks
-ic coordination release <id>     # Manual release
-```
+**Standard pattern:** Grace period -> TTL expiry -> no hysteresis (kernel state is operational, not knowledge). Intercore uses TTL-based cleanup rather than confidence decay because C1 data has a clear "done" state -- completed runs don't gradually lose relevance, they become irrelevant after their monitoring window closes. Sentinel auto-prune runs synchronously in the same transaction as new writes.

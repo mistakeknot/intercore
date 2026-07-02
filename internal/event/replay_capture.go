@@ -59,6 +59,25 @@ func dispatchReplayPayload(dispatchID, fromStatus, toStatus, eventType, reason s
 	return string(b)
 }
 
+func reviewReplayPayload(findingID, agentsJSON, resolution, dismissalReason, chosenSeverity, impact, eventType string) string {
+	out := map[string]interface{}{
+		"finding_id":      findingID,
+		"agents_json":     agentsJSON,
+		"resolution":      resolution,
+		"chosen_severity": chosenSeverity,
+		"impact":          impact,
+		"event_type":      eventType,
+	}
+	if dismissalReason != "" {
+		out["dismissal_reason"] = dismissalReason
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 func coordinationReplayPayload(eventType, lockID, owner, pattern, scope, reason string, envelope *EventEnvelope) string {
 	out := map[string]interface{}{
 		"event_type": eventType,

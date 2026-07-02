@@ -9,6 +9,8 @@
 **Oracle review:** `docs/research/oracle-interspect-review.md`
 **Research:** `docs/research/research-self-improving-ai-systems.md`
 
+> **Current-state note (2026-03-05).** This PRD is still directionally valid, but the measurement substrate is less settled than the surrounding prose implies. `ic events tail` is not yet the full measurement read model, `review_events` lose fidelity when projected into the generic bus, `interspect_events` still live on a typed side path, session->bead->run attribution is still being hardened, and the north-star landed-change denominator is not yet canonical. Treat raw fact preservation and attribution integrity as prerequisites for autonomy-grade learning. See `docs/research/interspect-event-validity-and-outcome-attribution.md`.
+
 ---
 
 ## 1. Problem Statement
@@ -58,10 +60,11 @@ Interspect is Clavain's **observability-first** improvement engine — an OODA l
 | E1 | Collect human override events with reason taxonomy (`agent_wrong`, `deprioritized`, `already_fixed`) | P0 | Confirmed — `/interspect:correction` command |
 | E2 | Track session lifecycle (start, end, abandoned/dark sessions) | P0 | Confirmed — SessionStart/Stop hooks (non-blocking) |
 | E3 | Track dismissed findings from `/resolve` with dismissal reason | P1 | Confirmed — requires `/resolve` skill instrumentation |
-| E4 | Store evidence in SQLite with WAL mode for concurrent access | P0 | Confirmed — `sqlite3` CLI available |
-| E5 | Retain raw events 90 days, compute weekly aggregates, archive | P1 | Standard SQL |
+| E4 | Store raw evidence durably with WAL-safe access and preserve lineage back to source kernel facts; plugin-local caches may exist but are not the canonical fact model | P0 | Partially confirmed — storage exists, canonical read model still in flux |
+| E5 | Retain raw facts 90 days and compute weekly aggregates/derived metrics separately so scoring logic can change without rewriting history | P1 | Standard SQL |
 | E6 | Sanitize evidence fields (strip control chars, truncate 500 chars, reject injection patterns, tag with hook_id) | P0 | Bash/SQL |
 | E7 | Flag abandoned sessions (start_ts but no end_ts after 24h) | P2 | SQL query |
+| E8 | Define the canonical measurement read model and durable session->bead->run join before outcome-based autonomy or routing claims depend on it | P0 | Open — see `docs/research/interspect-event-validity-and-outcome-attribution.md` |
 
 ### 4.2 Analysis & Reporting (Phase 1)
 
@@ -100,7 +103,7 @@ Interspect is Clavain's **observability-first** improvement engine — an OODA l
 |----|-------------|----------|
 | C1 | 20-use or 14-day canary window | P0 |
 | C2 | Rolling baseline from last 20 uses, minimum 15 observations | P0 |
-| C3 | Three metrics: override rate, false positive rate, finding density | P0 |
+| C3 | Three derived metrics: override rate, false positive rate, finding density, all computed from raw facts with preserved lineage | P0 |
 | C4 | **Alert on degradation, do not auto-revert** — surface via `/interspect:status` and statusline | P0 |
 | C5 | Recall cross-check via Galiana defect_escape_rate | P1 |
 | C6 | Canary expiry on human edit (status: expired_human_edit) | P1 |
@@ -156,6 +159,7 @@ Types 4-6 (skill rewriting, workflow optimization, companion extraction) deferre
 - Auto-revert on canary degradation (alert only; human triggers revert)
 - Tier 1 session-scoped modifications (log patterns instead; don't auto-adjust mid-session)
 - Weighted confidence formula (use counting rules; evaluate weighted formula in Phase 4)
+- Treating the current generic event bus as the complete canonical measurement read model
 
 ## 6. Success Metrics
 
@@ -166,6 +170,8 @@ Types 4-6 (skill rewriting, workflow optimization, companion extraction) deferre
 | Canary alert rate | <10% | Canary table: overlays triggering degradation alerts / total active canaries |
 | Evidence collection uptime | >95% of sessions | `/interspect:health` signal status |
 | Time to proposed fix | <3 sessions after pattern appears | Modification timestamp - earliest evidence timestamp for the pattern |
+
+Until the landed-change denominator and attribution chain are canonicalized, treat outcome metrics as directional rather than autonomy-grade control signals.
 
 ## 7. Dependencies
 
@@ -197,3 +203,4 @@ Types 4-6 (skill rewriting, workflow optimization, companion extraction) deferre
 - **Research:** `docs/research/research-self-improving-ai-systems.md`
 - **Roadmap:** `docs/product/interspect-roadmap.md`
 - **Feasibility:** `docs/research/research-implementation-feasibility.md`
+- **Measurement validity / attribution:** `docs/research/interspect-event-validity-and-outcome-attribution.md`

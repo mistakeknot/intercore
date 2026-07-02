@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mistakeknot/intercore/internal/redaction"
+	"github.com/mistakeknot/intercore/pkg/redaction"
 	_ "modernc.org/sqlite"
 )
 

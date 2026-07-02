@@ -663,6 +663,36 @@ pass "events after cursor reset"
 
 echo "  Event bus tests passed"
 
+# --- Review Events (Disagreement Pipeline) ---
+echo ""
+echo "=== Review Events ==="
+
+EVENT_ID=$(ic --db="$TEST_DB" events emit --source=review --type=disagreement_resolved \
+    --context='{"finding_id":"IT-001","agents":{"fd-arch":"P1","fd-quality":"P2"},"resolution":"discarded","dismissal_reason":"agent_wrong","chosen_severity":"P2","impact":"decision_changed"}' \
+    --session=test-sess --project=/tmp/test)
+[[ -n "$EVENT_ID" ]] || fail "emit returned no event ID"
+pass "events emit review event (id=$EVENT_ID)"
+
+# Verify event appears in tail --all output
+TAIL_OUTPUT=$(ic --db="$TEST_DB" events tail --all)
+echo "$TAIL_OUTPUT" | grep -q "IT-001" || fail "emitted event not found in tail --all output"
+pass "events emit→tail roundtrip"
+
+# Verify typed list-review returns full event
+REVIEW_OUTPUT=$(ic --db="$TEST_DB" events list-review)
+echo "$REVIEW_OUTPUT" | jq -e '.finding_id == "IT-001"' >/dev/null || fail "list-review: finding_id mismatch"
+echo "$REVIEW_OUTPUT" | jq -e '.chosen_severity == "P2"' >/dev/null || fail "list-review: chosen_severity missing"
+echo "$REVIEW_OUTPUT" | jq -e '.impact == "decision_changed"' >/dev/null || fail "list-review: impact missing"
+echo "$REVIEW_OUTPUT" | jq -e '.dismissal_reason == "agent_wrong"' >/dev/null || fail "list-review: dismissal_reason missing"
+pass "events list-review returns typed fields"
+
+# Verify --since cursor works
+REVIEW_SINCE=$(ic --db="$TEST_DB" events list-review --since="$EVENT_ID")
+[[ -z "$REVIEW_SINCE" ]] || fail "list-review --since should return empty after last event"
+pass "events list-review --since cursor"
+
+echo "  Review events tests passed"
+
 # --- Replay Tests ---
 echo ""
 echo "=== Replay Mode ==="
@@ -1360,6 +1390,103 @@ if [[ -f "$CLAVAIN_LIB" ]]; then
         fail "version sync: source=$SOURCE_VER != clavain=$CLAVAIN_VER (re-copy lib-intercore.sh)"
     fi
 fi
+
+# --- Situation Snapshot ---
+echo ""
+echo "=== Situation Snapshot ==="
+
+# Empty snapshot: no active runs scoped, just global state
+snap_out=$(ic situation snapshot --db="$TEST_DB")
+snap_rc=$?
+[[ "$snap_rc" -eq 0 ]] || fail "situation snapshot exit code: expected 0, got $snap_rc"
+pass "situation snapshot: exit code 0"
+
+# Validate JSON structure
+echo "$snap_out" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'timestamp' in d; assert 'runs' in d; assert 'dispatches' in d; assert 'recent_events' in d; assert 'queue' in d" || fail "situation snapshot: invalid JSON structure"
+pass "situation snapshot: valid JSON with expected keys"
+
+# Scoped snapshot: create a run, then snapshot scoped to that run
+SNAP_RUN=$(ic run create --project="$TEST_DIR" --goal="Snapshot test run" --db="$TEST_DB")
+[[ -n "$SNAP_RUN" ]] || fail "situation snapshot: run create returned empty ID"
+
+scoped_out=$(ic situation snapshot --run="$SNAP_RUN" --db="$TEST_DB")
+scoped_rc=$?
+[[ "$scoped_rc" -eq 0 ]] || fail "situation snapshot --run exit code: expected 0, got $scoped_rc"
+pass "situation snapshot --run: exit code 0"
+
+# Verify the scoped snapshot contains the created run
+echo "$scoped_out" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+runs = d['runs']
+assert len(runs) == 1, f'expected 1 run, got {len(runs)}'
+assert runs[0]['id'] == '$SNAP_RUN', f'expected run id $SNAP_RUN, got {runs[0][\"id\"]}'
+assert runs[0]['goal'] == 'Snapshot test run', f'unexpected goal: {runs[0][\"goal\"]}'
+" || fail "situation snapshot --run: output missing created run"
+pass "situation snapshot --run: contains created run"
+
+echo "  Situation snapshot tests passed"
+
+# ───────────────────────────────────────────────────
+# events record — unified event ingestion
+# ───────────────────────────────────────────────────
+echo "=== Events Record ==="
+
+# Interspect source
+RECORD_ID=$(ic --db="$TEST_DB" events record --source=interspect --type=routing_override \
+  --payload='{"agent_name":"fd-quality","override_reason":"low recall on Go code","context":"{\"score\":0.4}"}' \
+  --session=test-session-42 --project=/tmp/test-project)
+[[ "$RECORD_ID" =~ ^[0-9]+$ ]] || fail "events record interspect: expected numeric id, got: $RECORD_ID"
+pass "events record interspect (id=$RECORD_ID)"
+
+# Interspect event should appear in unified tail
+TAIL_CHECK=$(ic --db="$TEST_DB" events tail --all)
+echo "$TAIL_CHECK" | grep -q '"source":"interspect"' || fail "events record→tail: interspect event missing"
+pass "events record interspect→tail roundtrip"
+
+# Review source
+REVIEW_REC_ID=$(ic --db="$TEST_DB" events record --source=review --type=execution_defect \
+  --payload='{"finding_id":"f-001","agents":{"fd-quality":"critical","fd-safety":"low"},"resolution":"accepted","chosen_severity":"high","impact":"data loss"}')
+[[ "$REVIEW_REC_ID" =~ ^[0-9]+$ ]] || fail "events record review: expected numeric id, got: $REVIEW_REC_ID"
+pass "events record review (id=$REVIEW_REC_ID)"
+
+# Review event appears in list-review
+REVIEW_LIST=$(ic --db="$TEST_DB" events list-review --since=0)
+echo "$REVIEW_LIST" | grep -q '"finding_id":"f-001"' || fail "events record review: not in list-review"
+pass "events record review→list-review roundtrip"
+
+# Coordination source
+COORD_OUT=$(ic --db="$TEST_DB" events record --source=coordination --type=acquired \
+  --payload='{"lock_id":"lock-xyz","owner":"agent-1","pattern":"*.go","scope":"src/","reason":"editing"}')
+[[ "$COORD_OUT" == "ok" ]] || fail "events record coordination: expected 'ok', got: $COORD_OUT"
+pass "events record coordination"
+
+# Intent source
+INTENT_OUT=$(ic --db="$TEST_DB" events record --source=intent --type=sprint.advance \
+  --payload='{"intent_type":"sprint.advance","bead_id":"Demarch-abc","idempotency_key":"key-1","success":true}' \
+  --session=test-session-42)
+[[ "$INTENT_OUT" == "ok" ]] || fail "events record intent: expected 'ok', got: $INTENT_OUT"
+pass "events record intent"
+
+# Error: missing --source
+MISSING_SRC_EXIT=0
+ic --db="$TEST_DB" events record --type=foo 2>/dev/null || MISSING_SRC_EXIT=$?
+[[ $MISSING_SRC_EXIT -eq 3 ]] || fail "events record missing source: expected exit 3, got $MISSING_SRC_EXIT"
+pass "events record rejects missing --source"
+
+# Error: missing agent_name in interspect payload
+BAD_PAYLOAD_EXIT=0
+ic --db="$TEST_DB" events record --source=interspect --type=foo --payload='{}' 2>/dev/null || BAD_PAYLOAD_EXIT=$?
+[[ $BAD_PAYLOAD_EXIT -eq 3 ]] || fail "events record bad payload: expected exit 3, got $BAD_PAYLOAD_EXIT"
+pass "events record rejects interspect without agent_name"
+
+# Error: unsupported source
+BAD_SRC_EXIT=0
+ic --db="$TEST_DB" events record --source=phase --type=foo 2>/dev/null || BAD_SRC_EXIT=$?
+[[ $BAD_SRC_EXIT -eq 3 ]] || fail "events record bad source: expected exit 3, got $BAD_SRC_EXIT"
+pass "events record rejects unsupported source"
+
+echo "  Events record tests passed"
 
 echo ""
 echo "All integration tests passed."

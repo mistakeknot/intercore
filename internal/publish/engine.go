@@ -1,12 +1,16 @@
 package publish
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/mistakeknot/intercore/pkg/authz"
 )
 
 // Engine orchestrates the publish pipeline.
@@ -104,6 +108,11 @@ func (e *Engine) Publish(ctx context.Context) error {
 			e.out(", %s", rel)
 		}
 		e.out("\n")
+		// Run cheap, side-effect-free validation in dry-run so authors
+		// can preview frontmatter health before committing to a publish.
+		if fmErr := ValidateFrontmatter(pluginRoot); fmErr != nil {
+			return fmt.Errorf("frontmatter validation: %w", fmErr)
+		}
 		e.out("Dry run — no changes made.\n")
 		return nil
 	}
@@ -122,13 +131,29 @@ func (e *Engine) Publish(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("check active: %w", err)
 		}
-		if active != nil && !e.opts.Auto {
-			return fmt.Errorf("%w: %s at phase %s (id: %s) — use 'ic publish status' to inspect, or re-run to force",
-				ErrActivePublish, active.PluginName, active.Phase, active.ID)
-		}
-		if active != nil && e.opts.Auto {
-			// Auto mode: delete stale state and proceed
-			e.store.Delete(ctx, active.ID)
+		if active != nil {
+			switch {
+			case e.opts.Auto || active.IsStale(time.Now().Unix()):
+				// Clear and proceed. Auto mode (hooks) always clears; interactive
+				// mode clears only records that are provably dead (failed or
+				// abandoned), so a genuinely-running publish in another terminal
+				// is never stomped. A failed attempt thus self-heals on the next
+				// plain `ic publish` — no --auto required.
+				if !e.opts.Auto {
+					reason := "no update in over an hour"
+					if active.Error != "" {
+						reason = "previous attempt failed: " + active.Error
+					}
+					e.out("Clearing stale publish state %s (phase %s; %s)\n", active.ID, active.Phase, reason)
+				}
+				if delErr := e.store.Delete(ctx, active.ID); delErr != nil {
+					return fmt.Errorf("clear stale publish state %s: %w", active.ID, delErr)
+				}
+			default:
+				// Genuinely in flight — a publish is actively running elsewhere.
+				return fmt.Errorf("%w: %s at phase %s (id: %s) — another publish is running; wait for it to finish. If it has crashed, run 'ic publish unlock' to clear the lock now (or 'ic publish --auto'); it also self-clears once the state goes stale (1h of inactivity)",
+					ErrActivePublish, active.PluginName, active.Phase, active.ID)
+			}
 		}
 	}
 
@@ -149,6 +174,21 @@ func (e *Engine) Publish(ctx context.Context) error {
 			stateID = st.ID
 		}
 	}
+
+	// Lock cleanup: every failure path below returns early without reaching the
+	// PhaseDone Complete() call, which historically left the publish_state row
+	// behind at its failed phase. A leaked row blocks the next publish until it
+	// ages past the stale threshold (or an --auto run clears it). Track success
+	// and, on any non-success exit, delete the row so the lock self-clears
+	// immediately. See sylveste-2uhz.
+	succeeded := false
+	defer func() {
+		if !succeeded && e.store != nil && stateID != "" {
+			if delErr := e.store.Delete(ctx, stateID); delErr != nil {
+				e.out("warning: cannot clear publish lock %s: %v\n", stateID, delErr)
+			}
+		}
+	}()
 
 	// Helper to update state
 	setPhase := func(phase Phase) {
@@ -196,6 +236,50 @@ func (e *Engine) Publish(ctx context.Context) error {
 		if err := GitRemoteReachable(marketRoot); err != nil {
 			setError(PhaseValidation, err)
 			return err
+		}
+
+		// Run structural plugin validator (if available in the monorepo)
+		if validatorErr := RunPluginValidator(pluginRoot); validatorErr != nil {
+			setError(PhaseValidation, validatorErr)
+			return fmt.Errorf("plugin validation: %w", validatorErr)
+		}
+
+		// Frontmatter YAML check — clavain 0.6.245 shipped a broken description
+		// (unquoted colon) that silently took the entire plugin out of
+		// skill_listing. See sylveste-ulp8.
+		if fmErr := ValidateFrontmatter(pluginRoot); fmErr != nil {
+			setError(PhaseValidation, fmErr)
+			return fmt.Errorf("frontmatter validation: %w", fmErr)
+		}
+
+		// Human approval gate: block auto-publish of agent-mutated plugins.
+		// Assembles explicit deps for RequiresApproval — token string +
+		// caller agent id come from PublishOpts (composition root), the
+		// shared DB handle from the store (or nil if no state tracking),
+		// and the pub key is loaded from the project root on the fly.
+		if e.opts.Auto {
+			var db *sql.DB
+			if e.store != nil {
+				db = e.store.DB()
+			}
+			var pub []byte
+			if projectRoot := projectRootForPlugin(pluginRoot); projectRoot != "" {
+				if loaded, pubErr := authz.LoadPubKey(projectRoot); pubErr == nil {
+					pub = loaded
+				}
+			}
+			needs, via := RequiresApproval(
+				pluginRoot,
+				e.opts.AuthzTokenStr,
+				e.opts.AuthzCallerAgentID,
+				db, pub, time.Now().Unix(),
+			)
+			if needs {
+				err := ErrApprovalRequired
+				setError(PhaseValidation, err)
+				return err
+			}
+			e.out("  Approval granted via %s\n", via)
 		}
 
 		// Run post-bump hook if present (legacy: runs before bump despite the name).
@@ -314,15 +398,35 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  warning: cache rebuild: %v\n", err)
 	}
 
-	// Update installed_plugins.json
+	// Pre-build Go binary if this is a Go MCP plugin
 	cachePath := filepath.Join(CacheBase(), plugin.Name, targetVersion)
-	if err := UpdateInstalled(plugin.Name, targetVersion, cachePath); err != nil {
+	if err := BuildGoMCPBinary(plugin.Name, pluginRoot, cachePath); err != nil {
+		e.out("  warning: Go binary pre-build: %v\n", err)
+	}
+
+	// Update installed_plugins.json (with git SHA for Claude Code plugin resolution)
+	gitSha, _ := GitHeadCommit(pluginRoot)
+	if err := UpdateInstalled(plugin.Name, targetVersion, cachePath, gitSha); err != nil {
 		e.out("  warning: installed_plugins.json: %v\n", err)
 	}
 
 	// Sync CC marketplace checkout
 	if err := SyncCCMarketplace(marketRoot, plugin.Name, targetVersion); err != nil {
 		e.out("  warning: CC marketplace sync: %v\n", err)
+	}
+
+	// Refresh CC's in-memory marketplace index
+	if err := RefreshCCMarketplace(); err != nil {
+		e.out("  warning: CC marketplace refresh: %v\n", err)
+	}
+
+	// Prune stale cache versions across ALL marketplaces, not just interagency.
+	// This is a multi-marketplace sweep so plugins from claude-plugins-official,
+	// arouth-plugins, etc. don't accumulate stale versions either.
+	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1); err != nil {
+		e.out("  warning: stale version prune: %v\n", err)
+	} else if pruned > 0 {
+		e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n", pruned, float64(freed)/1024/1024)
 	}
 
 	// Create hook symlinks
@@ -340,10 +444,35 @@ func (e *Engine) Publish(ctx context.Context) error {
 		CreateSymlinks(plugin.Name, plugin.Version, targetVersion)
 	}
 
+	// Phase 7b: Sync agent-rig.json (best-effort — non-fatal)
+	if rigPath, err := FindAgentRig(pluginRoot); err == nil {
+		result, err := SyncRig(rigPath, plugin.Name, plugin.Description(), "interagency-marketplace")
+		if err != nil {
+			e.out("  warning: rig sync: %v\n", err)
+		} else if result.Added {
+			e.out("  Added %s to agent-rig.json\n", plugin.Name)
+			if err := CommitAndPushRig(result.ClavRoot, plugin.Name, targetVersion); err != nil {
+				e.out("  warning: rig commit/push: %v\n", err)
+			}
+		}
+	}
+
+	// Phase 7c: Regenerate interchart ecosystem diagram (best-effort — non-fatal)
+	if interchartRoot, err := FindInterchart(pluginRoot); err == nil {
+		e.out("  Regenerating ecosystem diagram...\n")
+		if err := RegenerateInterchart(interchartRoot, pluginRoot); err != nil {
+			e.out("  warning: interchart: %v\n", err)
+		}
+	}
+
 	// Phase 8: Done
+	succeeded = true
 	if e.store != nil && stateID != "" {
 		e.store.Complete(ctx, stateID)
 	}
+
+	// Consume approval marker if present (single-use)
+	ConsumeApproval(pluginRoot)
 
 	if syncOnly {
 		e.out("  Synced %s v%s to marketplace\n", plugin.Name, targetVersion)
@@ -380,4 +509,50 @@ func runHook(script, version string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// RunPluginValidator runs scripts/validate-plugin.sh on a plugin directory.
+// Returns an error if the validator finds errors (exit code 1).
+// Returns nil if the script is not found (best-effort) or passes.
+func RunPluginValidator(pluginRoot string) error {
+	script := findMonorepoScript(pluginRoot, filepath.Join("scripts", "validate-plugin.sh"))
+	if script == "" {
+		return nil // not found — skip
+	}
+
+	cmd := execCommand("bash", script)
+	cmd.Dir = pluginRoot
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		return nil // passed (warnings are OK)
+	}
+
+	// Exit code 1 = validation errors found
+	output := strings.TrimSpace(stdout.String())
+	if output == "" {
+		output = strings.TrimSpace(stderr.String())
+	}
+	return fmt.Errorf("validate-plugin.sh found errors:\n%s", output)
+}
+
+// findMonorepoScript walks up from a directory to find a script path relative to the monorepo root.
+func findMonorepoScript(from, relPath string) string {
+	abs, _ := filepath.Abs(from)
+	current := abs
+	for i := 0; i < 5; i++ {
+		candidate := filepath.Join(current, relPath)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return ""
+		}
+		current = parent
+	}
+	return ""
 }

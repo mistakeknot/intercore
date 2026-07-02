@@ -1,0 +1,17 @@
+# Model pricing (USD per million tokens)
+# Source: https://docs.anthropic.com/en/docs/about-claude/pricing
+# Last updated: 2026-03-01
+#
+# EffectiveCost formula: input_per_mtok + 15 * output_per_mtok
+# (uses the project's measured 15:1 output:input ratio from interstat baseline)
+
+models:
+  haiku:
+    input_per_mtok: 0.80
+    output_per_mtok: 4.00
+  sonnet:
+    input_per_mtok: 3.00
+    output_per_mtok: 15.00
+  opus:
+    input_per_mtok: 15.00
+    output_per_mtok: 75.00

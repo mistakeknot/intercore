@@ -528,3 +528,244 @@ func TestGate_NoPerRunRules_FallsBackToDefaults(t *testing.T) {
 		t.Error("Expected hardcoded default to block without artifact")
 	}
 }
+
+func TestGate_CalibratedTier_Override(t *testing.T) {
+	store, rtStore, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test calibration override",
+		Complexity:  3,
+		AutoAdvance: true,
+	})
+	// Add artifact for brainstorm so we can advance past first gate
+	rtStore.AddArtifact(ctx, &runtrack.Artifact{
+		RunID: id, Phase: PhaseBrainstorm, Path: "brainstorm.md", Type: "file",
+	})
+	// Advance to review (uses TierNone inside advanceToPhase — bypasses gates)
+	advanceToPhase(t, store, id, PhaseReview, rtStore)
+
+	// review→polish gate checks verdict_exists — this is a soft gate by default
+	// Calibrate it to hard
+	calTiers := map[string]string{
+		GateCalibrationKey(CheckVerdictExists, PhaseReview, PhasePolish): TierHard,
+	}
+
+	// With priority=2 (soft) + calibration hard override, should block (not warn+advance)
+	result, err := Advance(ctx, store, id, GateConfig{
+		Priority:        2, // soft
+		CalibratedTiers: calTiers,
+	}, rtStore, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if result.Advanced {
+		t.Error("Expected calibrated hard tier to block advance")
+	}
+	if result.GateTier != TierHard {
+		t.Errorf("GateTier = %q, want %q", result.GateTier, TierHard)
+	}
+	if result.EventType != EventBlock {
+		t.Errorf("EventType = %q, want %q", result.EventType, EventBlock)
+	}
+}
+
+func TestGate_CalibratedTier_IgnoredWithSpecRules(t *testing.T) {
+	store, rtStore, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test calibration skipped with spec",
+		Complexity:  3,
+		AutoAdvance: true,
+	})
+
+	// Calibrate verdict_exists:brainstorm→brainstorm-reviewed to hard
+	// (even though this check doesn't naturally exist for that transition)
+	calTiers := map[string]string{
+		GateCalibrationKey(CheckArtifactExists, PhaseBrainstorm, PhaseBrainstormReviewed): TierHard,
+	}
+
+	// Spec rules override defaults — calibration should be skipped
+	specRules := []SpecGateRule{
+		{Check: CheckArtifactExists, Phase: PhaseBrainstorm, Tier: TierSoft},
+	}
+
+	// No artifact — soft spec rule + soft priority → should advance (soft fail = warn+advance)
+	result, err := Advance(ctx, store, id, GateConfig{
+		Priority:        2, // soft
+		SpecRules:       specRules,
+		CalibratedTiers: calTiers,
+	}, rtStore, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	// With spec rule (soft) and soft priority, a fail should still advance (soft gate)
+	if !result.Advanced {
+		t.Error("Expected spec rule soft tier to allow advance (calibration should be ignored)")
+	}
+}
+
+func TestGate_Source_Default(t *testing.T) {
+	store, _, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test source default",
+		Complexity:  3,
+		AutoAdvance: true,
+	})
+
+	result, err := EvaluateGate(ctx, store, id, GateConfig{Priority: 0}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("EvaluateGate: %v", err)
+	}
+	if result.Source != "default" {
+		t.Errorf("Source = %q, want %q", result.Source, "default")
+	}
+}
+
+func TestGate_Source_PerRun(t *testing.T) {
+	store, _, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test source per-run",
+		Complexity:  3,
+		AutoAdvance: true,
+		GateRules: map[string][]SpecGateRule{
+			PhaseBrainstorm + "→" + PhaseBrainstormReviewed: {
+				{Check: CheckArtifactExists, Phase: PhaseBrainstorm},
+			},
+		},
+	})
+
+	result, err := EvaluateGate(ctx, store, id, GateConfig{Priority: 0}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("EvaluateGate: %v", err)
+	}
+	if result.Source != "per-run" {
+		t.Errorf("Source = %q, want %q", result.Source, "per-run")
+	}
+}
+
+func TestGate_Source_Calibrated(t *testing.T) {
+	store, _, _, ctx := setupMachineTest(t)
+
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "test source calibrated",
+		Complexity:  3,
+		AutoAdvance: true,
+	})
+
+	calTiers := map[string]string{
+		GateCalibrationKey(CheckArtifactExists, PhaseBrainstorm, PhaseBrainstormReviewed): TierHard,
+	}
+
+	result, err := EvaluateGate(ctx, store, id, GateConfig{
+		Priority:        2,
+		CalibratedTiers: calTiers,
+	}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("EvaluateGate: %v", err)
+	}
+	if result.Source != "calibrated" {
+		t.Errorf("Source = %q, want %q", result.Source, "calibrated")
+	}
+}
+
+// --- verdict_clean ship gate tests (sylveste-0ly7) ---
+
+func TestGate_VerdictClean_Pass(t *testing.T) {
+	store, rtStore, sqlDB, ctx := setupMachineTest(t)
+
+	scopeID := "test-vclean-pass"
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+		ScopeID: &scopeID,
+		GateRules: map[string][]SpecGateRule{
+			"review→polish": {{Check: CheckVerdictClean, Tier: "hard"}},
+		},
+	})
+	advanceToPhase(t, store, id, PhaseReview, rtStore)
+
+	dStore := dispatch.New(sqlDB, nil)
+	dStore.Create(ctx, &dispatch.Dispatch{AgentType: "claude", ProjectDir: "/tmp", ScopeID: &scopeID})
+	dispatches, _ := dStore.List(ctx, &scopeID)
+	if len(dispatches) == 0 {
+		t.Fatal("No dispatches found")
+	}
+	// A clean (passing) verdict — must NOT count as unclean.
+	dStore.UpdateStatus(ctx, dispatches[0].ID, dispatch.StatusCompleted, dispatch.UpdateFields{
+		"verdict_status": "pass",
+	})
+
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if !result.Advanced {
+		t.Errorf("Expected verdict_clean gate to pass with a clean verdict. Result: %+v", result)
+	}
+}
+
+func TestGate_VerdictClean_Fail(t *testing.T) {
+	store, rtStore, sqlDB, ctx := setupMachineTest(t)
+
+	scopeID := "test-vclean-fail"
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+		ScopeID: &scopeID,
+		GateRules: map[string][]SpecGateRule{
+			"review→polish": {{Check: CheckVerdictClean, Tier: "hard"}},
+		},
+	})
+	advanceToPhase(t, store, id, PhaseReview, rtStore)
+
+	dStore := dispatch.New(sqlDB, nil)
+	dStore.Create(ctx, &dispatch.Dispatch{AgentType: "claude", ProjectDir: "/tmp", ScopeID: &scopeID})
+	dispatches, _ := dStore.List(ctx, &scopeID)
+	if len(dispatches) == 0 {
+		t.Fatal("No dispatches found")
+	}
+	// A failing verdict — NEEDS_ATTENTION-equivalent. Gate must block.
+	dStore.UpdateStatus(ctx, dispatches[0].ID, dispatch.StatusCompleted, dispatch.UpdateFields{
+		"verdict_status": "fail",
+	})
+
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if result.Advanced {
+		t.Error("Expected verdict_clean gate to BLOCK with a failing verdict, but advance succeeded")
+	}
+	if result.GateResult != GateFail {
+		t.Errorf("GateResult = %q, want %q", result.GateResult, GateFail)
+	}
+}
+
+func TestGate_VerdictClean_NoVerdict_FailsClosed(t *testing.T) {
+	store, rtStore, sqlDB, ctx := setupMachineTest(t)
+
+	scopeID := "test-vclean-noverdict"
+	id, _ := store.Create(ctx, &Run{
+		ProjectDir: "/tmp", Goal: "test", Complexity: 3, AutoAdvance: true,
+		ScopeID: &scopeID,
+		GateRules: map[string][]SpecGateRule{
+			"review→polish": {{Check: CheckVerdictClean, Tier: "hard"}},
+		},
+	})
+	advanceToPhase(t, store, id, PhaseReview, rtStore)
+
+	dStore := dispatch.New(sqlDB, nil)
+	// No verdict at all — review never ran. verdict_clean must fail closed.
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, dStore, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if result.Advanced {
+		t.Error("Expected verdict_clean to fail closed with no verdict, but advance succeeded")
+	}
+}
