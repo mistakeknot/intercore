@@ -9,18 +9,23 @@ const defaultClockSkewTolerance = 5 * time.Minute
 
 // CheckInput is the runtime context passed to policy checks.
 type CheckInput struct {
-	Op                string
-	Target            string
-	BeadID            string
-	Now               time.Time
-	HeadSHA           string
-	VettedSHA         string
-	VettedAt          time.Time
-	TestsPassed       bool
-	SprintOrWorkFlow  bool
-	ClockSkewTolerance time.Duration
-	VettingSHAs       map[string]string
-	WorkdirHEAD       map[string]string
+	Op               string
+	Target           string
+	BeadID           string
+	Now              time.Time
+	HeadSHA          string
+	VettedSHA        string
+	VettedAt         time.Time
+	TestsPassed      bool
+	SprintOrWorkFlow bool
+	// CommittedByThisSession is true when HEAD was committed during the current
+	// session — set by the command layer (which has the git/session context).
+	// Lets a rule (e.g. git-push-main: mode auto) require that the push only
+	// covers commits this session produced, not pre-existing unpushed work.
+	CommittedByThisSession bool
+	ClockSkewTolerance     time.Duration
+	VettingSHAs            map[string]string
+	WorkdirHEAD            map[string]string
 }
 
 // Check returns the policy decision for an operation.
@@ -124,13 +129,12 @@ func Evaluate(rule Rule, input CheckInput) (bool, string) {
 				return false, "sprint_or_work_flow requirement failed"
 			}
 		case "committed_by_this_session":
-			// Placeholder in v1 package; command-layer check can enrich this signal.
 			req, ok := asBool(raw)
 			if !ok {
 				return false, "invalid committed_by_this_session"
 			}
-			if req {
-				return false, "committed_by_this_session unsupported in evaluator"
+			if input.CommittedByThisSession != req {
+				return false, "committed_by_this_session requirement failed"
 			}
 		default:
 			return false, fmt.Sprintf("unsupported requirement: %s", key)

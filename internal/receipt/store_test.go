@@ -3,6 +3,7 @@ package receipt
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -241,6 +242,67 @@ func TestStore_List_FiltersAndOrder(t *testing.T) {
 			t.Fatalf("parent_run_id round-trip lost: %v", got.ParentRunID)
 		}
 	})
+}
+
+// TestBulkVerifyPerf covers acceptance criterion #5 of sylveste-ewy3.5.3:
+// bulk verification of 1K receipts completes well under 100ms. It exercises
+// the exact path `ic receipt verify --since` uses — Store.List followed by a
+// Verify per row — so a regression in either shows up here.
+func TestBulkVerifyPerf(t *testing.T) {
+	if testing.Short() {
+		t.Skip("perf test skipped in -short mode")
+	}
+	if raceEnabled {
+		t.Skip("perf assertion invalid under -race (instrumentation slows execution ~10x)")
+	}
+	s := tempStore(t)
+	ks := goldenStore()
+	ctx := context.Background()
+
+	const n = 1000
+	base := time.Date(2026, 5, 23, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < n; i++ {
+		r := Receipt{
+			ReceiptID:     fmt.Sprintf("rcpt_%026d", i),
+			Timestamp:     FormatTimestamp(base.Add(time.Duration(i) * time.Second)),
+			AgentID:       testAgentID,
+			Model:         "claude-opus-4-7-mythos",
+			ContentHash:   strings.Repeat("ab", 32),
+			SchemaVersion: 1,
+			ToolCalls: []ToolCall{
+				{Name: "Bash", ArgsHash: "01", ResultHash: "02", DurationMs: int64(i)},
+			},
+		}
+		canon, err := Sign(&r, ks, time.Now())
+		if err != nil {
+			t.Fatalf("sign %d: %v", i, err)
+		}
+		if err := s.Insert(ctx, &r, canon); err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+	}
+
+	start := time.Now()
+	receipts, err := s.List(ctx, ListOpts{Since: base.Add(-time.Hour)})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	verified := 0
+	for _, r := range receipts {
+		if err := Verify(r, ks); err != nil {
+			t.Fatalf("verify %s: %v", r.ReceiptID, err)
+		}
+		verified++
+	}
+	elapsed := time.Since(start)
+
+	if verified != n {
+		t.Fatalf("verified %d receipts, want %d", verified, n)
+	}
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("bulk verify of %d receipts took %s, want <100ms", n, elapsed)
+	}
+	t.Logf("bulk-verified %d receipts in %s (%.1fµs/receipt)", n, elapsed, float64(elapsed.Microseconds())/float64(n))
 }
 
 func TestStore_MigrationIdempotent(t *testing.T) {

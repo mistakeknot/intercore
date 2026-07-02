@@ -131,13 +131,29 @@ func (e *Engine) Publish(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("check active: %w", err)
 		}
-		if active != nil && !e.opts.Auto {
-			return fmt.Errorf("%w: %s at phase %s (id: %s) — use 'ic publish status' to inspect, or re-run to force",
-				ErrActivePublish, active.PluginName, active.Phase, active.ID)
-		}
-		if active != nil && e.opts.Auto {
-			// Auto mode: delete stale state and proceed
-			e.store.Delete(ctx, active.ID)
+		if active != nil {
+			switch {
+			case e.opts.Auto || active.IsStale(time.Now().Unix()):
+				// Clear and proceed. Auto mode (hooks) always clears; interactive
+				// mode clears only records that are provably dead (failed or
+				// abandoned), so a genuinely-running publish in another terminal
+				// is never stomped. A failed attempt thus self-heals on the next
+				// plain `ic publish` — no --auto required.
+				if !e.opts.Auto {
+					reason := "no update in over an hour"
+					if active.Error != "" {
+						reason = "previous attempt failed: " + active.Error
+					}
+					e.out("Clearing stale publish state %s (phase %s; %s)\n", active.ID, active.Phase, reason)
+				}
+				if delErr := e.store.Delete(ctx, active.ID); delErr != nil {
+					return fmt.Errorf("clear stale publish state %s: %w", active.ID, delErr)
+				}
+			default:
+				// Genuinely in flight — a publish is actively running elsewhere.
+				return fmt.Errorf("%w: %s at phase %s (id: %s) — another publish is running; wait for it to finish. If it has crashed, run 'ic publish unlock' to clear the lock now (or 'ic publish --auto'); it also self-clears once the state goes stale (1h of inactivity)",
+					ErrActivePublish, active.PluginName, active.Phase, active.ID)
+			}
 		}
 	}
 
@@ -158,6 +174,21 @@ func (e *Engine) Publish(ctx context.Context) error {
 			stateID = st.ID
 		}
 	}
+
+	// Lock cleanup: every failure path below returns early without reaching the
+	// PhaseDone Complete() call, which historically left the publish_state row
+	// behind at its failed phase. A leaked row blocks the next publish until it
+	// ages past the stale threshold (or an --auto run clears it). Track success
+	// and, on any non-success exit, delete the row so the lock self-clears
+	// immediately. See sylveste-2uhz.
+	succeeded := false
+	defer func() {
+		if !succeeded && e.store != nil && stateID != "" {
+			if delErr := e.store.Delete(ctx, stateID); delErr != nil {
+				e.out("warning: cannot clear publish lock %s: %v\n", stateID, delErr)
+			}
+		}
+	}()
 
 	// Helper to update state
 	setPhase := func(phase Phase) {
@@ -391,7 +422,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 
 	// Prune stale cache versions across ALL marketplaces, not just interagency.
 	// This is a multi-marketplace sweep so plugins from claude-plugins-official,
-	// clonal-plugins, etc. don't accumulate stale versions either.
+	// arouth-plugins, etc. don't accumulate stale versions either.
 	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1); err != nil {
 		e.out("  warning: stale version prune: %v\n", err)
 	} else if pruned > 0 {
@@ -435,6 +466,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 	}
 
 	// Phase 8: Done
+	succeeded = true
 	if e.store != nil && stateID != "" {
 		e.store.Complete(ctx, stateID)
 	}

@@ -193,6 +193,12 @@ func scanRow(row rowScanner) (*Receipt, []byte, error) {
 	return &r, payload, nil
 }
 
+// ParseToolCallsJSON decodes a JSON tool_calls array into []ToolCall. Exported
+// for the `ic receipt emit` CLI, which accepts tool_calls as a JSON argument.
+func ParseToolCallsJSON(s string) ([]ToolCall, error) {
+	return parseToolCallsJSON(s)
+}
+
 // parseToolCallsJSON decodes the tool_calls_json column. We use the standard
 // library decoder here (not the canonical encoder) because reads do not need
 // to match canonical-byte output — only writes do.
