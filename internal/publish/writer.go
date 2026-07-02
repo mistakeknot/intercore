@@ -80,7 +80,7 @@ func writeJSONVersion(path, key, version string) error {
 	}
 
 	// Use regex replacement to preserve formatting
-	pattern := regexp.MustCompile(fmt.Sprintf(`("` + regexp.QuoteMeta(key) + `"\s*:\s*)"[^"]*"`))
+	pattern := regexp.MustCompile(`("` + regexp.QuoteMeta(key) + `"\s*:\s*)"[^"]*"`)
 	updated := pattern.ReplaceAllString(string(data), fmt.Sprintf(`${1}"%s"`, version))
 
 	if updated == string(data) {
