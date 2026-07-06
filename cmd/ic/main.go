@@ -177,6 +177,7 @@ Commands:
   dispatch wait <id> [--timeout=<dur>]  Wait for dispatch completion
   dispatch kill <id>            Kill a dispatch
   dispatch prune --older-than=<dur>  Prune old dispatches
+  dispatch retry <id> [--escalate] [--chain-key=K]  Retry (or escalate) a failed dispatch
   run create --project=<dir> --goal=<text> [opts]  Create a run
   run create --projects=<p1>,<p2> --goal=<text>    Create portfolio run
   run status <id>               Show run details

@@ -281,3 +281,52 @@ func TestApplyFloorUnknownTier(t *testing.T) {
 		t.Errorf("unknown floor: got %q, want haiku", got)
 	}
 }
+
+func TestParseModelTierFable(t *testing.T) {
+	if got := ParseModelTier("fable"); got != TierFable {
+		t.Errorf("ParseModelTier(fable) = %d, want %d", got, TierFable)
+	}
+	if got := TierFable.String(); got != "fable" {
+		t.Errorf("TierFable.String() = %q, want fable", got)
+	}
+	if TierFable <= TierOpus {
+		t.Errorf("TierFable (%d) must rank above TierOpus (%d)", TierFable, TierOpus)
+	}
+}
+
+func TestResolveModelFableWindowFallback(t *testing.T) {
+	cfg := &Config{}
+	cfg.Subagents.Defaults.Model = "fable"
+	cfg.Subagents.Defaults.Categories = map[string]string{}
+	cfg.Subagents.Phases = map[string]PhaseConfig{}
+	cfg.Subagents.Overrides = map[string]string{}
+	r := NewResolver(cfg)
+
+	t.Setenv("CLAVAIN_FABLE_AVAILABLE", "")
+	if got := r.ResolveModel(ResolveOpts{}); got != "opus" {
+		t.Errorf("window closed: got %q, want opus", got)
+	}
+	t.Setenv("CLAVAIN_FABLE_AVAILABLE", "1")
+	if got := r.ResolveModel(ResolveOpts{}); got != "fable" {
+		t.Errorf("window open: got %q, want fable", got)
+	}
+}
+
+func TestApplyFloorFableNotClamped(t *testing.T) {
+	// The review's acceptance test (f-011): fable must resolve above every
+	// floor — fallback semantics, never floor-clamp semantics.
+	cfg := &Config{
+		Roles: RolesConfig{
+			Roles: map[string]RoleEntry{
+				"safety": {MinModel: "sonnet", Agents: []string{"fd-safety"}},
+			},
+		},
+	}
+	cfg.Subagents.Defaults.Categories = map[string]string{}
+	cfg.Subagents.Phases = map[string]PhaseConfig{}
+	cfg.Subagents.Overrides = map[string]string{}
+	r := NewResolver(cfg)
+	if got := r.applyFloor("fd-safety", "fable"); got != "fable" {
+		t.Errorf("fable vs sonnet floor: got %q, want fable (no clamp)", got)
+	}
+}

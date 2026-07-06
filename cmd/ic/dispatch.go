@@ -13,6 +13,7 @@ import (
 	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/routing"
 	"github.com/mistakeknot/intercore/internal/scheduler"
 	"github.com/mistakeknot/intercore/internal/state"
 )
@@ -21,7 +22,7 @@ import (
 
 func cmdDispatch(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		slog.Error("dispatch: missing subcommand", "expected", "spawn, status, list, poll, wait, kill, prune, tokens")
+		slog.Error("dispatch: missing subcommand", "expected", "spawn, status, list, poll, wait, kill, prune, tokens, retry")
 		return 3
 	}
 
@@ -42,6 +43,8 @@ func cmdDispatch(ctx context.Context, args []string) int {
 		return cmdDispatchPrune(ctx, args[1:])
 	case "tokens":
 		return cmdDispatchTokens(ctx, args[1:])
+	case "retry":
+		return cmdDispatchRetry(ctx, args[1:])
 	default:
 		slog.Error("dispatch: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -51,17 +54,17 @@ func cmdDispatch(ctx context.Context, args []string) int {
 func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	opts := dispatch.SpawnOptions{
-		AgentType:  f.String("type", ""),
-		PromptFile: f.String("prompt-file", ""),
-		ProjectDir: f.String("project", ""),
-		OutputFile: f.String("output", ""),
-		Name:       f.String("name", ""),
-		Model:      f.String("model", ""),
-		Sandbox:    f.String("sandbox", ""),
+		AgentType:   f.String("type", ""),
+		PromptFile:  f.String("prompt-file", ""),
+		ProjectDir:  f.String("project", ""),
+		OutputFile:  f.String("output", ""),
+		Name:        f.String("name", ""),
+		Model:       f.String("model", ""),
+		Sandbox:     f.String("sandbox", ""),
 		SandboxSpec: f.String("sandbox-spec", ""),
-		ScopeID:    f.String("scope-id", ""),
-		ParentID:   f.String("parent-id", ""),
-		DispatchSH: f.String("dispatch-sh", ""),
+		ScopeID:     f.String("scope-id", ""),
+		ParentID:    f.String("parent-id", ""),
+		DispatchSH:  f.String("dispatch-sh", ""),
 	}
 	scheduled := f.Bool("scheduled")
 	schedulerSession := f.String("scheduler-session", "")
@@ -454,6 +457,118 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 		json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "updated"})
 	} else {
 		fmt.Println("updated")
+	}
+	return 0
+}
+
+// cmdDispatchRetry: ic dispatch retry <dispatch-id> [--escalate] [--chain-key=K]
+//
+//	[--failure-mode=timeout|error|verdict-fail|criteria-fail] [--failure-detail=TXT] [--json]
+//
+// Creates the retry record (does not start the process — same contract as the
+// library). With --escalate, applies the two-strikes ladder; records an
+// escalation provenance row in routing_decisions (rule=escalation,
+// floor_from=old model, floor_to=new model).
+func cmdDispatchRetry(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	if len(f.Positionals) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: dispatch retry: usage: ic dispatch retry <dispatch-id> [--escalate] [--chain-key=K] [--failure-mode=timeout|error|verdict-fail|criteria-fail] [--failure-detail=TXT]\n")
+		return 3
+	}
+	id := f.Positionals[0]
+	escalate := f.Bool("escalate")
+	chainKey := f.String("chain-key", "")
+	failureModeStr := f.String("failure-mode", "")
+	failureDetail := f.String("failure-detail", "")
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("dispatch retry failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	dStore := dispatch.New(d.SqlDB(), nil)
+
+	if !escalate {
+		result, err := dispatch.Retry(ctx, dStore, id, dispatch.DefaultRetryPolicy())
+		if err != nil {
+			slog.Error("dispatch retry failed", "error", err)
+			return 2
+		}
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+				"new_id":     result.NewID,
+				"attempt":    result.Attempt,
+				"backoff_ms": result.BackoffMs,
+			})
+		} else {
+			fmt.Printf("%s\tattempt=%d\tbackoff_ms=%d\n", result.NewID, result.Attempt, result.BackoffMs)
+		}
+		return 0
+	}
+
+	// --escalate path
+	orig, err := dStore.Get(ctx, id)
+	if err != nil {
+		slog.Error("dispatch retry failed", "error", err)
+		return 2
+	}
+	origModel := ""
+	if orig.Model != nil {
+		origModel = *orig.Model
+	}
+	nameOrType := orig.AgentType
+	if orig.Name != nil && *orig.Name != "" {
+		nameOrType = *orig.Name
+	}
+	projectDir := orig.ProjectDir
+
+	stateStore := state.New(d.SqlDB())
+	mode := dispatch.ParseFailureMode(failureModeStr)
+	result, err := dispatch.RetryWithEscalation(ctx, dStore, stateStore, id, dispatch.DefaultEscalationPolicy(), chainKey, mode, failureDetail)
+	if err != nil {
+		if result != nil && result.Exhausted {
+			if flagJSON {
+				json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+					"exhausted":   true,
+					"lesson_file": result.LessonFile,
+					"error":       err.Error(),
+				})
+			} else {
+				fmt.Fprintf(os.Stderr, "escalation chain exhausted: %s\nlesson chain: %s\n", err.Error(), result.LessonFile)
+			}
+			return 1
+		}
+		slog.Error("dispatch retry --escalate failed", "error", err)
+		return 2
+	}
+
+	if result.Escalated {
+		dstore := routing.NewDecisionStore(d.SqlDB())
+		_, _ = dstore.Record(ctx, routing.RecordDecisionOpts{
+			DispatchID:    result.NewID,
+			Agent:         nameOrType,
+			SelectedModel: result.Model,
+			RuleMatched:   "escalation",
+			FloorApplied:  true,
+			FloorFrom:     origModel,
+			FloorTo:       result.Model,
+			ContextJSON:   fmt.Sprintf(`{"chain_key":%q,"failure_mode":%q,"attempt":%d}`, chainKey, mode, result.Attempt),
+			ProjectDir:    projectDir,
+		})
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"new_id":     result.NewID,
+			"model":      result.Model,
+			"escalated":  result.Escalated,
+			"attempt":    result.Attempt,
+			"backoff_ms": result.BackoffMs,
+		})
+	} else {
+		fmt.Printf("%s\tmodel=%s\tescalated=%v\tbackoff_ms=%d\n", result.NewID, result.Model, result.Escalated, result.BackoffMs)
 	}
 	return 0
 }

@@ -11,6 +11,7 @@ const (
 	TierHaiku   ModelTier = 1
 	TierSonnet  ModelTier = 2
 	TierOpus    ModelTier = 3
+	TierFable   ModelTier = 4
 )
 
 // ParseModelTier converts a model name string to a tier.
@@ -22,6 +23,8 @@ func ParseModelTier(s string) ModelTier {
 		return TierSonnet
 	case "opus":
 		return TierOpus
+	case "fable":
+		return TierFable
 	default:
 		return TierUnknown
 	}
@@ -35,6 +38,8 @@ func (t ModelTier) String() string {
 		return "sonnet"
 	case TierOpus:
 		return "opus"
+	case TierFable:
+		return "fable"
 	default:
 		return "unknown"
 	}
