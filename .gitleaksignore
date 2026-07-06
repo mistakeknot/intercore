@@ -22,3 +22,10 @@ ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key
 ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key:67
 ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key:960
 ff83ab86201c4bb01d6248f4ca603b8d91ed45d7:pkg/authz/token_test.go:generic-api-key:961
+
+# Test scenario identifiers matched by the generic-api-key heuristic on the
+# `<word>Key := "<slug>"` shape — chainKey is a plain human-readable escalation
+# chain label ("chain-survive-1", "chain-exhaust-1"), not a credential.
+# Introduced by Sylveste-fc5.1/fc5.2 (two-strikes escalation ladder).
+c7ae62ffb016864bb5910063aa51c033201efc9d:internal/dispatch/escalate_test.go:generic-api-key:149
+c7ae62ffb016864bb5910063aa51c033201efc9d:internal/dispatch/escalate_test.go:generic-api-key:267
