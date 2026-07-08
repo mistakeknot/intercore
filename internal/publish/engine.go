@@ -66,16 +66,14 @@ func (e *Engine) Publish(ctx context.Context) error {
 		return err
 	}
 
-	// In auto mode, check if the developer already bumped (marketplace is stale).
-	// If plugin.json version > marketplace version, skip bump and just sync.
-	syncOnly := false
-	if e.opts.Auto {
-		mktVer, _ := ReadMarketplaceVersion(marketRoot, plugin.Name)
-		if mktVer != "" && mktVer != plugin.Version && CompareVersions(plugin.Version, mktVer) > 0 {
-			// Developer already bumped — just sync marketplace + local
-			syncOnly = true
-		}
-	}
+	// Check if the developer already bumped (marketplace is stale).
+	// If plugin.json version > marketplace version, a bump is unnecessary —
+	// the remaining work is syncing marketplace + local.
+	mktVer, _ := ReadMarketplaceVersion(marketRoot, plugin.Name)
+	marketBehind := mktVer != "" && mktVer != plugin.Version && CompareVersions(plugin.Version, mktVer) > 0
+
+	// Auto mode (hooks) always takes the sync-only path when behind.
+	syncOnly := e.opts.Auto && marketBehind
 
 	// Determine target version
 	var targetVersion string
@@ -88,7 +86,15 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 
 		if targetVersion == plugin.Version {
-			return ErrVersionMatch
+			if marketBehind {
+				// Explicit target equals the already-bumped plugin.json and the
+				// marketplace is behind — sync instead of erroring, mirroring
+				// the --auto path. ErrVersionMatch is reserved for the true
+				// no-op where every location already matches.
+				syncOnly = true
+			} else {
+				return ErrVersionMatch
+			}
 		}
 	}
 
