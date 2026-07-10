@@ -50,7 +50,7 @@ func RunDoctor(ctx context.Context, opts DoctorOpts) (*DoctorResult, error) {
 		return nil, fmt.Errorf("read marketplace: %w", err)
 	}
 
-	// Discover plugin directories (scan interverse/ and os/clavain)
+	// Discover plugin directories (scan interverse/ and os/Clavain)
 	result.PluginDirs = discoverPluginDirs(cwd)
 
 	// Check 1: Version drift (plugin.json vs marketplace.json)
@@ -563,10 +563,14 @@ func discoverPluginDirs(from string) []string {
 		}
 	}
 
-	// Also check os/clavain
-	clavainJSON := filepath.Join(current, "os", "clavain", ".claude-plugin", "plugin.json")
-	if _, err := os.Stat(clavainJSON); err == nil {
-		dirs = append(dirs, filepath.Join(current, "os", "clavain"))
+	// Also check the canonical os/Clavain path, with lowercase compatibility
+	// for older standalone layouts.
+	for _, clavainDir := range clavainDirCandidates(current) {
+		clavainJSON := filepath.Join(clavainDir, ".claude-plugin", "plugin.json")
+		if _, err := os.Stat(clavainJSON); err == nil {
+			dirs = append(dirs, clavainDir)
+			break
+		}
 	}
 
 	return dirs

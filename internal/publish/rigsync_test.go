@@ -2,8 +2,29 @@ package publish
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 )
+
+func TestFindAgentRigCanonicalClavainCase(t *testing.T) {
+	root := t.TempDir()
+	rigPath := filepath.Join(root, "os", "Clavain", "agent-rig.json")
+	if err := os.MkdirAll(filepath.Dir(rigPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rigPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := FindAgentRig(filepath.Join(root, "interverse", "example"))
+	if err != nil {
+		t.Fatalf("FindAgentRig() error = %v", err)
+	}
+	if got != rigPath {
+		t.Fatalf("FindAgentRig() = %q, want %q", got, rigPath)
+	}
+}
 
 func TestRigContainsPlugin(t *testing.T) {
 	data := []byte(`{"plugins":{"recommended":[{"source":"foo@interagency-marketplace","description":"Foo"}]}}`)

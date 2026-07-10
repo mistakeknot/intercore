@@ -119,8 +119,11 @@ func cmdPublishDoctor(ctx context.Context, args []string) int {
 	if opts.JSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(result.Findings)
-		return 0
+		if err := enc.Encode(result.Findings); err != nil {
+			slog.Error("encode publish doctor result", "error", err)
+			return 2
+		}
+		return publishDoctorExitCode(result.Findings)
 	}
 
 	if len(result.Findings) == 0 {
@@ -160,6 +163,15 @@ func cmdPublishDoctor(ctx context.Context, args []string) int {
 
 	if errors > 0 {
 		return 1
+	}
+	return 0
+}
+
+func publishDoctorExitCode(findings []publish.Finding) int {
+	for _, finding := range findings {
+		if finding.Severity == "error" {
+			return 1
+		}
 	}
 	return 0
 }

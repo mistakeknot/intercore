@@ -27,14 +27,16 @@ type RigSyncResult struct {
 }
 
 // FindAgentRig locates agent-rig.json by walking up from a plugin directory.
-// It looks for the Demarch monorepo pattern: <root>/os/clavain/agent-rig.json
+// It looks for the Sylveste monorepo pattern: <root>/os/Clavain/agent-rig.json.
 func FindAgentRig(from string) (string, error) {
 	abs, _ := filepath.Abs(from)
 	current := abs
 	for i := 0; i < 6; i++ {
-		candidate := filepath.Join(current, "os", "clavain", "agent-rig.json")
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
+		for _, clavainDir := range clavainDirCandidates(current) {
+			candidate := filepath.Join(clavainDir, "agent-rig.json")
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate, nil
+			}
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
@@ -43,6 +45,13 @@ func FindAgentRig(from string) (string, error) {
 		current = parent
 	}
 	return "", fmt.Errorf("agent-rig.json not found (walked up from %s)", from)
+}
+
+func clavainDirCandidates(root string) []string {
+	return []string{
+		filepath.Join(root, "os", "Clavain"),
+		filepath.Join(root, "os", "clavain"),
+	}
 }
 
 // SyncRig ensures a plugin is listed in agent-rig.json's recommended section.
