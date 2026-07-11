@@ -131,6 +131,51 @@ func TestRecord_CrossProjectIDPropagates(t *testing.T) {
 	}
 }
 
+func TestRecordWithID_ReturnsIDAndRollsBack(t *testing.T) {
+	db := openAuthzTestDB(t)
+	if err := createAuthorizationsTable(t, db); err != nil {
+		t.Fatalf("createAuthorizationsTable: %v", err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	id, err := RecordWithID(tx, RecordArgs{
+		OpType:    "bead-close",
+		Target:    "rollback-record",
+		AgentID:   "codex",
+		Mode:      "auto",
+		CreatedAt: 123,
+	})
+	if err != nil {
+		t.Fatalf("RecordWithID: %v", err)
+	}
+	if id == "" {
+		t.Fatal("RecordWithID returned an empty ID")
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM authorizations WHERE id=?`, id).Scan(&count); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("rows after rollback=%d, want 0", count)
+	}
+}
+
+func TestRecordAPIs_RejectTypedNilStores(t *testing.T) {
+	args := RecordArgs{OpType: "bead-close", Target: "x", AgentID: "codex", Mode: "auto"}
+	if err := Record(nil, args); err == nil {
+		t.Fatal("Record(nil) should fail")
+	}
+	var tx *sql.Tx
+	if _, err := RecordWithID(tx, args); err == nil {
+		t.Fatal("RecordWithID((*sql.Tx)(nil)) should fail")
+	}
+}
+
 func openAuthzTestDB(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite", ":memory:")

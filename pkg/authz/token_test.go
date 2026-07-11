@@ -289,6 +289,30 @@ func TestIssueToken_WritesRow(t *testing.T) {
 	}
 }
 
+func TestIssueTokenTx_RollbackRemovesToken(t *testing.T) {
+	db, kp := setupAuthzTestDB(t)
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	tok, _, err := IssueTokenTx(tx, kp.Priv, IssueSpec{
+		OpType:   "bead-close",
+		Target:   "rollback-token",
+		AgentID:  "codex",
+		IssuedBy: "user",
+		TTL:      time.Hour,
+	}, 1_700_000_000)
+	if err != nil {
+		t.Fatalf("IssueTokenTx: %v", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if _, err := GetToken(db, tok.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("GetToken after rollback err=%v, want ErrNotFound", err)
+	}
+}
+
 // ----- Delegate -----
 
 func TestDelegateToken_POPEnforced(t *testing.T) {
@@ -607,6 +631,76 @@ func TestConsumeToken_AuditRowWritten(t *testing.T) {
 	// Root has no root_token — JSON null.
 	if vetting["root_token"] != nil {
 		t.Errorf("vetting.root_token = %v, want nil for root", vetting["root_token"])
+	}
+}
+
+func TestConsumeTokenSigned_WritesVerifiedAuditInTransaction(t *testing.T) {
+	db, kp := setupAuthzTestDB(t)
+	now := int64(1_700_000_000)
+	tok, opaque, _ := issueRoot(t, db, kp, "claude-opus-4-7", now)
+	_, auditID, err := ConsumeTokenSignedWithAudit(db, kp, opaque, "claude-opus-4-7", "bead-close", "sylveste-x", now+1)
+	if err != nil {
+		t.Fatalf("ConsumeTokenSignedWithAudit: %v", err)
+	}
+	if auditID == "" {
+		t.Fatal("ConsumeTokenSignedWithAudit returned an empty audit ID")
+	}
+
+	var r SignRow
+	var sig []byte
+	if err := db.QueryRow(`
+		SELECT id, op_type, target, agent_id, IFNULL(bead_id,''), mode,
+		       IFNULL(policy_match,''), IFNULL(policy_hash,''), IFNULL(vetted_sha,''),
+		       IFNULL(vetting,''), IFNULL(cross_project_id,''), created_at, signature
+		FROM authorizations WHERE id=? AND json_extract(vetting, '$.token_id') = ?`, auditID, tok.ID,
+	).Scan(&r.ID, &r.OpType, &r.Target, &r.AgentID, &r.BeadID, &r.Mode,
+		&r.PolicyMatch, &r.PolicyHash, &r.VettedSHA, &r.Vetting,
+		&r.CrossProjectID, &r.CreatedAt, &sig); err != nil {
+		t.Fatalf("load signed audit: %v", err)
+	}
+	if !Verify(kp.Pub, r, sig) {
+		t.Fatal("consume audit signature did not verify")
+	}
+}
+
+func TestConsumeTokenSigned_InvalidKeyRollsBack(t *testing.T) {
+	cases := []struct {
+		name string
+		key  func(KeyPair) KeyPair
+	}{
+		{"missing-private", func(kp KeyPair) KeyPair { return KeyPair{Pub: kp.Pub} }},
+		{"short-private", func(kp KeyPair) KeyPair {
+			return KeyPair{Pub: kp.Pub, Priv: ed25519.PrivateKey{1}}
+		}},
+		{"seed-tail-mismatch", func(kp KeyPair) KeyPair {
+			bad := append(ed25519.PrivateKey(nil), kp.Priv...)
+			bad[0] ^= 0xff
+			return KeyPair{Pub: kp.Pub, Priv: bad}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, kp := setupAuthzTestDB(t)
+			now := int64(1_700_000_000)
+			tok, opaque, _ := issueRoot(t, db, kp, "claude-opus-4-7", now)
+			if _, err := ConsumeTokenSigned(db, tc.key(kp), opaque, "claude-opus-4-7", "bead-close", "sylveste-x", now+1); !errors.Is(err, ErrKeyCorrupted) {
+				t.Fatalf("ConsumeTokenSigned err=%v, want ErrKeyCorrupted", err)
+			}
+			stored, err := GetToken(db, tok.ID)
+			if err != nil {
+				t.Fatalf("GetToken: %v", err)
+			}
+			if stored.ConsumedAt != 0 {
+				t.Fatalf("consumed_at=%d, want 0", stored.ConsumedAt)
+			}
+			var auditRows int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM authorizations`).Scan(&auditRows); err != nil {
+				t.Fatalf("count audit rows: %v", err)
+			}
+			if auditRows != 0 {
+				t.Fatalf("audit rows=%d, want 0", auditRows)
+			}
+		})
 	}
 }
 

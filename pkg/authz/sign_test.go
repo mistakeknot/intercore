@@ -1,8 +1,17 @@
 package authz
 
 import (
+	"crypto/ed25519"
+	"errors"
 	"testing"
 )
+
+func TestSign_RejectsMalformedPrivateKey(t *testing.T) {
+	row := SignRow{ID: "id", OpType: "bead-close", Target: "x", AgentID: "agent", Mode: "auto", CreatedAt: 1}
+	if _, err := Sign(ed25519.PrivateKey{1}, row); !errors.Is(err, ErrKeyCorrupted) {
+		t.Fatalf("Sign err=%v, want ErrKeyCorrupted", err)
+	}
+}
 
 // TestCanonicalPayload_Example1 matches Example 1 from
 // docs/canon/authz-signing-payload.md: all fields populated.
@@ -45,14 +54,14 @@ func TestCanonicalPayload_Example1(t *testing.T) {
 // TestCanonicalPayload_Example2: optional fields NULL.
 func TestCanonicalPayload_Example2(t *testing.T) {
 	row := SignRow{
-		ID:        "01HQ8YRDABDCEFGHJKMNPQRSTV",
-		OpType:    "git-push-main",
-		Target:    "origin/main",
-		AgentID:   "claude-opus-4-7",
-		Mode:      "confirmed",
+		ID:          "01HQ8YRDABDCEFGHJKMNPQRSTV",
+		OpType:      "git-push-main",
+		Target:      "origin/main",
+		AgentID:     "claude-opus-4-7",
+		Mode:        "confirmed",
 		PolicyMatch: "git-push-main#1",
 		PolicyHash:  "9b2a...",
-		CreatedAt: 1776617000,
+		CreatedAt:   1776617000,
 	}
 	payload, err := CanonicalPayload(row)
 	if err != nil {

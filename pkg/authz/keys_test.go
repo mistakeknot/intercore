@@ -2,8 +2,11 @@ package authz
 
 import (
 	"crypto/ed25519"
+	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -75,6 +78,105 @@ func TestWriteKeyPair_RefusesOverwrite(t *testing.T) {
 	}
 }
 
+func TestWriteKeyPair_RefusesPublicOnlyCheckout(t *testing.T) {
+	root := t.TempDir()
+	trusted, _ := GenerateKey()
+	_, pubPath := KeyPaths(root)
+	if err := os.MkdirAll(filepath.Dir(pubPath), 0o700); err != nil {
+		t.Fatalf("mkdir keys: %v", err)
+	}
+	trustedHex := hexString(trusted.Pub) + "\n"
+	if err := os.WriteFile(pubPath, []byte(trustedHex), 0o444); err != nil {
+		t.Fatalf("write trusted pub: %v", err)
+	}
+
+	replacement, _ := GenerateKey()
+	if err := WriteKeyPair(root, replacement); err != ErrKeyAlreadyExists {
+		t.Fatalf("err = %v, want ErrKeyAlreadyExists", err)
+	}
+	got, err := os.ReadFile(pubPath)
+	if err != nil {
+		t.Fatalf("read trusted pub: %v", err)
+	}
+	if string(got) != trustedHex {
+		t.Fatal("public-only checkout was overwritten")
+	}
+	privPath, _ := KeyPaths(root)
+	if _, err := os.Stat(privPath); !os.IsNotExist(err) {
+		t.Fatalf("private key unexpectedly created: %v", err)
+	}
+}
+
+func TestWriteKeyPair_RefusesDanglingPrivateSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "escaped-private-key")
+	privPath, _ := KeyPaths(root)
+	if err := os.MkdirAll(filepath.Dir(privPath), 0o700); err != nil {
+		t.Fatalf("mkdir keys: %v", err)
+	}
+	if err := os.Symlink(outside, privPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	kp, _ := GenerateKey()
+	if err := WriteKeyPair(root, kp); err != ErrKeyAlreadyExists {
+		t.Fatalf("err = %v, want ErrKeyAlreadyExists", err)
+	}
+	if _, err := os.Stat(outside); !os.IsNotExist(err) {
+		t.Fatalf("private key escaped project root: %v", err)
+	}
+}
+
+func TestWriteKeyPair_RefusesSymlinkedClavainDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".clavain")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	kp, _ := GenerateKey()
+	if err := WriteKeyPair(root, kp); err == nil {
+		t.Fatal("WriteKeyPair should reject a symlinked .clavain directory")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keys", "authz-project.key")); !os.IsNotExist(err) {
+		t.Fatalf("private key escaped project root: %v", err)
+	}
+}
+
+func TestWriteKeyPair_ConcurrentInitHasSingleWinner(t *testing.T) {
+	root := t.TempDir()
+	kp1, _ := GenerateKey()
+	kp2, _ := GenerateKey()
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for _, kp := range []KeyPair{kp1, kp2} {
+		wg.Add(1)
+		go func(kp KeyPair) {
+			defer wg.Done()
+			errs <- WriteKeyPair(root, kp)
+		}(kp)
+	}
+	wg.Wait()
+	close(errs)
+	wins, exists := 0, 0
+	for err := range errs {
+		switch err {
+		case nil:
+			wins++
+		default:
+			if errors.Is(err, ErrKeyAlreadyExists) {
+				exists++
+				continue
+			}
+			t.Fatalf("unexpected concurrent init error: %v", err)
+		}
+	}
+	if wins != 1 || exists != 1 {
+		t.Fatalf("wins=%d already-exists=%d, want 1/1", wins, exists)
+	}
+	if _, err := LoadPrivKey(root); err != nil {
+		t.Fatalf("winning keypair is inconsistent: %v", err)
+	}
+}
+
 func TestLoadPrivKey_RoundTrip(t *testing.T) {
 	root := t.TempDir()
 	kp, _ := GenerateKey()
@@ -120,6 +222,21 @@ func TestLoadPrivKey_MissingReturnsSentinel(t *testing.T) {
 	}
 }
 
+func TestLoadPrivKey_RequiresPublicAnchor(t *testing.T) {
+	root := t.TempDir()
+	kp, _ := GenerateKey()
+	if err := WriteKeyPair(root, kp); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	_, pubPath := KeyPaths(root)
+	if err := os.Remove(pubPath); err != nil {
+		t.Fatalf("remove public key: %v", err)
+	}
+	if _, err := LoadPrivKey(root); !errors.Is(err, ErrKeyNotFound) {
+		t.Fatalf("LoadPrivKey err=%v, want ErrKeyNotFound", err)
+	}
+}
+
 func TestLoadPrivKey_PubKeyMismatchDetected(t *testing.T) {
 	root := t.TempDir()
 	kp1, _ := GenerateKey()
@@ -141,6 +258,59 @@ func TestLoadPrivKey_PubKeyMismatchDetected(t *testing.T) {
 	_, err := LoadPrivKey(root)
 	if err != ErrPubKeyMismatch {
 		t.Errorf("err = %v, want ErrPubKeyMismatch", err)
+	}
+}
+
+func TestLoadPrivKey_RejectsSeedTailInconsistency(t *testing.T) {
+	root := t.TempDir()
+	kp, _ := GenerateKey()
+	if err := WriteKeyPair(root, kp); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	privPath, _ := KeyPaths(root)
+	data, err := os.ReadFile(privPath)
+	if err != nil {
+		t.Fatalf("read private key: %v", err)
+	}
+	privBytes, err := hex.DecodeString(string(data[:len(data)-1]))
+	if err != nil {
+		t.Fatalf("decode private key: %v", err)
+	}
+	privBytes[0] ^= 0xff
+	if err := os.Chmod(privPath, 0o600); err != nil {
+		t.Fatalf("chmod private key: %v", err)
+	}
+	if err := os.WriteFile(privPath, []byte(hex.EncodeToString(privBytes)+"\n"), 0o400); err != nil {
+		t.Fatalf("rewrite private key: %v", err)
+	}
+	if err := os.Chmod(privPath, 0o400); err != nil {
+		t.Fatalf("restore private mode: %v", err)
+	}
+	if _, err := LoadPrivKey(root); !errors.Is(err, ErrKeyCorrupted) {
+		t.Fatalf("LoadPrivKey err=%v, want ErrKeyCorrupted", err)
+	}
+}
+
+func TestKeyLoads_RejectSymlinkedKeysDirectory(t *testing.T) {
+	trustedRoot := t.TempDir()
+	kp, _ := GenerateKey()
+	if err := WriteKeyPair(trustedRoot, kp); err != nil {
+		t.Fatalf("write trusted pair: %v", err)
+	}
+
+	root := t.TempDir()
+	clavainDir := filepath.Join(root, ".clavain")
+	if err := os.Mkdir(clavainDir, 0o700); err != nil {
+		t.Fatalf("mkdir .clavain: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(trustedRoot, ".clavain", "keys"), filepath.Join(clavainDir, "keys")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := LoadPrivKey(root); !errors.Is(err, ErrKeyCorrupted) {
+		t.Fatalf("LoadPrivKey err=%v, want ErrKeyCorrupted", err)
+	}
+	if _, err := LoadPubKey(root); !errors.Is(err, ErrKeyCorrupted) {
+		t.Fatalf("LoadPubKey err=%v, want ErrKeyCorrupted", err)
 	}
 }
 

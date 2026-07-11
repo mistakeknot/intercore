@@ -199,14 +199,17 @@ func (t Token) fieldBytes(name string) (string, error) {
 }
 
 // SignToken returns the 64-byte Ed25519 signature over CanonicalTokenPayload(t).
-// Errors only if the payload itself is invalid (control chars, negative
-// timestamp, out-of-range depth); ed25519.Sign itself cannot fail.
+// Returns an error if the private key or payload is invalid.
 func SignToken(priv ed25519.PrivateKey, t Token) ([]byte, error) {
+	validated, _, err := validatePrivateKey(priv)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := CanonicalTokenPayload(t)
 	if err != nil {
 		return nil, err
 	}
-	return ed25519.Sign(priv, payload), nil
+	return ed25519.Sign(validated, payload), nil
 }
 
 // VerifyToken returns true iff sig is a valid Ed25519 signature over
@@ -214,7 +217,7 @@ func SignToken(priv ed25519.PrivateKey, t Token) ([]byte, error) {
 // signature length or invalid payload — the outcome for an untrustable token
 // is always verify-false, never a distinguished error.
 func VerifyToken(pub ed25519.PublicKey, t Token, sig []byte) bool {
-	if len(sig) != ed25519.SignatureSize {
+	if len(pub) != ed25519.PublicKeySize || len(sig) != ed25519.SignatureSize {
 		return false
 	}
 	payload, err := CanonicalTokenPayload(t)
@@ -300,6 +303,23 @@ func IssueToken(db *sql.DB, priv ed25519.PrivateKey, spec IssueSpec, now int64) 
 	if db == nil {
 		return Token{}, "", errors.New("authz: nil db")
 	}
+	return issueToken(db, priv, spec, now)
+}
+
+// IssueTokenTx is the transaction-aware form of IssueToken. It lets callers
+// commit token issuance and its signed authorization audit as one unit.
+func IssueTokenTx(tx *sql.Tx, priv ed25519.PrivateKey, spec IssueSpec, now int64) (Token, string, error) {
+	if tx == nil {
+		return Token{}, "", errors.New("authz: nil transaction")
+	}
+	return issueToken(tx, priv, spec, now)
+}
+
+type tokenExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
+func issueToken(store tokenExecer, priv ed25519.PrivateKey, spec IssueSpec, now int64) (Token, string, error) {
 	if spec.OpType == "" {
 		return Token{}, "", errors.New("authz: IssueSpec.OpType required")
 	}
@@ -337,7 +357,7 @@ func IssueToken(db *sql.DB, priv ed25519.PrivateKey, spec IssueSpec, now int64) 
 	}
 	t.Signature = sig
 
-	_, err = db.Exec(`
+	_, err = store.Exec(`
 		INSERT INTO authz_tokens (
 			id, op_type, target, agent_id, bead_id, delegate_to,
 			expires_at, consumed_at, revoked_at, issued_by,
@@ -480,6 +500,31 @@ func DelegateToken(db *sql.DB, priv ed25519.PrivateKey, spec DelegateSpec, now i
 // token serialize naturally; exactly one UPDATE sets consumed_at, the rest
 // see consumed_at IS NOT NULL and re-SELECT classifies as already-consumed.
 func ConsumeToken(db *sql.DB, pub ed25519.PublicKey, tokenStr, callerAgentID, expectOp, expectTarget string, now int64) (Token, error) {
+	return consumeToken(db, pub, nil, tokenStr, callerAgentID, expectOp, expectTarget, now, nil)
+}
+
+// ConsumeTokenSigned consumes a token and signs its audit row inside the same
+// transaction. Gate wrappers use this path so a successful consume never
+// leaves an unsigned authorization behind.
+func ConsumeTokenSigned(db *sql.DB, kp KeyPair, tokenStr, callerAgentID, expectOp, expectTarget string, now int64) (Token, error) {
+	if err := validateKeyPair(kp); err != nil {
+		return Token{}, err
+	}
+	return consumeToken(db, kp.Pub, kp.Priv, tokenStr, callerAgentID, expectOp, expectTarget, now, nil)
+}
+
+// ConsumeTokenSignedWithAudit is ConsumeTokenSigned plus the stable ID of the
+// signed authorization row committed in the same transaction.
+func ConsumeTokenSignedWithAudit(db *sql.DB, kp KeyPair, tokenStr, callerAgentID, expectOp, expectTarget string, now int64) (Token, string, error) {
+	if err := validateKeyPair(kp); err != nil {
+		return Token{}, "", err
+	}
+	var auditID string
+	t, err := consumeToken(db, kp.Pub, kp.Priv, tokenStr, callerAgentID, expectOp, expectTarget, now, &auditID)
+	return t, auditID, err
+}
+
+func consumeToken(db *sql.DB, pub ed25519.PublicKey, signer ed25519.PrivateKey, tokenStr, callerAgentID, expectOp, expectTarget string, now int64, auditIDOut *string) (Token, error) {
 	if db == nil {
 		return Token{}, errors.New("authz: nil db")
 	}
@@ -568,20 +613,47 @@ func ConsumeToken(db *sql.DB, pub ed25519.PublicKey, tokenStr, callerAgentID, ex
 	}
 
 	auditID := ulid.Make().String()
+	auditRow := SignRow{
+		ID:        auditID,
+		OpType:    t.OpType,
+		Target:    t.Target,
+		AgentID:   callerAgentID,
+		BeadID:    t.BeadID,
+		Mode:      "auto",
+		Vetting:   string(vettingBytes),
+		CreatedAt: now,
+	}
+	var auditSig interface{}
+	var signedAt interface{}
+	if len(signer) > 0 {
+		signerPub, ok := signer.Public().(ed25519.PublicKey)
+		if !ok || !keysEqual(signerPub, pub) {
+			return Token{}, ErrPubKeyMismatch
+		}
+		sig, err := Sign(signer, auditRow)
+		if err != nil {
+			return Token{}, fmt.Errorf("sign consume audit: %w", err)
+		}
+		auditSig = sig
+		signedAt = now
+	}
 	_, err = tx.Exec(`
 		INSERT INTO authorizations (
 			id, op_type, target, agent_id, bead_id, mode,
 			policy_match, policy_hash, vetted_sha, vetting,
-			cross_project_id, created_at, sig_version
-		) VALUES (?, ?, ?, ?, ?, 'auto', NULL, NULL, NULL, ?, NULL, ?, 1)
+			cross_project_id, created_at, sig_version, signature, signed_at
+		) VALUES (?, ?, ?, ?, ?, 'auto', NULL, NULL, NULL, ?, NULL, ?, 1, ?, ?)
 	`, auditID, t.OpType, t.Target, callerAgentID, nullIfEmpty(t.BeadID),
-		string(vettingBytes), now)
+		string(vettingBytes), now, auditSig, signedAt)
 	if err != nil {
 		return Token{}, fmt.Errorf("insert audit row: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
 		return Token{}, fmt.Errorf("commit: %w", err)
+	}
+	if auditIDOut != nil {
+		*auditIDOut = auditID
 	}
 	t.ConsumedAt = now
 	return t, nil

@@ -130,14 +130,17 @@ func rejectControlChars(s string) error {
 }
 
 // Sign returns the 64-byte Ed25519 signature over CanonicalPayload(row).
-// Returns an error only if the payload itself is invalid (control chars,
-// negative created_at, etc.); the ed25519.Sign call cannot otherwise fail.
+// Returns an error if the private key or payload is invalid.
 func Sign(priv ed25519.PrivateKey, row SignRow) ([]byte, error) {
+	validated, _, err := validatePrivateKey(priv)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := CanonicalPayload(row)
 	if err != nil {
 		return nil, err
 	}
-	return ed25519.Sign(priv, payload), nil
+	return ed25519.Sign(validated, payload), nil
 }
 
 // Verify returns true iff sig is a valid Ed25519 signature over
@@ -145,7 +148,7 @@ func Sign(priv ed25519.PrivateKey, row SignRow) ([]byte, error) {
 // payload is invalid or the signature length is wrong — a verify-false is
 // always the outcome for a row that cannot be trusted.
 func Verify(pub ed25519.PublicKey, row SignRow, sig []byte) bool {
-	if len(sig) != ed25519.SignatureSize {
+	if len(pub) != ed25519.PublicKeySize || len(sig) != ed25519.SignatureSize {
 		return false
 	}
 	payload, err := CanonicalPayload(row)

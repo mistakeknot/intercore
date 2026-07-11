@@ -25,28 +25,52 @@ type RecordArgs struct {
 	CreatedAt      int64
 }
 
+type recordExecer interface {
+	Exec(query string, args ...interface{}) (sql.Result, error)
+}
+
 // Record inserts one row into authorizations.
 func Record(db *sql.DB, args RecordArgs) error {
 	if db == nil {
 		return fmt.Errorf("nil db")
 	}
+	_, err := RecordWithID(db, args)
+	return err
+}
+
+// RecordWithID inserts one row and returns its stable audit ID. It accepts a
+// DB or transaction so callers can record and sign the exact row atomically.
+func RecordWithID(db recordExecer, args RecordArgs) (string, error) {
+	if db == nil {
+		return "", fmt.Errorf("nil db")
+	}
+	switch store := db.(type) {
+	case *sql.DB:
+		if store == nil {
+			return "", fmt.Errorf("nil db")
+		}
+	case *sql.Tx:
+		if store == nil {
+			return "", fmt.Errorf("nil transaction")
+		}
+	}
 	if args.OpType == "" {
-		return fmt.Errorf("op_type is required")
+		return "", fmt.Errorf("op_type is required")
 	}
 	if args.Target == "" {
-		return fmt.Errorf("target is required")
+		return "", fmt.Errorf("target is required")
 	}
 	if args.AgentID == "" {
-		return fmt.Errorf("agent_id is required")
+		return "", fmt.Errorf("agent_id is required")
 	}
 	if !isRecordMode(args.Mode) {
-		return fmt.Errorf("invalid mode %q", args.Mode)
+		return "", fmt.Errorf("invalid mode %q", args.Mode)
 	}
 
 	if args.ID == "" {
 		id, err := randomID()
 		if err != nil {
-			return fmt.Errorf("generate id: %w", err)
+			return "", fmt.Errorf("generate id: %w", err)
 		}
 		args.ID = id
 	}
@@ -58,7 +82,7 @@ func Record(db *sql.DB, args RecordArgs) error {
 	if args.Vetting != nil {
 		data, err := json.Marshal(args.Vetting)
 		if err != nil {
-			return fmt.Errorf("marshal vetting: %w", err)
+			return "", fmt.Errorf("marshal vetting: %w", err)
 		}
 		vettingJSON = string(data)
 	}
@@ -88,9 +112,9 @@ func Record(db *sql.DB, args RecordArgs) error {
 		args.CreatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("insert authorization record: %w", err)
+		return "", fmt.Errorf("insert authorization record: %w", err)
 	}
-	return nil
+	return args.ID, nil
 }
 
 func isRecordMode(mode string) bool {
