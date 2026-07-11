@@ -7,27 +7,15 @@ import (
 	"strings"
 )
 
-// GitStatus checks if a git worktree is clean (no staged or unstaged changes).
+// GitStatus checks if a git worktree is clean, including untracked files.
+// Ignored build outputs do not make a repository dirty.
 func GitStatus(dir string) (clean bool, err error) {
-	// --quiet exits 1 if there are changes
-	staged := exec.Command("git", "-C", dir, "diff", "--cached", "--quiet")
-	unstaged := exec.Command("git", "-C", dir, "diff", "--quiet")
-
-	if err := staged.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return false, nil
-		}
-		return false, fmt.Errorf("git diff --cached: %w", err)
+	cmd := exec.Command("git", "-C", dir, "status", "--porcelain=v1", "--untracked-files=normal")
+	out, err := cmd.Output()
+	if err != nil {
+		return false, fmt.Errorf("git status: %w", err)
 	}
-	if err := unstaged.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
-			return false, nil
-		}
-		return false, fmt.Errorf("git diff: %w", err)
-	}
-
-	// Also check for untracked files that might be staged
-	return true, nil
+	return len(bytes.TrimSpace(out)) == 0, nil
 }
 
 // GitRemoteReachable checks if the origin remote is accessible.

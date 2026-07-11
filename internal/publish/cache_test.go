@@ -8,6 +8,51 @@ import (
 	"testing"
 )
 
+func TestForceRebuildCacheCopiesOnlyTrackedPluginFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(repo, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("bin/generated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "plugin.txt"), []byte("tracked\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("plugin.txt", filepath.Join(repo, "plugin-link")); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, repo, "init")
+	runGit(t, repo, "add", "-A")
+	runGit(t, repo, "commit", "-m", "init")
+
+	if err := os.WriteFile(filepath.Join(repo, "bin", "generated"), []byte("ignored\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "workspace.tmp"), []byte("untracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ForceRebuildCache("demo", "1.0.0", repo); err != nil {
+		t.Fatal(err)
+	}
+	cache := filepath.Join(home, ".claude", "plugins", "cache", "interagency-marketplace", "demo", "1.0.0")
+	if data, err := os.ReadFile(filepath.Join(cache, "plugin.txt")); err != nil || string(data) != "tracked\n" {
+		t.Fatalf("tracked file data = %q, err = %v", data, err)
+	}
+	if target, err := os.Readlink(filepath.Join(cache, "plugin-link")); err != nil || target != "plugin.txt" {
+		t.Fatalf("tracked symlink target = %q, err = %v", target, err)
+	}
+	for _, path := range []string{"bin/generated", "workspace.tmp", ".git"} {
+		if _, err := os.Lstat(filepath.Join(cache, filepath.FromSlash(path))); !os.IsNotExist(err) {
+			t.Errorf("cache unexpectedly contains %s", path)
+		}
+	}
+}
+
 // makeCacheTree builds a fixture cache layout: <root>/<marketplace>/<plugin>/<version>/
 // versions is a list of {marketplace, plugin, version} triples. An empty version
 // string creates the plugin dir but no version subdir (rare but possible in cache).
@@ -156,8 +201,8 @@ func TestPruneStaleVersionsAcrossMarketplaces_RespectsInstalled(t *testing.T) {
 	// of logic with a fake-installed map and verify the per-plugin candidate
 	// computation matches expectations.
 	installed := map[string]string{
-		"vercel@claude-plugins-official":         "0.42.1",
-		"tldr-swinton@interagency-marketplace":   "0.7.19",
+		"vercel@claude-plugins-official":       "0.42.1",
+		"tldr-swinton@interagency-marketplace": "0.7.19",
 	}
 	for key, versions := range entries {
 		active := installed[key]

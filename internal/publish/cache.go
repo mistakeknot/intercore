@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -21,7 +22,7 @@ func CacheBase() string {
 	return filepath.Join(home, ".claude", "plugins", "cache", "interagency-marketplace")
 }
 
-// RebuildCache copies plugin source to the cache directory, excluding .git.
+// RebuildCache copies tracked plugin source to the cache directory.
 // Creates: <CacheBase>/<pluginName>/<version>/
 func RebuildCache(pluginName, version, srcRoot string) error {
 	base := CacheBase()
@@ -34,7 +35,7 @@ func RebuildCache(pluginName, version, srcRoot string) error {
 		return nil // already exists
 	}
 
-	if err := copyDirExcludeGit(srcRoot, dest); err != nil {
+	if err := copyTrackedTree(srcRoot, dest); err != nil {
 		os.RemoveAll(dest) // clean up partial copy
 		return fmt.Errorf("rebuild cache: %w", err)
 	}
@@ -50,7 +51,7 @@ func ForceRebuildCache(pluginName, version, srcRoot string) error {
 	}
 	dest := filepath.Join(base, pluginName, version)
 	os.RemoveAll(dest)
-	return copyDirExcludeGit(srcRoot, dest)
+	return copyTrackedTree(srcRoot, dest)
 }
 
 // CleanOrphans removes cache directories with .orphaned_at markers across ALL
@@ -520,43 +521,53 @@ func parseLauncherScript(path string) (buildTarget, binaryName string) {
 	return "", ""
 }
 
-// copyDirExcludeGit recursively copies src to dst, skipping .git directories.
-func copyDirExcludeGit(src, dst string) error {
-	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+// copyTrackedTree copies only paths present in the source repository index.
+// Publishing from a developer checkout must never package ignored binaries,
+// worktrees, databases, or other host-local state.
+func copyTrackedTree(src, dst string) error {
+	cmd := exec.Command("git", "-C", src, "ls-files", "-z")
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("list tracked plugin files: %w", err)
+	}
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	for _, raw := range bytes.Split(out, []byte{0}) {
+		if len(raw) == 0 {
+			continue
 		}
-
-		// Skip .git directories
-		if d.IsDir() && d.Name() == ".git" {
-			return filepath.SkipDir
+		rel := filepath.Clean(filepath.FromSlash(string(raw)))
+		if filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return fmt.Errorf("unsafe tracked plugin path %q", raw)
 		}
-
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
+		source := filepath.Join(src, rel)
 		target := filepath.Join(dst, rel)
-
-		if d.IsDir() {
-			return os.MkdirAll(target, 0755)
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
 		}
-
-		// Handle symlinks
-		info, err := os.Lstat(path)
+		info, err := os.Lstat(source)
 		if err != nil {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			link, err := os.Readlink(path)
+			link, err := os.Readlink(source)
 			if err != nil {
 				return err
 			}
-			return os.Symlink(link, target)
+			if err := os.Symlink(link, target); err != nil {
+				return err
+			}
+			continue
 		}
-
-		return copyFile(path, target)
-	})
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("tracked plugin path %q is not a regular file or symlink", rel)
+		}
+		if err := copyFile(source, target); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {
