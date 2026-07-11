@@ -275,6 +275,35 @@ func (s *Store) ListArtifacts(ctx context.Context, runID string, phase *string) 
 	return artifacts, rows.Err()
 }
 
+// LatestActiveArtifactByType returns the newest active artifact of a type for a run.
+func (s *Store) LatestActiveArtifactByType(ctx context.Context, runID, typ string) (*Artifact, error) {
+	a := &Artifact{}
+	var (
+		contentHash sql.NullString
+		dispatchID  sql.NullString
+		status      sql.NullString
+	)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, run_id, phase, path, type, content_hash, dispatch_id, status, created_at
+		FROM run_artifacts
+		WHERE run_id = ? AND type = ? AND status = 'active'
+		ORDER BY created_at DESC, rowid DESC
+		LIMIT 1`, runID, typ).Scan(
+		&a.ID, &a.RunID, &a.Phase, &a.Path, &a.Type,
+		&contentHash, &dispatchID, &status, &a.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrArtifactNotFound
+		}
+		return nil, fmt.Errorf("artifact latest by type: %w", err)
+	}
+	a.ContentHash = nullStr(contentHash)
+	a.DispatchID = nullStr(dispatchID)
+	a.Status = nullStr(status)
+	return a, nil
+}
+
 // MarkArtifactsRolledBack sets status='rolled_back' on all active artifacts in the given phases.
 // Returns the number of artifacts marked.
 func (s *Store) MarkArtifactsRolledBack(ctx context.Context, runID string, phases []string) (int64, error) {

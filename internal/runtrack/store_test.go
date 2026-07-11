@@ -2,6 +2,7 @@ package runtrack
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -278,6 +279,94 @@ func TestStore_ListArtifacts_Empty(t *testing.T) {
 	}
 	if artifacts != nil && len(artifacts) != 0 {
 		t.Errorf("ListArtifacts for new run should be empty, got %d", len(artifacts))
+	}
+}
+
+func TestStore_LatestActiveArtifactByType_FiltersAndReturnsNewest(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	rows := []struct {
+		id        string
+		typ       string
+		status    string
+		createdAt int64
+	}{
+		{id: "older-active", typ: "runtime-evidence/v1", status: "active", createdAt: 100},
+		{id: "newest-active", typ: "runtime-evidence/v1", status: "active", createdAt: 200},
+		{id: "newer-other-type", typ: "file", status: "active", createdAt: 300},
+		{id: "newer-rolled-back", typ: "runtime-evidence/v1", status: "rolled_back", createdAt: 400},
+	}
+	for _, row := range rows {
+		_, err := d.SqlDB().Exec(`
+			INSERT INTO run_artifacts (id, run_id, phase, path, type, status, created_at)
+			VALUES (?, 'testrun1', 'done', ?, ?, ?, ?)`,
+			row.id, "/tmp/"+row.id, row.typ, row.status, row.createdAt)
+		if err != nil {
+			t.Fatalf("insert artifact %s: %v", row.id, err)
+		}
+	}
+
+	got, err := store.LatestActiveArtifactByType(ctx, "testrun1", "runtime-evidence/v1")
+	if err != nil {
+		t.Fatalf("LatestActiveArtifactByType: %v", err)
+	}
+	if got.ID != "newest-active" {
+		t.Fatalf("artifact ID = %q, want newest-active", got.ID)
+	}
+}
+
+func TestStore_LatestActiveArtifactByType_SameSecondReturnsNewestInvalidCandidate(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	validHash := "sha256:" + strings.Repeat("a", 64)
+	_, err := d.SqlDB().Exec(`
+		INSERT INTO run_artifacts
+			(id, run_id, phase, path, type, content_hash, status, created_at)
+		VALUES
+			('older-valid', 'testrun1', 'done', '/tmp/valid.json', 'runtime-evidence/v1', ?, 'active', 200),
+			('newest-invalid', 'testrun1', 'done', '/tmp/missing.json', 'runtime-evidence/v1', NULL, 'active', 200),
+			('last-inserted-but-older', 'testrun1', 'done', '/tmp/older.json', 'runtime-evidence/v1', ?, 'active', 100)`,
+		validHash, validHash)
+	if err != nil {
+		t.Fatalf("insert artifacts: %v", err)
+	}
+
+	got, err := store.LatestActiveArtifactByType(ctx, "testrun1", "runtime-evidence/v1")
+	if err != nil {
+		t.Fatalf("LatestActiveArtifactByType: %v", err)
+	}
+	if got.ID != "newest-invalid" {
+		t.Fatalf("artifact ID = %q, want newest-invalid", got.ID)
+	}
+	if got.ContentHash != nil {
+		t.Fatalf("newest invalid artifact content hash = %q, want nil", *got.ContentHash)
+	}
+}
+
+func TestStore_LatestActiveArtifactByType_NotFound(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	_, err := d.SqlDB().Exec(`
+		INSERT INTO run_artifacts (id, run_id, phase, path, type, status, created_at)
+		VALUES
+			('other-type', 'testrun1', 'done', '/tmp/other', 'file', 'active', 200),
+			('rolled-back', 'testrun1', 'done', '/tmp/rolled', 'runtime-evidence/v1', 'rolled_back', 300)`)
+	if err != nil {
+		t.Fatalf("insert artifacts: %v", err)
+	}
+
+	got, err := store.LatestActiveArtifactByType(ctx, "testrun1", "runtime-evidence/v1")
+	if !errors.Is(err, ErrArtifactNotFound) {
+		t.Fatalf("error = %v, want ErrArtifactNotFound", err)
+	}
+	if got != nil {
+		t.Fatalf("artifact = %+v, want nil", got)
 	}
 }
 
