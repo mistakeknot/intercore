@@ -145,7 +145,11 @@ var gateRules = map[[2]string][]gateRule{
 // Returns gate result, tier, source, structured evidence, and any error.
 func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier) (result, tier, source string, evidence *GateEvidence, err error) {
 	runtimeConfig, runtimeMetadataErr := RuntimeEvidenceForRun(run)
-	runtimeTerminal := runtimeConfig.Required && to == PhaseDone && ChainIsTerminal(ResolveChain(run), to)
+	terminalTransition := to == PhaseDone && ChainIsTerminal(ResolveChain(run), to)
+	// Malformed close-gate metadata is itself a hard terminal failure. Treating
+	// the parse error as "not required" would let priority/disable bypasses run
+	// before the structured runtime condition is injected.
+	runtimeTerminal := terminalTransition && (runtimeConfig.Required || runtimeMetadataErr != nil)
 
 	if cfg.DisableAll && !runtimeTerminal {
 		slog.Warn("gate bypass: --disable-gates used", "run_id", run.ID, "from", from, "to", to)

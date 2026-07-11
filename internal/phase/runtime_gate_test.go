@@ -222,6 +222,21 @@ func TestRuntimeGateMissingReceiptCannotBeBypassed(t *testing.T) {
 	}
 }
 
+func TestRuntimeGateMalformedCloseMetadataCannotFailOpen(t *testing.T) {
+	for _, priority := range []int{0, 4} {
+		t.Run(fmt.Sprintf("priority-%d", priority), func(t *testing.T) {
+			fixture := setupRuntimeGateFixture(t, nil)
+			malformed := `{"close_gate":{"requirements":"runtime-evidence/v1","bead_id":"sylveste-6h7x"}}`
+			if _, err := fixture.store.db.ExecContext(fixture.ctx, `UPDATE runs SET metadata = ? WHERE id = ?`, malformed, fixture.runID); err != nil {
+				t.Fatal(err)
+			}
+			cfg := fixture.gateConfig()
+			cfg.Priority = priority
+			assertRuntimeBlocked(t, fixture, cfg)
+		})
+	}
+}
+
 func TestRuntimeGateInjectionIgnoresEmptyPerRunRules(t *testing.T) {
 	fixture := setupRuntimeGateFixture(t, map[string][]SpecGateRule{PhaseReflect + "→" + PhaseDone: {}})
 	assertRuntimeBlocked(t, fixture, fixture.gateConfig())
