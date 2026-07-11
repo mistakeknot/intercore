@@ -16,8 +16,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 const (
@@ -635,14 +633,9 @@ func readRegularFileWithHook(path string, limit int64, beforeOpen func()) ([]byt
 	if beforeOpen != nil {
 		beforeOpen()
 	}
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	f, err := openRegularNoFollow(path)
 	if err != nil {
 		return nil, err
-	}
-	f := os.NewFile(uintptr(fd), path)
-	if f == nil {
-		unix.Close(fd)
-		return nil, fmt.Errorf("%q could not be opened", path)
 	}
 	defer f.Close()
 	openedInfo, err := f.Stat()
