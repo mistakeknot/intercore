@@ -347,6 +347,34 @@ func TestStore_LatestActiveArtifactByType_SameSecondReturnsNewestInvalidCandidat
 	}
 }
 
+func TestStore_ListArtifactsBreaksSameSecondTiesByInsertionOrder(t *testing.T) {
+	store, d := setupTestStore(t)
+	ctx := context.Background()
+	createHelperRun(t, d, "testrun1")
+
+	// Force an alternate usable index whose ID ordering disagrees with rowid.
+	// The query must state the rowid tie-break explicitly rather than inherit an
+	// optimizer-dependent index order.
+	if _, err := d.SqlDB().Exec(`CREATE INDEX artifact_order_probe ON run_artifacts(run_id, created_at, id DESC)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SqlDB().Exec(`
+		INSERT INTO run_artifacts (id, run_id, phase, path, type, status, created_at)
+		VALUES
+			('a-older-row', 'testrun1', 'reflect', '/tmp/old', 'runtime-evidence/v1', 'active', 200),
+			('z-newer-row', 'testrun1', 'reflect', '/tmp/new', 'runtime-evidence/v1', 'active', 200)`); err != nil {
+		t.Fatal(err)
+	}
+
+	artifacts, err := store.ListArtifacts(ctx, "testrun1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(artifacts) != 2 || artifacts[0].ID != "a-older-row" || artifacts[1].ID != "z-newer-row" {
+		t.Fatalf("same-second artifact order = %+v, want insertion order", artifacts)
+	}
+}
+
 func TestStore_LatestActiveArtifactByType_NotFound(t *testing.T) {
 	store, d := setupTestStore(t)
 	ctx := context.Background()

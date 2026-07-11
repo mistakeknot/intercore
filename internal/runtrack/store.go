@@ -239,11 +239,11 @@ func (s *Store) ListArtifacts(ctx context.Context, runID string, phase *string) 
 
 	if phase != nil {
 		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, status, created_at
-			FROM run_artifacts WHERE run_id = ? AND phase = ? ORDER BY created_at ASC`
+			FROM run_artifacts WHERE run_id = ? AND phase = ? ORDER BY created_at ASC, rowid ASC`
 		args = []interface{}{runID, *phase}
 	} else {
 		query = `SELECT id, run_id, phase, path, type, content_hash, dispatch_id, status, created_at
-			FROM run_artifacts WHERE run_id = ? ORDER BY created_at ASC`
+			FROM run_artifacts WHERE run_id = ? ORDER BY created_at ASC, rowid ASC`
 		args = []interface{}{runID}
 	}
 
