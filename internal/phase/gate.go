@@ -3,10 +3,14 @@ package phase
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
+	"github.com/mistakeknot/intercore/internal/runtrack"
 	exported "github.com/mistakeknot/intercore/pkg/phase"
+	"github.com/mistakeknot/intercore/pkg/runtimeproof"
 )
 
 // EventOverride is the event type for manual gate overrides.
@@ -14,13 +18,15 @@ const EventOverride = "override"
 
 // Check type constants for gateRules.
 const (
-	CheckArtifactExists    = "artifact_exists"
-	CheckAgentsComplete    = "agents_complete"
-	CheckVerdictExists     = "verdict_exists"
-	CheckVerdictClean      = "verdict_clean"
-	CheckChildrenAtPhase   = "children_at_phase"
-	CheckUpstreamsAtPhase  = "upstreams_at_phase"
-	CheckBudgetNotExceeded = "budget_not_exceeded"
+	CheckArtifactExists         = "artifact_exists"
+	CheckAgentsComplete         = "agents_complete"
+	CheckVerdictExists          = "verdict_exists"
+	CheckVerdictClean           = "verdict_clean"
+	CheckChildrenAtPhase        = "children_at_phase"
+	CheckUpstreamsAtPhase       = "upstreams_at_phase"
+	CheckBudgetNotExceeded      = "budget_not_exceeded"
+	CheckRuntimeEvidence        = "runtime_evidence"
+	RuntimeEvidenceArtifactType = "runtime-evidence/v1"
 )
 
 // RuntrackQuerier abstracts runtrack.Store queries needed by gate evaluation.
@@ -28,6 +34,7 @@ const (
 type RuntrackQuerier interface {
 	CountArtifacts(ctx context.Context, runID, phase string) (int, error)
 	CountActiveAgents(ctx context.Context, runID string) (int, error)
+	LatestActiveArtifactByType(ctx context.Context, runID, typ string) (*runtrack.Artifact, error)
 }
 
 // VerdictQuerier abstracts dispatch.Store queries needed by gate evaluation.
@@ -137,7 +144,10 @@ var gateRules = map[[2]string][]gateRule{
 // evaluateGate checks whether a phase transition should be allowed.
 // Returns gate result, tier, source, structured evidence, and any error.
 func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string, rt RuntrackQuerier, vq VerdictQuerier, pq PortfolioQuerier, dq DepQuerier, bq BudgetQuerier) (result, tier, source string, evidence *GateEvidence, err error) {
-	if cfg.DisableAll {
+	runtimeConfig, runtimeMetadataErr := RuntimeEvidenceForRun(run)
+	runtimeTerminal := runtimeConfig.Required && to == PhaseDone && ChainIsTerminal(ResolveChain(run), to)
+
+	if cfg.DisableAll && !runtimeTerminal {
 		slog.Warn("gate bypass: --disable-gates used", "run_id", run.ID, "from", from, "to", to)
 		return GateNone, TierNone, "default", nil, nil
 	}
@@ -149,8 +159,11 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	case cfg.Priority <= 3:
 		tier = TierSoft
 	default:
-		slog.Warn("gate bypass: priority >= 4 disables all gate checks", "run_id", run.ID, "priority", cfg.Priority, "from", from, "to", to)
-		return GateNone, TierNone, "default", nil, nil
+		if !runtimeTerminal {
+			slog.Warn("gate bypass: priority >= 4 disables all gate checks", "run_id", run.ID, "priority", cfg.Priority, "from", from, "to", to)
+			return GateNone, TierNone, "default", nil, nil
+		}
+		tier = TierHard
 	}
 
 	// Look up rules for this transition.
@@ -193,6 +206,23 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 	// Budget enforcement: inject budget check for runs with budget_enforce=true
 	if run.BudgetEnforce {
 		rules = append(rules, gateRule{check: CheckBudgetNotExceeded})
+	}
+
+	if runtimeTerminal {
+		found := false
+		for _, rule := range rules {
+			if rule.check == CheckRuntimeEvidence {
+				found = true
+				break
+			}
+		}
+		if !found {
+			rules = append(rules, gateRule{check: CheckRuntimeEvidence, tier: TierHard})
+		}
+		if source == "" || cfg.Priority >= 4 {
+			source = "required"
+		}
+		tier = TierHard
 	}
 
 	if len(rules) == 0 {
@@ -449,6 +479,65 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 				cond.Detail = "token budget exceeded"
 				allPass = false
 			}
+
+		case CheckRuntimeEvidence:
+			if cfg.DisableAll {
+				cond.Result = GateFail
+				cond.Detail = "runtime evidence gate cannot be disabled"
+				allPass = false
+				break
+			}
+			if runtimeMetadataErr != nil {
+				cond.Result = GateFail
+				cond.Detail = "runtime evidence metadata is invalid"
+				allPass = false
+				break
+			}
+			if !runtimeConfig.Ready {
+				cond.Result = GateFail
+				cond.Detail = "runtime evidence expectations are not sealed"
+				allPass = false
+				break
+			}
+			if rt == nil {
+				cond.Result = GateFail
+				cond.Detail = "runtime evidence store is unavailable"
+				allPass = false
+				break
+			}
+			artifact, qerr := rt.LatestActiveArtifactByType(ctx, run.ID, RuntimeEvidenceArtifactType)
+			if qerr != nil {
+				if errors.Is(qerr, runtrack.ErrArtifactNotFound) {
+					cond.Result = GateFail
+					cond.Detail = "runtime evidence receipt is missing"
+					allPass = false
+					break
+				}
+				return "", "", "", nil, fmt.Errorf("gate runtime evidence lookup: %w", qerr)
+			}
+			if artifact.ContentHash == nil || *artifact.ContentHash == "" {
+				cond.Result = GateFail
+				cond.Detail = "runtime evidence receipt content hash is missing"
+				allPass = false
+				break
+			}
+			verified, verr := runtimeproof.VerifyFile(ctx, artifact.Path, runtimeproof.VerifyOptions{
+				ExpectedBeadID:       runtimeConfig.BeadID,
+				ExpectedRunID:        run.ID,
+				ExpectedProjectRoot:  run.ProjectDir,
+				ExpectedArtifactHash: *artifact.ContentHash,
+				RunCreatedAt:         time.Unix(run.CreatedAt, 0),
+				Expectations:         runtimeConfig.Expectations,
+				Environment:          cfg.RuntimeProofEnvironment,
+			})
+			if verr != nil {
+				cond.Result = GateFail
+				cond.Detail = "runtime evidence receipt is invalid"
+				allPass = false
+				break
+			}
+			cond.Result = GatePass
+			cond.Detail = "verified proof " + verified.ProofHash
 
 		default:
 			cond.Result = GateFail

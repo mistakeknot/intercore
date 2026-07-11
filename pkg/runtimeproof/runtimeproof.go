@@ -258,7 +258,7 @@ func validateOptions(opts VerifyOptions) error {
 	if opts.RunCreatedAt.IsZero() {
 		return errors.New("runtime evidence: run creation time is required")
 	}
-	if err := validateExpectations(opts.Expectations); err != nil {
+	if err := ValidateExpectations(opts.Expectations); err != nil {
 		return fmt.Errorf("runtime evidence expectations: %w", err)
 	}
 	return nil
@@ -418,7 +418,9 @@ func validateBoot(r *Receipt, runCreatedAt, receiptCreatedAt time.Time) error {
 	return nil
 }
 
-func validateExpectations(e Expectations) error {
+// ValidateExpectations verifies the trusted proof scope before it is sealed in
+// run metadata or used to validate a receipt.
+func ValidateExpectations(e Expectations) error {
 	if !filepath.IsAbs(e.ExpectedBuildPath) || !filepath.IsAbs(e.ExpectedInstalledPath) {
 		return errors.New("expected build and installed paths must be absolute")
 	}

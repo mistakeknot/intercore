@@ -262,9 +262,18 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := phase.New(d.SqlDB())
-	run, err := store.Get(ctx, runID)
+	// Read, invariant-check, update, and audit in one transaction. Runtime-gated
+	// terminal transitions are deliberately not overrideable in v1.
+	tx, txErr := store.BeginTx(ctx)
+	if txErr != nil {
+		slog.Error("gate override: begin tx failed", "error", txErr)
+		return 2
+	}
+	defer tx.Rollback()
+
+	run, err := store.GetQ(ctx, tx, runID)
 	if err != nil {
-		if err == phase.ErrNotFound {
+		if errors.Is(err, phase.ErrNotFound) {
 			slog.Error("gate override: not found", "id", runID)
 			return 1
 		}
@@ -289,15 +298,34 @@ func cmdGateOverride(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	// Atomic override: phase update + event + status all in one transaction.
-	// Prevents orphaned events on crash (the old R3 non-tx approach could
-	// lose override events, which poisons FPR signal for gate calibration).
-	tx, txErr := store.BeginTx(ctx)
-	if txErr != nil {
-		slog.Error("gate override: begin tx failed", "error", txErr)
+	runtimeConfig, metadataErr := phase.RuntimeEvidenceForRun(run)
+	if runtimeConfig.Required && phase.ChainIsTerminal(chain, toPhase) {
+		detail := "runtime evidence terminal gate cannot be overridden"
+		if metadataErr != nil {
+			detail = "runtime evidence metadata is invalid"
+		}
+		evidence := (&phase.GateEvidence{Conditions: []phase.GateCondition{{
+			Check: phase.CheckRuntimeEvidence, Result: phase.GateFail, Detail: detail,
+		}}}).String()
+		if err := store.AddEventQ(ctx, tx, &phase.PhaseEvent{
+			RunID: runID, FromPhase: fromPhase, ToPhase: toPhase,
+			EventType: phase.EventBlock, GateResult: strPtr(phase.GateFail),
+			GateTier: strPtr(phase.TierHard), Reason: strPtr(evidence),
+		}); err != nil {
+			slog.Error("gate override: block event failed", "error", err)
+			return 2
+		}
+		if err := tx.Commit(); err != nil {
+			slog.Error("gate override: block commit failed", "error", err)
+			return 2
+		}
+		slog.Error("gate override blocked", "reason", detail)
+		return 1
+	}
+	if metadataErr != nil {
+		slog.Error("gate override: invalid runtime metadata", "error", metadataErr)
 		return 2
 	}
-	defer tx.Rollback()
 
 	if err := store.UpdatePhaseQ(ctx, tx, runID, fromPhase, toPhase); err != nil {
 		slog.Error("gate override failed", "error", err)

@@ -178,7 +178,7 @@ Commands:
   dispatch kill <id>            Kill a dispatch
   dispatch prune --older-than=<dur>  Prune old dispatches
   dispatch retry <id> [--escalate] [--chain-key=K]  Retry (or escalate) a failed dispatch
-  run create --project=<dir> --goal=<text> [opts]  Create a run
+  run create --project=<dir> --goal=<text> [--metadata=JSON] [opts]  Create a run
   run create --projects=<p1>,<p2> --goal=<text>    Create portfolio run
   run status <id>               Show run details
   run advance <id> [--priority=N]  Advance to next phase
@@ -195,7 +195,7 @@ Commands:
   run tokens <id>               Token aggregation across dispatches
   run budget <id>               Check budget thresholds (exit 1=exceeded)
   run cancel <id>               Cancel a run
-  run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N]
+  run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N] [--metadata-merge=JSON]
   run create ... [--budget-enforce] [--max-agents=N]  Enable budget enforcement
   run agent add <run> --type=<t> [--name=<n>] [--dispatch-id=<id>]
   run agent list <run>          List agents for run

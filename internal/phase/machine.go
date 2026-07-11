@@ -3,6 +3,8 @@ package phase
 import (
 	"context"
 	"fmt"
+
+	"github.com/mistakeknot/intercore/pkg/runtimeproof"
 )
 
 // SpecGateRule is a gate rule from an agency spec, injected into gate evaluation.
@@ -14,11 +16,12 @@ type SpecGateRule struct {
 
 // GateConfig controls gate evaluation for an advance attempt.
 type GateConfig struct {
-	Priority        int               // 0-1 = hard, 2-3 = soft, 4+ = none
-	DisableAll      bool              // skip all gate checks
-	SkipReason      string            // reason for manual skip/override
-	SpecRules       []SpecGateRule    // rules from agency specs (merged with hardcoded rules)
-	CalibratedTiers map[string]string // map[GateCalibrationKey]tier, populated from --calibration-file
+	Priority                int                      // 0-1 = hard, 2-3 = soft, 4+ = none
+	DisableAll              bool                     // skip all gate checks
+	SkipReason              string                   // reason for manual skip/override
+	SpecRules               []SpecGateRule           // rules from agency specs (merged with hardcoded rules)
+	CalibratedTiers         map[string]string        // map[GateCalibrationKey]tier, populated from --calibration-file
+	RuntimeProofEnvironment runtimeproof.Environment // optional deterministic host/Git/file boundary
 }
 
 // AdvanceResult describes what happened during an advance attempt.
@@ -53,7 +56,9 @@ type PhaseEventCallback func(runID, eventType, fromPhase, toPhase, reason string
 // Gate evaluation and phase update share a single transaction to prevent
 // TOCTOU races where state changes between gate check and phase write.
 //
-// rt and vq may be nil when Priority >= 4 (TierNone skips gate evaluation).
+// rt and vq may be nil when Priority >= 4 (TierNone skips ordinary gate evaluation).
+
+// Runtime evidence always uses the transaction-scoped runtrack querier.
 // pq may be nil for non-portfolio runs.
 // dq may be nil for non-child runs (runs without a parent_run_id).
 // callback may be nil — Advance checks before calling.
@@ -143,12 +148,8 @@ func Advance(ctx context.Context, store *Store, runID string, cfg GateConfig, rt
 	txPQ := PortfolioQuerier(&txPortfolioQuerier{q: tx})
 	txDQ := DepQuerier(&txDepQuerier{q: tx})
 
-	// Use caller-provided queriers only when they're nil (Priority >= 4
-	// bypasses gates entirely, so tx-scoped wrappers won't be called).
-	// When gates ARE evaluated, always use tx-scoped queriers for atomicity.
-	if rt == nil {
-		txRT = nil
-	}
+	// Ordinary callers still control optional external gate domains. Runtrack is
+	// always available transactionally because runtime evidence is non-bypassable.
 	if vq == nil {
 		txVQ = nil
 	}

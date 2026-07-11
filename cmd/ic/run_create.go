@@ -25,6 +25,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	actionsJSON := f.String("actions", "")
 	gatesJSON := f.String("gates", "")
 	gatesFile := f.String("gates-file", "")
+	metadataJSON := f.String("metadata", "")
 	budgetEnforce := f.Bool("budget-enforce")
 
 	complexity, err := f.Int("complexity", 3)
@@ -70,6 +71,16 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	if gatesJSON != "" && gatesFile != "" {
 		slog.Error("run create: --gates and --gates-file are mutually exclusive")
 		return 3
+	}
+
+	var metadata *string
+	if metadataJSON != "" {
+		canonical, err := phase.CanonicalMetadata(metadataJSON)
+		if err != nil {
+			slog.Error("run create: invalid metadata", "error", err)
+			return 3
+		}
+		metadata = &canonical
 	}
 
 	// Parse gate rules (fail-fast before DB)
@@ -148,6 +159,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 			BudgetEnforce: budgetEnforce,
 			MaxAgents:     maxAgents,
 			GateRules:     gateRules,
+			Metadata:      metadata,
 		}
 		if tokenBudget > 0 {
 			portfolio.TokenBudget = &tokenBudget
@@ -165,6 +177,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 				AutoAdvance:   true,
 				BudgetWarnPct: budgetWarnPct,
 				Phases:        customPhases,
+				Metadata:      metadata,
 			}
 		}
 
@@ -197,6 +210,11 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		}
 		project = cwd
 	}
+	project, err = filepath.Abs(project)
+	if err != nil {
+		slog.Error("run create: invalid project path", "value", project, "error", err)
+		return 3
+	}
 
 	run := &phase.Run{
 		ProjectDir:    project,
@@ -208,6 +226,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		BudgetEnforce: budgetEnforce,
 		MaxAgents:     maxAgents,
 		GateRules:     gateRules,
+		Metadata:      metadata,
 	}
 	if tokenBudget > 0 {
 		run.TokenBudget = &tokenBudget

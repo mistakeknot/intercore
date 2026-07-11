@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -20,7 +21,7 @@ func cmdRunSet(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 
 	if len(f.Positionals) < 1 {
-		fmt.Fprintf(os.Stderr, "ic: run set: usage: ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N]\n")
+		fmt.Fprintf(os.Stderr, "ic: run set: usage: ic run set <id> [--complexity=N] [--auto-advance=bool] [--force-full=bool] [--max-dispatches=N] [--metadata-merge=JSON]\n")
 		return 3
 	}
 	id := f.Positionals[0]
@@ -64,8 +65,15 @@ func cmdRunSet(ctx context.Context, args []string) int {
 		}
 		maxDispatches = &v
 	}
+	metadataMerge := f.String("metadata-merge", "")
+	if metadataMerge != "" {
+		if _, err := phase.CanonicalMetadata(metadataMerge); err != nil {
+			slog.Error("run set: invalid metadata merge", "error", err)
+			return 3
+		}
+	}
 
-	if complexity == nil && autoAdvance == nil && forceFull == nil && maxDispatches == nil {
+	if complexity == nil && autoAdvance == nil && forceFull == nil && maxDispatches == nil && metadataMerge == "" {
 		slog.Error("run set: no settings to update")
 		return 3
 	}
@@ -90,32 +98,33 @@ func cmdRunSet(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	// --max-dispatches is only valid for portfolio runs
+	// --max-dispatches is only valid for portfolio runs.
 	if maxDispatches != nil {
 		if run.ProjectDir != "" {
 			slog.Error("run set: --max-dispatches is only valid for portfolio runs")
 			return 3
 		}
-		if err := store.UpdateMaxDispatches(ctx, id, *maxDispatches); err != nil {
-			slog.Error("run set failed", "error", err)
-			return 2
-		}
 	}
 
-	if complexity != nil || autoAdvance != nil || forceFull != nil {
-		if err := store.UpdateSettings(ctx, id, complexity, autoAdvance, forceFull); err != nil {
-			slog.Error("run set failed", "error", err)
-			return 2
-		}
-	}
-
-	// Record set event
-	store.AddEvent(ctx, &phase.PhaseEvent{
-		RunID:     id,
-		FromPhase: run.Phase,
-		ToPhase:   run.Phase,
-		EventType: phase.EventSet,
+	err = store.UpdateConfiguration(ctx, id, phase.RunConfigUpdate{
+		Complexity:    complexity,
+		AutoAdvance:   autoAdvance,
+		ForceFull:     forceFull,
+		MaxDispatches: maxDispatches,
+		MetadataMerge: metadataMerge,
 	})
+	if err != nil {
+		if errors.Is(err, phase.ErrInvalidMetadata) || errors.Is(err, phase.ErrSealedMetadata) {
+			slog.Error("run set: invalid metadata merge", "error", err)
+			return 3
+		}
+		if errors.Is(err, phase.ErrNotFound) {
+			slog.Error("run set: not found", "id", id)
+			return 1
+		}
+		slog.Error("run set failed", "error", err)
+		return 2
+	}
 
 	fmt.Println("updated")
 	return 0

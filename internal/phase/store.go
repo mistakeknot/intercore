@@ -42,6 +42,14 @@ func generateID() (string, error) {
 
 // Create inserts a new run and returns its ID.
 func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
+	metadata, err := canonicalMetadataPointer(r.Metadata)
+	if err != nil {
+		return "", err
+	}
+	if err := validateRuntimeRun(r, metadata); err != nil {
+		return "", err
+	}
+
 	id, err := generateID()
 	if err != nil {
 		return "", err
@@ -90,7 +98,7 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, r.ProjectDir, r.Goal, StatusActive, initialPhase,
 		r.Complexity, boolToInt(r.ForceFull), boolToInt(r.AutoAdvance),
-		now, now, r.ScopeID, r.Metadata,
+		now, now, r.ScopeID, metadata,
 		phasesJSON, r.TokenBudget, budgetWarnPct,
 		r.ParentRunID, r.MaxDispatches,
 		boolToInt(r.BudgetEnforce), r.MaxAgents,
@@ -488,6 +496,24 @@ func (s *Store) IsPortfolio(ctx context.Context, runID string) (bool, error) {
 // CreatePortfolio creates a portfolio run with children in a single transaction.
 // Returns (portfolioID, childIDs, error).
 func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []*Run) (string, []string, error) {
+	portfolioMetadata, err := canonicalMetadataPointer(portfolio.Metadata)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := validateRuntimeRun(portfolio, portfolioMetadata); err != nil {
+		return "", nil, err
+	}
+	childMetadata := make([]*string, len(children))
+	for idx, child := range children {
+		childMetadata[idx], err = canonicalMetadataPointer(child.Metadata)
+		if err != nil {
+			return "", nil, err
+		}
+		if err := validateRuntimeRun(child, childMetadata[idx]); err != nil {
+			return "", nil, err
+		}
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return "", nil, fmt.Errorf("create portfolio: begin: %w", err)
@@ -538,7 +564,7 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		portfolioID, "", portfolio.Goal, StatusActive, initialPhase,
 		portfolio.Complexity, boolToInt(portfolio.ForceFull), boolToInt(portfolio.AutoAdvance),
-		now, now, portfolio.ScopeID, portfolio.Metadata,
+		now, now, portfolio.ScopeID, portfolioMetadata,
 		phasesJSON, portfolio.TokenBudget, budgetWarnPct,
 		nil, portfolio.MaxDispatches,
 		boolToInt(portfolio.BudgetEnforce), portfolio.MaxAgents,
@@ -549,7 +575,7 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 	}
 
 	childIDs := make([]string, 0, len(children))
-	for _, child := range children {
+	for childIdx, child := range children {
 		childID, err := generateID()
 		if err != nil {
 			return "", nil, err
@@ -581,7 +607,7 @@ func (s *Store) CreatePortfolio(ctx context.Context, portfolio *Run, children []
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			childID, child.ProjectDir, child.Goal, StatusActive, childInitPhase,
 			child.Complexity, boolToInt(child.ForceFull), boolToInt(child.AutoAdvance),
-			now, now, child.ScopeID, child.Metadata,
+			now, now, child.ScopeID, childMetadata[childIdx],
 			childPhasesJSON, child.TokenBudget, childBudgetWarnPct,
 			portfolioID, 0,
 			boolToInt(child.BudgetEnforce), child.MaxAgents,

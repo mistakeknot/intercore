@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/mistakeknot/intercore/internal/runtrack"
 )
 
 // Querier is satisfied by both *sql.DB and *sql.Tx, allowing gate checks
@@ -42,6 +44,36 @@ func (t *txRuntrackQuerier) CountActiveAgents(ctx context.Context, runID string)
 		return 0, fmt.Errorf("tx count active agents: %w", err)
 	}
 	return count, nil
+}
+
+func (t *txRuntrackQuerier) LatestActiveArtifactByType(ctx context.Context, runID, typ string) (*runtrack.Artifact, error) {
+	a := &runtrack.Artifact{}
+	var contentHash, dispatchID, status sql.NullString
+	err := t.q.QueryRowContext(ctx, `
+		SELECT id, run_id, phase, path, type, content_hash, dispatch_id, status, created_at
+		FROM run_artifacts
+		WHERE run_id = ? AND type = ? AND status = 'active'
+		ORDER BY created_at DESC, rowid DESC
+		LIMIT 1`, runID, typ).Scan(
+		&a.ID, &a.RunID, &a.Phase, &a.Path, &a.Type,
+		&contentHash, &dispatchID, &status, &a.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, runtrack.ErrArtifactNotFound
+		}
+		return nil, fmt.Errorf("tx latest artifact by type: %w", err)
+	}
+	if contentHash.Valid {
+		a.ContentHash = &contentHash.String
+	}
+	if dispatchID.Valid {
+		a.DispatchID = &dispatchID.String
+	}
+	if status.Valid {
+		a.Status = &status.String
+	}
+	return a, nil
 }
 
 // txVerdictQuerier runs verdict queries on a transaction.
