@@ -1,12 +1,17 @@
 package authz
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -54,6 +59,32 @@ func TestLegacyManifest_DeterministicSignedRoundTrip(t *testing.T) {
 	}
 	if err := VerifyLegacyManifest(kp.Pub, manifest, marker, legacy); err != nil {
 		t.Fatalf("VerifyLegacyManifest: %v", err)
+	}
+}
+
+func TestLegacyManifest_GoldenDigestAndSignature(t *testing.T) {
+	seed, err := hex.DecodeString("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+	pub := priv.Public().(ed25519.PublicKey)
+	marker, legacy := legacyManifestFixture()
+	manifest, err := BuildLegacyManifest(pub, marker, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SignLegacyManifest(priv, &manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	const wantDigest = "506de547bdf4363a0bfd503ffa153f15bf30551f1e7833b3959fcf8a25c02899"
+	const wantSignature = "65213292585df443aa5db7618bf5db56c86d7f58d1aa5e1fcbdf9712c8877c399db7a1af6271b0619584186e3d4e5e1aa4c5817efaf13ea40371a8d7de0a2f03"
+	if manifest.ManifestSHA256 != wantDigest {
+		t.Fatalf("manifest digest changed: got %s want %s", manifest.ManifestSHA256, wantDigest)
+	}
+	if manifest.Signature != wantSignature {
+		t.Fatalf("manifest signature changed: got %s want %s", manifest.Signature, wantSignature)
 	}
 }
 
@@ -163,6 +194,15 @@ func TestLegacyManifestFile_ExclusiveRegularFileRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(loaded, manifest) {
 		t.Fatalf("loaded manifest mismatch\n got: %+v\nwant: %+v", loaded, manifest)
 	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".authz-legacy-manifest-") {
+			t.Fatalf("temporary manifest link remained after publication: %s", entry.Name())
+		}
+	}
 	if err := WriteLegacyManifest(root, manifest); !errors.Is(err, ErrLegacyManifestExists) {
 		t.Fatalf("second write err=%v, want ErrLegacyManifestExists", err)
 	}
@@ -211,6 +251,49 @@ func TestWriteLegacyManifest_RejectsInvalidSignature(t *testing.T) {
 	}
 }
 
+func TestWriteLegacyManifest_RejectsOversizeBeforePublish(t *testing.T) {
+	root := t.TempDir()
+	kp, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteKeyPair(root, kp); err != nil {
+		t.Fatal(err)
+	}
+	marker, _ := legacyManifestFixture()
+	rows := make([]SignRow, 12000)
+	for i := range rows {
+		rows[i] = SignRow{
+			ID:        "legacy-" + strconv.Itoa(i),
+			OpType:    "bead-close",
+			Target:    "oversize",
+			AgentID:   "legacy-agent",
+			Mode:      "auto",
+			CreatedAt: int64(i + 1),
+		}
+	}
+	manifest, err := BuildLegacyManifest(kp.Pub, marker, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SignLegacyManifest(kp.Priv, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) <= legacyManifestMaxBytes {
+		t.Fatalf("test fixture size=%d, want >%d", len(encoded), legacyManifestMaxBytes)
+	}
+	if err := WriteLegacyManifest(root, manifest); err == nil {
+		t.Fatal("WriteLegacyManifest published an artifact the loader cannot read")
+	}
+	if _, err := os.Lstat(LegacyManifestPath(root)); !os.IsNotExist(err) {
+		t.Fatalf("oversize manifest created a final file: %v", err)
+	}
+}
+
 func TestDecodeLegacyManifest_RejectsUnknownFieldsAndTrailingData(t *testing.T) {
 	for _, input := range []string{
 		`{"schema":"intercore.authz-legacy-manifest","version":1,"unknown":true}`,
@@ -219,6 +302,42 @@ func TestDecodeLegacyManifest_RejectsUnknownFieldsAndTrailingData(t *testing.T) 
 		if _, err := DecodeLegacyManifest([]byte(input)); err == nil {
 			t.Fatalf("DecodeLegacyManifest accepted %q", input)
 		}
+	}
+}
+
+func TestDecodeLegacyManifest_RejectsDuplicateKeysAndNoncanonicalDigest(t *testing.T) {
+	kp, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, legacy := legacyManifestFixture()
+	manifest, err := BuildLegacyManifest(kp.Pub, marker, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SignLegacyManifest(kp.Priv, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	duplicate := bytes.Replace(encoded, []byte(`"version":1`), []byte(`"version":1,"version":1`), 1)
+	if bytes.Equal(duplicate, encoded) {
+		t.Fatal("duplicate-key fixture replacement failed")
+	}
+	if _, err := DecodeLegacyManifest(duplicate); err == nil {
+		t.Fatal("DecodeLegacyManifest accepted a duplicate JSON key")
+	}
+
+	manifest.ManifestSHA256 = strings.ToUpper(manifest.ManifestSHA256)
+	uppercase, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeLegacyManifest(uppercase); err == nil {
+		t.Fatal("DecodeLegacyManifest accepted an uppercase manifest digest")
 	}
 }
 

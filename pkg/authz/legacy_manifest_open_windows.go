@@ -25,3 +25,9 @@ func openLegacyManifestNoFollow(path string) (*os.File, error) {
 	}
 	return f, nil
 }
+
+func syncLegacyManifestDirectory(string) error {
+	// Go cannot fsync a directory handle portably on Windows. The manifest
+	// inode itself is synced before its hard-link publication.
+	return nil
+}

@@ -206,6 +206,9 @@ func WriteLegacyManifest(projectRoot string, manifest LegacyManifest) error {
 	if err != nil {
 		return err
 	}
+	if len(encoded) > legacyManifestMaxBytes {
+		return fmt.Errorf("%w: manifest exceeds %d bytes", ErrLegacyManifestInvalid, legacyManifestMaxBytes)
+	}
 	path := LegacyManifestPath(projectRoot)
 	dir := filepath.Dir(path)
 	if err := ensureRealDirectory(filepath.Dir(dir), false); err != nil {
@@ -214,19 +217,14 @@ func WriteLegacyManifest(projectRoot string, manifest LegacyManifest) error {
 	if err := ensureRealDirectory(dir, true); err != nil {
 		return fmt.Errorf("prepare keys dir: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o444)
+	f, err := os.CreateTemp(dir, ".authz-legacy-manifest-*.tmp")
 	if err != nil {
-		if os.IsExist(err) {
-			return ErrLegacyManifestExists
-		}
-		return fmt.Errorf("write legacy manifest: %w", err)
+		return fmt.Errorf("create legacy manifest temporary file: %w", err)
 	}
-	keep := false
+	tempPath := f.Name()
 	defer func() {
 		_ = f.Close()
-		if !keep {
-			_ = os.Remove(path)
-		}
+		_ = os.Remove(tempPath)
 	}()
 	if _, err := f.Write(encoded); err != nil {
 		return fmt.Errorf("write legacy manifest: %w", err)
@@ -240,7 +238,26 @@ func WriteLegacyManifest(projectRoot string, manifest LegacyManifest) error {
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close legacy manifest: %w", err)
 	}
-	keep = true
+	// A hard link publishes the fully synced inode atomically and fails if the
+	// final path already exists. Rename cannot provide that no-overwrite
+	// guarantee portably.
+	if err := os.Link(tempPath, path); err != nil {
+		if os.IsExist(err) {
+			return ErrLegacyManifestExists
+		}
+		return fmt.Errorf("publish legacy manifest: %w", err)
+	}
+	if err := syncLegacyManifestDirectory(dir); err != nil {
+		// Publication is not complete until the directory entry is durable.
+		// Remove our link on failure so a retry cannot be blocked by an
+		// artifact whose persistence was never confirmed.
+		_ = os.Remove(path)
+		_ = syncLegacyManifestDirectory(dir)
+		return fmt.Errorf("sync legacy manifest directory: %w", err)
+	}
+	// The temporary name is only a crash-recovery byproduct after publication.
+	// Its best-effort removal cannot invalidate the durable final link.
+	_ = os.Remove(tempPath)
 	return nil
 }
 
@@ -285,6 +302,9 @@ func LoadLegacyManifest(projectRoot string) (LegacyManifest, error) {
 // DecodeLegacyManifest parses one strict JSON object and rejects extensions or
 // trailing data so all verifiers agree on the artifact contract.
 func DecodeLegacyManifest(data []byte) (LegacyManifest, error) {
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return LegacyManifest{}, fmt.Errorf("%w: decode: %v", ErrLegacyManifestInvalid, err)
+	}
 	var manifest LegacyManifest
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -300,6 +320,9 @@ func DecodeLegacyManifest(data []byte) (LegacyManifest, error) {
 	}
 	payload, err := canonicalLegacyManifestPayload(manifest)
 	if err != nil {
+		return LegacyManifest{}, err
+	}
+	if _, err := decodeFixedHex("manifest_sha256", manifest.ManifestSHA256, sha256.Size); err != nil {
 		return LegacyManifest{}, err
 	}
 	digest := sha256.Sum256(payload)
@@ -384,8 +407,81 @@ func validateManifestDigests(pub ed25519.PublicKey, manifest LegacyManifest, pay
 		return fmt.Errorf("%w: public key digest mismatch", ErrLegacyManifestInvalid)
 	}
 	digest := sha256.Sum256(payload)
+	if _, err := decodeFixedHex("manifest_sha256", manifest.ManifestSHA256, sha256.Size); err != nil {
+		return err
+	}
 	if !equalDigest(manifest.ManifestSHA256, hex.EncodeToString(digest[:])) {
 		return fmt.Errorf("%w: manifest digest mismatch", ErrLegacyManifestInvalid)
+	}
+	return nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := scanUniqueJSONValue(dec); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		if err == nil {
+			return errors.New("trailing JSON value")
+		}
+		return err
+	}
+	return nil
+}
+
+func scanUniqueJSONValue(dec *json.Decoder) error {
+	token, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	delim, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delim {
+	case '{':
+		seen := make(map[string]struct{})
+		for dec.More() {
+			keyToken, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return errors.New("object key is not a string")
+			}
+			if _, exists := seen[key]; exists {
+				return fmt.Errorf("duplicate object key %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := scanUniqueJSONValue(dec); err != nil {
+				return err
+			}
+		}
+		closing, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim('}') {
+			return errors.New("object is not closed")
+		}
+	case '[':
+		for dec.More() {
+			if err := scanUniqueJSONValue(dec); err != nil {
+				return err
+			}
+		}
+		closing, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if closing != json.Delim(']') {
+			return errors.New("array is not closed")
+		}
+	default:
+		return fmt.Errorf("unexpected delimiter %q", delim)
 	}
 	return nil
 }
