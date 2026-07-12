@@ -148,6 +148,22 @@ func SignLegacyManifest(priv ed25519.PrivateKey, manifest *LegacyManifest) error
 // VerifyLegacyManifest authenticates the manifest and proves it describes the
 // exact marker and legacy row set supplied by the caller.
 func VerifyLegacyManifest(pub ed25519.PublicKey, manifest LegacyManifest, marker SignRow, legacyRows []SignRow) error {
+	if err := VerifyLegacyManifestSignature(pub, manifest); err != nil {
+		return err
+	}
+	expected, err := BuildLegacyManifest(pub, marker, legacyRows)
+	if err != nil {
+		return err
+	}
+	if !equalDigest(manifest.ManifestSHA256, expected.ManifestSHA256) {
+		return fmt.Errorf("%w: anchored legacy set does not match ledger", ErrLegacyManifestInvalid)
+	}
+	return nil
+}
+
+// VerifyLegacyManifestSignature authenticates the manifest body without
+// asserting it matches a particular database snapshot.
+func VerifyLegacyManifestSignature(pub ed25519.PublicKey, manifest LegacyManifest) error {
 	if len(pub) != ed25519.PublicKeySize {
 		return fmt.Errorf("%w: public key length %d", ErrLegacyManifestInvalid, len(pub))
 	}
@@ -165,13 +181,6 @@ func VerifyLegacyManifest(pub ed25519.PublicKey, manifest LegacyManifest, marker
 	if !ed25519.Verify(pub, payload, sig) {
 		return fmt.Errorf("%w: signature verification failed", ErrLegacyManifestInvalid)
 	}
-	expected, err := BuildLegacyManifest(pub, marker, legacyRows)
-	if err != nil {
-		return err
-	}
-	if !equalDigest(manifest.ManifestSHA256, expected.ManifestSHA256) {
-		return fmt.Errorf("%w: anchored legacy set does not match ledger", ErrLegacyManifestInvalid)
-	}
 	return nil
 }
 
@@ -185,6 +194,13 @@ func LegacyManifestPath(projectRoot string) string {
 func WriteLegacyManifest(projectRoot string, manifest LegacyManifest) error {
 	if manifest.Signature == "" {
 		return fmt.Errorf("%w: unsigned manifest", ErrLegacyManifestInvalid)
+	}
+	pub, err := LoadPubKey(projectRoot)
+	if err != nil {
+		return fmt.Errorf("load project public key: %w", err)
+	}
+	if err := VerifyLegacyManifestSignature(pub, manifest); err != nil {
+		return err
 	}
 	encoded, err := encodeLegacyManifest(manifest)
 	if err != nil {
@@ -244,11 +260,18 @@ func LoadLegacyManifest(projectRoot string) (LegacyManifest, error) {
 	if info.Size() > legacyManifestMaxBytes {
 		return LegacyManifest{}, fmt.Errorf("%w: manifest exceeds %d bytes", ErrLegacyManifestInvalid, legacyManifestMaxBytes)
 	}
-	f, err := os.Open(path)
+	f, err := openLegacyManifestNoFollow(path)
 	if err != nil {
 		return LegacyManifest{}, fmt.Errorf("open legacy manifest: %w", err)
 	}
 	defer f.Close()
+	openedInfo, err := f.Stat()
+	if err != nil {
+		return LegacyManifest{}, fmt.Errorf("stat opened legacy manifest: %w", err)
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(info, openedInfo) {
+		return LegacyManifest{}, fmt.Errorf("%w: manifest changed while opening", ErrLegacyManifestInvalid)
+	}
 	data, err := io.ReadAll(io.LimitReader(f, legacyManifestMaxBytes+1))
 	if err != nil {
 		return LegacyManifest{}, fmt.Errorf("read legacy manifest: %w", err)

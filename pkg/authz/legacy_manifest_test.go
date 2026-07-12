@@ -95,7 +95,7 @@ func TestLegacyManifest_RejectsMembershipAndAnchorTampering(t *testing.T) {
 			m.LegacyRows[0].PayloadSHA256 = string(make([]byte, 64))
 			return m
 		}(), marker: marker, legacy: legacy},
-		{name: "changed signature", pub: kp.Pub, manifest: func() LegacyManifest { m := manifest; m.Signature = "00" + m.Signature[2:]; return m }(), marker: marker, legacy: legacy},
+		{name: "changed signature", pub: kp.Pub, manifest: func() LegacyManifest { m := manifest; m.Signature = flippedSignature(m.Signature); return m }(), marker: marker, legacy: legacy},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -141,6 +141,9 @@ func TestLegacyManifestFile_ExclusiveRegularFileRoundTrip(t *testing.T) {
 	if err := SignLegacyManifest(kp.Priv, &manifest); err != nil {
 		t.Fatal(err)
 	}
+	if err := WriteKeyPair(root, kp); err != nil {
+		t.Fatalf("WriteKeyPair: %v", err)
+	}
 
 	if err := WriteLegacyManifest(root, manifest); err != nil {
 		t.Fatalf("WriteLegacyManifest: %v", err)
@@ -182,6 +185,32 @@ func TestLegacyManifestFile_ExclusiveRegularFileRoundTrip(t *testing.T) {
 	}
 }
 
+func TestWriteLegacyManifest_RejectsInvalidSignature(t *testing.T) {
+	root := t.TempDir()
+	kp, err := GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteKeyPair(root, kp); err != nil {
+		t.Fatal(err)
+	}
+	marker, legacy := legacyManifestFixture()
+	manifest, err := BuildLegacyManifest(kp.Pub, marker, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SignLegacyManifest(kp.Priv, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Signature = flippedSignature(manifest.Signature)
+	if err := WriteLegacyManifest(root, manifest); err == nil {
+		t.Fatal("WriteLegacyManifest accepted an invalid signature")
+	}
+	if _, err := os.Lstat(LegacyManifestPath(root)); !os.IsNotExist(err) {
+		t.Fatalf("invalid manifest created a file: %v", err)
+	}
+}
+
 func TestDecodeLegacyManifest_RejectsUnknownFieldsAndTrailingData(t *testing.T) {
 	for _, input := range []string{
 		`{"schema":"intercore.authz-legacy-manifest","version":1,"unknown":true}`,
@@ -207,4 +236,11 @@ func legacyManifestFixture() (SignRow, []SignRow) {
 		{ID: "legacy-b", OpType: "git-push-main", Target: "b", AgentID: "old", Mode: "confirmed", CreatedAt: 2},
 	}
 	return marker, legacy
+}
+
+func flippedSignature(signature string) string {
+	if signature[:2] == "00" {
+		return "01" + signature[2:]
+	}
+	return "00" + signature[2:]
 }
