@@ -569,6 +569,9 @@ func (d *DB) Health(ctx context.Context) error {
 	if version == 0 {
 		return ErrNotMigrated
 	}
+	if version < currentSchemaVersion {
+		return fmt.Errorf("health: schema version %d is older than current %d: %w", version, currentSchemaVersion, ErrNotMigrated)
+	}
 	if version > maxSchemaVersion {
 		return ErrSchemaVersionTooNew
 	}

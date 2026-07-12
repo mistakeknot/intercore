@@ -3,9 +3,11 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -198,6 +200,26 @@ func TestHealth(t *testing.T) {
 	}
 	if err := d.Health(ctx); err != nil {
 		t.Errorf("Health after migration: %v", err)
+	}
+}
+
+func TestHealthRejectsStaleSchema(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.db.Exec("PRAGMA user_version = 35"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := d.Health(ctx)
+	if !errors.Is(err, ErrNotMigrated) {
+		t.Fatalf("Health error = %v, want ErrNotMigrated", err)
+	}
+	if !strings.Contains(err.Error(), "35") || !strings.Contains(err.Error(), "36") {
+		t.Fatalf("Health error = %q, want stale and current schema versions", err)
 	}
 }
 
