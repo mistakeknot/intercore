@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -1314,3 +1315,131 @@ func TestMigration034AuthzTokens(t *testing.T) {
 	}
 }
 
+func TestMigration036AuthzLegacyAnchorSeal(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate baseline: %v", err)
+	}
+	if _, err := d.db.Exec(`
+		INSERT INTO authorizations (
+			id, op_type, target, agent_id, bead_id, mode, policy_match,
+			policy_hash, vetted_sha, vetting, cross_project_id, created_at,
+			sig_version, signature, signed_at
+		) VALUES
+			('legacy-unsigned', 'bead-close', 'legacy-target', 'legacy-agent',
+			 'legacy-bead', 'confirmed', 'legacy-policy', 'legacy-policy-hash',
+			 'legacy-vetted-sha', '{"approved":true}', 'legacy-cross-project',
+			 1700000000, 0, NULL, NULL),
+			('signed-v1', 'git-push', 'signed-target', 'signed-agent',
+			 'signed-bead', 'auto', 'signed-policy', 'signed-policy-hash',
+			 'signed-vetted-sha', '{"approved":false}', 'signed-cross-project',
+			 1700000001, 1, X'00017FFF', 1700000002)
+	`); err != nil {
+		t.Fatalf("seed v35 authorizations: %v", err)
+	}
+	if _, err := d.db.Exec("PRAGMA user_version = 35"); err != nil {
+		t.Fatalf("set v35: %v", err)
+	}
+
+	type rowImage struct {
+		id, opType, target, agentID, beadID, mode, policyMatch, policyHash string
+		vettedSHA, vetting, crossProjectID, createdAt                      string
+		sigVersion, signature, signedAt                                    string
+	}
+	snapshot := func() []rowImage {
+		t.Helper()
+		rows, err := d.db.Query(`
+			SELECT quote(id), quote(op_type), quote(target), quote(agent_id),
+			       quote(bead_id), quote(mode), quote(policy_match), quote(policy_hash),
+			       quote(vetted_sha), quote(vetting), quote(cross_project_id),
+			       quote(created_at), quote(sig_version), quote(signature), quote(signed_at)
+			FROM authorizations
+			ORDER BY id
+		`)
+		if err != nil {
+			t.Fatalf("snapshot authorizations: %v", err)
+		}
+		defer rows.Close()
+
+		var images []rowImage
+		for rows.Next() {
+			var image rowImage
+			if err := rows.Scan(
+				&image.id, &image.opType, &image.target, &image.agentID,
+				&image.beadID, &image.mode, &image.policyMatch, &image.policyHash,
+				&image.vettedSHA, &image.vetting, &image.crossProjectID, &image.createdAt,
+				&image.sigVersion, &image.signature, &image.signedAt,
+			); err != nil {
+				t.Fatalf("scan authorization snapshot: %v", err)
+			}
+			images = append(images, image)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("iterate authorization snapshot: %v", err)
+		}
+		return images
+	}
+
+	before := snapshot()
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	applied, err := m.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run v35 to v36: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("v35 to v36 applied %d migrations, want 1", applied)
+	}
+	version, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if version != 36 {
+		t.Fatalf("SchemaVersion = %d, want 36", version)
+	}
+	if after := snapshot(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("v36 seal changed authorization rows\nbefore: %#v\nafter:  %#v", before, after)
+	}
+
+	var baselineRows int
+	if err := d.db.QueryRow(`
+		SELECT COUNT(*)
+		FROM authorizations
+		WHERE id LIKE 'migration-036-%' OR op_type = 'migration.legacy-anchor'
+	`).Scan(&baselineRows); err != nil {
+		t.Fatalf("count schema-36 baseline rows: %v", err)
+	}
+	if baselineRows != 0 {
+		t.Fatalf("v36 migration silently created %d legacy-anchor baseline rows", baselineRows)
+	}
+
+	applied, err = m.Run(ctx)
+	if err != nil {
+		t.Fatalf("re-run v36 migration: %v", err)
+	}
+	if applied != 0 {
+		t.Fatalf("re-run applied %d migrations, want 0", applied)
+	}
+	if after := snapshot(); !reflect.DeepEqual(after, before) {
+		t.Fatalf("v36 re-run changed authorization rows\nbefore: %#v\nafter:  %#v", before, after)
+	}
+}
+
+func TestSchema036Fresh(t *testing.T) {
+	d, _ := tempDB(t)
+	if err := d.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	version, err := d.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if version != 36 {
+		t.Fatalf("SchemaVersion = %d, want 36", version)
+	}
+}

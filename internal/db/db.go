@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 35
-	maxSchemaVersion     = 35
+	currentSchemaVersion = 36
+	maxSchemaVersion     = 36
 )
 
 var (
@@ -535,6 +535,10 @@ func (d *DB) Migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate v34→v35 marker: %w", err)
 		}
 	}
+
+	// v35 -> v36 is a no-data authorization legacy-anchor seal. The schema
+	// version is the marker that callers must enforce; migration deliberately
+	// does not create a project-specific manifest or mutate authorization rows.
 
 	// Apply schema DDL
 	if _, err := tx.ExecContext(ctx, schemaDDL); err != nil {

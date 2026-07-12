@@ -1,0 +1,7 @@
+-- Migration 036: authorization legacy-anchor seal (sylveste-mn13).
+--
+-- This is intentionally a no-data migration. Advancing PRAGMA user_version to
+-- 36 tells authorization verifiers to require the external signed legacy
+-- manifest. The manifest is created only by the explicit operator-reviewed
+-- anchor ceremony; migration must not create or bless project-specific
+-- membership, and it must not mutate authorization rows.

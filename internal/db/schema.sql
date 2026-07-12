@@ -660,3 +660,9 @@ INSERT OR IGNORE INTO authorizations (
     CAST(strftime('%s','now') AS INTEGER),
     1
 );
+
+-- v36: authorization legacy-anchor seal (sylveste-mn13).
+-- There is intentionally no DDL or DML for this migration. PRAGMA
+-- user_version=36 marks ledgers whose callers must require the external signed
+-- legacy manifest. Migration must not create or bless a project-specific
+-- manifest, nor may it mutate any authorization row.
