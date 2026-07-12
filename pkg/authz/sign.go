@@ -53,9 +53,10 @@ var signedFields = []string{
 // no BOM, UTF-8 only. NULLs (empty strings) encode as zero bytes at their
 // positions. Integers use decimal with no leading zeros / plus sign.
 //
-// Rejects rows containing \r (0x0D) or control characters in [0x00, 0x1F]
-// except LF in any text field. Callers must strip these at insertion time,
-// not at sign time — the signer refuses rather than silently transliterating.
+// Rejects rows containing control characters in [0x00, 0x1F], including LF.
+// LF is reserved exclusively for field separation; allowing it inside a field
+// would make distinct rows share one payload. Callers must reject these at
+// insertion time, not silently transliterate them at sign time.
 func CanonicalPayload(row SignRow) ([]byte, error) {
 	parts := make([]string, len(signedFields))
 	for i, name := range signedFields {
@@ -108,7 +109,7 @@ func (r SignRow) fieldBytes(name string) (string, error) {
 	}
 }
 
-// validateText NFC-normalizes s, then rejects any CR or non-LF control char.
+// validateText NFC-normalizes s, then rejects every control character.
 func validateText(s string) (string, error) {
 	normed := norm.NFC.String(s)
 	if err := rejectControlChars(normed); err != nil {
@@ -119,9 +120,6 @@ func validateText(s string) (string, error) {
 
 func rejectControlChars(s string) error {
 	for i, r := range s {
-		if r == '\n' {
-			continue // LF is allowed; it is the separator between fields.
-		}
 		if r < 0x20 || r == 0x7F {
 			return fmt.Errorf("control character 0x%02x at byte offset %d", r, i)
 		}

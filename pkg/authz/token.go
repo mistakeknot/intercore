@@ -143,9 +143,10 @@ func ErrClass(err error) string {
 // Format: 12 fields, NFC-normalized, joined by LF (0x0A), no trailing LF,
 // no BOM, UTF-8 only. SQL NULL and empty strings encode identically (zero
 // bytes between delimiters). Integers use decimal with no leading zeros or
-// plus sign. CR and non-LF control characters are rejected — the signer
-// refuses rather than silently transliterating (strip at insertion time,
-// not at sign time).
+// plus sign. Every control character is rejected, including LF inside a
+// field; LF is reserved exclusively for field separation. The signer refuses
+// rather than silently transliterating (reject at insertion time, not at sign
+// time).
 func CanonicalTokenPayload(t Token) ([]byte, error) {
 	parts := make([]string, len(tokenSignedFields))
 	for i, name := range tokenSignedFields {

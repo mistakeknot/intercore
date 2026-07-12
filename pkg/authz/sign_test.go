@@ -131,6 +131,20 @@ func TestCanonicalPayload_RejectsControlChar(t *testing.T) {
 	}
 }
 
+func TestCanonicalPayload_RejectsEmbeddedLFFieldCollision(t *testing.T) {
+	row := SignRow{
+		ID:        "collision",
+		OpType:    "bead-close",
+		Target:    "a\nb",
+		AgentID:   "c",
+		Mode:      "auto",
+		CreatedAt: 1,
+	}
+	if _, err := CanonicalPayload(row); err == nil {
+		t.Fatal("embedded LF can shift field boundaries and must be rejected")
+	}
+}
+
 func TestCanonicalPayload_RejectsNegativeCreatedAt(t *testing.T) {
 	row := SignRow{
 		ID:        "a",

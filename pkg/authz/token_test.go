@@ -134,6 +134,14 @@ func TestCanonicalTokenPayload_GoldenFixtures(t *testing.T) {
 	t.Run("example3_publish_scoped_root", TestCanonicalTokenPayload_Example3)
 }
 
+func TestCanonicalTokenPayload_RejectsEmbeddedLFFieldCollision(t *testing.T) {
+	tok := sampleToken()
+	tok.Target = "a\nb"
+	if _, err := CanonicalTokenPayload(tok); err == nil {
+		t.Fatal("embedded LF can shift token field boundaries and must be rejected")
+	}
+}
+
 // ----- sign/verify -----
 
 func TestSignToken_RoundTrip(t *testing.T) {
