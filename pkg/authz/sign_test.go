@@ -87,7 +87,7 @@ func TestCanonicalPayload_Example2(t *testing.T) {
 // TestCanonicalPayload_Example3: cutover marker row.
 func TestCanonicalPayload_Example3(t *testing.T) {
 	row := SignRow{
-		ID:        "01HQ8YSAAAAAAAAAAAAAAAAAAA",
+		ID:        LegacyCutoverMarkerID,
 		OpType:    "migration.signing-enabled",
 		Target:    "authorizations",
 		AgentID:   "system:migration-033",
@@ -98,7 +98,7 @@ func TestCanonicalPayload_Example3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalPayload: %v", err)
 	}
-	want := "01HQ8YSAAAAAAAAAAAAAAAAAAA\n" +
+	want := LegacyCutoverMarkerID + "\n" +
 		"migration.signing-enabled\n" +
 		"authorizations\n" +
 		"system:migration-033\n" +
