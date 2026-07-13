@@ -355,6 +355,67 @@ func (s *Store) AddInterspectEvent(ctx context.Context, runID, agentName, eventT
 	return result.LastInsertId()
 }
 
+// AddInterspectEventOnce records an interspect event once for an explicit
+// idempotency key. The key is stored in session_id so existing readers retain
+// the event without a schema change; callers must not reuse it across stages.
+func (s *Store) AddInterspectEventOnce(ctx context.Context, runID, agentName, eventType, overrideReason, contextJSON, idempotencyKey, projectDir string) (int64, error) {
+	if idempotencyKey == "" {
+		return 0, errors.New("add interspect event once: idempotency key is required")
+	}
+	overrideReason = s.redactStr(overrideReason)
+	contextJSON = s.redactStr(contextJSON)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("add interspect event once: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO interspect_events (run_id, agent_name, event_type, override_reason, context_json, session_id, project_dir)
+		SELECT NULLIF(?, ''), ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, '')
+		WHERE NOT EXISTS (
+			SELECT 1
+			FROM interspect_events
+			WHERE COALESCE(run_id, '') = ?
+				AND agent_name = ?
+				AND event_type = ?
+				AND session_id = ?
+		)`,
+		runID, agentName, eventType, overrideReason, contextJSON, idempotencyKey, projectDir,
+		runID, agentName, eventType, idempotencyKey,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("add interspect event once: insert: %w", err)
+	}
+
+	var id int64
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("add interspect event once: rows affected: %w", err)
+	}
+	if rows == 1 {
+		id, err = result.LastInsertId()
+	} else {
+		err = tx.QueryRowContext(ctx, `
+			SELECT id
+			FROM interspect_events
+			WHERE COALESCE(run_id, '') = ?
+				AND agent_name = ?
+				AND event_type = ?
+				AND session_id = ?
+			ORDER BY id ASC
+			LIMIT 1`, runID, agentName, eventType, idempotencyKey).Scan(&id)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("add interspect event once: resolve event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("add interspect event once: commit: %w", err)
+	}
+	return id, nil
+}
+
 // ListInterspectEvents returns interspect events, optionally filtered by agent name.
 func (s *Store) ListInterspectEvents(ctx context.Context, agentName string, since int64, limit int) ([]InterspectEvent, error) {
 	if limit <= 0 {

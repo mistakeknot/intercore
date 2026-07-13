@@ -411,6 +411,7 @@ func cmdEventsListReview(ctx context.Context, args []string) int {
 
 // cmdEventsRecord is the unified event ingestion command.
 // Accepts --source, --type, --payload (JSON), plus optional --run, --session, --project.
+// Interspect events also accept an explicit --idempotency-key.
 // Routes to the appropriate Store.Add*Event method based on source.
 //
 // Supported sources:
@@ -426,6 +427,7 @@ func cmdEventsRecord(ctx context.Context, args []string) int {
 	runID := f.String("run", "")
 	sessionID := f.String("session", "")
 	projectDir := f.String("project", "")
+	idempotencyKey := f.String("idempotency-key", "")
 
 	if source == "" {
 		slog.Error("events record: --source is required (interspect, review, coordination, intent)")
@@ -433,6 +435,10 @@ func cmdEventsRecord(ctx context.Context, args []string) int {
 	}
 	if eventType == "" {
 		slog.Error("events record: --type is required")
+		return 3
+	}
+	if idempotencyKey != "" && source != event.SourceInterspect {
+		slog.Error("events record: --idempotency-key is supported only for interspect events")
 		return 3
 	}
 
@@ -461,7 +467,7 @@ func cmdEventsRecord(ctx context.Context, args []string) int {
 
 	switch source {
 	case event.SourceInterspect:
-		return recordInterspect(ctx, evStore, eventType, payloadJSON, runID, sessionID, projectDir)
+		return recordInterspect(ctx, evStore, eventType, payloadJSON, runID, sessionID, idempotencyKey, projectDir)
 	case event.SourceReview:
 		return recordReview(ctx, evStore, eventType, payloadJSON, runID, sessionID, projectDir)
 	case event.SourceCoordination:
@@ -474,7 +480,7 @@ func cmdEventsRecord(ctx context.Context, args []string) int {
 	}
 }
 
-func recordInterspect(ctx context.Context, evStore *event.Store, eventType, payloadJSON, runID, sessionID, projectDir string) int {
+func recordInterspect(ctx context.Context, evStore *event.Store, eventType, payloadJSON, runID, sessionID, idempotencyKey, projectDir string) int {
 	var payload struct {
 		AgentName      string `json:"agent_name"`
 		OverrideReason string `json:"override_reason"`
@@ -491,7 +497,13 @@ func recordInterspect(ctx context.Context, evStore *event.Store, eventType, payl
 		return 3
 	}
 
-	id, err := evStore.AddInterspectEvent(ctx, runID, payload.AgentName, eventType, payload.OverrideReason, payload.Context, sessionID, projectDir)
+	var id int64
+	var err error
+	if idempotencyKey != "" {
+		id, err = evStore.AddInterspectEventOnce(ctx, runID, payload.AgentName, eventType, payload.OverrideReason, payload.Context, idempotencyKey, projectDir)
+	} else {
+		id, err = evStore.AddInterspectEvent(ctx, runID, payload.AgentName, eventType, payload.OverrideReason, payload.Context, sessionID, projectDir)
+	}
 	if err != nil {
 		slog.Error("events record failed", "error", err)
 		return 2

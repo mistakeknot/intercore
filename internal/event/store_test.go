@@ -499,6 +499,29 @@ func TestAddInterspectEvent(t *testing.T) {
 	}
 }
 
+func TestAddInterspectEventOnceReturnsExistingID(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+	first, err := store.AddInterspectEventOnce(ctx, "run001", "remontoire", "remontoire.stage", "", `{"stage":"reviewing"}`, "cycle-1:reviewing", "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AddInterspectEventOnce(ctx, "run001", "remontoire", "remontoire.stage", "", `{"stage":"reviewing"}`, "cycle-1:reviewing", "/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("ids = %d and %d", first, second)
+	}
+	events, err := store.ListInterspectEvents(ctx, "remontoire", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
 func TestAddInterspectEvent_OptionalFields(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
