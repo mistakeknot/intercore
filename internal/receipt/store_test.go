@@ -244,6 +244,39 @@ func TestStore_List_FiltersAndOrder(t *testing.T) {
 	})
 }
 
+func TestStore_FindActionUsesExactAgentParentAndContentHash(t *testing.T) {
+	s := tempStore(t)
+	parent := "run-remontoire-1"
+	wanted, canon := freshSigned(t, func(r *Receipt) {
+		r.AgentID = "remontoire"
+		r.ParentRunID = &parent
+		r.ContentHash = strings.Repeat("a", 64)
+	})
+	if err := s.Insert(context.Background(), wanted, canon); err != nil {
+		t.Fatal(err)
+	}
+	other, otherCanon := freshSigned(t, func(r *Receipt) {
+		r.ReceiptID = "rcpt_" + strings.Repeat("z", 26)
+		r.AgentID = "remontoire"
+		r.ParentRunID = &parent
+		r.ContentHash = strings.Repeat("b", 64)
+	})
+	if err := s.Insert(context.Background(), other, otherCanon); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.FindAction(context.Background(), "remontoire", parent, strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ReceiptID != wanted.ReceiptID {
+		t.Fatalf("receipt = %s, want %s", got.ReceiptID, wanted.ReceiptID)
+	}
+	if _, err := s.FindAction(context.Background(), "remontoire", parent, strings.Repeat("c", 64)); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("missing action error = %v", err)
+	}
+}
+
 // TestBulkVerifyPerf covers acceptance criterion #5 of sylveste-ewy3.5.3:
 // bulk verification of 1K receipts completes well under 100ms. It exercises
 // the exact path `ic receipt verify --since` uses — Store.List followed by a

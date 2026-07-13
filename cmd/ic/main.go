@@ -258,6 +258,7 @@ Commands:
   session tokens --session=<id> --input=N --output=N [opts]  Add token counts
   situation snapshot [opts]      Unified observation layer (OODAR)
   receipt emit --agent=<id> --model=<m> --content=<s>  Sign + store an action receipt (prints receipt_id)
+  receipt find --agent=<id> --parent-run=<id> --content-hash=<hex>  Resolve an existing action receipt
   receipt verify <receipt_id>   Verify a signed action receipt (exit 0=valid,1=not-found,2=bad-sig,3=bad-schema,4=unknown-key)
   receipt verify --since=<dur>  Bulk-verify recent receipts; JSONL summary
   receipt keygen --agent=<id>   Provision/rotate an agent signing key

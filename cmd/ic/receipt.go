@@ -38,21 +38,73 @@ const defaultReceiptKeyRoot = ".clavain/keys/receipts"
 
 func cmdReceipt(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: receipt: usage: ic receipt <emit|verify|keygen> [args]\n")
+		fmt.Fprintf(os.Stderr, "ic: receipt: usage: ic receipt <emit|find|verify|keygen> [args]\n")
 		return rcExitOpError
 	}
 	switch args[0] {
 	case "emit":
 		return cmdReceiptEmit(ctx, args[1:])
+	case "find":
+		return cmdReceiptFind(ctx, args[1:])
 	case "verify":
 		return cmdReceiptVerify(ctx, args[1:])
 	case "keygen":
 		return cmdReceiptKeygen(ctx, args[1:])
 	default:
 		slog.Error("receipt: unknown subcommand", "subcommand", args[0])
-		fmt.Fprintf(os.Stderr, "ic: receipt: unknown subcommand %q (want: emit, verify, keygen)\n", args[0])
+		fmt.Fprintf(os.Stderr, "ic: receipt: unknown subcommand %q (want: emit, find, verify, keygen)\n", args[0])
 		return rcExitOpError
 	}
+}
+
+// cmdReceiptFind resolves an already-signed logical action. It is intentionally
+// exact: callers must provide every field used as the idempotency boundary.
+func cmdReceiptFind(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	agentID := f.String("agent", "")
+	parentRun := f.String("parent-run", "")
+	contentHash := f.String("content-hash", "")
+	if err := validateReceiptFindArgs(agentID, parentRun, contentHash); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: receipt find: %v\n", err)
+		return rcExitOpError
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("receipt find: cannot open db", "error", err)
+		return rcExitOpError
+	}
+	defer d.Close()
+	r, err := receipt.NewStore(d.SqlDB()).FindAction(ctx, agentID, parentRun, contentHash)
+	if errors.Is(err, receipt.ErrNotFound) {
+		return rcExitNotFound
+	}
+	if err != nil {
+		slog.Error("receipt find failed", "error", err)
+		return rcExitOpError
+	}
+	if flagJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]string{
+			"receipt_id": r.ReceiptID, "agent_id": r.AgentID,
+			"parent_run_id": parentRun, "content_hash": r.ContentHash,
+		})
+	} else {
+		fmt.Println(r.ReceiptID)
+	}
+	return rcExitValid
+}
+
+func validateReceiptFindArgs(agentID, parentRun, contentHash string) error {
+	if strings.TrimSpace(agentID) == "" || strings.TrimSpace(parentRun) == "" {
+		return fmt.Errorf("--agent and --parent-run are required")
+	}
+	if len(contentHash) != sha256.Size*2 {
+		return fmt.Errorf("--content-hash must be a 64-character SHA-256 digest")
+	}
+	if _, err := hex.DecodeString(contentHash); err != nil {
+		return fmt.Errorf("--content-hash must be hexadecimal")
+	}
+	return nil
 }
 
 // parseSinceDuration parses a lookback window, extending Go's

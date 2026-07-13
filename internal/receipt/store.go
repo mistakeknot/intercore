@@ -109,6 +109,29 @@ func (s *Store) Get(ctx context.Context, receiptID string) (*Receipt, []byte, er
 	return r, payload, err
 }
 
+// FindAction returns the earliest signed receipt for one logical action.
+// The exact tuple is Remontoire's idempotency boundary for recovering an emit
+// that may have committed before its process lost the receipt ID.
+func (s *Store) FindAction(ctx context.Context, agentID, parentRunID, contentHash string) (*Receipt, error) {
+	const q = `SELECT
+		receipt_id, timestamp, agent_id, model, tool_calls_json, parent_run_id,
+		content_hash, schema_version, signature, signature_alg, key_id, signed_at,
+		payload_canonical
+	  FROM action_receipts
+	 WHERE agent_id = ? AND parent_run_id = ? AND content_hash = ?
+	 ORDER BY timestamp ASC, receipt_id ASC
+	 LIMIT 1`
+	row := s.db.QueryRowContext(ctx, q, agentID, parentRunID, contentHash)
+	r, _, err := scanRow(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("%w: action %s/%s", ErrNotFound, agentID, parentRunID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find action receipt: %w", err)
+	}
+	return r, nil
+}
+
 // ListOpts filters a List call. Zero-value fields are ignored.
 type ListOpts struct {
 	AgentID string

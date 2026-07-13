@@ -62,6 +62,25 @@ func TestDefaultEpoch(t *testing.T) {
 	}
 }
 
+func TestValidateReceiptFindArgs(t *testing.T) {
+	valid := strings.Repeat("a", 64)
+	if err := validateReceiptFindArgs("remontoire", "run-1", valid); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		agent, parent, hash string
+	}{
+		{"", "run-1", valid},
+		{"remontoire", "", valid},
+		{"remontoire", "run-1", "short"},
+		{"remontoire", "run-1", strings.Repeat("z", 64)},
+	} {
+		if err := validateReceiptFindArgs(test.agent, test.parent, test.hash); err == nil {
+			t.Fatalf("accepted invalid args %#v", test)
+		}
+	}
+}
+
 // TestVerifyVerdict covers the verdict → canon-exit-code mapping that is the
 // core of `ic receipt verify` (acceptance criteria #1 and #3 of
 // sylveste-ewy3.5.3). It exercises the pure mapping without a DB or the CLI
