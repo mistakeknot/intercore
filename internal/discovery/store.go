@@ -430,6 +430,93 @@ func (s *Store) RecordFeedback(ctx context.Context, discoveryID, signalType, dat
 	return tx.Commit()
 }
 
+// RecordFeedbackOnce records one feedback signal and audit event for an
+// explicit idempotency key. Reusing a key with different content is rejected.
+func (s *Store) RecordFeedbackOnce(ctx context.Context, discoveryID, signalType, data, actor, idempotencyKey string) (int64, error) {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return 0, fmt.Errorf("feedback once: idempotency key is required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("feedback once: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	var exists int
+	if err := tx.QueryRowContext(ctx, "SELECT 1 FROM discoveries WHERE id = ?", discoveryID).Scan(&exists); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("%w: %s", ErrNotFound, discoveryID)
+		}
+		return 0, fmt.Errorf("feedback once: lookup: %w", err)
+	}
+
+	now := nowUnix()
+	reservation, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO feedback_idempotency (
+			idempotency_key, discovery_id, signal_type, signal_data, actor, created_at
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		idempotencyKey, discoveryID, signalType, data, actor, now,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("feedback once: reserve: %w", err)
+	}
+	rows, err := reservation.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("feedback once: reservation rows affected: %w", err)
+	}
+	if rows == 0 {
+		var signalID sql.NullInt64
+		var existingDiscovery, existingSignal, existingData, existingActor string
+		err := tx.QueryRowContext(ctx, `
+			SELECT signal_id, discovery_id, signal_type, signal_data, actor
+			FROM feedback_idempotency
+			WHERE idempotency_key = ?`, idempotencyKey,
+		).Scan(&signalID, &existingDiscovery, &existingSignal, &existingData, &existingActor)
+		if err != nil {
+			return 0, fmt.Errorf("feedback once: resolve existing: %w", err)
+		}
+		if existingDiscovery != discoveryID || existingSignal != signalType || existingData != data || existingActor != actor {
+			return 0, fmt.Errorf("feedback once: idempotency key %q conflicts with existing signal", idempotencyKey)
+		}
+		if !signalID.Valid {
+			return 0, fmt.Errorf("feedback once: idempotency key %q has no committed signal", idempotencyKey)
+		}
+		if err := tx.Commit(); err != nil {
+			return 0, fmt.Errorf("feedback once: commit existing: %w", err)
+		}
+		return signalID.Int64, nil
+	}
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT INTO feedback_signals (discovery_id, signal_type, signal_data, actor, created_at)
+		VALUES (?, ?, ?, ?, ?)`,
+		discoveryID, signalType, data, actor, now,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("feedback once: insert: %w", err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("feedback once: signal id: %w", err)
+	}
+	payload, _ := json.Marshal(map[string]interface{}{
+		"discovery_id": discoveryID, "signal_type": signalType, "idempotency_key": idempotencyKey,
+	})
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO discovery_events (discovery_id, event_type, payload, created_at)
+		VALUES (?, ?, ?, ?)`, discoveryID, EventFeedback, string(payload), now); err != nil {
+		return 0, fmt.Errorf("feedback once: event: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE feedback_idempotency SET signal_id = ? WHERE idempotency_key = ?`, id, idempotencyKey); err != nil {
+		return 0, fmt.Errorf("feedback once: bind signal: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("feedback once: commit: %w", err)
+	}
+	return id, nil
+}
+
 // GetProfile returns the current interest profile (singleton row).
 // Returns a zero-value profile if none exists.
 func (s *Store) GetProfile(ctx context.Context) (*InterestProfile, error) {

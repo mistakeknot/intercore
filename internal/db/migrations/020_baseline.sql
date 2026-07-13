@@ -260,6 +260,17 @@ CREATE TABLE feedback_signals (
 );
 CREATE INDEX idx_feedback_signals_discovery ON feedback_signals(discovery_id);
 
+CREATE TABLE feedback_idempotency (
+    idempotency_key TEXT PRIMARY KEY,
+    discovery_id    TEXT NOT NULL,
+    signal_type     TEXT NOT NULL,
+    signal_data     TEXT NOT NULL,
+    actor           TEXT NOT NULL,
+    signal_id       INTEGER,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+);
+CREATE INDEX idx_feedback_idempotency_discovery ON feedback_idempotency(discovery_id);
+
 CREATE TABLE interest_profile (
     id              INTEGER PRIMARY KEY CHECK (id = 1),
     topic_vector    BLOB,

@@ -218,7 +218,7 @@ func TestHealthRejectsStaleSchema(t *testing.T) {
 	if !errors.Is(err, ErrNotMigrated) {
 		t.Fatalf("Health error = %v, want ErrNotMigrated", err)
 	}
-	if !strings.Contains(err.Error(), "35") || !strings.Contains(err.Error(), "36") {
+	if !strings.Contains(err.Error(), "35") || !strings.Contains(err.Error(), "37") {
 		t.Fatalf("Health error = %q, want stale and current schema versions", err)
 	}
 }
@@ -1411,17 +1411,17 @@ func TestMigration036AuthzLegacyAnchorSeal(t *testing.T) {
 	}
 	applied, err := m.Run(ctx)
 	if err != nil {
-		t.Fatalf("Run v35 to v36: %v", err)
+		t.Fatalf("Run v35 to v37: %v", err)
 	}
-	if applied != 1 {
-		t.Fatalf("v35 to v36 applied %d migrations, want 1", applied)
+	if applied != 2 {
+		t.Fatalf("v35 to v37 applied %d migrations, want 2", applied)
 	}
 	version, err := d.SchemaVersion()
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != 36 {
-		t.Fatalf("SchemaVersion = %d, want 36", version)
+	if version != 37 {
+		t.Fatalf("SchemaVersion = %d, want 37", version)
 	}
 	if after := snapshot(); !reflect.DeepEqual(after, before) {
 		t.Fatalf("v36 seal changed authorization rows\nbefore: %#v\nafter:  %#v", before, after)
@@ -1451,7 +1451,7 @@ func TestMigration036AuthzLegacyAnchorSeal(t *testing.T) {
 	}
 }
 
-func TestSchema036Fresh(t *testing.T) {
+func TestSchema037Fresh(t *testing.T) {
 	d, _ := tempDB(t)
 	if err := d.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
@@ -1461,7 +1461,7 @@ func TestSchema036Fresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != 36 {
-		t.Fatalf("SchemaVersion = %d, want 36", version)
+	if version != 37 {
+		t.Fatalf("SchemaVersion = %d, want 37", version)
 	}
 }

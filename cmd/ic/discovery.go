@@ -290,6 +290,7 @@ func cmdDiscoveryFeedback(ctx context.Context, args []string) int {
 	signal := f.String("signal", "")
 	dataFile := f.String("data", "")
 	actor := f.String("actor", "")
+	idempotencyKey := f.String("idempotency-key", "")
 	id := ""
 	if len(f.Positionals) > 0 {
 		id = f.Positionals[0]
@@ -322,7 +323,11 @@ func cmdDiscoveryFeedback(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := discovery.NewStore(d.SqlDB())
-	if err := store.RecordFeedback(ctx, id, signal, data, actor); err != nil {
+	if idempotencyKey != "" {
+		if _, err := store.RecordFeedbackOnce(ctx, id, signal, data, actor, idempotencyKey); err != nil {
+			return discoveryError("feedback", err)
+		}
+	} else if err := store.RecordFeedback(ctx, id, signal, data, actor); err != nil {
 		return discoveryError("feedback", err)
 	}
 

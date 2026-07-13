@@ -308,6 +308,35 @@ func TestRecordFeedback(t *testing.T) {
 	}
 }
 
+func TestRecordFeedbackOnceReturnsExistingSignalWithoutDuplicateEvent(t *testing.T) {
+	sqlDB := setupTestDB(t)
+	s := NewStore(sqlDB)
+	ctx := context.Background()
+	id := mustSubmit(t, s, "test", "fb-once", "Paper", 0.5)
+
+	first, err := s.RecordFeedbackOnce(ctx, id, SignalBoost, `{"cycle_id":"cycle-1"}`, "remontoire", "remontoire:cycle-1:"+id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.RecordFeedbackOnce(ctx, id, SignalBoost, `{"cycle_id":"cycle-1"}`, "remontoire", "remontoire:cycle-1:"+id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("signal ids = %d and %d", first, second)
+	}
+	var signals, events int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM feedback_signals WHERE discovery_id = ?`, id).Scan(&signals); err != nil {
+		t.Fatal(err)
+	}
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM discovery_events WHERE discovery_id = ? AND event_type = ?`, id, EventFeedback).Scan(&events); err != nil {
+		t.Fatal(err)
+	}
+	if signals != 1 || events != 1 {
+		t.Fatalf("signals=%d events=%d", signals, events)
+	}
+}
+
 func TestRecordFeedbackNotFound(t *testing.T) {
 	sqlDB := setupTestDB(t)
 	s := NewStore(sqlDB)
