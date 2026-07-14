@@ -1,0 +1,33 @@
+# Seed registry — real deployments only (spec Q-2.5). Capability rows sourced
+# from the 2026-07 Sol-vs-Fable research, provenance-tagged. This fixture backs
+# the constraint-enforcement tests (the DoD's first clause).
+version: 1
+staleness_horizon: 90d
+deployments:
+  anthropic/claude-fable-5@api:
+    version_stability: vendor-live
+    trust_zone: vendor-cloud
+    cost: { type: per-token, in: 10.00, out: 50.00 }
+    capabilities:
+      discernment:   { value: 0.95, provenance: judgment,  verified_at: 2026-07-13, judged_by: ar }
+      terminal_exec: { value: 0.83, provenance: benchmark, verified_at: 2026-07-13 }
+      multi_file:    { value: 0.92, provenance: benchmark, verified_at: 2026-07-13 }
+      reward_hack_risk: { value: 0.10, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
+
+  openai/gpt-5.6-sol@api:
+    version_stability: vendor-live
+    trust_zone: vendor-cloud
+    cost: { type: per-token, in: 5.00, out: 30.00 }
+    capabilities:
+      discernment:   { value: 0.70, provenance: judgment,  verified_at: 2026-07-13, judged_by: ar }
+      terminal_exec: { value: 0.92, provenance: benchmark, verified_at: 2026-07-13 }
+      # multi_file intentionally omitted: SWE-Bench Pro score unreleased (unknown is information)
+      reward_hack_risk: { value: 0.55, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
+
+  nousresearch/hermes-4@zklw:
+    version_stability: pinned
+    trust_zone: local
+    cost: { type: capacity }
+    capabilities:
+      discernment:   { value: 0.60, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
+      terminal_exec: { value: 0.65, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
