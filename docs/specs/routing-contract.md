@@ -1,6 +1,6 @@
 ---
 artifact_type: spec
-status: SCAFFOLD (contents to be interviewed section-by-section; do not treat stubs as decided)
+status: SCAFFOLD (partial — Q-1.2, Q-1.5, Q-2.2 DECIDED 2026-07-14; remainder to interview)
 phase: 1
 plan: docs/plans/2026-07-13-model-routing-externalization.md
 bead: intercore-8xa
@@ -38,9 +38,9 @@ roles:            # ⟨OPEN Q-1.1⟩ fixed enum or open set?
   - planner
   - executor
   - validator
-task_classes:     # ⟨OPEN Q-1.2⟩ what IS a task class? enumerated, or descriptor-derived?
-  terminal-grind: { ... }
-  multi-file-bugfix: { ... }
+task_classes:     # DECIDED Q-1.2: enumerated keys, human-defined. Adding a class = policy edit,
+  terminal-grind: { ... }              # no code change. Caller names the class: `ic route --class=terminal-grind`.
+  multi-file-bugfix: { ... }           # interspect can propose new classes. ic route errors on an unknown class name.
   client-confidential-synthesis: { ... }
 bindings:         # ⟨OPEN Q-1.3⟩ role -> (model@deployment) per harness. Shape?
   claude-code:
@@ -58,16 +58,16 @@ verification_gates: # ⟨OPEN Q-1.6⟩ which task classes require which gates
 
 **Decisions to interview:**
 - `⟨OPEN Q-1.1⟩` Roles: fixed `{planner, executor, validator}` or extensible? (Plan says "extensible" — does v1 need more than three?)
-- `⟨OPEN Q-1.2⟩` Task class: is it an enumerated key in the yaml, or is it computed from the task descriptor at `ic route` time? This determines whether adding a task class is a policy edit or a code change.
+- ✅ **Q-1.2 DECIDED: enumerated keys in the yaml.** Task classes are human-defined named keys; the caller passes `--class=<name>`; `ic route` errors on an unknown class. Adding a class is a policy edit (interspect can propose one), never a code change. Consequence for §3: the task descriptor carries a `class` field the caller supplies, not descriptor fields `ic route` infers from (simplifies Q-3.1).
 - `⟨OPEN Q-1.3⟩` Bindings: per-harness is decided. But do bindings bind role→model, or role→(model + effort + gates)? How much rides on the binding vs. the task class?
 - `⟨OPEN Q-1.4⟩` Constraint predicate language: how expressive? A flat `if data==X require trust_zone∈Y` list, or something that can express AND/OR/negation? (YAGNI risk: over-building the predicate engine.)
 - `⟨OPEN Q-1.5⟩` Escalation encoding **(THE P0 — design grounded below, pick one)**: how is the ladder expressed so it is registry-derived and per-harness, NOT the hardcoded `["sonnet","opus","fable"]` in `dispatch/escalate.go`? And where does the de-escalation reset (`escalation_expired` after N successes) live?
 
   **Ground truth (verified 2026-07-14):** the ladder is not a naive list; `escalate.go` is a full subsystem (chain state, lesson transport, exhaustion handoff, `MaxEscalations` oscillation guard). Critically, `nextRungModel` (escalate.go:63) hardcodes `["sonnet","opus","fable"]` AND re-implements the fable-window fail-closed degrade (escalate.go:85-90) as a **byte-identical copy** of `routing.fableWindowOpen` (resolve.go:132) — `fableEscalationOpen()` and `fableWindowOpen()` are the same `CLAVAIN_FABLE_AVAILABLE=1` check in two packages that don't share code. `internal/dispatch` does not import `internal/routing` (confirmed). So the P0 is not "generalize a list"; it is "the escalation subsystem re-derives capability ordering and safety-window logic that the routing mechanism also owns, independently."
 
-  **Three options (Q-1.5 chooses):**
+  **✅ Q-1.5 DECIDED: option (A).** `escalate.go`'s `nextRungModel` calls the routing mechanism for the next rung; the local `["sonnet","opus","fable"]` ladder and the duplicated fable-window check are deleted. Retry becomes vector-aware, one source of capability order. `internal/dispatch` takes a dependency on routing (acceptable: it is the same-half-of-the-decision cohesion the architecture review established). The three options are kept below for the record.
 
-  - **(A) escalate.go calls `ic route`/routing for the next rung.** `nextRungModel` stops walking a local list and instead asks the routing mechanism "next-more-capable target for this role/harness above `currentModel`, fable-window respected." Kills the triplicated fable logic; makes escalation vector-aware for free (Sol-vs-Fable ordering comes from the registry). Cost: `internal/dispatch` gains a dependency on routing (or on `ic route` output); the ladder becomes registry-derived per-harness. *This is the option that makes "roles not model names" true at the retry surface.*
+  - **(A) escalate.go calls `ic route`/routing for the next rung. [CHOSEN]** `nextRungModel` stops walking a local list and instead asks the routing mechanism "next-more-capable target for this role/harness above `currentModel`, fable-window respected." Kills the triplicated fable logic; makes escalation vector-aware for free (Sol-vs-Fable ordering comes from the registry). Cost: `internal/dispatch` gains a dependency on routing (or on `ic route` output); the ladder becomes registry-derived per-harness. *This is the option that makes "roles not model names" true at the retry surface.*
   - **(B) Ladder becomes a policy-supplied field, still walked locally.** `routing.yaml` emits a per-harness ordered ladder; `EscalationPolicy.Ladder` is populated from it instead of `DefaultEscalationPolicy()`. Cheaper (no cross-package call at retry time), but the *ordering* is still a flat list a human maintains, not derived from capability vectors — so it can silently disagree with `ic route`'s vector ranking. Half-fixes the P0.
   - **(C) Explicitly scope escalation-generalization OUT of this initiative.** Document that until a named later phase, escalation stays Claude-only `["sonnet","opus","fable"]` by design, and `ic route` covers only fresh routing, not retry. Honest and small, but ships the exact "vectors at `ic route`, `TierFable` at every retry" split the review flagged — acceptable only if retry-time vendor diversity is genuinely not needed yet.
 
@@ -90,7 +90,8 @@ deployments:
   anthropic/claude-fable-5@api:
     version_stability: vendor-live   # pinned | vendor-live  (fd-arch F3)
     trust_zone: vendor-cloud
-    cost: { type: per-token, in: 10.00, out: 50.00 }   # ⟨OPEN Q-2.2⟩
+    cost: { type: per-token, in: 10.00, out: 50.00 }   # DECIDED Q-2.2: all 3 types built in v1
+    # cost.type ∈ { per-token | subscription-quota | capacity }. Hermes@zklw = capacity; Max-plan = subscription-quota.
     effort_map: { 3: { thinking_budget: 16000 } }       # ⟨OPEN Q-2.3⟩
     capabilities:
       discernment:    { value: 0.95, provenance: judgment, verified_at: 2026-07-13, judged_by: ar, rationale: "..." }
@@ -109,7 +110,7 @@ deployments:
 
 **Decisions to interview:**
 - `⟨OPEN Q-2.1⟩` Staleness horizon: one global value, or per-axis (benchmarks age slower than reward-hack judgments)? And the downgrade rule: stale `benchmark`→`judgment`→`unknown` is decided in principle; is the horizon per `version_stability` (vendor-live ages faster)?
-- `⟨OPEN Q-2.2⟩` Cost types: `per-token | subscription-quota | capacity`. **YAGNI gate (fd-arch):** `EffectiveCost`/`CheapestCapable` have zero non-test callers today. Does v1 actually route on cost, or do we ship cost as `per-token`-only metadata and defer the three-way typing until a real consumer exists?
+- ✅ **Q-2.2 DECIDED: type all three in v1** (`per-token | subscription-quota | capacity`). YAGNI gate cleared *because the consumer is on the roadmap*: Hermes (capacity) is a committed Phase-7 pilot in the goal DoD and Max-plan quota is real, so typing now avoids a registry schema-version bump the moment Phase 7 lands. Follow-on: the decision function must actually switch on `cost.type` (no per-token-only shortcut), and `EffectiveCost`/`CheapestCapable` in `costs.go` get their first real caller here (retires the dead-code flag).
 - `⟨OPEN Q-2.3⟩` Effort map: the abstract 1–5 → vendor-semantics table. Per-deployment (as shown) or per-vendor? Does it carry its own provenance stamp (a conversion table can drift)?
 - `⟨OPEN Q-2.4⟩` Capability axes: the plan lists terminal_execution, multi_file_resolution, discernment, long_context, reward_hack_risk. Is that the frozen v1 axis set? Adding an axis later is a schema-version bump.
 - `⟨OPEN Q-2.5⟩` Seed contents: which deployments populate v1? (Plan: current-real-only — Anthropic fable-5/opus-4.8/sonnet-5/haiku-4.5, OpenAI sol/terra/luna. Hermes row: schema-fits-but-empty until Phase 7, or seed it now for the pilot?)
@@ -185,13 +186,13 @@ The cross-host case: Hermes on zklw reaching `ic route`.
 |----|---------|--------------|
 | Q-0 | 0 | Is the witness its own contract surface? |
 | Q-1.1 | 1 | Roles: fixed or extensible in v1 |
-| Q-1.2 | 1 | Task class: yaml key or descriptor-derived |
+| ~~Q-1.2~~ | 1 | ✅ Task class: **enumerated yaml keys**, caller passes `--class` |
 | Q-1.3 | 1 | Binding granularity (model vs model+effort+gates) |
 | Q-1.4 | 1 | Constraint predicate expressiveness |
-| Q-1.5 | 1 | Escalation encoding + de-escalation home **(P0-adjacent)** |
+| ~~Q-1.5~~ | 1 | ✅ Escalation: **option A** (escalate.go calls routing; local ladder + dup fable check deleted) |
 | Q-1.6 | 1 | How a field is marked safety-class |
 | Q-2.1 | 2 | Staleness horizon: global vs per-axis vs per-stability |
-| Q-2.2 | 2 | Cost typing now vs deferred **(YAGNI gate)** |
+| ~~Q-2.2~~ | 2 | ✅ Cost: **type all three now** (consumer on roadmap; costs.go gets first real caller) |
 | Q-2.3 | 2 | Effort-map granularity + provenance |
 | Q-2.4 | 2 | Frozen v1 capability axis set |
 | Q-2.5 | 2 | Seed deployment contents (Hermes now or later) |
