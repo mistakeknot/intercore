@@ -1,0 +1,29 @@
+{
+  "id": "fd-capability-benchmark-provenance",
+  "kind": "base",
+  "parents": [],
+  "domain": "ML model evaluation methodology and capability-benchmark provenance for automated routing/selection systems",
+  "axioms": [
+    "A benchmark score is only a valid routing input if it is comparable across the vendors being compared — same harness, same task version, same scoring method; a raw number without that metadata is not a fact, it is an artifact of one specific eval run.",
+    "Provenance tagging (benchmark | judgment | unknown) is only meaningful if the tag survives every transformation in the pipeline (snapshot -> seed file -> registry -> decision function); a tag that can be silently dropped or coerced is decorative, not load-bearing.",
+    "A capability axis populated from a single data point (one model, one study, one flag) is not yet a measured axis for the whole registry — it is an anecdote wearing a schema's clothing until coverage exists across candidates.",
+    "Multi-axis capability vectors have no natural total order; a routing system that consumes vectors must define an explicit dominance/tie-break rule, or the 'decision' for non-dominated cases is arbitrary and effectively untested.",
+    "Any system built to fix 'facts are stale' must itself be checked for staleness at authoring time — inheriting the problem while claiming to solve it is the single most common failure of a facts-refresh project.",
+    "Drift detection without a defined threshold, cadence, or owner is equivalent to no drift detection — a report nobody is obligated to read is not a control.",
+    "'Unknown treated conservatively' is a policy statement, not a mechanism; it only holds if 'conservative' is defined precisely enough that two implementers would build the same behavior from it."
+  ],
+  "primitives": [
+    "benchmark result (score, harness version, task version, eval date)",
+    "provenance tag (benchmark / judgment / unknown)",
+    "capability axis (terminal_execution, discernment, reward_hack_risk, etc.)",
+    "capability vector (a model's position across all axes)",
+    "dominance / tie-break rule (how a vector-valued comparison resolves to one decision)",
+    "drift (divergence between registry value and current source-of-truth over time)"
+  ],
+  "failure_mode": [
+    "Reasons about whether a capability claim is well-sourced but tends not to check whether the resulting routing decision is even computable (dominance/tie-break logic) — that gap sits at the boundary with policy-engine design and can fall through if not explicitly pulled into scope.",
+    "Focuses on the correctness/comparability of individual facts and may under-weight structural questions like whether the schema key for a benchmark result includes enough metadata (harness/version) to detect future incomparability — that is a schema-design concern this lens borders but doesn't own.",
+    "Can over-index on the specific benchmarks named in a document (Terminal-Bench, SWE-Bench Pro) and under-index on the general pattern (single-vendor research flag treated as a universal axis) if the review isn't pushed to generalize beyond the cited examples."
+  ],
+  "findings": []
+}

@@ -1,0 +1,30 @@
+{
+  "id": "fd-cli-contract-versioning-discipline",
+  "kind": "base",
+  "parents": [],
+  "domain": "Infra CLI/API contract engineering: exit-code taxonomies, JSON output schema versioning, machine-vs-human output surface separation, and cross-language conformance for widely-consumed command-line tools",
+  "axioms": [
+    "A CLI's stdout, JSON output shape, and exit codes are a public API the moment more than one independent consumer parses them, and must be versioned and deprecation-cycled with the same rigor as a network API, not treated as incidental implementation detail.",
+    "A qualitative distinction between failure kinds ('constraint violation ≠ malformed input ≠ no-eligible-model') is not a contract until it is a closed, numbered enumeration that an independent implementer can code against without reading source.",
+    "Any output field not explicitly versioned will eventually be depended on by some consumer exactly as if it were versioned; the absence of a stated compatibility policy does not prevent dependency, it only prevents that dependency from being safe.",
+    "Human-facing rationale text (explain output) and machine-facing contract JSON are different artifacts with different stability guarantees; failing to draw a tooling-enforced line between them guarantees that prose improvements eventually break some consumer's script.",
+    "'Ignore-with-warning on unknown schema version' is not a single behavior; it must be specified per-schema and per-field, because for security/constraint-relevant fields (e.g., trust-zone rules), 'ignore' is a substantive behavioral choice with real consequences, not a neutral no-op.",
+    "A contract's independent-implementability is only proven when a second, independent implementation is built from the spec artifact alone, without access to the first implementation's source — building the second implementation with access to the first's code does not test the contract, it tests whether reading code is possible.",
+    "Composability under a stated design goal ('pure filter') must be validated against real composition/throughput patterns (batch, streaming), not just architectural purity of a single-input invocation, or the contract silently forecloses the scale at which it will actually be used."
+  ],
+  "primitives": [
+    "exit code (as a closed, numbered, documented enumeration vs. an open ad hoc set)",
+    "JSON output schema and its version field / compatibility policy",
+    "machine contract surface vs. human-debug surface (route JSON vs. explain prose)",
+    "per-schema unknown-version fallback behavior (routing.yaml, registry, evidence, decision output each specified individually)",
+    "independent second implementation (built from spec artifact alone, without access to prior implementation source)",
+    "machine-checkable schema artifact (JSON Schema/protobuf) as the actual conformance target",
+    "batch/stream input handling vs. one-descriptor-per-process-invocation"
+  ],
+  "failure_mode": [
+    "Reasons precisely about interface/contract stability across process and language boundaries but tends to accept the underlying routing decision as correct, focusing only on how faithfully it is packaged and versioned for consumers — whether the decision itself is right (vector matching, effort mapping, escalation logic) is out of scope and belongs to the decision-semantics-focused review.",
+    "Focuses on the CLI/JSON packaging layer and can under-weight whether the migration process delivering that CLI to production (phased rollout, shadow mode) is itself safe — a perfectly versioned contract shipped via an unsafe cutover is still a production incident, and that operational-safety dimension sits with the migration/SRE-focused review.",
+    "Prioritizes multi-consumer conformance and versioning discipline and may not deeply probe whether the enforcement of what the contract carries (e.g., a trust-zone constraint or verification gate named in the JSON) is actually honored by each consumer — that enforcement-fidelity question borders this lens (a malformed/unversioned contract makes it worse) but is not owned by it."
+  ],
+  "findings": []
+}

@@ -1,0 +1,33 @@
+{
+  "slug": "model-routing-externalization-plan",
+  "method": "flux-melange",
+  "date": "2026-07-13",
+  "rounds_run": 4,
+  "halt_reason": "DRY",
+  "slots_spent": 11,
+  "budget_total": 15,
+  "findings_total": 23,
+  "upheld": 18,
+  "refuted": 0,
+  "gain_history": [
+    {"round": 0, "yield": 9, "novel_cluster_rate": 0.9},
+    {"round": 1, "yield": 2, "novel_cluster_rate": 0.67},
+    {"round": 2, "yield": 3, "novel_cluster_rate": 0.6},
+    {"round": 3, "yield": 1, "novel_cluster_rate": 0.2}
+  ],
+  "fusions": {"attempted": 3, "emergent": 2, "note": "workflow return object reported 0/0 due to design-agent slot-accounting; ledger shows f-017/f-018 emergent, f-019 demoted to convergence by the emergence gate"},
+  "directive_trail": [
+    {"round": 0, "kind": "SEED", "lenses": ["fd-metrology-calibration-chain", "fd-pilotage-authority-boundary", "(adjacent probe failed: API error)"], "why": "two-tier seed, adjacent + distant"},
+    {"round": 1, "kind": "DEEPEN + STEER-WIDE", "lenses": ["fd-coppice-rotation-stewardship"], "why": "provenance-staleness and version-degradation clusters were hottest from round 0; coppice added lifecycle/rotation framing"},
+    {"round": 2, "kind": "FUSE + DEEPEN", "lenses": ["fd-scribal-transmission-collation", "fd-contradiction-adjudication (pilotage x coppice)"], "why": "pilotage x coppice cleared shared-heat on the ignore-with-warning line; collation lens grounded findings in decision.go and surfaced PolicyHash"},
+    {"round": 3, "kind": "PROBE-DISAGREEMENT + DEEPEN", "lenses": ["fd-contradiction-adjudication", "fd-vat-dye-deferred-commitment"], "why": "re-probe the f-007/f-013 disagreement (went dry, emergent=false); vat-dye surfaced the dropped F3/F4 canary in Phase 5"}
+  ],
+  "top_finding_by_heat": "f-014",
+  "top_finding_by_severity": "f-006",
+  "caveats": [
+    "One adjacent-tier seed probe died on a transient API connection error in round 0; adjacent/conventional-architecture register is under-covered.",
+    "Original synthesis agent died on the same transient error; synthesis rewritten from the intact append-only ledger.",
+    "No lens challenged the core architecture decision (intercore vs new repo, roles-not-models, deployment-keyed registry) - likely the missing adjacent lens.",
+    "Hermes/Phase-7 mechanics, cost-type switching, and effort-normalization each drew only one finding - light coverage."
+  ]
+}

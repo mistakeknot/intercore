@@ -1,0 +1,15 @@
+{
+  "id": "fd-contradiction-adjudication",
+  "kind": "fusion",
+  "parents": [
+    "fd-pilotage-authority-boundary",
+    "fd-coppice-rotation-stewardship"
+  ],
+  "domain": "Cross-lens contradiction adjudication: fuses harbor-pilotage authority boundaries with coppice rotational lifecycle to adjudicate same-location findings whose causes conflict, connecting causes neither parent lens connected and surfacing synthesis-hygiene risks in the heat ledger's own dedup mechanics.",
+  "findings": [
+    "f-017",
+    "f-018",
+    "f-019",
+    "f-020"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "fd-metrology-calibration-chain",
+  "kind": "base",
+  "parents": [],
+  "domain": "Pre-modern metrology and the maintenance of a calibration chain (bureau of weights and measures: prototype standards, calibration ledgers, periodic inter-comparison of working standards against a national primary, authorized unit conversion)",
+  "axioms": [
+    "A value in circulation is only trustworthy if it traces, by a documented chain of intermediary standards, back to a primary standard of known provenance; a broken lineage makes the value formally worthless, not merely approximate.",
+    "Standards drift with time and use; a working standard not re-verified on its scheduled cadence is presumed drifted until re-proven, and re-verification is only meaningful if a divergence carries an obligated disposition.",
+    "Conversion between incommensurable local units requires an authorized, provenanced, versioned conversion table; an unbacked equivalence between two vendors' effort dials is a fabricated equivalence.",
+    "The certification metadata (who assayed, when, against which source/snapshot) is part of the value; a bare correctness tag with no certifier or date is uncertified and its drift is undetectable by construction.",
+    "An absent standard is itself a verdict and must be treated as suspect-until-proven, never allowed to silently decay into a numeric default.",
+    "A corrupted master standard silently poisons every derived copy downstream; the dangerous failure is the genuine old standard trusted long after the artifact beneath it crept, not the obviously-wrong measure."
+  ],
+  "primitives": [
+    "value + provenance tag (benchmark|judgment|unknown)",
+    "certifier / source id / snapshot id",
+    "assay date and re-verification cadence",
+    "primary standard vs. working standard vs. derived copy",
+    "calibration/traceability chain (links between standards)",
+    "unit-conversion table (abstract effort 1-5 -> vendor semantics)",
+    "inter-comparison / drift report and its obligated disposition",
+    "compat shim as a re-baselining conversion",
+    "absence-of-standard vs. staleness-of-standard"
+  ],
+  "failure_mode": [
+    "Blind to runtime enforcement, fail-closed/fail-open behavior, and authority boundaries between harnesses \u2014 it audits whether a value can be traced and re-verified, not whether a constraint actually holds when the decision executes.",
+    "Can over-index on lineage bureaucracy and flag missing provenance metadata even where the value is low-stakes or the drift blast-radius is negligible.",
+    "Treats 'the world moved' (a superseded benchmark, a redefined vendor dial) as the primary threat and can under-weight failures that have nothing to do with data staleness (e.g. an adapter that ignores a correctly-provenanced gate)."
+  ],
+  "findings": [
+    "f-001",
+    "f-002",
+    "f-003",
+    "f-004",
+    "f-005"
+  ]
+}

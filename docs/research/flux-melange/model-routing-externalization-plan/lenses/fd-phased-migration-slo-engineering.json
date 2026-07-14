@@ -1,0 +1,30 @@
+{
+  "id": "fd-phased-migration-slo-engineering",
+  "kind": "base",
+  "parents": [],
+  "domain": "Site-reliability engineering discipline for zero-downtime migration of live-traffic-bearing control-plane infrastructure: blast radius containment, shadow-mode rollout, compat-shim lifecycle, and cross-phase rollback safety",
+  "axioms": [
+    "A phase-transition acceptance criterion that consists of a single successful demo trace bounds the blast radius of nothing; it only proves the happy path is reachable, not that the phase is safe to cut 100% of hot-path traffic over to.",
+    "Every intermediate state of a multi-phase migration is itself a live production state with its own blast radius; a migration plan is only as safe as its worst intermediate phase, not its final architecture.",
+    "A compatibility shim introduced to preserve existing callers has no natural expiration; without an explicit removal trigger or deadline, it becomes permanent dual-path complexity by default, because nobody can prove a negative (that nothing still depends on it) well enough to delete it.",
+    "A control path that sits in every request's hot path (here: every agent invocation's model selection) requires shadow-mode or dual-run comparison against the prior behavior before cutover, because the alternative first-detection mechanism is a human noticing degraded output quality after the fact, which is neither fast nor reliable.",
+    "Downstream phases that consume upstream phases' output (a feedback loop consuming an adapter's evidence emission) inherit that output's defects silently unless an explicit integrity/validation gate sits at the seam; 'earlier phase passed acceptance criteria' is not evidence the seam is clean.",
+    "A rollback is a designed capability, not an emergent property of version control; a migration plan that asserts phases are 'independently shippable' for value-delivery purposes has not thereby established they are independently revertible once later phases begin depending on them.",
+    "Aggregate observability (rates, distributions, drift across many decisions) is a different deliverable from per-decision explainability (rationale for one decision); a system with only the latter can be locally correct on every inspected case while being systemically wrong in aggregate, undetected."
+  ],
+  "primitives": [
+    "phase (a bounded unit of the migration with its own acceptance criteria)",
+    "blast radius (the scope of impact if a phase's output is subtly wrong, not just obviously broken)",
+    "shadow mode / dual-run (comparing new-path output against old-path output on real traffic before cutover)",
+    "compat shim (temporary old-interface wrapper over new mechanism) and its removal trigger",
+    "cross-phase dependency (a later phase's correctness assumption about an earlier phase's output)",
+    "rollback runbook (a stated, tested path to revert a phase after later phases depend on it)",
+    "aggregate observability (dashboards/alerts over many decisions, distinct from single-decision explain output)"
+  ],
+  "failure_mode": [
+    "Reasons rigorously about rollout safety, blast radius, and rollback but tends to assume the decision function's internal logic (vector matching, effort mapping, escalation counting) is correct as specified, rather than independently verifying its arithmetic — that correctness question belongs to the decision-semantics-focused review, and a defect there would need to already be identified for this lens to reason about its blast radius.",
+    "Focuses on process/deployment safety and can under-weight whether a given phase's stated acceptance criterion, even if it were a full regression suite, is actually testing the right invariant (e.g., a thorough test of a wrong tie-break rule is still validating the wrong thing) — content correctness of what's being tested is adjacent territory, not this lens's home.",
+    "Prioritizes the migration/operations lifecycle and may not deeply probe the CLI contract's own versioning discipline (exit codes, JSON schema stability) as a distinct engineering surface — that packaging/interface-contract question is treated here mainly insofar as it affects rollback/observability, not audited on its own terms."
+  ],
+  "findings": []
+}

@@ -1,0 +1,30 @@
+{
+  "id": "fd-cross-harness-trust-boundary",
+  "kind": "base",
+  "parents": [],
+  "domain": "multi-tenant trust-boundary enforcement, fail-closed constraint design, and phased-rollout security for multi-harness agentic systems",
+  "axioms": [
+    "'Fail closed' is an implementation obligation, not a design intent — it only holds if every code path capable of selecting a destination is provably required to consult the constraint before acting, with no alternate path (legacy shim, partially-migrated adapter) that can bypass it.",
+    "A phased rollout must uphold its safety guarantees at every intermediate state, not only at the final architecture — a constraint that is enforced end-to-end only once all phases ship is unenforced during the entire rollout window.",
+    "A label that gates a security-relevant decision (e.g. trust-zone/data-sensitivity) is only trustworthy if its origin and mutability are defined; an unlabeled or spoofable input defeats the constraint regardless of how correctly the constraint itself is written.",
+    "Emitting a control (e.g. a verification gate) is not the same as enforcing it; a router that outputs 'behavioral-verify required' has only shifted responsibility to the consumer, and that handoff must be independently verified, not assumed.",
+    "A compatibility shim built to preserve old call sites is, from a security standpoint, a hole through the new enforcement layer unless it is explicitly proven to route through the same constraint checks as the new path.",
+    "State that spans trust or harness boundaries (failure counters, escalation state, evidence provenance) must have an explicit scope; if the scope is undefined, the default behavior is fragmentation (state silently resets or forks) rather than continuity.",
+    "An evidence or telemetry store that accepts self-reported origin metadata without authentication is a tamperable input to any downstream automated system (e.g. a policy-proposal flow) that trusts it."
+  ],
+  "primitives": [
+    "trust zone / data-sensitivity label",
+    "enforcement locus (where a constraint is actually checked vs. where a decision is merely emitted)",
+    "code path / call site that can reach a destination-selection decision",
+    "intermediate rollout state (a phase boundary where only some adapters/harnesses are migrated)",
+    "verification gate (a required check attached to a routing decision)",
+    "escalation/failure-counter state and its scope",
+    "evidence provenance (harness-of-origin authentication)"
+  ],
+  "failure_mode": [
+    "Reasons primarily about enforcement structure and bypass paths, so it tends to accept a capability or benchmark value (e.g. reward_hack_risk score) as given rather than questioning whether that value was validly measured — that validity question belongs to the benchmark-provenance lens.",
+    "Focuses on security/enforcement gaps and can under-weight pure schema-evolvability concerns (e.g. whether a registry key survives a rename) unless the rename also happens to create a security bypass — general schema hygiene issues without a security angle fall outside its natural pull.",
+    "Prioritizes intermediate-state and cross-harness bypass risk so heavily that it can miss single-harness, single-phase issues that are real but don't involve a boundary crossing — its lens is calibrated for the seams, not the interior of any one component."
+  ],
+  "findings": []
+}

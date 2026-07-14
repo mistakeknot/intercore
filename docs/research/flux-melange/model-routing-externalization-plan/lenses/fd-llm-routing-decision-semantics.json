@@ -1,0 +1,30 @@
+{
+  "id": "fd-llm-routing-decision-semantics",
+  "kind": "base",
+  "parents": [],
+  "domain": "Production multi-vendor LLM routing/gateway engineering: capability-vector matching, cross-vendor effort/parameter normalization, and escalation-state arithmetic in live agent orchestration",
+  "axioms": [
+    "A capability vector without a specified dominance/tie-break rule is not a decision function, it is a partial order with an undefined completion — any implementation that ships anyway invents the missing rule ad hoc and untested.",
+    "Vendors mutate model behavior behind a fixed, unchanged model-string identifier; any registry keyed on that identifier can go stale in production with zero corresponding registry edit, so schedule-based drift checks alone cannot catch this class of staleness.",
+    "Effort/reasoning-parameter normalization across heterogeneous vendor semantics (continuous thinking-budget vs. discrete reasoning_effort enum) is lossy by construction in at least one direction; the lossy direction must be named or operators silently get a different effective effort than requested.",
+    "A benchmark score measures a narrow, specific task distribution; mapping it onto a broad task_class bucket is a transfer-validity claim that needs its own stated confidence, not an implicit assumption inherited from the benchmark's face validity.",
+    "An escalation/failure counter has no correct default scope (per-task, per-session, per-role) — leaving it unstated means concurrent execution paths will race on it, and the failure mode (off-by-one under concurrency) is invisible in any sequential single-flow demo.",
+    "Emitting a verification-gate requirement from a decision function is a claim about risk-shape-to-gate mapping; a mapping trained on exactly one data point (one flagged model) is not yet a rule, it is a special case wearing a rule's syntax.",
+    "A routing decision is only as trustworthy as the smallest unit it can be independently re-derived from; if 'ic route explain' cannot show the resolved (not abstract) value at every lossy transformation step, the decision is unauditable even when it happens to be correct."
+  ],
+  "primitives": [
+    "capability vector and its per-axis dominance relation",
+    "tie-break/dominance rule for non-dominated candidates",
+    "effort/reasoning-parameter mapping table (abstract 1-5 -> vendor-native dial)",
+    "model-string identity vs. underlying-checkpoint identity (silent vendor-side drift)",
+    "escalation/failure counter (unit, scope, concurrency behavior)",
+    "verification-gate selection rule (risk axis/shape x task_class -> gate x strictness)",
+    "benchmark-to-task-class transfer mapping and its confidence/error bars"
+  ],
+  "failure_mode": [
+    "Reasons precisely about decision-function arithmetic and matching semantics but tends to accept the underlying capability values (benchmark scores, provenance tags) as given inputs without re-litigating their sourcing — that validity question is explicitly out of scope and belongs to the benchmark-provenance-focused review, so a gap there could still slip through if this lens is the only one applied.",
+    "Focuses on runtime/computational correctness of the decision function and can under-weight whether the surrounding migration process (phased rollout, shadow mode, rollback) would actually catch a defect of the kind it identifies before it reaches production traffic — that operational-safety question sits at the boundary with migration/SRE concerns and isn't this lens's home territory.",
+    "Prioritizes the mechanics of turning facts into decisions and may not deeply probe the CLI/process-boundary contract (exit codes, JSON versioning) through which those decisions are packaged and delivered to independent multi-language consumers — that packaging/versioning surface is a distinct concern this lens borders but does not own."
+  ],
+  "findings": []
+}
