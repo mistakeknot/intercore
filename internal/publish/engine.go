@@ -435,6 +435,24 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n", pruned, float64(freed)/1024/1024)
 	}
 
+	// The version prune skips dirs carrying an .orphaned_at marker, and until
+	// now nothing on the publish path ever removed them — they persisted until
+	// someone manually ran `ic publish clean`, tripping version-drift checks
+	// downstream. Clean them here once past the session-continuity grace window.
+	if cleaned, freed, err := CleanOrphansOlderThan(24 * time.Hour); err != nil {
+		e.out("  warning: orphan clean: %v\n", err)
+	} else if cleaned > 0 {
+		e.out("  Cleaned %d orphaned cache dir(s) (%.1f MB freed)\n", cleaned, float64(freed)/1024/1024)
+	}
+
+	// Bridge symlinks whose targets the prune already removed can never
+	// resolve again — retire them so version listings stay truthful.
+	if removed, err := PruneDanglingSymlinks(); err != nil {
+		e.out("  warning: dangling symlink prune: %v\n", err)
+	} else if removed > 0 {
+		e.out("  Removed %d dangling version symlink(s)\n", removed)
+	}
+
 	// Create hook symlinks
 	hasHooks := false
 	for _, hookPath := range []string{

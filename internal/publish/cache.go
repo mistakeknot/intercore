@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // CacheBase returns the base directory for the plugin cache.
@@ -67,6 +68,25 @@ func CleanOrphans() (count int, bytesFreed int64, err error) {
 	if root == "" {
 		return 0, 0, fmt.Errorf("cannot determine cache root")
 	}
+	return cleanOrphansIn(root, 0)
+}
+
+// CleanOrphansOlderThan removes marked orphans whose marker file is older
+// than minAge. The publish engine uses this instead of CleanOrphans: a marker
+// is a deferred-deletion signal (a live session may still read hooks from the
+// dir), so the automatic path grants a grace window that the explicit
+// `ic publish clean` does not.
+func CleanOrphansOlderThan(minAge time.Duration) (count int, bytesFreed int64, err error) {
+	root := CacheRoot()
+	if root == "" {
+		return 0, 0, fmt.Errorf("cannot determine cache root")
+	}
+	return cleanOrphansIn(root, minAge)
+}
+
+// cleanOrphansIn is the testable core of CleanOrphans/CleanOrphansOlderThan.
+// Takes an explicit root path so tests can use t.TempDir().
+func cleanOrphansIn(root string, minAge time.Duration) (count int, bytesFreed int64, err error) {
 	rootDepth := strings.Count(root, string(os.PathSeparator))
 	expectedMarkerDepth := rootDepth + 4 // <root>/<marketplace>/<plugin>/<version>/.orphaned_at
 
@@ -83,6 +103,12 @@ func CleanOrphans() (count int, bytesFreed int64, err error) {
 			// Don't remove temp_git dirs (handled separately)
 			if strings.Contains(orphanDir, "temp_git_") {
 				return nil
+			}
+			if minAge > 0 {
+				info, statErr := d.Info()
+				if statErr != nil || time.Since(info.ModTime()) < minAge {
+					return nil // marker still inside its grace window
+				}
 			}
 			size := dirSize(orphanDir)
 			if err := os.RemoveAll(orphanDir); err != nil {
@@ -377,6 +403,67 @@ func PruneStaleVersionsAcrossMarketplaces(keep int) (count int, bytesFreed int64
 		}
 	}
 	return count, bytesFreed, nil
+}
+
+// PruneDanglingSymlinks removes version symlinks whose targets no longer
+// exist, across all marketplaces. Hook-bridge symlinks (see CreateSymlinks)
+// are created on every publish but never retired; once the stale-version
+// prune removes their targets they dangle forever, and downstream tools that
+// enumerate version dirs misread them as installed versions. A dangling link
+// cannot serve session continuity, so removal is always safe.
+func PruneDanglingSymlinks() (count int, err error) {
+	root := CacheRoot()
+	if root == "" {
+		return 0, fmt.Errorf("cannot determine cache root")
+	}
+	return pruneDanglingSymlinksIn(root)
+}
+
+// CountDanglingSymlinks reports how many version symlinks dangle, without
+// removing them. Used by `ic publish clean --dry-run`.
+func CountDanglingSymlinks() (int, error) {
+	root := CacheRoot()
+	if root == "" {
+		return 0, fmt.Errorf("cannot determine cache root")
+	}
+	paths, err := danglingSymlinksIn(root)
+	return len(paths), err
+}
+
+// pruneDanglingSymlinksIn is the testable core of PruneDanglingSymlinks.
+func pruneDanglingSymlinksIn(root string) (count int, err error) {
+	paths, err := danglingSymlinksIn(root)
+	if err != nil {
+		return 0, err
+	}
+	for _, p := range paths {
+		if rmErr := os.Remove(p); rmErr == nil {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// danglingSymlinksIn collects version-level symlinks whose resolution chain
+// terminates in a missing path. os.Stat follows the full chain, so a link
+// pointing at another (also dangling) link is detected in the same pass.
+func danglingSymlinksIn(root string) ([]string, error) {
+	entries, err := listAllCacheEntriesIn(root)
+	if err != nil {
+		return nil, err
+	}
+	var dangling []string
+	for _, versions := range entries {
+		for _, v := range versions {
+			if !v.IsSymlink {
+				continue
+			}
+			if _, statErr := os.Stat(v.Path); os.IsNotExist(statErr) {
+				dangling = append(dangling, v.Path)
+			}
+		}
+	}
+	return dangling, nil
 }
 
 // CountStaleAcrossMarketplaces reports the number of stale + orphaned cache entries

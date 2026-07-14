@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestForceRebuildCacheCopiesOnlyTrackedPluginFiles(t *testing.T) {
@@ -269,5 +270,87 @@ func TestCleanOrphans_DepthCheckIgnoresDeepMarkers(t *testing.T) {
 	})
 	if cleaned != 1 {
 		t.Errorf("expected 1 orphan at correct depth, got %d", cleaned)
+	}
+}
+
+func TestPruneDanglingSymlinks_RemovesOnlyDangling(t *testing.T) {
+	root := makeCacheTree(t, [][3]string{
+		{"interagency-marketplace", "demo", "0.2.0"}, // real installed dir
+	})
+	plugin := filepath.Join(root, "interagency-marketplace", "demo")
+	// Live bridge: 0.1.9 -> 0.2.0 (target exists, must survive)
+	if err := os.Symlink("0.2.0", filepath.Join(plugin, "0.1.9")); err != nil {
+		t.Fatal(err)
+	}
+	// Dangling chain: 0.1.7 -> 0.1.8 -> (missing 0.1.6); both links must go
+	if err := os.Symlink("0.1.8", filepath.Join(plugin, "0.1.7")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("0.1.6", filepath.Join(plugin, "0.1.8")); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := pruneDanglingSymlinksIn(root)
+	if err != nil {
+		t.Fatalf("pruneDanglingSymlinksIn: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 dangling symlinks removed, got %d", count)
+	}
+	for _, gone := range []string{"0.1.7", "0.1.8"} {
+		if _, err := os.Lstat(filepath.Join(plugin, gone)); !os.IsNotExist(err) {
+			t.Errorf("dangling symlink %s still present", gone)
+		}
+	}
+	if target, err := os.Readlink(filepath.Join(plugin, "0.1.9")); err != nil || target != "0.2.0" {
+		t.Errorf("live bridge symlink damaged: target=%q err=%v", target, err)
+	}
+	if fi, err := os.Stat(filepath.Join(plugin, "0.2.0")); err != nil || !fi.IsDir() {
+		t.Errorf("real version dir damaged: err=%v", err)
+	}
+}
+
+func TestCleanOrphansIn_GraceWindow(t *testing.T) {
+	root := makeCacheTree(t, [][3]string{
+		{"interagency-marketplace", "young-orphan", "0.1.0"},
+		{"interagency-marketplace", "old-orphan", "0.1.0"},
+	})
+	youngDir := filepath.Join(root, "interagency-marketplace", "young-orphan", "0.1.0")
+	oldDir := filepath.Join(root, "interagency-marketplace", "old-orphan", "0.1.0")
+	for _, d := range []string{youngDir, oldDir} {
+		if err := os.WriteFile(filepath.Join(d, ".orphaned_at"), []byte("1"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(filepath.Join(oldDir, ".orphaned_at"), past, past); err != nil {
+		t.Fatal(err)
+	}
+
+	// Aged pass: only the old marker clears the 24h grace window.
+	count, _, err := cleanOrphansIn(root, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("cleanOrphansIn(aged): %v", err)
+	}
+	if count != 1 {
+		t.Errorf("aged pass: expected 1 removal, got %d", count)
+	}
+	if _, err := os.Stat(oldDir); !os.IsNotExist(err) {
+		t.Error("old orphan should be removed by aged pass")
+	}
+	if _, err := os.Stat(youngDir); err != nil {
+		t.Errorf("young orphan should survive aged pass: %v", err)
+	}
+
+	// Unconditional pass (manual `ic publish clean`) removes the rest.
+	count, _, err = cleanOrphansIn(root, 0)
+	if err != nil {
+		t.Fatalf("cleanOrphansIn(0): %v", err)
+	}
+	if count != 1 {
+		t.Errorf("unconditional pass: expected 1 removal, got %d", count)
+	}
+	if _, err := os.Stat(youngDir); !os.IsNotExist(err) {
+		t.Error("young orphan should be removed by unconditional pass")
 	}
 }

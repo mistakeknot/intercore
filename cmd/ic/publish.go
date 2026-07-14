@@ -186,9 +186,15 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 			slog.Error("publish clean failed", "error", err)
 			return 2
 		}
+		dangling, err := publish.CountDanglingSymlinks()
+		if err != nil {
+			slog.Error("publish clean failed", "error", err)
+			return 2
+		}
 		fmt.Printf("Would clean:\n")
 		fmt.Printf("  %d orphaned cache directories\n", orphaned)
 		fmt.Printf("  %d stale version directories\n", stale)
+		fmt.Printf("  %d dangling version symlinks\n", dangling)
 		fmt.Printf("  .git directories in cache entries\n")
 		return 0
 	}
@@ -220,6 +226,17 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 	if count > 0 {
 		fmt.Printf("Pruned %d stale version directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
 		totalCount += count
+	}
+
+	// Prune AFTER the version prune: removing stale dirs is what strands the
+	// bridge symlinks that pointed at them.
+	symCount, err := publish.PruneDanglingSymlinks()
+	if err != nil {
+		slog.Error("publish clean: dangling symlinks failed", "error", err)
+	}
+	if symCount > 0 {
+		fmt.Printf("Removed %d dangling version symlink(s)\n", symCount)
+		totalCount += symCount
 	}
 
 	if totalCount == 0 {
