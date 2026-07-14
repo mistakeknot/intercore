@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/capability"
 	"github.com/mistakeknot/intercore/internal/state"
 )
 
@@ -53,9 +54,6 @@ func DefaultEscalationPolicy() EscalationPolicy {
 	}
 }
 
-// fableEscalationOpen mirrors routing.fableWindowOpen (fail-closed).
-func fableEscalationOpen() bool { return os.Getenv("CLAVAIN_FABLE_AVAILABLE") == "1" }
-
 // nextRungModel returns the model for the next attempt given the chain state.
 // Strikes at the current rung below StrikesPerRung → same model.
 // Otherwise step one rung up the ladder; "fable" degrades to "opus" when the
@@ -82,7 +80,7 @@ func (p EscalationPolicy) nextRungModel(currentModel string, strikesAtRung int) 
 		return "", false // exhausted
 	}
 	next := p.Ladder[idx+1]
-	if next == "fable" && !fableEscalationOpen() {
+	if next == "fable" && !capability.FrontierWindowOpen() {
 		if currentModel == "opus" {
 			return "", false // opus→fable with window closed = nowhere to go
 		}

@@ -1,8 +1,9 @@
 package routing
 
 import (
-	"os"
 	"strings"
+
+	"github.com/mistakeknot/intercore/internal/capability"
 )
 
 // Resolver performs model resolution using loaded config.
@@ -83,7 +84,7 @@ func (r *Resolver) ResolveModel(opts ResolveOpts) string {
 
 	// Fable-window fallback: fable resolves only while the window is open;
 	// otherwise degrade to opus (fail-closed, never below today's tier).
-	if result == "fable" && !fableWindowOpen() {
+	if result == "fable" && !capability.FrontierWindowOpen() {
 		result = "opus"
 	}
 
@@ -125,12 +126,6 @@ func (r *Resolver) ResolveBatch(agents []string, phase string) map[string]string
 		result[agent] = model
 	}
 	return result
-}
-
-// fableWindowOpen reports whether the frontier (fable) window is open.
-// Fail-closed: only an explicit CLAVAIN_FABLE_AVAILABLE=1 opens it.
-func fableWindowOpen() bool {
-	return os.Getenv("CLAVAIN_FABLE_AVAILABLE") == "1"
 }
 
 // applyFloor clamps model up to the safety floor if one exists.
