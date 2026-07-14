@@ -23,3 +23,6 @@
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Cross-compiled deploy binaries (build artifacts)
+dist/
