@@ -27,6 +27,7 @@ Usage: ic route <subcommand> [args]
 Subcommands:
   decide  --class=<c> --role=<r> [--data=<sensitivity>] --registry=<path>
                                                     Registry-based routing decision (constraint-enforced)
+  record-evidence --kind=escalation|gate ...        Record an escalation/gate evidence event (observable via 'list')
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
@@ -44,6 +45,8 @@ On a non-zero exit the caller MUST halt; it MUST NOT fall back to a native model
 	switch args[0] {
 	case "decide":
 		return cmdRouteDecide(ctx, args[1:])
+	case "record-evidence":
+		return cmdRouteRecordEvidence(ctx, args[1:])
 	case "model":
 		return cmdRouteModel(ctx, args[1:])
 	case "batch":
@@ -71,6 +74,73 @@ const (
 	exitMalformed     = 3 // bad/missing input
 	exitConstraintViolation = 4 // an applicable constraint blocked every candidate
 )
+
+// cmdRouteRecordEvidence records an escalation or gate evidence event to the
+// decision store, so a harness (e.g. the Hermes adapter on zklw) can make
+// escalation/gate outcomes observable via `ic route list` by shelling out to
+// `ic`, with no Go library linkage. This is the emission entry point for the
+// DoD's "escalation/gate-execution observable in evidence" clause.
+func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	kind := f.String("kind", "")
+	if kind != "escalation" && kind != "gate" {
+		fmt.Fprintln(os.Stderr, "ic route record-evidence: --kind=escalation|gate is required")
+		return exitMalformed
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route record-evidence", "error", err)
+		return 2
+	}
+	defer d.Close()
+	store := routing.NewDecisionStore(d.SqlDB())
+
+	projectDir := f.String("project", "")
+	if projectDir == "" {
+		if wd, werr := os.Getwd(); werr == nil {
+			projectDir = wd
+		}
+	}
+
+	var id int64
+	switch kind {
+	case "escalation":
+		id, err = store.RecordEscalation(ctx, routing.EscalationEvidence{
+			ChainKey:   f.String("chain", ""),
+			FromModel:  f.String("from", ""),
+			ToModel:    f.String("to", ""),
+			StrikeMode: f.String("mode", ""),
+			Detail:     f.String("detail", ""),
+			Exhausted:  f.Bool("exhausted"),
+			Agent:      f.String("agent", ""),
+			ProjectDir: projectDir,
+			RunID:      f.String("run", ""),
+			SessionID:  f.String("session", ""),
+		})
+	case "gate":
+		id, err = store.RecordGate(ctx, routing.GateEvidence{
+			Gate:       f.String("gate", ""),
+			Model:      f.String("model", ""),
+			Executed:   f.Bool("executed"),
+			Agent:      f.String("agent", ""),
+			ProjectDir: projectDir,
+			RunID:      f.String("run", ""),
+			SessionID:  f.String("session", ""),
+		})
+	}
+	if err != nil {
+		slog.Error("route record-evidence", "error", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]any{"id": id, "kind": kind})
+	} else {
+		fmt.Printf("Evidence recorded: id=%d kind=%s\n", id, kind)
+	}
+	return 0
+}
 
 // cmdRouteDecide is the registry-based, constraint-enforcing decision path
 // (spec §3). It loads the registry, applies trust-zone constraints against the

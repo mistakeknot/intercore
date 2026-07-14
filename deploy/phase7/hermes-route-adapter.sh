@@ -22,8 +22,14 @@ IC="${IC_BIN:-ic}"
 REGISTRY="${IC_REGISTRY:-./registry-seed.yaml}"
 CLASS="" ROLE="" DATA=""
 
+# Accept both --flag value and --flag=value forms so a harness can pass either.
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --class=*)    CLASS="${1#*=}"; shift ;;
+    --role=*)     ROLE="${1#*=}"; shift ;;
+    --data=*)     DATA="${1#*=}"; shift ;;
+    --ic=*)       IC="${1#*=}"; shift ;;
+    --registry=*) REGISTRY="${1#*=}"; shift ;;
     --class)    CLASS="$2"; shift 2 ;;
     --role)     ROLE="$2"; shift 2 ;;
     --data)     DATA="$2"; shift 2 ;;
@@ -67,6 +73,14 @@ fi
 # Decision in hand. Extract the chosen model (vendor/model@deployment).
 MODEL="$(printf '%s' "$DECISION" | python3 -c 'import sys,json; print(json.load(sys.stdin)["model"])')"
 echo "adapter: routed to $MODEL" >&2
+
+# Record a gate-execution evidence event so the run is observable via
+# `ic route list` (the DoD's "gate-execution observable" clause). A real
+# behavioral-verify integration would set --executed after the gate runs;
+# here we emit the routing decision's gate intent. Non-fatal on failure.
+"$IC" route record-evidence --kind=gate --gate=behavioral-verify \
+  "--model=$MODEL" --agent="$ROLE" --executed 2>/dev/null || \
+  echo "adapter: warning — evidence emission failed (non-fatal)" >&2
 
 # Apply to Hermes and run the task. `hermes model` switches the active model
 # with no code change (per Hermes docs); the remaining args are the task.
