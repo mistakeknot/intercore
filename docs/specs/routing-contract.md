@@ -1,6 +1,6 @@
 ---
 artifact_type: spec
-status: SCAFFOLD (partial — Q-1.2, Q-1.5, Q-2.2 DECIDED 2026-07-14; remainder to interview)
+status: SCAFFOLD (§1 policy schema DECIDED 2026-07-14: Q-1.1/1.2/1.4/1.5/1.6 + Q-2.2. §2-§5 to interview; new Q-1.3/1.7/1.8 open)
 phase: 1
 plan: docs/plans/2026-07-13-model-routing-externalization.md
 bead: intercore-8xa
@@ -34,10 +34,13 @@ Human-owned, interspect-proposed (never auto-written). Roles-not-model-names.
 ```yaml
 # CANDIDATE SHAPE — not decided
 version: 1
-roles:            # ⟨OPEN Q-1.1⟩ fixed enum or open set?
-  - planner
-  - executor
-  - validator
+roles:            # DECIDED Q-1.1: fixed set of FOUR in v1. Extend via schema-version bump.
+  - planner       # frontier authors the plan (discernment)
+  - executor      # cheaper tier runs an execution-grade plan (cost)
+  - validator     # checks output against acceptance criteria (judgment); absorbs "reviewer"
+  - researcher    # long-context / retrieval / breadth (Explore, deep-research) — distinct binding from executor
+  # NOT roles: orchestrator (it is the harness/caller ABOVE ic route, or routes == planner);
+  # first candidate for the extensibility escape hatch if a distinctly-routed orchestrator sub-agent appears.
 task_classes:     # DECIDED Q-1.2: enumerated keys, human-defined. Adding a class = policy edit,
   terminal-grind: { ... }              # no code change. Caller names the class: `ic route --class=terminal-grind`.
   multi-file-bugfix: { ... }           # interspect can propose new classes. ic route errors on an unknown class name.
@@ -47,20 +50,26 @@ bindings:         # ⟨OPEN Q-1.3⟩ role -> (model@deployment) per harness. Sha
     executor: anthropic/claude-sonnet-5@api
   codex:
     executor: openai/gpt-5.6-sol@api
-constraints:      # ⟨OPEN Q-1.4⟩ the trust-zone rules. Predicate language?
-  - if: { data: client-confidential }
+constraints:      # DECIDED Q-1.4: flat match list (if {field: value} require {trust_zone: [...]}).
+  - if: { data: client-confidential }     # No boolean-expression evaluator in v1 (YAGNI on a safety path).
     require: { trust_zone: [local, approved-vendor] }
-escalation:       # ⟨OPEN Q-1.5⟩ the two-strikes ladder — and its de-escalation reset
-    ...
-verification_gates: # ⟨OPEN Q-1.6⟩ which task classes require which gates
+  # DECIDED Q-1.6: this `constraints:` block is ALWAYS safety-class / fail-closed by construction.
+  # Everything OUTSIDE it (bindings, effort_map, cost) is non-safety: warn-and-degrade on version mismatch.
+  # Safety = "is it in constraints?" — no per-field flag to forget.
+escalation:       # DECIDED Q-1.5 (option A): NO local ladder here. escalate.go calls the routing
+    # mechanism for the next rung (registry-derived, per-harness). This block declares only the
+    # de-escalation reset N (mechanism enforces on the chain state it already owns). ⟨OPEN Q-1.7⟩ reset N value?
+    reset_after_successes: 3   # candidate — not fixed
+verification_gates: # ⟨OPEN Q-1.8⟩ which task classes require which gates (e.g. elevated reward_hack → behavioral-verify)
     ...
 ```
 
 **Decisions to interview:**
-- `⟨OPEN Q-1.1⟩` Roles: fixed `{planner, executor, validator}` or extensible? (Plan says "extensible" — does v1 need more than three?)
+- ✅ **Q-1.1 DECIDED: fixed set of FOUR** — planner, executor, validator, researcher. researcher earns v1 inclusion via a distinct binding (long-context/retrieval ≠ executor's precision/code). "reviewer" collapses into validator; "orchestrator" is excluded (it is the harness/caller above `ic route`, or routes identically to planner) and is the documented first candidate for the extensibility escape hatch. Extending the set is a schema-version bump.
 - ✅ **Q-1.2 DECIDED: enumerated keys in the yaml.** Task classes are human-defined named keys; the caller passes `--class=<name>`; `ic route` errors on an unknown class. Adding a class is a policy edit (interspect can propose one), never a code change. Consequence for §3: the task descriptor carries a `class` field the caller supplies, not descriptor fields `ic route` infers from (simplifies Q-3.1).
 - `⟨OPEN Q-1.3⟩` Bindings: per-harness is decided. But do bindings bind role→model, or role→(model + effort + gates)? How much rides on the binding vs. the task class?
-- `⟨OPEN Q-1.4⟩` Constraint predicate language: how expressive? A flat `if data==X require trust_zone∈Y` list, or something that can express AND/OR/negation? (YAGNI risk: over-building the predicate engine.)
+- ✅ **Q-1.4 DECIDED: flat match list.** `if {field: value} require {trust_zone: [...]}`, evaluated all-match (every constraint whose `if` matches must have its `require` satisfied). No boolean-expression evaluator in v1 (YAGNI on a safety path); add expressiveness only when a real compound rule needs it.
+- ✅ **Q-1.6 DECIDED: reserved `constraints:` block is safety-class.** The top-level `constraints:` block is always fail-closed on version mismatch by construction; everything outside it warns-and-degrades. No per-field `safety:` flag (a forgotten flag would default wrong). Safety-class membership = "is this field inside `constraints:`?"
 - `⟨OPEN Q-1.5⟩` Escalation encoding **(THE P0 — design grounded below, pick one)**: how is the ladder expressed so it is registry-derived and per-harness, NOT the hardcoded `["sonnet","opus","fable"]` in `dispatch/escalate.go`? And where does the de-escalation reset (`escalation_expired` after N successes) live?
 
   **Ground truth (verified 2026-07-14):** the ladder is not a naive list; `escalate.go` is a full subsystem (chain state, lesson transport, exhaustion handoff, `MaxEscalations` oscillation guard). Critically, `nextRungModel` (escalate.go:63) hardcodes `["sonnet","opus","fable"]` AND re-implements the fable-window fail-closed degrade (escalate.go:85-90) as a **byte-identical copy** of `routing.fableWindowOpen` (resolve.go:132) — `fableEscalationOpen()` and `fableWindowOpen()` are the same `CLAVAIN_FABLE_AVAILABLE=1` check in two packages that don't share code. `internal/dispatch` does not import `internal/routing` (confirmed). So the P0 is not "generalize a list"; it is "the escalation subsystem re-derives capability ordering and safety-window logic that the routing mechanism also owns, independently."
@@ -185,12 +194,14 @@ The cross-host case: Hermes on zklw reaching `ic route`.
 | ID | Section | The decision |
 |----|---------|--------------|
 | Q-0 | 0 | Is the witness its own contract surface? |
-| Q-1.1 | 1 | Roles: fixed or extensible in v1 |
+| ~~Q-1.1~~ | 1 | ✅ Roles: **fixed four** (planner/executor/validator/researcher) |
 | ~~Q-1.2~~ | 1 | ✅ Task class: **enumerated yaml keys**, caller passes `--class` |
 | Q-1.3 | 1 | Binding granularity (model vs model+effort+gates) |
-| Q-1.4 | 1 | Constraint predicate expressiveness |
+| ~~Q-1.4~~ | 1 | ✅ Constraint predicate: **flat match list**, all-match |
 | ~~Q-1.5~~ | 1 | ✅ Escalation: **option A** (escalate.go calls routing; local ladder + dup fable check deleted) |
-| Q-1.6 | 1 | How a field is marked safety-class |
+| ~~Q-1.6~~ | 1 | ✅ Safety-class: **reserved `constraints:` block** (no per-field flag) |
+| Q-1.7 | 1 | De-escalation reset N (successes before escalation decays) — NEW |
+| Q-1.8 | 1 | Which task classes require which verification gates — NEW |
 | Q-2.1 | 2 | Staleness horizon: global vs per-axis vs per-stability |
 | ~~Q-2.2~~ | 2 | ✅ Cost: **type all three now** (consumer on roadmap; costs.go gets first real caller) |
 | Q-2.3 | 2 | Effort-map granularity + provenance |
