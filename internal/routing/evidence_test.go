@@ -108,3 +108,55 @@ func TestExhaustedEscalationObservable(t *testing.T) {
 		t.Errorf("event = %q exhausted = %v, want escalation_exhausted/true", ec.Event, ec.Exhausted)
 	}
 }
+
+// TestGateSkippedObservable is the DoD's "gate-execution observable" clause,
+// and the reward-hacking control (f-006): a skipped gate must be detectable
+// after the fact, distinguishable from an executed one.
+func TestGateSkippedObservable(t *testing.T) {
+	store := testDecisionStore(t)
+	ctx := context.Background()
+
+	// A behavioral-verify gate that was SKIPPED (the dangerous case).
+	skipID, err := store.RecordGate(ctx, GateEvidence{
+		Gate:       "behavioral-verify",
+		Model:      "openai/gpt-5.6-sol@api",
+		Executed:   false,
+		Agent:      "executor",
+		ProjectDir: "/proj",
+	})
+	if err != nil {
+		t.Fatalf("RecordGate skipped: %v", err)
+	}
+	// And one that ran.
+	if _, err := store.RecordGate(ctx, GateEvidence{
+		Gate: "behavioral-verify", Model: "openai/gpt-5.6-sol@api",
+		Executed: true, Agent: "executor", ProjectDir: "/proj",
+	}); err != nil {
+		t.Fatalf("RecordGate executed: %v", err)
+	}
+
+	decisions, err := store.List(ctx, ListDecisionOpts{ProjectDir: "/proj"})
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	var skipEvent *gateContext
+	for i := range decisions {
+		if decisions[i].ID != skipID || decisions[i].ContextJSON == nil {
+			continue
+		}
+		var gc gateContext
+		if err := json.Unmarshal([]byte(*decisions[i].ContextJSON), &gc); err != nil {
+			t.Fatalf("unmarshal gate context: %v", err)
+		}
+		skipEvent = &gc
+	}
+	if skipEvent == nil {
+		t.Fatal("skipped gate not observable in evidence")
+	}
+	if skipEvent.Event != "gate_skipped" {
+		t.Errorf("event = %q, want gate_skipped (a skipped required gate must be detectable)", skipEvent.Event)
+	}
+	if skipEvent.Gate != "behavioral-verify" {
+		t.Errorf("gate = %q, want behavioral-verify", skipEvent.Gate)
+	}
+}

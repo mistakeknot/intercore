@@ -78,3 +78,48 @@ func (s *DecisionStore) RecordEscalation(ctx context.Context, ev EscalationEvide
 		ContextJSON:   string(payload),
 	})
 }
+
+// GateEvidence captures whether a required verification gate actually ran
+// before an executor's output was accepted (fd-architecture F6 / finding
+// f-006). A named-but-unrun gate is the silently-disabled reward-hacking
+// control the Sol research motivated; recording gate_executed vs gate_skipped
+// makes a skipped gate detectable after the fact.
+type GateEvidence struct {
+	Gate       string // the named gate, e.g. "behavioral-verify"
+	Model      string // the model whose output the gate guarded
+	Executed   bool   // true = gate ran; false = gate was skipped
+	Agent      string
+	ProjectDir string
+	RunID      string
+	SessionID  string
+}
+
+type gateContext struct {
+	Event string `json:"event"` // "gate_executed" | "gate_skipped"
+	Gate  string `json:"gate"`
+}
+
+// RecordGate writes a gate-execution outcome to the decision store as an
+// observable evidence record. RuleMatched is "gate" so gate events are
+// filterable; the executed/skipped event lives in ContextJSON. A gate_skipped
+// record is the audit trail proving a required gate did NOT run.
+func (s *DecisionStore) RecordGate(ctx context.Context, ev GateEvidence) (int64, error) {
+	event := "gate_skipped"
+	if ev.Executed {
+		event = "gate_executed"
+	}
+	payload, err := json.Marshal(gateContext{Event: event, Gate: ev.Gate})
+	if err != nil {
+		return 0, err
+	}
+	return s.Record(ctx, RecordDecisionOpts{
+		ProjectDir:    ev.ProjectDir,
+		RunID:         ev.RunID,
+		SessionID:     ev.SessionID,
+		Agent:         ev.Agent,
+		Category:      "gate",
+		SelectedModel: ev.Model,
+		RuleMatched:   "gate",
+		ContextJSON:   string(payload),
+	})
+}
