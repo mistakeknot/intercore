@@ -53,3 +53,5 @@
 # - linear.api-key
 # - github.org
 # - github.repo
+
+dolt.auto-push: false
