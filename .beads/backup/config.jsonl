@@ -1,4 +1,5 @@
 {"key":"auto_compact_enabled","value":"false"}
+{"key":"backup.git-push","value":"false"}
 {"key":"compact_batch_size","value":"50"}
 {"key":"compact_parallel_workers","value":"5"}
 {"key":"compact_tier1_days","value":"30"}
@@ -7,5 +8,6 @@
 {"key":"compact_tier2_days","value":"90"}
 {"key":"compact_tier2_dep_levels","value":"5"}
 {"key":"compaction_enabled","value":"false"}
+{"key":"events-export","value":"true"}
 {"key":"issue_prefix","value":"intercore"}
 {"key":"schema_version","value":"6"}
