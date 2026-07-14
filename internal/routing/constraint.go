@@ -61,9 +61,9 @@ func (e *ConstraintError) Error() string {
 		e.Field, e.Value, e.Required, e.Got)
 }
 
-// applies reports whether this constraint's Match is fully satisfied by the
+// Applies reports whether this constraint's Match is fully satisfied by the
 // descriptor's fields (all-match, per Q-1.4).
-func (c Constraint) applies(td TaskDescriptor) bool {
+func (c Constraint) Applies(td TaskDescriptor) bool {
 	for k, want := range c.Match {
 		if td.Fields[k] != want {
 			return false
@@ -97,7 +97,7 @@ func (c Constraint) firstMatchField() (string, string) {
 // This is the enforcement point behind the DoD's first clause.
 func CheckConstraints(constraints []Constraint, td TaskDescriptor, candidateZone TrustZone) error {
 	for _, c := range constraints {
-		if !c.applies(td) {
+		if !c.Applies(td) {
 			continue
 		}
 		if !c.permits(candidateZone) {
