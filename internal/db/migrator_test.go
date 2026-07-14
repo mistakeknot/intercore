@@ -31,7 +31,7 @@ func TestMigrator_EmptyDB(t *testing.T) {
 	}
 
 	// Verify key tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "coordination_locks", "scheduler_jobs", "run_replay_inputs"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "coordination_locks", "scheduler_jobs", "run_replay_inputs", "agency_events"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {

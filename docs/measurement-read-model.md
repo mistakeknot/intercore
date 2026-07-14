@@ -2,7 +2,7 @@
 
 The canonical measurement read model for intercore events. Consumers that need correctness guarantees for scoring, routing, or attribution MUST use the typed APIs, not the lossy generic bus.
 
-## Three Event Streams
+## Four Event Streams
 
 ### 1. Generic Stream — lifecycle awareness
 
@@ -64,12 +64,35 @@ Records explicit human corrections and agent-performance signals. Contract: [`co
 
 **Use for:** Override tracking, manual correction evidence, pattern detection for routing proposals.
 
+### 4. Agency Events — L2 lifecycle and status
+
+**CLI:** `ic events list-agency [--agency=<name>] [--run=<id>] [--since=<id>] [--limit=N]` | **Go:** `ListAgencyEvents()`, `ListLatestAgencyEvents()`
+
+Records typed, idempotent lifecycle transitions from L2 agencies. Contract: [`contracts/events/agency-event.json`](../contracts/events/agency-event.json).
+
+| Field | Required | Description |
+|---|---|---|
+| `agency_name` | yes | Stable agency identity from its installed manifest |
+| `cycle_id` | yes | Agency-owned lifecycle instance |
+| `stage` | yes | Current stage within that lifecycle |
+| `event_type` | yes | Transition type, such as `agency.stage` |
+| `idempotency_key` | yes | Agency-scoped duplicate suppression key |
+| `run_id` | no | Associated Intercore run |
+| `context_json` | yes | Source-specific structured context encoded as JSON |
+| `project_dir` | no | Project directory context |
+| `timestamp` | yes | Event creation time |
+
+`ic situation snapshot [--run=<id>]` projects the latest event per agency into
+the top-level `agencies` array. Runs created by an agency may also carry typed
+`producer` metadata (`kind`, `name`, `class`, `version`). Use the event query for
+history and cursors; use the situation snapshot for current operator status.
+
 ## Canonical Measurement Read Model
 
 For complete measurement coverage, consumers need:
 
 ```
-measurement_read_model = generic_stream + review_events + interspect_events
+measurement_read_model = generic_stream + review_events + interspect_events + agency_events
 ```
 
 | What you need | Which stream |
@@ -81,10 +104,12 @@ measurement_read_model = generic_stream + review_events + interspect_events
 | "Has this agent been manually corrected?" | Interspect events |
 | "What's this agent's false-positive rate?" | Review events + interspect events |
 | "Is this agent routing-eligible?" | Review events + interspect events (via interspect evidence) |
+| "What stage is this agency in?" | Situation snapshot (`agencies`) |
+| "How did this agency cycle progress?" | Agency events |
 
 ## Design Decision
 
-The system explicitly chose **typed side-channel APIs over a fully-unified stream** for review and interspect events. This preserves field fidelity at the cost of requiring consumers to make multiple queries. The alternative (enriching the generic projection) was rejected because:
+The system explicitly chose **typed side-channel APIs over a fully-unified stream** for review, interspect, and agency events. This preserves field fidelity at the cost of requiring consumers to make multiple queries. The alternative (enriching the generic projection) was rejected because:
 
 1. The generic `Event` struct would need to carry ~15 optional fields from different source types
 2. Existing consumers of the generic stream don't need review-specific fields

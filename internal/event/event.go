@@ -14,7 +14,22 @@ const (
 	SourceCoordination = "coordination"
 	SourceReview       = "review"
 	SourceIntent       = "intent"
+	SourceAgency       = "agency"
 )
+
+// AgencyEvent represents a durable lifecycle transition emitted by an L2 agency.
+type AgencyEvent struct {
+	ID             int64     `json:"id"`
+	RunID          string    `json:"run_id,omitempty"`
+	AgencyName     string    `json:"agency_name"`
+	EventType      string    `json:"event_type"`
+	CycleID        string    `json:"cycle_id"`
+	Stage          string    `json:"stage"`
+	ContextJSON    string    `json:"context_json"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	ProjectDir     string    `json:"project_dir,omitempty"`
+	Timestamp      time.Time `json:"timestamp"`
+}
 
 // InterspectEvent represents a human correction or agent dispatch signal.
 type InterspectEvent struct {
@@ -49,10 +64,10 @@ type ReviewEvent struct {
 type Event struct {
 	ID        int64          `json:"id"`
 	RunID     string         `json:"run_id"`
-	Source    string         `json:"source" jsonschema:"enum=phase,enum=dispatch,enum=interspect,enum=discovery,enum=coordination,enum=review,enum=intent"` // origin subsystem — see contracts/events/README.md
-	Type      string         `json:"type"`                                                                                                                  // "advance", "skip", "block", "status_change", etc.
-	FromState string         `json:"from_state"`                                                                                                            // source-dependent: from_phase, from_status, owner, finding_id
-	ToState   string         `json:"to_state"`                                                                                                              // source-dependent: to_phase, to_status, pattern, resolution
+	Source    string         `json:"source" jsonschema:"enum=phase,enum=dispatch,enum=interspect,enum=discovery,enum=coordination,enum=review,enum=intent,enum=agency"` // origin subsystem — see contracts/events/README.md
+	Type      string         `json:"type"`                                                                                                                              // "advance", "skip", "block", "status_change", etc.
+	FromState string         `json:"from_state"`                                                                                                                        // source-dependent: from_phase, from_status, owner, finding_id
+	ToState   string         `json:"to_state"`                                                                                                                          // source-dependent: to_phase, to_status, pattern, resolution
 	Reason    string         `json:"reason,omitempty"`
 	Envelope  *EventEnvelope `json:"envelope,omitempty"`
 	Timestamp time.Time      `json:"timestamp"`
@@ -69,6 +84,7 @@ var validSources = map[string]bool{
 	SourceCoordination: true,
 	SourceReview:       true,
 	SourceIntent:       true,
+	SourceAgency:       true,
 }
 
 // Validate checks that the event has a recognized Source value.

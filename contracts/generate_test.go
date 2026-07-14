@@ -65,3 +65,18 @@ func TestGenerateSchemas_ValidJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGenerateSchemas_IncludesAgencyContracts(t *testing.T) {
+	dir := t.TempDir()
+	if err := GenerateSchemas(dir); err != nil {
+		t.Fatalf("GenerateSchemas: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(dir, "cli", "situation-snapshot.json"),
+		filepath.Join(dir, "events", "agency-event.json"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("missing generated contract %s: %v", path, err)
+		}
+	}
+}

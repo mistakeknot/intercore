@@ -57,6 +57,9 @@ func TestCollectReturnsSnapshot(t *testing.T) {
 	if snap.Events == nil {
 		t.Error("expected non-nil Events slice")
 	}
+	if snap.Agencies == nil {
+		t.Error("expected non-nil Agencies slice")
+	}
 	if len(snap.Events) != 0 {
 		t.Errorf("expected empty Events, got %d", len(snap.Events))
 	}
@@ -68,6 +71,61 @@ func TestCollectReturnsSnapshot(t *testing.T) {
 	}
 	if snap.Budget != nil {
 		t.Error("expected nil Budget")
+	}
+}
+
+func TestCollectIncludesAgencyStatusAndProducer(t *testing.T) {
+	c, _ := testCollector(t)
+	ctx := context.Background()
+	metadata := `{"producer":{"kind":"agency","name":"remontoire","class":"portfolio","version":"0.1.0"}}`
+
+	pStore := c.phases.(*phase.Store)
+	runID, err := pStore.Create(ctx, &phase.Run{
+		ProjectDir: "/tmp/remontoire",
+		Goal:       "Research the portfolio",
+		Metadata:   &metadata,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eStore := c.events.(*event.Store)
+	if _, err := eStore.AddAgencyEventOnce(ctx, event.AgencyEvent{
+		RunID:          runID,
+		AgencyName:     "remontoire",
+		EventType:      "agency.stage",
+		CycleID:        "cycle-1",
+		Stage:          "reviewing",
+		IdempotencyKey: "cycle-1:reviewing",
+		ProjectDir:     "/tmp/remontoire",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := c.Collect(ctx, CollectOptions{RunID: runID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Runs) != 1 || snap.Runs[0].Producer == nil {
+		t.Fatalf("runs = %#v", snap.Runs)
+	}
+	producer := snap.Runs[0].Producer
+	if producer.Kind != "agency" || producer.Name != "remontoire" || producer.Class != "portfolio" || producer.Version != "0.1.0" {
+		t.Fatalf("producer = %#v", producer)
+	}
+	if len(snap.Agencies) != 1 {
+		t.Fatalf("agencies = %#v", snap.Agencies)
+	}
+	agency := snap.Agencies[0]
+	if agency.Name != "remontoire" || agency.CycleID != "cycle-1" || agency.Stage != "reviewing" || agency.RunID != runID {
+		t.Fatalf("agency = %#v", agency)
+	}
+}
+
+func TestRunToSummaryOmitsMalformedProducerMetadata(t *testing.T) {
+	metadata := `{"producer":{"kind":"agency","name":42}}`
+	got := runToSummary(&phase.Run{ID: "r-1", Metadata: &metadata})
+	if got.Producer != nil {
+		t.Fatalf("producer = %#v, want nil", got.Producer)
 	}
 }
 

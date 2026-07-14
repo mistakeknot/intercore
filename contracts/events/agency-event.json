@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/events/agency-event.json",
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "agency_name": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "cycle_id": {
+      "type": "string"
+    },
+    "stage": {
+      "type": "string"
+    },
+    "context_json": {
+      "type": "string"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "project_dir": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "agency_name",
+    "event_type",
+    "cycle_id",
+    "stage",
+    "context_json",
+    "idempotency_key",
+    "timestamp"
+  ]
+}

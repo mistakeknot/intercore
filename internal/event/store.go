@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -477,6 +478,140 @@ func (s *Store) MaxInterspectEventID(ctx context.Context) (int64, error) {
 	var id sql.NullInt64
 	err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM interspect_events").Scan(&id)
 	if err != nil {
+		return 0, err
+	}
+	if !id.Valid {
+		return 0, nil
+	}
+	return id.Int64, nil
+}
+
+// AddAgencyEventOnce records one agency lifecycle event per agency-scoped
+// idempotency key and returns the existing ID when the event was already seen.
+func (s *Store) AddAgencyEventOnce(ctx context.Context, e AgencyEvent) (int64, error) {
+	if e.AgencyName == "" || e.EventType == "" || e.CycleID == "" || e.Stage == "" || e.IdempotencyKey == "" {
+		return 0, errors.New("add agency event once: agency_name, event_type, cycle_id, stage, and idempotency_key are required")
+	}
+	if e.ContextJSON == "" {
+		e.ContextJSON = "{}"
+	}
+	var contextObject map[string]any
+	if err := json.Unmarshal([]byte(e.ContextJSON), &contextObject); err != nil || contextObject == nil {
+		return 0, errors.New("add agency event once: context_json must be a JSON object")
+	}
+	e.ContextJSON = s.redactStr(e.ContextJSON)
+	if !json.Valid([]byte(e.ContextJSON)) {
+		return 0, errors.New("add agency event once: redacted context_json is not valid JSON")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("add agency event once: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO agency_events (
+			run_id, agency_name, event_type, cycle_id, stage,
+			context_json, idempotency_key, project_dir
+		) VALUES (NULLIF(?, ''), ?, ?, ?, ?, ?, ?, NULLIF(?, ''))`,
+		e.RunID, e.AgencyName, e.EventType, e.CycleID, e.Stage,
+		e.ContextJSON, e.IdempotencyKey, e.ProjectDir,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("add agency event once: insert: %w", err)
+	}
+
+	var id int64
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("add agency event once: rows affected: %w", err)
+	}
+	if rows == 1 {
+		id, err = result.LastInsertId()
+	} else {
+		err = tx.QueryRowContext(ctx, `
+			SELECT id FROM agency_events
+			WHERE agency_name = ? AND idempotency_key = ?`,
+			e.AgencyName, e.IdempotencyKey,
+		).Scan(&id)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("add agency event once: resolve event: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("add agency event once: commit: %w", err)
+	}
+	return id, nil
+}
+
+// ListAgencyEvents returns agency events with optional agency and run filters.
+func (s *Store) ListAgencyEvents(ctx context.Context, agencyName, runID string, since int64, limit int) ([]AgencyEvent, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, COALESCE(run_id, ''), agency_name, event_type, cycle_id,
+			stage, context_json, idempotency_key, COALESCE(project_dir, ''), created_at
+		FROM agency_events
+		WHERE (? = '' OR agency_name = ?)
+			AND (? = '' OR COALESCE(run_id, '') = ?)
+			AND id > ?
+		ORDER BY id ASC
+		LIMIT ?`,
+		agencyName, agencyName, runID, runID, since, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list agency events: %w", err)
+	}
+	defer rows.Close()
+	return scanAgencyEvents(rows)
+}
+
+// ListLatestAgencyEvents returns the highest-ID event for each agency,
+// optionally scoped to one run.
+func (s *Store) ListLatestAgencyEvents(ctx context.Context, runID string) ([]AgencyEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT e.id, COALESCE(e.run_id, ''), e.agency_name, e.event_type, e.cycle_id,
+			e.stage, e.context_json, e.idempotency_key, COALESCE(e.project_dir, ''), e.created_at
+		FROM agency_events e
+		JOIN (
+			SELECT agency_name, MAX(id) AS id
+			FROM agency_events
+			WHERE (? = '' OR COALESCE(run_id, '') = ?)
+			GROUP BY agency_name
+		) latest ON latest.id = e.id
+		ORDER BY e.agency_name ASC`,
+		runID, runID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list latest agency events: %w", err)
+	}
+	defer rows.Close()
+	return scanAgencyEvents(rows)
+}
+
+func scanAgencyEvents(rows *sql.Rows) ([]AgencyEvent, error) {
+	var events []AgencyEvent
+	for rows.Next() {
+		var e AgencyEvent
+		var createdAt int64
+		if err := rows.Scan(
+			&e.ID, &e.RunID, &e.AgencyName, &e.EventType, &e.CycleID,
+			&e.Stage, &e.ContextJSON, &e.IdempotencyKey, &e.ProjectDir, &createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("agency events scan: %w", err)
+		}
+		e.Timestamp = time.Unix(createdAt, 0).UTC()
+		events = append(events, e)
+	}
+	return events, rows.Err()
+}
+
+// MaxAgencyEventID returns the highest agency_events.id for cursor tracking.
+func (s *Store) MaxAgencyEventID(ctx context.Context) (int64, error) {
+	var id sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, "SELECT MAX(id) FROM agency_events").Scan(&id); err != nil {
 		return 0, err
 	}
 	if !id.Valid {

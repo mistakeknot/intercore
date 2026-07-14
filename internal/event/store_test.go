@@ -522,6 +522,116 @@ func TestAddInterspectEventOnceReturnsExistingID(t *testing.T) {
 	}
 }
 
+func TestAddAgencyEventOnceReturnsExistingID(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	first, err := store.AddAgencyEventOnce(ctx, AgencyEvent{
+		RunID:          "run001",
+		AgencyName:     "remontoire",
+		EventType:      "agency.stage",
+		CycleID:        "cycle-1",
+		Stage:          "reviewing",
+		ContextJSON:    `{"candidate_count":3}`,
+		IdempotencyKey: "cycle-1:reviewing",
+		ProjectDir:     "/repo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.AddAgencyEventOnce(ctx, AgencyEvent{
+		RunID:          "run001",
+		AgencyName:     "remontoire",
+		EventType:      "agency.stage",
+		CycleID:        "cycle-1",
+		Stage:          "reviewing",
+		ContextJSON:    `{"candidate_count":3}`,
+		IdempotencyKey: "cycle-1:reviewing",
+		ProjectDir:     "/repo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("ids = %d and %d", first, second)
+	}
+
+	events, err := store.ListAgencyEvents(ctx, "remontoire", "", 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+	got := events[0]
+	if got.CycleID != "cycle-1" || got.Stage != "reviewing" || got.ContextJSON != `{"candidate_count":3}` {
+		t.Fatalf("event = %#v", got)
+	}
+	if got.Timestamp.Location() != time.UTC {
+		t.Fatalf("timestamp location = %v, want UTC", got.Timestamp.Location())
+	}
+	maxID, err := store.MaxAgencyEventID(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maxID != first {
+		t.Fatalf("max id = %d, want %d", maxID, first)
+	}
+}
+
+func TestAddAgencyEventOnceRejectsInvalidContextJSON(t *testing.T) {
+	store, _ := setupTestStore(t)
+	_, err := store.AddAgencyEventOnce(context.Background(), AgencyEvent{
+		AgencyName:     "remontoire",
+		EventType:      "agency.stage",
+		CycleID:        "cycle-1",
+		Stage:          "reviewing",
+		ContextJSON:    `{`,
+		IdempotencyKey: "cycle-1:reviewing",
+	})
+	if err == nil {
+		t.Fatal("expected invalid context_json to be rejected")
+	}
+}
+
+func TestListLatestAgencyEventsReturnsLatestPerAgency(t *testing.T) {
+	store, _ := setupTestStore(t)
+	ctx := context.Background()
+
+	for _, e := range []AgencyEvent{
+		{RunID: "run-1", AgencyName: "remontoire", EventType: "agency.stage", CycleID: "cycle-1", Stage: "researching", IdempotencyKey: "cycle-1:researching"},
+		{RunID: "run-1", AgencyName: "remontoire", EventType: "agency.stage", CycleID: "cycle-1", Stage: "reviewing", IdempotencyKey: "cycle-1:reviewing"},
+		{RunID: "run-2", AgencyName: "other-agency", EventType: "agency.stage", CycleID: "cycle-2", Stage: "waiting", IdempotencyKey: "cycle-2:waiting"},
+	} {
+		if _, err := store.AddAgencyEventOnce(ctx, e); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	latest, err := store.ListLatestAgencyEvents(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(latest) != 2 {
+		t.Fatalf("latest = %#v", latest)
+	}
+	latestByName := make(map[string]AgencyEvent, len(latest))
+	for _, e := range latest {
+		latestByName[e.AgencyName] = e
+	}
+	if latestByName["remontoire"].Stage != "reviewing" {
+		t.Fatalf("remontoire latest = %#v", latestByName["remontoire"])
+	}
+
+	scoped, err := store.ListLatestAgencyEvents(ctx, "run-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scoped) != 1 || scoped[0].AgencyName != "remontoire" || scoped[0].Stage != "reviewing" {
+		t.Fatalf("scoped latest = %#v", scoped)
+	}
+}
+
 func TestAddInterspectEvent_OptionalFields(t *testing.T) {
 	store, _ := setupTestStore(t)
 	ctx := context.Background()
@@ -866,6 +976,7 @@ func TestEvent_Validate(t *testing.T) {
 		{SourceCoordination, false},
 		{SourceReview, false},
 		{SourceIntent, false},
+		{SourceAgency, false},
 		{"unknown", true},
 		{"", true},
 	}
@@ -881,11 +992,11 @@ func TestEvent_Validate(t *testing.T) {
 func TestValidSources_CountMatchesConstants(t *testing.T) {
 	// Guard against adding a Source* constant without updating validSources.
 	// If this fails, add the new constant to validSources in event.go.
-	const expectedSources = 7
+	const expectedSources = 8
 	valid := 0
 	for _, src := range []string{
 		SourcePhase, SourceDispatch, SourceInterspect,
-		SourceDiscovery, SourceCoordination, SourceReview, SourceIntent,
+		SourceDiscovery, SourceCoordination, SourceReview, SourceIntent, SourceAgency,
 	} {
 		e := Event{Source: src}
 		if err := e.Validate(); err == nil {

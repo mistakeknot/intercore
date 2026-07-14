@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/situation-snapshot.json",
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "runs": {
+      "items": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "oodarc_role": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "integer"
+          },
+          "producer": {
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "class": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "name"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "phase",
+          "status",
+          "project_dir",
+          "goal",
+          "created_at"
+        ]
+      },
+      "type": "array"
+    },
+    "dispatches": {
+      "properties": {
+        "active": {
+          "type": "integer"
+        },
+        "total": {
+          "type": "integer"
+        },
+        "agents": {
+          "items": {
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "agent_type": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "turns": {
+                "type": "integer"
+              },
+              "input_tokens": {
+                "type": "integer"
+              },
+              "output_tokens": {
+                "type": "integer"
+              },
+              "scope_id": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "id",
+              "agent_type",
+              "status",
+              "turns",
+              "input_tokens",
+              "output_tokens"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "active",
+        "total",
+        "agents"
+      ]
+    },
+    "recent_events": {
+      "items": {
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "phase",
+              "dispatch",
+              "interspect",
+              "discovery",
+              "coordination",
+              "review",
+              "intent",
+              "agency"
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "from_state": {
+            "type": "string"
+          },
+          "to_state": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "envelope": {
+            "properties": {
+              "policy_version": {
+                "type": "string"
+              },
+              "caller_identity": {
+                "type": "string"
+              },
+              "capability_scope": {
+                "type": "string"
+              },
+              "trace_id": {
+                "type": "string"
+              },
+              "span_id": {
+                "type": "string"
+              },
+              "parent_span_id": {
+                "type": "string"
+              },
+              "input_artifact_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "output_artifact_refs": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "requested_sandbox": {
+                "type": "string"
+              },
+              "effective_sandbox": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "type": "object"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "run_id",
+          "source",
+          "type",
+          "from_state",
+          "to_state",
+          "timestamp"
+        ]
+      },
+      "type": "array"
+    },
+    "agencies": {
+      "items": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "cycle_id": {
+            "type": "string"
+          },
+          "stage": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": "string"
+          },
+          "project_dir": {
+            "type": "string"
+          },
+          "last_event_id": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "cycle_id",
+          "stage",
+          "event_type",
+          "last_event_id",
+          "updated_at"
+        ]
+      },
+      "type": "array"
+    },
+    "queue": {
+      "properties": {
+        "pending": {
+          "type": "integer"
+        },
+        "running": {
+          "type": "integer"
+        },
+        "retrying": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "pending",
+        "running",
+        "retrying"
+      ]
+    },
+    "budget": {
+      "properties": {
+        "run_id": {
+          "type": "string"
+        },
+        "budget": {
+          "type": "integer"
+        },
+        "used": {
+          "type": "integer"
+        },
+        "remaining": {
+          "type": "integer"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "run_id",
+        "budget",
+        "used",
+        "remaining"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "timestamp",
+    "runs",
+    "dispatches",
+    "recent_events",
+    "agencies",
+    "queue"
+  ]
+}

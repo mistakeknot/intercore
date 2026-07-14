@@ -15,7 +15,7 @@ import (
 
 func cmdEvents(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		slog.Error("events: missing subcommand", "expected", "tail, cursor, emit, record, list-review")
+		slog.Error("events: missing subcommand", "expected", "tail, cursor, emit, record, list-review, list-agency")
 		return 3
 	}
 
@@ -30,6 +30,8 @@ func cmdEvents(ctx context.Context, args []string) int {
 		return cmdEventsRecord(ctx, args[1:])
 	case "list-review":
 		return cmdEventsListReview(ctx, args[1:])
+	case "list-agency":
+		return cmdEventsListAgency(ctx, args[1:])
 	default:
 		slog.Error("events: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -409,12 +411,49 @@ func cmdEventsListReview(ctx context.Context, args []string) int {
 	return 0
 }
 
+func cmdEventsListAgency(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	agencyName := f.String("agency", "")
+	runID := f.String("run", "")
+	since, err := f.Int64("since", 0)
+	if err != nil {
+		slog.Error("events list-agency: invalid --since", "value", f.String("since", ""))
+		return 3
+	}
+	limit, err := f.Int("limit", 1000)
+	if err != nil {
+		slog.Error("events list-agency: invalid --limit", "value", f.String("limit", ""))
+		return 3
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("events list-agency failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+	events, err := event.NewStore(d.SqlDB()).ListAgencyEvents(ctx, agencyName, runID, since, limit)
+	if err != nil {
+		slog.Error("events list-agency failed", "error", err)
+		return 2
+	}
+	enc := json.NewEncoder(os.Stdout)
+	for _, e := range events {
+		if err := enc.Encode(e); err != nil {
+			slog.Error("events list-agency: encode failed", "error", err)
+			return 2
+		}
+	}
+	return 0
+}
+
 // cmdEventsRecord is the unified event ingestion command.
 // Accepts --source, --type, --payload (JSON), plus optional --run, --session, --project.
-// Interspect events also accept an explicit --idempotency-key.
+// Interspect and agency events accept an explicit --idempotency-key.
 // Routes to the appropriate Store.Add*Event method based on source.
 //
 // Supported sources:
+//   - agency: requires payload.agency_name, cycle_id, stage and --idempotency-key; emits to agency_events
 //   - interspect: requires payload.agent_name; emits to interspect_events
 //   - review: requires payload.finding_id, agents, resolution, chosen_severity, impact; emits to review_events
 //   - coordination: requires payload.lock_id, owner, pattern, scope; emits to coordination_events
@@ -430,15 +469,15 @@ func cmdEventsRecord(ctx context.Context, args []string) int {
 	idempotencyKey := f.String("idempotency-key", "")
 
 	if source == "" {
-		slog.Error("events record: --source is required (interspect, review, coordination, intent)")
+		slog.Error("events record: --source is required (agency, interspect, review, coordination, intent)")
 		return 3
 	}
 	if eventType == "" {
 		slog.Error("events record: --type is required")
 		return 3
 	}
-	if idempotencyKey != "" && source != event.SourceInterspect {
-		slog.Error("events record: --idempotency-key is supported only for interspect events")
+	if idempotencyKey != "" && source != event.SourceInterspect && source != event.SourceAgency {
+		slog.Error("events record: --idempotency-key is supported only for agency and interspect events")
 		return 3
 	}
 
@@ -466,6 +505,8 @@ func cmdEventsRecord(ctx context.Context, args []string) int {
 	evStore := event.NewStore(d.SqlDB())
 
 	switch source {
+	case event.SourceAgency:
+		return recordAgency(ctx, evStore, eventType, payloadJSON, runID, idempotencyKey, projectDir)
 	case event.SourceInterspect:
 		return recordInterspect(ctx, evStore, eventType, payloadJSON, runID, sessionID, idempotencyKey, projectDir)
 	case event.SourceReview:
@@ -475,9 +516,57 @@ func cmdEventsRecord(ctx context.Context, args []string) int {
 	case event.SourceIntent:
 		return recordIntent(ctx, evStore, eventType, payloadJSON, sessionID, runID)
 	default:
-		slog.Error("events record: unsupported source (use interspect, review, coordination, intent)", "source", source)
+		slog.Error("events record: unsupported source (use agency, interspect, review, coordination, intent)", "source", source)
 		return 3
 	}
+}
+
+func recordAgency(ctx context.Context, evStore *event.Store, eventType, payloadJSON, runID, idempotencyKey, projectDir string) int {
+	var payload struct {
+		AgencyName string         `json:"agency_name"`
+		CycleID    string         `json:"cycle_id"`
+		Stage      string         `json:"stage"`
+		Context    map[string]any `json:"context"`
+	}
+	if payloadJSON != "" {
+		if err := json.Unmarshal([]byte(payloadJSON), &payload); err != nil {
+			slog.Error("events record: failed to parse agency payload", "error", err)
+			return 3
+		}
+	}
+	if payload.AgencyName == "" || payload.CycleID == "" || payload.Stage == "" {
+		slog.Error("events record: agency source requires payload.agency_name, payload.cycle_id, and payload.stage")
+		return 3
+	}
+	if idempotencyKey == "" {
+		slog.Error("events record: agency source requires --idempotency-key")
+		return 3
+	}
+	contextJSON := "{}"
+	if payload.Context != nil {
+		encoded, err := json.Marshal(payload.Context)
+		if err != nil {
+			slog.Error("events record: failed to encode agency context", "error", err)
+			return 3
+		}
+		contextJSON = string(encoded)
+	}
+	id, err := evStore.AddAgencyEventOnce(ctx, event.AgencyEvent{
+		RunID:          runID,
+		AgencyName:     payload.AgencyName,
+		EventType:      eventType,
+		CycleID:        payload.CycleID,
+		Stage:          payload.Stage,
+		ContextJSON:    contextJSON,
+		IdempotencyKey: idempotencyKey,
+		ProjectDir:     projectDir,
+	})
+	if err != nil {
+		slog.Error("events record failed", "error", err)
+		return 2
+	}
+	fmt.Printf("%d\n", id)
+	return 0
 }
 
 func recordInterspect(ctx context.Context, evStore *event.Store, eventType, payloadJSON, runID, sessionID, idempotencyKey, projectDir string) int {

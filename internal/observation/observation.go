@@ -2,6 +2,7 @@ package observation
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -17,6 +18,7 @@ type Snapshot struct {
 	Runs       []RunSummary    `json:"runs"`
 	Dispatches DispatchSummary `json:"dispatches"`
 	Events     []event.Event   `json:"recent_events"`
+	Agencies   []AgencySummary `json:"agencies"`
 	Queue      QueueSummary    `json:"queue"`
 	Budget     *BudgetSummary  `json:"budget,omitempty"`
 }
@@ -28,13 +30,34 @@ type Snapshot struct {
 // of truth in pkg/phase. It is omitted when the phase has no known role, so a
 // consumer never sees a wrong/defaulted role — absence means "no known role".
 type RunSummary struct {
-	ID         string `json:"id"`
-	Phase      string `json:"phase"`
-	OODARCRole string `json:"oodarc_role,omitempty"`
-	Status     string `json:"status"`
-	ProjectDir string `json:"project_dir"`
-	Goal       string `json:"goal"`
-	CreatedAt  int64  `json:"created_at"`
+	ID         string           `json:"id"`
+	Phase      string           `json:"phase"`
+	OODARCRole string           `json:"oodarc_role,omitempty"`
+	Status     string           `json:"status"`
+	ProjectDir string           `json:"project_dir"`
+	Goal       string           `json:"goal"`
+	CreatedAt  int64            `json:"created_at"`
+	Producer   *ProducerSummary `json:"producer,omitempty"`
+}
+
+// ProducerSummary identifies the system that created and owns a run.
+type ProducerSummary struct {
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+	Class   string `json:"class,omitempty"`
+	Version string `json:"version,omitempty"`
+}
+
+// AgencySummary is the latest durable lifecycle status for an L2 agency.
+type AgencySummary struct {
+	Name        string    `json:"name"`
+	CycleID     string    `json:"cycle_id"`
+	Stage       string    `json:"stage"`
+	EventType   string    `json:"event_type"`
+	RunID       string    `json:"run_id,omitempty"`
+	ProjectDir  string    `json:"project_dir,omitempty"`
+	LastEventID int64     `json:"last_event_id"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // DispatchSummary aggregates dispatch information.
@@ -92,6 +115,7 @@ type DispatchQuerier interface {
 type EventQuerier interface {
 	ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceCoordinationID, sinceReviewID int64, limit int) ([]event.Event, error)
 	ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceCoordinationID, sinceReviewID int64, limit int) ([]event.Event, error)
+	ListLatestAgencyEvents(ctx context.Context, runID string) ([]event.AgencyEvent, error)
 }
 
 // SchedulerQuerier is the subset of scheduler.Store needed by the Collector.
@@ -130,6 +154,7 @@ func (c *Collector) Collect(ctx context.Context, opts CollectOptions) (*Snapshot
 		Timestamp: time.Now().UTC(),
 		Runs:      []RunSummary{},
 		Events:    []event.Event{},
+		Agencies:  []AgencySummary{},
 		Dispatches: DispatchSummary{
 			Agents: []AgentSummary{},
 		},
@@ -183,6 +208,22 @@ func (c *Collector) Collect(ctx context.Context, opts CollectOptions) (*Snapshot
 		}
 		if evts != nil {
 			snap.Events = evts
+		}
+		agencyEvents, err := c.events.ListLatestAgencyEvents(ctx, opts.RunID)
+		if err != nil {
+			return nil, fmt.Errorf("observation: list agency status: %w", err)
+		}
+		for _, e := range agencyEvents {
+			snap.Agencies = append(snap.Agencies, AgencySummary{
+				Name:        e.AgencyName,
+				CycleID:     e.CycleID,
+				Stage:       e.Stage,
+				EventType:   e.EventType,
+				RunID:       e.RunID,
+				ProjectDir:  e.ProjectDir,
+				LastEventID: e.ID,
+				UpdatedAt:   e.Timestamp,
+			})
 		}
 	}
 
@@ -240,7 +281,24 @@ func runToSummary(r *phase.Run) RunSummary {
 		ProjectDir: r.ProjectDir,
 		Goal:       r.Goal,
 		CreatedAt:  r.CreatedAt,
+		Producer:   producerFromMetadata(r.Metadata),
 	}
+}
+
+func producerFromMetadata(raw *string) *ProducerSummary {
+	if raw == nil {
+		return nil
+	}
+	var metadata struct {
+		Producer *ProducerSummary `json:"producer"`
+	}
+	if err := json.Unmarshal([]byte(*raw), &metadata); err != nil || metadata.Producer == nil {
+		return nil
+	}
+	if metadata.Producer.Kind == "" || metadata.Producer.Name == "" {
+		return nil
+	}
+	return metadata.Producer
 }
 
 // dispatchToSummary converts a dispatch.Dispatch to an AgentSummary.

@@ -205,6 +205,7 @@ Commands:
   events tail <run_id|--all> [--follow] [--consumer=<name>]
   events tail ... [--since-phase=N] [--since-dispatch=N] [--limit=N]
   events record --source=<s> --type=<t> --payload=<json> [opts]  Record event
+  events list-agency [--agency=<name>] [--run=<id>] [--since=N]  Query agency lifecycle events
   events cursor list             List named cursors
   events cursor reset <name>     Reset a named cursor
   gate check <run_id> [--priority=N]   Dry-run gate evaluation (0=pass, 1=fail)
@@ -256,7 +257,7 @@ Commands:
   session current --session=<id> [--project=<dir>]  Show latest attribution
   session list [--project=<dir>] [--active-only]    List sessions
   session tokens --session=<id> --input=N --output=N [opts]  Add token counts
-  situation snapshot [opts]      Unified observation layer (OODAR)
+  situation snapshot [opts]      Unified observation layer, including agency status
   receipt emit --agent=<id> --model=<m> --content=<s>  Sign + store an action receipt (prints receipt_id)
   receipt find --agent=<id> --parent-run=<id> --content-hash=<hex>  Resolve an existing action receipt
   receipt verify <receipt_id>   Verify a signed action receipt (exit 0=valid,1=not-found,2=bad-sig,3=bad-schema,4=unknown-key)

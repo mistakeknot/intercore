@@ -353,7 +353,7 @@ func TestStore_MigrationIdempotent(t *testing.T) {
 	if err := d.Migrate(ctx); err != nil {
 		t.Fatalf("migrate 2 (should be no-op): %v", err)
 	}
-	if v, _ := d.SchemaVersion(); v != 37 {
-		t.Fatalf("schema version after double-migrate: %d, want 37", v)
+	if v, _ := d.SchemaVersion(); v != 38 {
+		t.Fatalf("schema version after double-migrate: %d, want 38", v)
 	}
 }

@@ -16,10 +16,12 @@ tags on the Go types in `internal/event/`.
 | `review` | `review_events` | Yes (ListEvents, ListAllEvents) | interspect evidence pipeline |
 | `interspect` | `interspect_events` | **No** — use `ListInterspectEvents` | interspect, Skaffen evidence emitter |
 | `intent` | `intent_events` | **No** — planned for future unification | Ockham (future) |
+| `agency` | `agency_events` | **No** — use `ListAgencyEvents`; latest status is in `situation snapshot` | L2 agencies, Clavain, operators |
 
-Note: `interspect` and `intent` are valid Source values (accepted by `Event.Validate()`)
+Note: `interspect`, `intent`, and `agency` are valid Source values (accepted by `Event.Validate()`)
 but are NOT included in the `ListEvents`/`ListAllEvents` UNION ALL queries. They have
-dedicated query methods. The `.2` sub-epic (Demarch-og7m.2) will unify all sources.
+dedicated query methods. Agency events deliberately remain typed so cycle, stage,
+and idempotency fields are not lost in the generic projection.
 
 ## Schemas
 
@@ -28,6 +30,7 @@ dedicated query methods. The `.2` sub-epic (Demarch-og7m.2) will unify all sourc
 - [`event-envelope.json`](event-envelope.json) — EventEnvelope v1 provenance data (generated)
 - [`review-event.json`](review-event.json) — ReviewEvent type (generated)
 - [`interspect-event.json`](interspect-event.json) — InterspectEvent type (generated)
+- [`agency-event.json`](agency-event.json) — L2 agency lifecycle event (generated)
 
 ### v2 (og7m.2.1 — types defined, writers migrate in og7m.2.2)
 - [`event-envelope-v2.json`](event-envelope-v2.json) — EventEnvelopeV2 with version + typed payload (generated)

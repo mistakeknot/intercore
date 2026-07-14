@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -77,7 +78,7 @@ func TestMigrate_CreatesTablesAndVersion(t *testing.T) {
 	}
 
 	// Verify tables exist
-	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events", "interspect_events", "merge_intents", "coordination_locks", "coordination_events", "run_replay_inputs", "landed_changes", "sessions", "session_attributions", "routing_decisions"} {
+	for _, table := range []string{"state", "sentinels", "dispatches", "runs", "phase_events", "run_agents", "run_artifacts", "dispatch_events", "interspect_events", "agency_events", "merge_intents", "coordination_locks", "coordination_events", "run_replay_inputs", "landed_changes", "sessions", "session_attributions", "routing_decisions"} {
 		var name string
 		err = d.db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&name)
 		if err != nil {
@@ -218,7 +219,7 @@ func TestHealthRejectsStaleSchema(t *testing.T) {
 	if !errors.Is(err, ErrNotMigrated) {
 		t.Fatalf("Health error = %v, want ErrNotMigrated", err)
 	}
-	if !strings.Contains(err.Error(), "35") || !strings.Contains(err.Error(), "37") {
+	if !strings.Contains(err.Error(), "35") || !strings.Contains(err.Error(), strconv.Itoa(currentSchemaVersion)) {
 		t.Fatalf("Health error = %q, want stale and current schema versions", err)
 	}
 }
@@ -1411,17 +1412,18 @@ func TestMigration036AuthzLegacyAnchorSeal(t *testing.T) {
 	}
 	applied, err := m.Run(ctx)
 	if err != nil {
-		t.Fatalf("Run v35 to v37: %v", err)
+		t.Fatalf("Run v35 to current: %v", err)
 	}
-	if applied != 2 {
-		t.Fatalf("v35 to v37 applied %d migrations, want 2", applied)
+	wantApplied := currentSchemaVersion - 35
+	if applied != wantApplied {
+		t.Fatalf("v35 to current applied %d migrations, want %d", applied, wantApplied)
 	}
 	version, err := d.SchemaVersion()
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != 37 {
-		t.Fatalf("SchemaVersion = %d, want 37", version)
+	if version != currentSchemaVersion {
+		t.Fatalf("SchemaVersion = %d, want %d", version, currentSchemaVersion)
 	}
 	if after := snapshot(); !reflect.DeepEqual(after, before) {
 		t.Fatalf("v36 seal changed authorization rows\nbefore: %#v\nafter:  %#v", before, after)
@@ -1451,7 +1453,7 @@ func TestMigration036AuthzLegacyAnchorSeal(t *testing.T) {
 	}
 }
 
-func TestSchema037Fresh(t *testing.T) {
+func TestSchema038Fresh(t *testing.T) {
 	d, _ := tempDB(t)
 	if err := d.Migrate(context.Background()); err != nil {
 		t.Fatalf("Migrate: %v", err)
@@ -1461,7 +1463,34 @@ func TestSchema037Fresh(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SchemaVersion: %v", err)
 	}
-	if version != 37 {
-		t.Fatalf("SchemaVersion = %d, want 37", version)
+	if version != currentSchemaVersion {
+		t.Fatalf("SchemaVersion = %d, want %d", version, currentSchemaVersion)
+	}
+}
+
+func TestSchema038AddsAgencyEvents(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if _, err := d.db.ExecContext(ctx, "PRAGMA user_version = 37"); err != nil {
+		t.Fatalf("set version: %v", err)
+	}
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	applied, err := m.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if applied != 1 {
+		t.Fatalf("applied = %d, want 1", applied)
+	}
+
+	var name string
+	if err := d.db.QueryRowContext(ctx,
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='agency_events'",
+	).Scan(&name); err != nil {
+		t.Fatalf("agency_events table not found: %v", err)
 	}
 }
