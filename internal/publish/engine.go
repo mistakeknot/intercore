@@ -119,6 +119,9 @@ func (e *Engine) Publish(ctx context.Context) error {
 		if fmErr := ValidateFrontmatter(pluginRoot); fmErr != nil {
 			return fmt.Errorf("frontmatter validation: %w", fmErr)
 		}
+		if releaseErr := verifyReleaseArtifacts(pluginRoot); releaseErr != nil {
+			return fmt.Errorf("release validation: %w", releaseErr)
+		}
 		e.out("Dry run — no changes made.\n")
 		return nil
 	}
@@ -208,6 +211,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 	}
 
+	var releaseDirtyFiles []string
 	if !syncOnly {
 		// Phase 2: Validation
 		setPhase(PhaseValidation)
@@ -288,6 +292,19 @@ func (e *Engine) Publish(ctx context.Context) error {
 			e.out("  Approval granted via %s\n", via)
 		}
 
+		// Managed release artifacts are part of the publish transaction. Verify
+		// first, rebuild only when stale, and stage every rebuilt tracked file
+		// with the version commit below.
+		var rebuilt bool
+		releaseDirtyFiles, rebuilt, err = prepareReleaseArtifacts(pluginRoot, true)
+		if err != nil {
+			setError(PhaseValidation, err)
+			return fmt.Errorf("release preparation: %w", err)
+		}
+		if rebuilt {
+			e.out("  Rebuilt and verified release artifacts\n")
+		}
+
 		// Run post-bump hook if present (legacy: runs before bump despite the name).
 		// Collect any files the hook modifies so they get staged in the commit phase.
 		var hookDirtyFiles []string
@@ -336,6 +353,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 			filesToAdd = append(filesToAdd, rel)
 		}
 		// Include files modified by the post-bump hook
+		filesToAdd = append(filesToAdd, releaseDirtyFiles...)
 		filesToAdd = append(filesToAdd, hookDirtyFiles...)
 
 		if err := GitAdd(pluginRoot, filesToAdd...); err != nil {
@@ -362,6 +380,15 @@ func (e *Engine) Publish(ctx context.Context) error {
 			setError(PhasePushPlugin, err)
 			return err
 		}
+	}
+
+	// Release artifacts are a hard boundary: re-run the verifier after the
+	// plugin commit/push and immediately before marketplace or cache mutation.
+	// Sync-only publishes cannot create an unversioned artifact repair commit,
+	// so stale artifacts fail here without changing either downstream surface.
+	if releaseErr := verifyReleaseArtifacts(pluginRoot); releaseErr != nil {
+		setError(PhaseValidation, releaseErr)
+		return fmt.Errorf("release validation before marketplace update: %w", releaseErr)
 	}
 
 	// Phase 6: Update marketplace

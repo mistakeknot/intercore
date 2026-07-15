@@ -127,13 +127,14 @@ func (st *PublishState) IsStale(now int64) bool {
 
 // Errors
 var (
-	ErrNotPlugin         = errors.New("not a plugin directory (no .claude-plugin/plugin.json found)")
-	ErrNoMarketplace     = errors.New("marketplace not found")
-	ErrNotInMarketplace  = errors.New("plugin not registered in marketplace")
-	ErrVersionMatch      = errors.New("already at target version")
-	ErrDirtyWorktree     = errors.New("git worktree has uncommitted changes")
-	ErrRemoteUnreachable = errors.New("git remote is unreachable")
-	ErrActivePublish     = errors.New("another publish is in progress")
-	ErrNoActivePublish   = errors.New("no active publish to resume")
-	ErrApprovalRequired  = errors.New("agent-mutated plugin requires human approval — create .publish-approved or run 'ic publish' manually")
+	ErrNotPlugin             = errors.New("not a plugin directory (no .claude-plugin/plugin.json found)")
+	ErrNoMarketplace         = errors.New("marketplace not found")
+	ErrNotInMarketplace      = errors.New("plugin not registered in marketplace")
+	ErrVersionMatch          = errors.New("already at target version")
+	ErrDirtyWorktree         = errors.New("git worktree has uncommitted changes")
+	ErrRemoteUnreachable     = errors.New("git remote is unreachable")
+	ErrActivePublish         = errors.New("another publish is in progress")
+	ErrNoActivePublish       = errors.New("no active publish to resume")
+	ErrApprovalRequired      = errors.New("agent-mutated plugin requires human approval — create .publish-approved or run 'ic publish' manually")
+	ErrStaleReleaseArtifacts = errors.New("release artifacts are stale")
 )

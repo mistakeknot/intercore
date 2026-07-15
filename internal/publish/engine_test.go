@@ -156,3 +156,170 @@ func TestPublishExplicitVersionMatchIsNoOp(t *testing.T) {
 		t.Fatalf("everything-matches publish returned %v; want ErrVersionMatch", err)
 	}
 }
+
+// scaffoldReleasePublishRepos creates real plugin and marketplace repositories
+// with local bare origins. The plugin starts with a stale tracked release
+// artifact plus conventional build and verification scripts.
+func scaffoldReleasePublishRepos(t *testing.T, pluginVersion, marketVersion string) (string, string, string) {
+	t.Helper()
+	tmp := t.TempDir()
+	trace := filepath.Join(tmp, "release-trace")
+
+	home := filepath.Join(tmp, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("RELEASE_TRACE", trace)
+
+	fakeBin := filepath.Join(tmp, "fake-bin")
+	if err := os.MkdirAll(fakeBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, "claude"), []byte("#!/usr/bin/env bash\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	marketRoot := filepath.Join(tmp, "core", "marketplace")
+	marketMeta := filepath.Join(marketRoot, ".claude-plugin")
+	if err := os.MkdirAll(marketMeta, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marketJSON := `{"name":"interagency-marketplace","plugins":[{"name":"demo","version":"` + marketVersion + `"}]}`
+	if err := os.WriteFile(filepath.Join(marketMeta, "marketplace.json"), []byte(marketJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, marketRoot, "init")
+	runGit(t, marketRoot, "add", "-A")
+	runGit(t, marketRoot, "commit", "-m", "init")
+	marketRemote := filepath.Join(tmp, "marketplace.git")
+	runGit(t, tmp, "init", "--bare", marketRemote)
+	runGit(t, marketRoot, "remote", "add", "origin", marketRemote)
+	runGit(t, marketRoot, "push", "-u", "origin", "HEAD")
+
+	pluginRoot := filepath.Join(tmp, "demo")
+	for _, dir := range []string{
+		filepath.Join(pluginRoot, ".claude-plugin"),
+		filepath.Join(pluginRoot, "bin"),
+		filepath.Join(pluginRoot, "scripts"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pluginJSON := `{"name":"demo","version":"` + pluginVersion + `"}`
+	if err := os.WriteFile(filepath.Join(pluginRoot, ".claude-plugin", "plugin.json"), []byte(pluginJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginRoot, "bin", "release.txt"), []byte("stale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	verifyScript := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'verify\n' >>"$RELEASE_TRACE"
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+grep -qx fresh "$repo_root/bin/release.txt"
+`
+	if err := os.WriteFile(filepath.Join(pluginRoot, "scripts", "verify-release-binaries.sh"), []byte(verifyScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	buildScript := `#!/usr/bin/env bash
+set -euo pipefail
+printf 'build\n' >>"$RELEASE_TRACE"
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+printf 'fresh\n' >"$repo_root/bin/release.txt"
+`
+	if err := os.WriteFile(filepath.Join(pluginRoot, "scripts", "build-release.sh"), []byte(buildScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, pluginRoot, "init")
+	runGit(t, pluginRoot, "add", "-A")
+	runGit(t, pluginRoot, "commit", "-m", "init")
+	pluginRemote := filepath.Join(tmp, "plugin.git")
+	runGit(t, tmp, "init", "--bare", pluginRemote)
+	runGit(t, pluginRoot, "remote", "add", "origin", pluginRemote)
+	runGit(t, pluginRoot, "push", "-u", "origin", "HEAD")
+
+	return pluginRoot, marketRoot, trace
+}
+
+func TestPublishRebuildsStaleReleaseArtifactsBeforeMutation(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	pluginRoot, marketRoot, trace := scaffoldReleasePublishRepos(t, "1.0.0", "1.0.0")
+	eng := NewEngine(nil, PublishOpts{Mode: BumpPatch, CWD: pluginRoot})
+	eng.SetOutput(func(string, ...interface{}) {})
+
+	if err := eng.Publish(context.Background()); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	artifact, err := os.ReadFile(filepath.Join(pluginRoot, "bin", "release.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(artifact) != "fresh\n" {
+		t.Fatalf("release artifact = %q, want rebuilt artifact", artifact)
+	}
+	traceData, err := os.ReadFile(trace)
+	if err != nil {
+		t.Fatalf("release scripts were not invoked: %v", err)
+	}
+	if string(traceData) != "verify\nbuild\nverify\nverify\n" {
+		t.Fatalf("release script order = %q, want verify/build/verify/final-verify", traceData)
+	}
+	clean, err := GitStatus(pluginRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !clean {
+		t.Fatal("plugin worktree is dirty after publish; rebuilt artifact was not committed")
+	}
+	cmd := exec.Command("git", "-C", pluginRoot, "show", "HEAD:bin/release.txt")
+	committed, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("read committed artifact: %v", err)
+	}
+	if string(committed) != "fresh\n" {
+		t.Fatalf("committed release artifact = %q, want fresh", committed)
+	}
+	marketVersion, err := ReadMarketplaceVersion(marketRoot, "demo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marketVersion != "1.0.1" {
+		t.Fatalf("marketplace version = %s, want 1.0.1", marketVersion)
+	}
+}
+
+func TestPublishSyncOnlyRejectsStaleReleaseArtifactsBeforeMarketplaceMutation(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	pluginRoot, marketRoot, trace := scaffoldReleasePublishRepos(t, "1.0.0", "0.9.0")
+	eng := NewEngine(nil, PublishOpts{Mode: BumpExact, Version: "1.0.0", CWD: pluginRoot})
+	eng.SetOutput(func(string, ...interface{}) {})
+
+	err := eng.Publish(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "release artifacts are stale") {
+		t.Fatalf("sync-only publish error = %v, want stale release rejection", err)
+	}
+	marketVersion, readErr := ReadMarketplaceVersion(marketRoot, "demo")
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if marketVersion != "0.9.0" {
+		t.Fatalf("marketplace changed to %s before release verification", marketVersion)
+	}
+	traceData, readErr := os.ReadFile(trace)
+	if readErr != nil {
+		t.Fatalf("release verifier was not invoked: %v", readErr)
+	}
+	if string(traceData) != "verify\n" {
+		t.Fatalf("sync-only release script order = %q, want verifier only", traceData)
+	}
+}
