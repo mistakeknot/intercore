@@ -164,6 +164,14 @@ func scaffoldReleasePublishRepos(t *testing.T, pluginVersion, marketVersion stri
 	t.Helper()
 	tmp := t.TempDir()
 	trace := filepath.Join(tmp, "release-trace")
+	for key, value := range map[string]string{
+		"GIT_AUTHOR_NAME":     "Intercore Test",
+		"GIT_AUTHOR_EMAIL":    "intercore-test@example.invalid",
+		"GIT_COMMITTER_NAME":  "Intercore Test",
+		"GIT_COMMITTER_EMAIL": "intercore-test@example.invalid",
+	} {
+		t.Setenv(key, value)
+	}
 
 	home := filepath.Join(tmp, "home")
 	if err := os.MkdirAll(home, 0o755); err != nil {
