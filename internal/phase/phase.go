@@ -205,6 +205,7 @@ type Run struct {
 	TokenBudget   *int64
 	BudgetWarnPct int
 	ParentRunID   *string
+	GoalID        *string
 	MaxDispatches int
 	BudgetEnforce bool
 	MaxAgents     int

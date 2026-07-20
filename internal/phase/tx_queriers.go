@@ -205,7 +205,7 @@ func scanRuns(rows *sql.Rows) ([]*Run, error) {
 			&r.CreatedAt, &r.UpdatedAt,
 			&completedAt, &scopeID, &metadata,
 			&phasesJSON, &tokenBudget, &budgetWarnPct,
-			&parentRunID, &maxDispatches,
+			&parentRunID, &r.GoalID, &maxDispatches,
 			&budgetEnforce, &maxAgents,
 			&gateRulesJSON,
 		); err != nil {
@@ -266,7 +266,7 @@ func (s *Store) GetQ(ctx context.Context, q Querier, id string) (*Run, error) {
 		&r.CreatedAt, &r.UpdatedAt,
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
-		&parentRunID, &maxDispatches,
+		&parentRunID, &r.GoalID, &maxDispatches,
 		&budgetEnforce, &maxAgents,
 		&gateRulesJSON,
 	)
@@ -324,6 +324,13 @@ func (s *Store) UpdatePhaseQ(ctx context.Context, q Querier, id, expectedPhase, 
 		}
 		return ErrStalePhase
 	}
+
+	// Goal dormancy touch (f-031): transactional advances use UpdatePhaseQ,
+	// so record attached-run activity in the same transaction. Best-effort —
+	// never fail the phase advance over an activity timestamp.
+	_, _ = q.ExecContext(ctx, `UPDATE goals
+		SET last_run_advanced_at = unixepoch(), updated_at = unixepoch()
+		WHERE id = (SELECT goal_id FROM runs WHERE id = ? AND goal_id IS NOT NULL)`, id)
 	return nil
 }
 

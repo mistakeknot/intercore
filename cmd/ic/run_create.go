@@ -20,6 +20,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	project := f.String("project", "")
 	projects := f.String("projects", "")
 	goal := f.String("goal", "")
+	goalID := f.String("goal-id", "")
 	scopeID := f.String("scope-id", "")
 	phasesJSON := f.String("phases", "")
 	actionsJSON := f.String("actions", "")
@@ -233,6 +234,9 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	}
 	if scopeID != "" {
 		run.ScopeID = &scopeID
+	}
+	if goalID != "" {
+		run.GoalID = &goalID
 	}
 
 	// Parse --actions JSON before creating the run (fail-fast, no orphaned runs)

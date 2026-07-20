@@ -135,6 +135,90 @@ func TestStore_UpdatePhase(t *testing.T) {
 	}
 }
 
+func TestStore_RunGoalAttachAndTouch(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	// Create a goal row directly; the goals table exists via migration 039.
+	if _, err := store.db.ExecContext(ctx,
+		`INSERT INTO goals (id, project_dir, title) VALUES ('gtest123', '/tmp', 'g')`); err != nil {
+		t.Fatal(err)
+	}
+
+	gid := "gtest123"
+	run := &Run{
+		ProjectDir:  "/tmp/test",
+		Goal:        "labeled",
+		Complexity:  3,
+		AutoAdvance: true,
+		GoalID:      &gid,
+	}
+	id, err := store.Create(ctx, run)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.GoalID == nil || *got.GoalID != gid {
+		t.Fatalf("GoalID not persisted: %+v", got)
+	}
+
+	if err := store.UpdatePhase(ctx, id, PhaseBrainstorm, PhaseBrainstormReviewed); err != nil {
+		t.Fatalf("UpdatePhase: %v", err)
+	}
+
+	var touched *int64
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT last_run_advanced_at FROM goals WHERE id = ?`, gid).Scan(&touched); err != nil {
+		t.Fatal(err)
+	}
+	if touched == nil {
+		t.Error("last_run_advanced_at not touched by UpdatePhase")
+	}
+}
+
+func TestStore_RunGoalAttachAndTouchTransactionalAdvance(t *testing.T) {
+	store := setupTestStore(t)
+	ctx := context.Background()
+
+	if _, err := store.db.ExecContext(ctx,
+		`INSERT INTO goals (id, project_dir, title) VALUES ('gtesttx1', '/tmp', 'g')`); err != nil {
+		t.Fatal(err)
+	}
+
+	gid := "gtesttx1"
+	id, err := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp/test",
+		Goal:        "transactional",
+		Complexity:  3,
+		AutoAdvance: true,
+		GoalID:      &gid,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 4}, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance: %v", err)
+	}
+	if !result.Advanced {
+		t.Fatal("Advance returned Advanced=false")
+	}
+
+	var touched *int64
+	if err := store.db.QueryRowContext(ctx,
+		`SELECT last_run_advanced_at FROM goals WHERE id = ?`, gid).Scan(&touched); err != nil {
+		t.Fatal(err)
+	}
+	if touched == nil {
+		t.Error("last_run_advanced_at not touched by transactional Advance")
+	}
+}
+
 func TestStore_UpdatePhase_StaleDetection(t *testing.T) {
 	store := setupTestStore(t)
 	ctx := context.Background()

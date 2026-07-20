@@ -94,13 +94,13 @@ func (s *Store) Create(ctx context.Context, r *Run) (string, error) {
 			id, project_dir, goal, status, phase, complexity,
 			force_full, auto_advance, created_at, updated_at,
 			scope_id, metadata, phases, token_budget, budget_warn_pct,
-			parent_run_id, max_dispatches, budget_enforce, max_agents, gate_rules
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			parent_run_id, goal_id, max_dispatches, budget_enforce, max_agents, gate_rules
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, r.ProjectDir, r.Goal, StatusActive, initialPhase,
 		r.Complexity, boolToInt(r.ForceFull), boolToInt(r.AutoAdvance),
 		now, now, r.ScopeID, metadata,
 		phasesJSON, r.TokenBudget, budgetWarnPct,
-		r.ParentRunID, r.MaxDispatches,
+		r.ParentRunID, r.GoalID, r.MaxDispatches,
 		boolToInt(r.BudgetEnforce), r.MaxAgents,
 		gateRulesJSON,
 	)
@@ -155,7 +155,7 @@ func (s *Store) Get(ctx context.Context, id string) (*Run, error) {
 		&r.CreatedAt, &r.UpdatedAt,
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
-		&parentRunID, &maxDispatches,
+		&parentRunID, &r.GoalID, &maxDispatches,
 		&budgetEnforce, &maxAgents,
 		&gateRulesJSON,
 	)
@@ -215,6 +215,12 @@ func (s *Store) UpdatePhase(ctx context.Context, id, expectedPhase, newPhase str
 		}
 		return ErrStalePhase
 	}
+
+	// Goal dormancy touch (f-031): any attached run's advance counts as
+	// goal activity. Best-effort — never fail the advance over it.
+	_, _ = s.db.ExecContext(ctx, `UPDATE goals
+		SET last_run_advanced_at = unixepoch(), updated_at = unixepoch()
+		WHERE id = (SELECT goal_id FROM runs WHERE id = ? AND goal_id IS NOT NULL)`, id)
 	return nil
 }
 
@@ -438,7 +444,7 @@ func (s *Store) Current(ctx context.Context, projectDir string) (*Run, error) {
 		&r.CreatedAt, &r.UpdatedAt,
 		&completedAt, &scopeID, &metadata,
 		&phasesJSON, &tokenBudget, &budgetWarnPct,
-		&parentRunID, &maxDispatches,
+		&parentRunID, &r.GoalID, &maxDispatches,
 		&budgetEnforce, &maxAgents,
 		&gateRulesJSON,
 	)
@@ -754,7 +760,7 @@ func (s *Store) SkippedPhases(ctx context.Context, runID string) (map[string]boo
 const runCols = `id, project_dir, goal, status, phase, complexity,
 	force_full, auto_advance, created_at, updated_at,
 	completed_at, scope_id, metadata, phases, token_budget, budget_warn_pct,
-	parent_run_id, max_dispatches, budget_enforce, max_agents, gate_rules`
+	parent_run_id, goal_id, max_dispatches, budget_enforce, max_agents, gate_rules`
 
 func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}) ([]*Run, error) {
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -787,7 +793,7 @@ func (s *Store) queryRuns(ctx context.Context, query string, args ...interface{}
 			&r.CreatedAt, &r.UpdatedAt,
 			&completedAt, &scopeID, &metadata,
 			&phasesJSON, &tokenBudget, &budgetWarnPct,
-			&parentRunID, &maxDispatches,
+			&parentRunID, &r.GoalID, &maxDispatches,
 			&budgetEnforce, &maxAgents,
 			&gateRulesJSON,
 		); err != nil {
