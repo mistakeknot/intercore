@@ -105,6 +105,8 @@ func main() {
 		exitCode = cmdDispatch(ctx, subArgs)
 	case "run":
 		exitCode = cmdRun(ctx, subArgs)
+	case "goal":
+		exitCode = cmdGoal(ctx, subArgs)
 	case "events":
 		exitCode = cmdEvents(ctx, subArgs)
 	case "gate":
@@ -202,6 +204,7 @@ Commands:
   run agent update <id> --status=<s>  Update agent status
   run artifact add <run> --phase=<p> --path=<f> [--type=<t>]
   run artifact list <run> [--phase=<p>]  List artifacts for run
+  goal                           Goal entity: create, show, list, close, audit, lint-condition, successor
   events tail <run_id|--all> [--follow] [--consumer=<name>]
   events tail ... [--since-phase=N] [--since-dispatch=N] [--limit=N]
   events record --source=<s> --type=<t> --payload=<json> [opts]  Record event
