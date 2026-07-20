@@ -11,6 +11,7 @@ import (
 // Phase constants — re-exported from pkg/phase for internal use.
 // New code should import pkg/phase directly.
 const (
+	PhaseGoalFormed         = exported.GoalFormed
 	PhaseBrainstorm         = exported.Brainstorm
 	PhaseBrainstormReviewed = exported.BrainstormReviewed
 	PhaseStrategized        = exported.Strategized
@@ -69,6 +70,9 @@ func IsTerminalStatus(s string) bool {
 // Used when a run has no explicit phases column (NULL in DB).
 // Canonical source: pkg/phase.DefaultChain
 var DefaultPhaseChain = exported.DefaultChain
+
+// GoalNativePhaseChain is the explicit, opt-in lifecycle for goal-backed runs.
+var GoalNativePhaseChain = exported.GoalNativeChain
 
 // ParsePhaseChain parses and validates a JSON phase chain.
 // Returns error if: not valid JSON array, fewer than 2 phases, or contains duplicates.

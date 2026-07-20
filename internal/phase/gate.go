@@ -116,6 +116,9 @@ type gateRule struct {
 // Transitions not in this table have no gate requirements.
 // Skip-transitions (complexity-based phase skipping) bypass this table entirely.
 var gateRules = map[[2]string][]gateRule{
+	{PhaseGoalFormed, PhasePlanned}: {
+		{check: CheckArtifactExists, phase: PhaseGoalFormed},
+	},
 	{PhaseBrainstorm, PhaseBrainstormReviewed}: {
 		{check: CheckArtifactExists, phase: PhaseBrainstorm},
 	},

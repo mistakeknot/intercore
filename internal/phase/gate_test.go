@@ -63,6 +63,57 @@ func TestGate_ArtifactExists_Fail(t *testing.T) {
 	}
 }
 
+func TestGate_GoalFormedArtifactRequired(t *testing.T) {
+	store, rtStore, _, ctx := setupMachineTest(t)
+
+	id, err := store.Create(ctx, &Run{
+		ProjectDir:  "/tmp",
+		Goal:        "goal-native test",
+		Complexity:  3,
+		AutoAdvance: true,
+		Phases:      GoalNativePhaseChain,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	result, err := Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance without artifact: %v", err)
+	}
+	if result.Advanced {
+		t.Fatal("goal-formed gate advanced without a charter artifact")
+	}
+	if result.GateResult != GateFail {
+		t.Errorf("GateResult = %q, want %q", result.GateResult, GateFail)
+	}
+
+	run, err := store.Get(ctx, id)
+	if err != nil {
+		t.Fatalf("Get blocked run: %v", err)
+	}
+	if run.Phase != PhaseGoalFormed {
+		t.Errorf("Phase = %q, want %q after blocked advance", run.Phase, PhaseGoalFormed)
+	}
+
+	if _, err := rtStore.AddArtifact(ctx, &runtrack.Artifact{
+		RunID: id, Phase: PhaseGoalFormed, Path: "goal-charter.md", Type: "file",
+	}); err != nil {
+		t.Fatalf("AddArtifact: %v", err)
+	}
+
+	result, err = Advance(ctx, store, id, GateConfig{Priority: 0}, rtStore, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("Advance with artifact: %v", err)
+	}
+	if !result.Advanced {
+		t.Fatalf("goal-formed gate blocked with charter artifact: %+v", result)
+	}
+	if result.ToPhase != PhasePlanned {
+		t.Errorf("ToPhase = %q, want %q", result.ToPhase, PhasePlanned)
+	}
+}
+
 func TestGate_ArtifactExists_SoftFail(t *testing.T) {
 	store, rtStore, _, ctx := setupMachineTest(t)
 

@@ -34,6 +34,25 @@ var DefaultChain = []string{
 	Done,
 }
 
+// GoalFormed is the goal-native chain's head phase: the formation ritual
+// has produced a ratified charter (the phase artifact) and minted the Goal
+// entity. It absorbs Brainstorm/BrainstormReviewed/Strategized for
+// goal-scale work — DefaultChain is untouched; in-flight nil-Phases runs
+// keep resolving to the legacy chain.
+const GoalFormed = "goal-formed"
+
+// GoalNativeChain is the goal-native lifecycle. Runs opt in via an explicit
+// phases array stamped at creation — never by editing DefaultChain.
+var GoalNativeChain = []string{
+	GoalFormed,
+	Planned,
+	Executing,
+	Review,
+	Polish,
+	Reflect,
+	Done,
+}
+
 // Deprecated: use Planned. Alias for lib-sprint.sh phases_json compatibility.
 // Remove after 2026-06-01.
 const PlanReviewed = Planned
