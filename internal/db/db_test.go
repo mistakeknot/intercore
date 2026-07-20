@@ -1472,6 +1472,10 @@ func TestSchema038AddsAgencyEvents(t *testing.T) {
 	d, _ := tempDB(t)
 	ctx := context.Background()
 
+	// Schema first: migration 039+ ALTERs tables the bare DB lacks.
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
 	if _, err := d.db.ExecContext(ctx, "PRAGMA user_version = 37"); err != nil {
 		t.Fatalf("set version: %v", err)
 	}
@@ -1483,8 +1487,8 @@ func TestSchema038AddsAgencyEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if applied != 1 {
-		t.Fatalf("applied = %d, want 1", applied)
+	if want := currentSchemaVersion - 37; applied != want {
+		t.Fatalf("applied = %d, want %d", applied, want)
 	}
 
 	var name string
@@ -1492,5 +1496,44 @@ func TestSchema038AddsAgencyEvents(t *testing.T) {
 		"SELECT name FROM sqlite_master WHERE type='table' AND name='agency_events'",
 	).Scan(&name); err != nil {
 		t.Fatalf("agency_events table not found: %v", err)
+	}
+}
+
+func TestSchema039AddsGoals(t *testing.T) {
+	d, _ := tempDB(t)
+	ctx := context.Background()
+
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	if _, err := d.db.ExecContext(ctx, "PRAGMA user_version = 38"); err != nil {
+		t.Fatalf("set version: %v", err)
+	}
+	m, err := NewMigrator(d)
+	if err != nil {
+		t.Fatalf("NewMigrator: %v", err)
+	}
+	applied, err := m.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if want := currentSchemaVersion - 38; applied != want {
+		t.Fatalf("applied = %d, want %d", applied, want)
+	}
+
+	var name string
+	if err := d.db.QueryRowContext(ctx,
+		"SELECT name FROM sqlite_master WHERE type='table' AND name='goals'",
+	).Scan(&name); err != nil {
+		t.Fatalf("goals table not found: %v", err)
+	}
+	var hasGoalID int
+	if err := d.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name='goal_id'",
+	).Scan(&hasGoalID); err != nil {
+		t.Fatalf("pragma_table_info(runs): %v", err)
+	}
+	if hasGoalID != 1 {
+		t.Fatalf("runs.goal_id present = %d, want 1", hasGoalID)
 	}
 }

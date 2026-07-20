@@ -19,8 +19,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 38
-	maxSchemaVersion     = 38
+	currentSchemaVersion = 39
+	maxSchemaVersion     = 39
 )
 
 var (
@@ -539,6 +539,17 @@ func (d *DB) Migrate(ctx context.Context) error {
 	// v35 -> v36 is a no-data authorization legacy-anchor seal. The schema
 	// version is the marker that callers must enforce; migration deliberately
 	// does not create a project-specific manifest or mutate authorization rows.
+
+	// v38 → v39: goal containment — runs gain goal_id. The goals table itself
+	// arrives via the idempotent schema DDL below; only the column add needs
+	// an explicit step on existing DBs.
+	if currentVersion >= 3 && currentVersion < 39 {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE runs ADD COLUMN goal_id TEXT"); err != nil {
+			if !isDuplicateColumnError(err) {
+				return fmt.Errorf("migrate v38→v39: %w", err)
+			}
+		}
+	}
 
 	// Apply schema DDL
 	if _, err := tx.ExecContext(ctx, schemaDDL); err != nil {
