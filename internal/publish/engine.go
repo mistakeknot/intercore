@@ -459,8 +459,9 @@ func (e *Engine) Publish(ctx context.Context) error {
 	// we JUST published is passed as explicit protection: RefreshCCMarketplace
 	// above can rewrite installed_plugins.json concurrently, and the prune must
 	// not depend on that file to know this version is live (Sylveste-0lt).
-	justPublished := map[string]string{plugin.Name + "@interagency-marketplace": targetVersion}
-	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1, justPublished); err != nil {
+	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1, map[string]string{
+		plugin.Name + "@interagency-marketplace": targetVersion,
+	}); err != nil {
 		e.out("  warning: stale version prune: %v\n", err)
 	} else if pruned > 0 {
 		e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n", pruned, float64(freed)/1024/1024)
