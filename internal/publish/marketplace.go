@@ -57,6 +57,61 @@ type pluginEntry struct {
 	Version string `json:"version"`
 }
 
+// MarketplacesRoot returns the Claude Code marketplace checkout root
+// (~/.claude/plugins/marketplaces), or "" if HOME cannot be determined.
+func MarketplacesRoot() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "plugins", "marketplaces")
+}
+
+// MarketplaceVersions returns the version each marketplace's marketplace.json
+// currently points at, keyed "<plugin>@<marketplace>". These are the versions
+// `claude` will (re)install, so the prune paths treat them as protected
+// regardless of installed_plugins.json state (Sylveste-0lt).
+func MarketplaceVersions() map[string]string {
+	return marketplaceVersionsIn(MarketplacesRoot())
+}
+
+// marketplaceVersionsIn is the testable core of MarketplaceVersions. Any
+// unreadable or malformed marketplace.json is skipped: a missing guard entry
+// only means less protection, never a failed prune.
+func marketplaceVersionsIn(root string) map[string]string {
+	out := map[string]string{}
+	if root == "" {
+		return out
+	}
+	dirs, err := os.ReadDir(root)
+	if err != nil {
+		return out
+	}
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(root, d.Name(), ".claude-plugin", "marketplace.json"))
+		if err != nil {
+			continue
+		}
+		var mkt marketplaceJSON
+		if err := json.Unmarshal(data, &mkt); err != nil {
+			continue
+		}
+		for _, raw := range mkt.Plugins {
+			var entry pluginEntry
+			if err := json.Unmarshal(raw, &entry); err != nil {
+				continue
+			}
+			if entry.Name != "" && entry.Version != "" {
+				out[entry.Name+"@"+d.Name()] = entry.Version
+			}
+		}
+	}
+	return out
+}
+
 // ReadMarketplaceVersion reads a plugin's version from marketplace.json.
 func ReadMarketplaceVersion(marketRoot, pluginName string) (string, error) {
 	data, err := readMarketplaceFile(marketRoot)

@@ -423,3 +423,60 @@ func TestPruneCandidates_RespectsInstalledAndKeep(t *testing.T) {
 		}
 	}
 }
+
+func TestMarketplaceVersionsIn(t *testing.T) {
+	// The guard source: each marketplace's marketplace.json maps plugin →
+	// pointed version, keyed "<plugin>@<marketplace>". Malformed or missing
+	// files are skipped, never fatal.
+	root := t.TempDir()
+	write := func(mkt, content string) {
+		dir := filepath.Join(root, mkt, ".claude-plugin")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "marketplace.json"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("interagency-marketplace", `{"plugins":[{"name":"clavain","version":"0.6.280"},{"name":"interline","version":"0.2.16"}]}`)
+	write("claude-plugins-official", `{"plugins":[{"name":"vercel","version":"0.42.1"}]}`)
+	write("broken-marketplace", `{not json`)
+
+	got := marketplaceVersionsIn(root)
+	want := map[string]string{
+		"clavain@interagency-marketplace":   "0.6.280",
+		"interline@interagency-marketplace": "0.2.16",
+		"vercel@claude-plugins-official":    "0.42.1",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d entries, got %d: %v", len(want), len(got), got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("key %s: want %s, got %s", k, v, got[k])
+		}
+	}
+}
+
+func TestPruneCandidates_MarketplaceGuardProtectsPointedVersion(t *testing.T) {
+	// Second Sylveste-0lt layer: even with installed_plugins.json unreadable
+	// (empty installed map), the version marketplace.json points at is merged
+	// into protect by the exported prunes and never becomes a candidate.
+	entries := map[string][]CacheEntry{
+		"clavain@interagency-marketplace": {
+			{Version: "0.6.278", Path: "/x/0.6.278"},
+			{Version: "0.6.279", Path: "/x/0.6.279"},
+			{Version: "0.6.280", Path: "/x/0.6.280"},
+		},
+	}
+	marketPointed := map[string]string{"clavain@interagency-marketplace": "0.6.280"}
+	got := pruneCandidates(entries, map[string]string{}, 1, marketPointed)
+	for _, c := range got {
+		if c.Version == "0.6.280" {
+			t.Fatalf("marketplace-pointed version was offered for deletion")
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected the 2 stale siblings as candidates, got %d", len(got))
+	}
+}

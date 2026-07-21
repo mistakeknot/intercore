@@ -150,8 +150,11 @@ func StripGitDirs() (count int, bytesFreed int64, err error) {
 }
 
 // PruneStaleVersions removes old cached versions that are not the currently installed version.
-// For each plugin, it keeps the installed version plus the `keep-1` most recent other versions,
-// removing the rest. Symlinks and orphaned directories are skipped (orphans have their own cleanup).
+// For each plugin, it keeps the installed version, the version marketplace.json points at,
+// and the `keep-1` most recent other versions, removing the rest. Symlinks and orphaned
+// directories are skipped (orphans have their own cleanup). Plugins whose installed version
+// cannot be determined and have no marketplace record are skipped wholesale (Sylveste-0lt:
+// no ground truth means "touch nothing", never "delete everything").
 // Returns the number of directories removed and total bytes freed.
 func PruneStaleVersions(keep int) (count int, bytesFreed int64, err error) {
 	entries, err := ListCacheEntries()
@@ -159,38 +162,28 @@ func PruneStaleVersions(keep int) (count int, bytesFreed int64, err error) {
 		return 0, 0, err
 	}
 
-	for pluginName, versions := range entries {
-		installedVer := ReadInstalledVersion(pluginName)
-
-		// Separate: installed version stays, symlinks stay, orphans stay (handled by CleanOrphans)
-		var candidates []CacheEntry
-		for _, v := range versions {
-			if v.IsSymlink || v.Orphaned || v.Version == installedVer {
-				continue
-			}
-			candidates = append(candidates, v)
+	// ListCacheEntries keys are bare plugin names (interagency-marketplace
+	// scope), so re-key both guard maps to match.
+	installed := make(map[string]string, len(entries))
+	for pluginName := range entries {
+		if v := ReadInstalledVersion(pluginName); v != "" {
+			installed[pluginName] = v
 		}
-
-		// Sort candidates by version descending (newest first)
-		sortVersionsDesc(candidates)
-
-		// Keep the top `keep-1` (since the installed version is already kept separately)
-		toKeep := keep - 1
-		if toKeep < 0 {
-			toKeep = 0
+	}
+	protect := map[string]string{}
+	for key, ver := range MarketplaceVersions() {
+		if name, ok := strings.CutSuffix(key, "@interagency-marketplace"); ok {
+			protect[name] = ver
 		}
+	}
 
-		for i, c := range candidates {
-			if i < toKeep {
-				continue // keep this one
-			}
-			size := dirSize(c.Path)
-			if rmErr := os.RemoveAll(c.Path); rmErr != nil {
-				continue // best effort
-			}
-			count++
-			bytesFreed += size
+	for _, c := range pruneCandidates(entries, installed, keep, protect) {
+		size := dirSize(c.Path)
+		if rmErr := os.RemoveAll(c.Path); rmErr != nil {
+			continue // best effort
 		}
+		count++
+		bytesFreed += size
 	}
 
 	return count, bytesFreed, nil
@@ -417,7 +410,16 @@ func PruneStaleVersionsAcrossMarketplaces(keep int, protect map[string]string) (
 		}
 	}
 
-	for _, c := range pruneCandidates(entries, installed, keep, protect) {
+	// Marketplace guard (Sylveste-0lt, second layer): the version each
+	// marketplace.json points at is what `claude` will (re)install — never a
+	// deletion candidate, even when installed_plugins.json is unreadable or
+	// mid-rewrite. Explicit protect entries from the publish flow overlay it.
+	merged := MarketplaceVersions()
+	for k, v := range protect {
+		merged[k] = v
+	}
+
+	for _, c := range pruneCandidates(entries, installed, keep, merged) {
 		size := dirSize(c.Path)
 		if rmErr := os.RemoveAll(c.Path); rmErr != nil {
 			continue
