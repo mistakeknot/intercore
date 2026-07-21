@@ -31,6 +31,8 @@ func cmdPublish(ctx context.Context, args []string) int {
 		return cmdPublishUnlock(ctx, args[1:])
 	case "init":
 		return cmdPublishInit(ctx, args[1:])
+	case "rollback":
+		return cmdPublishRollback(ctx, args[1:])
 	case "help", "--help", "-h":
 		printPublishUsage()
 		return 0
@@ -99,6 +101,26 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 		}
 		slog.Error("publish failed", "error", err)
 		return 2
+	}
+	return 0
+}
+
+func cmdPublishRollback(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	if len(f.Positionals) < 1 {
+		fmt.Println("usage: ic publish rollback <plugin>")
+		return 3
+	}
+	pluginName := f.Positionals[0]
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	if err := publish.RollbackPlugin(cwd, pluginName, func(format string, a ...interface{}) {
+		fmt.Printf(format, a...)
+	}); err != nil {
+		slog.Error("publish rollback failed", "plugin", pluginName, "error", err)
+		return 1
 	}
 	return 0
 }
@@ -519,6 +541,8 @@ Usage:
   ic publish status --all        Show all plugins' publish health
 
   ic publish unlock              Clear a stuck publish lock for current plugin
+
+  ic publish rollback <plugin>   Revert to the retained prior version (release canary)
   ic publish unlock --all        Clear every stuck publish lock
 
   ic publish init                Register new plugin in marketplace

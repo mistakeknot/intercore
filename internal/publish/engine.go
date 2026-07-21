@@ -496,6 +496,32 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 	}
 
+	// Release canary (sylveste-ao0q): register the pending record — the
+	// session-start check marks it passed/failed against the next real
+	// session's load state — then run the post-release probe. A tripped
+	// probe is loud but non-fatal: the publish already happened; the canary
+	// and the rollback verb are the recovery path.
+	if err := RegisterCanary(ReleaseCanary{
+		Plugin:       plugin.Name,
+		Marketplace:  "interagency-marketplace",
+		Version:      targetVersion,
+		PriorVersion: plugin.Version,
+		PublishedAt:  time.Now().Unix(),
+		Status:       "pending",
+	}); err != nil {
+		e.out("  warning: release canary registration: %v\n", err)
+	} else {
+		e.out("  Release canary registered: %s v%s (prior v%s)\n", plugin.Name, targetVersion, plugin.Version)
+	}
+	if issues := ProbeRelease(plugin.Name, "interagency-marketplace", targetVersion); len(issues) > 0 {
+		for _, is := range issues {
+			e.out("  ERROR: post-release probe [%s]: %s\n", is.Check, is.Detail)
+		}
+		e.out("  Probe FAILED — rollback available: ic publish rollback %s\n", plugin.Name)
+	} else {
+		e.out("  Post-release probe passed\n")
+	}
+
 	// Create hook symlinks
 	hasHooks := false
 	for _, hookPath := range []string{
