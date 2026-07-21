@@ -355,31 +355,29 @@ func listAllCacheEntriesIn(root string) (map[string][]CacheEntry, error) {
 	return result, nil
 }
 
-// PruneStaleVersionsAcrossMarketplaces removes stale plugin versions from EVERY
-// marketplace cache, not just interagency-marketplace. For each plugin, keeps the
-// version listed in installed_plugins.json (and the keep-1 most recent others).
-// This is the multi-marketplace counterpart to PruneStaleVersions.
-func PruneStaleVersionsAcrossMarketplaces(keep int) (count int, bytesFreed int64, err error) {
-	entries, err := ListAllCacheEntries()
-	if err != nil {
-		return 0, 0, err
-	}
-
-	ip, err := ReadInstalled()
-	if err != nil {
-		return 0, 0, err
-	}
-
+// pruneCandidates computes which cache entries are safe to delete. Pure —
+// callers supply the cache tree, the installed map ("<plugin>@<marketplace>"
+// → version), and an explicit protect map of the same shape (the version a
+// publish flow JUST wrote, shielded regardless of installed_plugins.json).
+//
+// Fail-safe (Sylveste-0lt): a plugin with NO installed version and NO protect
+// entry is skipped wholesale. installed_plugins.json can be mid-rewrite while
+// `claude plugin marketplace update` re-clones (that is how clavain 0.6.278's
+// entire cache dir was deleted right after publishing it) — a missing record
+// must mean "touch nothing," never "delete everything."
+func pruneCandidates(entries map[string][]CacheEntry, installed map[string]string,
+	keep int, protect map[string]string) []CacheEntry {
+	var out []CacheEntry
 	for key, versions := range entries {
-		// key is "<plugin>@<marketplace>"; installed_plugins.json uses the same shape
-		var installedVer string
-		if rec, ok := ip.Plugins[key]; ok && len(rec) > 0 {
-			installedVer = rec[0].Version
+		installedVer := installed[key]
+		protectedVer := protect[key]
+		if installedVer == "" && protectedVer == "" {
+			continue // no ground truth for this plugin — never delete blind
 		}
 
 		var candidates []CacheEntry
 		for _, v := range versions {
-			if v.IsSymlink || v.Orphaned || v.Version == installedVer {
+			if v.IsSymlink || v.Orphaned || v.Version == installedVer || v.Version == protectedVer {
 				continue
 			}
 			candidates = append(candidates, v)
@@ -390,17 +388,42 @@ func PruneStaleVersionsAcrossMarketplaces(keep int) (count int, bytesFreed int64
 		if toKeep < 0 {
 			toKeep = 0
 		}
-		for i, c := range candidates {
-			if i < toKeep {
-				continue
-			}
-			size := dirSize(c.Path)
-			if rmErr := os.RemoveAll(c.Path); rmErr != nil {
-				continue
-			}
-			count++
-			bytesFreed += size
+		if toKeep < len(candidates) {
+			out = append(out, candidates[toKeep:]...)
 		}
+	}
+	return out
+}
+
+// PruneStaleVersionsAcrossMarketplaces removes stale plugin versions from EVERY
+// marketplace cache, not just interagency-marketplace. For each plugin, keeps the
+// version listed in installed_plugins.json, anything in protect (the version a
+// publish just wrote), and the keep-1 most recent others. Plugins with no
+// installed record and no protect entry are left untouched (Sylveste-0lt).
+func PruneStaleVersionsAcrossMarketplaces(keep int, protect map[string]string) (count int, bytesFreed int64, err error) {
+	entries, err := ListAllCacheEntries()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	ip, err := ReadInstalled()
+	if err != nil {
+		return 0, 0, err
+	}
+	installed := make(map[string]string, len(ip.Plugins))
+	for key, rec := range ip.Plugins {
+		if len(rec) > 0 {
+			installed[key] = rec[0].Version
+		}
+	}
+
+	for _, c := range pruneCandidates(entries, installed, keep, protect) {
+		size := dirSize(c.Path)
+		if rmErr := os.RemoveAll(c.Path); rmErr != nil {
+			continue
+		}
+		count++
+		bytesFreed += size
 	}
 	return count, bytesFreed, nil
 }

@@ -219,7 +219,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 		totalCount += count
 	}
 
-	count, bytes, err = publish.PruneStaleVersionsAcrossMarketplaces(1)
+	count, bytes, err = publish.PruneStaleVersionsAcrossMarketplaces(1, nil)
 	if err != nil {
 		slog.Error("publish clean: stale versions failed", "error", err)
 	}

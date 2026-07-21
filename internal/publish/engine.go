@@ -455,8 +455,12 @@ func (e *Engine) Publish(ctx context.Context) error {
 
 	// Prune stale cache versions across ALL marketplaces, not just interagency.
 	// This is a multi-marketplace sweep so plugins from claude-plugins-official,
-	// arouth-plugins, etc. don't accumulate stale versions either.
-	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1); err != nil {
+	// arouth-plugins, etc. don't accumulate stale versions either. The version
+	// we JUST published is passed as explicit protection: RefreshCCMarketplace
+	// above can rewrite installed_plugins.json concurrently, and the prune must
+	// not depend on that file to know this version is live (Sylveste-0lt).
+	justPublished := map[string]string{plugin.Name + "@interagency-marketplace": targetVersion}
+	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1, justPublished); err != nil {
 		e.out("  warning: stale version prune: %v\n", err)
 	} else if pruned > 0 {
 		e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n", pruned, float64(freed)/1024/1024)
@@ -478,6 +482,17 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  warning: dangling symlink prune: %v\n", err)
 	} else if removed > 0 {
 		e.out("  Removed %d dangling version symlink(s)\n", removed)
+	}
+
+	// Post-publish assertion (Sylveste-0lt): the path installed_plugins.json
+	// points at must exist NOW — a silent miss here surfaces as "plugin failed
+	// to load" at the next session start, with no clue it was the publish.
+	if ip2, err := ReadInstalled(); err == nil {
+		if rec, ok := ip2.Plugins[plugin.Name+"@interagency-marketplace"]; ok && len(rec) > 0 {
+			if _, statErr := os.Stat(rec[0].InstallPath); statErr != nil {
+				e.out("  ERROR: published cache path missing after prune: %s — plugin will fail to load; run ic publish doctor --fix\n", rec[0].InstallPath)
+			}
+		}
 	}
 
 	// Create hook symlinks

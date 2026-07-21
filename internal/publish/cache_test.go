@@ -354,3 +354,72 @@ func TestCleanOrphansIn_GraceWindow(t *testing.T) {
 		t.Error("young orphan should be removed by unconditional pass")
 	}
 }
+
+func TestPruneCandidates_MissingInstalledRecordSkipsPlugin(t *testing.T) {
+	// The Sylveste-0lt incident shape: installed_plugins.json mid-rewrite by
+	// `claude plugin marketplace update` → no record for the plugin. The old
+	// code treated that as "nothing protected" and deleted every version.
+	entries := map[string][]CacheEntry{
+		"clavain@interagency-marketplace": {
+			{Version: "0.6.276", Path: "/x/0.6.276"},
+			{Version: "0.6.277", Path: "/x/0.6.277"},
+			{Version: "0.6.278", Path: "/x/0.6.278"},
+		},
+	}
+	got := pruneCandidates(entries, map[string]string{}, 1, nil)
+	if len(got) != 0 {
+		t.Fatalf("plugin without installed record must be skipped wholesale; got %d candidates", len(got))
+	}
+}
+
+func TestPruneCandidates_ProtectShieldsJustPublished(t *testing.T) {
+	// Even with an EMPTY installed map (the CC rewrite race), the version the
+	// publish flow just wrote is shielded via explicit protection; its stale
+	// siblings become the only candidates.
+	entries := map[string][]CacheEntry{
+		"clavain@interagency-marketplace": {
+			{Version: "0.6.276", Path: "/x/0.6.276"},
+			{Version: "0.6.277", Path: "/x/0.6.277"},
+			{Version: "0.6.278", Path: "/x/0.6.278"},
+		},
+	}
+	protect := map[string]string{"clavain@interagency-marketplace": "0.6.278"}
+	got := pruneCandidates(entries, map[string]string{}, 1, protect)
+	for _, c := range got {
+		if c.Version == "0.6.278" {
+			t.Fatalf("protected just-published version was offered for deletion")
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected the 2 unprotected siblings as candidates, got %d", len(got))
+	}
+}
+
+func TestPruneCandidates_RespectsInstalledAndKeep(t *testing.T) {
+	// Port of the legacy per-plugin expectation through the pure core:
+	// installed version always safe; keep=1 leaves no extra siblings.
+	entries := map[string][]CacheEntry{
+		"vercel@claude-plugins-official": {
+			{Version: "0.40.0", Path: "/y/0.40.0"},
+			{Version: "0.40.1", Path: "/y/0.40.1"},
+			{Version: "0.42.1", Path: "/y/0.42.1"},
+		},
+		"tldr-swinton@interagency-marketplace": {
+			{Version: "0.7.18", Path: "/z/0.7.18"},
+			{Version: "0.7.19", Path: "/z/0.7.19"},
+		},
+	}
+	installed := map[string]string{
+		"vercel@claude-plugins-official":       "0.42.1",
+		"tldr-swinton@interagency-marketplace": "0.7.19",
+	}
+	got := pruneCandidates(entries, installed, 1, nil)
+	if len(got) != 3 {
+		t.Fatalf("expected 3 stale candidates (2 vercel + 1 tldr-swinton), got %d", len(got))
+	}
+	for _, c := range got {
+		if c.Version == "0.42.1" || c.Version == "0.7.19" {
+			t.Fatalf("installed version %s offered for deletion", c.Version)
+		}
+	}
+}
