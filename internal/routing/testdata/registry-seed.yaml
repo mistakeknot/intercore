@@ -13,6 +13,8 @@ deployments:
       terminal_exec: { value: 0.83, provenance: benchmark, verified_at: 2026-07-13 }
       multi_file:    { value: 0.92, provenance: benchmark, verified_at: 2026-07-13 }
       reward_hack_risk: { value: 0.10, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
+      long_context:  { value: 0.90, provenance: judgment,  verified_at: 2026-07-13, judged_by: ar }
+      tool_use:      { value: 0.90, provenance: judgment,  verified_at: 2026-07-13, judged_by: ar }
 
   openai/gpt-5.6-sol@api:
     version_stability: vendor-live
@@ -23,6 +25,9 @@ deployments:
       terminal_exec: { value: 0.92, provenance: benchmark, verified_at: 2026-07-13 }
       # multi_file intentionally omitted: SWE-Bench Pro score unreleased (unknown is information)
       reward_hack_risk: { value: 0.55, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
+      long_context:  { value: 0.75, provenance: judgment,  verified_at: 2026-07-13, judged_by: ar }
+      tool_use:      { value: 0.88, provenance: judgment,  verified_at: 2026-07-13, judged_by: ar }
+      # tool_use strong (programmatic tool calling in Responses API); long_context weaker than Fable
 
   nousresearch/hermes-4@zklw:
     version_stability: pinned
@@ -31,3 +36,5 @@ deployments:
     capabilities:
       discernment:   { value: 0.60, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
       terminal_exec: { value: 0.65, provenance: judgment, verified_at: 2026-07-13, judged_by: ar }
+      # long_context + tool_use: unknown for the local Hermes deployment (no data yet).
+      # Absent axes route conservatively — unknown is information, not zero.

@@ -118,11 +118,11 @@ deployments:
 ```
 
 **Decisions to interview:**
-- `⟨OPEN Q-2.1⟩` Staleness horizon: one global value, or per-axis (benchmarks age slower than reward-hack judgments)? And the downgrade rule: stale `benchmark`→`judgment`→`unknown` is decided in principle; is the horizon per `version_stability` (vendor-live ages faster)?
+- ✅ **Q-2.1 DECIDED: one global `staleness_horizon`, halved for `vendor-live` deployments.** Ratifies the shipped implementation (`registry.go` `StalenessAdjusted`, tested by `TestRegistry_StalenessDowngrade`): a single horizon (seed = 90d), automatically halved for `vendor-live` (so 45d effective) because vendor-controlled weights drift faster; `pinned` uses the full horizon. Stale values downgrade one provenance rank (`benchmark`→`judgment`→`unknown`). Not per-axis in v1.
 - ✅ **Q-2.2 DECIDED: type all three in v1** (`per-token | subscription-quota | capacity`). YAGNI gate cleared *because the consumer is on the roadmap*: Hermes (capacity) is a committed Phase-7 pilot in the goal DoD and Max-plan quota is real, so typing now avoids a registry schema-version bump the moment Phase 7 lands. Follow-on: the decision function must actually switch on `cost.type` (no per-token-only shortcut), and `EffectiveCost`/`CheapestCapable` in `costs.go` get their first real caller here (retires the dead-code flag).
 - `⟨OPEN Q-2.3⟩` Effort map: the abstract 1–5 → vendor-semantics table. Per-deployment (as shown) or per-vendor? Does it carry its own provenance stamp (a conversion table can drift)?
-- `⟨OPEN Q-2.4⟩` Capability axes: the plan lists terminal_execution, multi_file_resolution, discernment, long_context, reward_hack_risk. Is that the frozen v1 axis set? Adding an axis later is a schema-version bump.
-- `⟨OPEN Q-2.5⟩` Seed contents: which deployments populate v1? (Plan: current-real-only — Anthropic fable-5/opus-4.8/sonnet-5/haiku-4.5, OpenAI sol/terra/luna. Hermes row: schema-fits-but-empty until Phase 7, or seed it now for the pilot?)
+- ✅ **Q-2.4 DECIDED: SIX frozen v1 axes** — `terminal_execution`, `multi_file_resolution`, `discernment`, `reward_hack_risk`, `long_context`, `tool_use`. The four seeded axes plus the plan's `long_context` plus `tool_use` (function-calling/agentic capability). `long_context` and `tool_use` may carry `provenance: judgment` or `unknown` until benchmark data exists; the provenance + staleness machinery handles absent/soft values (router treats `unknown` conservatively). Maximal set chosen so no schema-version bump is needed when those axes start driving decisions. Adding a 7th axis later IS a schema bump.
+- ✅ **Q-2.5 DECIDED (by shipped seed): current-real deployments, Hermes seeded now.** `internal/routing/testdata/registry-seed.yaml` populates fable-5, gpt-5.6-sol, and `nousresearch/hermes-4@zklw` with real capability rows (2026-07 research, provenance-tagged). Hermes is seeded now (not empty-until-Phase-7) so the pilot has a real target. Opus/sonnet/haiku and sol's siblings (terra/luna) get added as they enter real use (seed-only-what-you-route-to).
 
 ---
 
@@ -165,9 +165,9 @@ Task descriptor in (flags or JSON stdin), decision JSON out.
 ```
 
 **Decisions to interview:**
-- `⟨OPEN Q-4.1⟩` The event-type set: is the 7-type list complete? (`gate_executed`/`gate_skipped` added for f-006; `escalation_expired` for f-012.) Any missing outcome interspect needs to learn from?
-- `⟨OPEN Q-4.2⟩` Decision-witness reference: every event carries `decision_ref` (the three-part witness). Is that the right join key, or does interspect need the full decision inlined?
-- `⟨OPEN Q-4.3⟩` Relationship to the existing `routing_decisions` table and `PolicyHash` field in `decision.go` — the evidence event and the recorded decision must share a witness. Reconcile before defining this (Phase 2 precondition).
+- ✅ **Q-4.1 DECIDED: event-type set is complete for v1.** The seven types (`executor_failure`, `validator_rejection`, `cost_anomaly`, `constraint_block`, `gate_executed`, `gate_skipped`, `escalation_expired`) plus the `escalation` / `escalation_exhausted` pair the code already emits. No `decision_made` baseline in v1 (failure/gate/escalation events are the signal; add a baseline event via schema-version bump only if interspect needs a rate denominator it can't get from `ic route list` counts). Adding a type later is a schema-version bump.
+- ✅ **Q-4.2 DECIDED: witness REFERENCE (join key), not inlined decision.** Every event carries a `decision_ref` = (`policy_hash`, `registry_as_of`, `ic_version`, `decided_at`); the full decision lives once in `routing_decisions`. Normalized, no per-event duplication. This matches the shipped emission direction (`RecordEscalation`/`RecordGate` write to the existing decision store, not a parallel table). **Follow-on:** the shipped events currently ride `ContextJSON` + `RuleMatched`; wiring the full `decision_ref` tuple onto them is the remaining Phase-5 work once `ic_version`/`registry_as_of` are populated on decisions (Phase 2 witness work).
+- ⏳ **Q-4.3 (still Phase-2-gated): reconcile with `PolicyHash`.** Partially resolved — evidence reuses the existing decision store (the f-014 direction, not a parallel table), so the store-level reconciliation is done. The remaining half is computing `PolicyHash` (and `registry_as_of`/`ic_version`) at decision time so `decision_ref` is fully populated; that is the Phase-2 `PolicyHash`-wiring task, unchanged.
 
 ---
 
@@ -202,17 +202,17 @@ The cross-host case: Hermes on zklw reaching `ic route`.
 | ~~Q-1.6~~ | 1 | ✅ Safety-class: **reserved `constraints:` block** (no per-field flag) |
 | Q-1.7 | 1 | De-escalation reset N (successes before escalation decays) — NEW |
 | Q-1.8 | 1 | Which task classes require which verification gates — NEW |
-| Q-2.1 | 2 | Staleness horizon: global vs per-axis vs per-stability |
+| ~~Q-2.1~~ | 2 | ✅ Staleness: **global horizon, halved for vendor-live** (ratifies shipped code) |
 | ~~Q-2.2~~ | 2 | ✅ Cost: **type all three now** (consumer on roadmap; costs.go gets first real caller) |
 | Q-2.3 | 2 | Effort-map granularity + provenance |
-| Q-2.4 | 2 | Frozen v1 capability axis set |
-| Q-2.5 | 2 | Seed deployment contents (Hermes now or later) |
+| ~~Q-2.4~~ | 2 | ✅ Axes: **6 frozen** (terminal, multi_file, discernment, reward_hack, long_context, tool_use) |
+| ~~Q-2.5~~ | 2 | ✅ Seed: **current-real, Hermes seeded now** (shipped registry-seed.yaml) |
 | Q-3.1 | 3 | Task descriptor input schema |
 | Q-3.2 | 3 | Exit codes + caller obligations |
 | Q-3.3 | 3 | rationale vs explain (no witness duplication) |
-| Q-4.1 | 4 | Event-type set completeness |
-| Q-4.2 | 4 | Witness ref vs inlined decision |
-| Q-4.3 | 4 | Reconcile with routing_decisions/PolicyHash |
+| ~~Q-4.1~~ | 4 | ✅ Event types: **7 + escalation pair, complete** (no decision_made baseline in v1) |
+| ~~Q-4.2~~ | 4 | ✅ Witness: **reference/join key** (decision stored once, events point at it) |
+| ⏳ Q-4.3 | 4 | Store-reconcile done (reuses decision store); PolicyHash-compute still Phase-2-gated |
 | Q-5.1 | 5 | Transport: local binary vs RPC |
 | Q-5.2 | 5 | ic_version drift detection actor |
 | Q-5.3 | 5 | Fail-closed on transport failure |
