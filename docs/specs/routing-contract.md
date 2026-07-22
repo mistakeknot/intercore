@@ -1,6 +1,6 @@
 ---
 artifact_type: spec
-status: SCAFFOLD (§1 policy schema DECIDED 2026-07-14: Q-1.1/1.2/1.4/1.5/1.6 + Q-2.2. §2-§5 to interview; new Q-1.3/1.7/1.8 open)
+status: MOSTLY LOCKED (§1/§2/§3/§4 DECIDED; only §5 transport + Q-2.3/Q-0 open — §5 deferred, couples to the Phase-7 zklw run intercore-n6o). Last interview 2026-07-21.
 phase: 1
 plan: docs/plans/2026-07-13-model-routing-externalization.md
 bead: intercore-8xa
@@ -58,16 +58,21 @@ constraints:      # DECIDED Q-1.4: flat match list (if {field: value} require {t
   # Safety = "is it in constraints?" — no per-field flag to forget.
 escalation:       # DECIDED Q-1.5 (option A): NO local ladder here. escalate.go calls the routing
     # mechanism for the next rung (registry-derived, per-harness). This block declares only the
-    # de-escalation reset N (mechanism enforces on the chain state it already owns). ⟨OPEN Q-1.7⟩ reset N value?
-    reset_after_successes: 3   # candidate — not fixed
-verification_gates: # ⟨OPEN Q-1.8⟩ which task classes require which gates (e.g. elevated reward_hack → behavioral-verify)
-    ...
+    # DECIDED Q-1.7: de-escalation reset after 3 successful routings (mechanism
+    # enforces on the chain state it already owns; policy declares the N).
+    reset_after_successes: 3
+verification_gates: # DECIDED Q-1.8: gates are declared PER TASK-CLASS (not per-model), but
+    # the mechanism ALSO auto-attaches behavioral-verify whenever the chosen deployment's
+    # reward_hack_risk exceeds a threshold — so a Sol-class executor gets the gate even if the
+    # class didn't ask for it. Class-declared gates ∪ risk-triggered gates.
+    #   <task-class>: [gate, ...]   e.g. client-confidential-synthesis: [behavioral-verify]
+    reward_hack_gate_threshold: 0.4   # deployments above this auto-get behavioral-verify
 ```
 
 **Decisions to interview:**
 - ✅ **Q-1.1 DECIDED: fixed set of FOUR** — planner, executor, validator, researcher. researcher earns v1 inclusion via a distinct binding (long-context/retrieval ≠ executor's precision/code). "reviewer" collapses into validator; "orchestrator" is excluded (it is the harness/caller above `ic route`, or routes identically to planner) and is the documented first candidate for the extensibility escape hatch. Extending the set is a schema-version bump.
 - ✅ **Q-1.2 DECIDED: enumerated keys in the yaml.** Task classes are human-defined named keys; the caller passes `--class=<name>`; `ic route` errors on an unknown class. Adding a class is a policy edit (interspect can propose one), never a code change. Consequence for §3: the task descriptor carries a `class` field the caller supplies, not descriptor fields `ic route` infers from (simplifies Q-3.1).
-- `⟨OPEN Q-1.3⟩` Bindings: per-harness is decided. But do bindings bind role→model, or role→(model + effort + gates)? How much rides on the binding vs. the task class?
+- ✅ **Q-1.3 DECIDED: binding = role → model@deployment only.** The binding says WHO runs a role on a given harness; effort and verification gates come from the `task_class` (HOW), not the binding. Clean separation, no effort/gate duplication across harnesses. Matches what `ic route decide` resolves today.
 - ✅ **Q-1.4 DECIDED: flat match list.** `if {field: value} require {trust_zone: [...]}`, evaluated all-match (every constraint whose `if` matches must have its `require` satisfied). No boolean-expression evaluator in v1 (YAGNI on a safety path); add expressiveness only when a real compound rule needs it.
 - ✅ **Q-1.6 DECIDED: reserved `constraints:` block is safety-class.** The top-level `constraints:` block is always fail-closed on version mismatch by construction; everything outside it warns-and-degrades. No per-field `safety:` flag (a forgotten flag would default wrong). Safety-class membership = "is this field inside `constraints:`?"
 - `⟨OPEN Q-1.5⟩` Escalation encoding **(THE P0 — design grounded below, pick one)**: how is the ladder expressed so it is registry-derived and per-harness, NOT the hardcoded `["sonnet","opus","fable"]` in `dispatch/escalate.go`? And where does the de-escalation reset (`escalation_expired` after N successes) live?
@@ -145,9 +150,16 @@ Task descriptor in (flags or JSON stdin), decision JSON out.
 ```
 
 **Decisions to interview:**
-- `⟨OPEN Q-3.1⟩` Task descriptor input schema: what fields does a caller supply? (role, task_class, data-sensitivity, harness, ...?) This is the *other* half of the contract and the scaffold hasn't stubbed it — needs its own interview pass.
+- ✅ **Q-3.1 DECIDED: descriptor = `class` + `role` (required), `data` + `harness` (optional).**
+  ```
+  class:   <task-class key>        # required — drives effort + gates (Q-1.2)
+  role:    planner|executor|validator|researcher   # required — drives binding (Q-1.1)
+  data:    <sensitivity, e.g. client-confidential>  # optional — drives trust-zone constraints (Q-1.4)
+  harness: claude-code|codex|hermes                 # optional — selects the per-harness binding (Q-1.3)
+  ```
+  `class`, `role`, `data` are already shipped in `ic route decide`. **`harness` is the one field not yet wired** — it is required to pick the correct per-harness binding, so add `--harness` to `ic route decide` (small follow-on). When `harness` is omitted, fall back to a default binding block.
 - `⟨OPEN Q-3.2⟩` Exit codes + **caller obligations** (fd-arch F2, finding f-009): `0` decision; non-zero typed `no-eligible-model | constraint-violation | malformed-input`. The spec must state the *obligation* per code (halt, never native-fallback). Is the obligation normative prose here, or also machine-checkable somehow?
-- `⟨OPEN Q-3.3⟩` `rationale` vs. `ic route explain`: is `rationale` a one-liner in the decision and `explain` the full trace, or does the decision carry the full trace? (Ties to the PolicyHash reconciliation — don't duplicate the witness.)
+- ✅ **Q-3.3 DECIDED: `rationale` is a one-liner in the decision; `ic route explain` gives the full trace.** The decision JSON carries a short `rationale` string (which role/class/constraint fired, the winning deployment); the separate `ic route explain` subcommand re-runs the decision verbose (candidates considered, why each was excluded, floors/gates applied) for debugging. The full trace is NOT embedded in every decision (keeps decisions small; no witness duplication). Follow-on: add `ic route explain` (mirrors the shipped `decide` path with verbose output).
 
 ---
 
@@ -196,20 +208,20 @@ The cross-host case: Hermes on zklw reaching `ic route`.
 | Q-0 | 0 | Is the witness its own contract surface? |
 | ~~Q-1.1~~ | 1 | ✅ Roles: **fixed four** (planner/executor/validator/researcher) |
 | ~~Q-1.2~~ | 1 | ✅ Task class: **enumerated yaml keys**, caller passes `--class` |
-| Q-1.3 | 1 | Binding granularity (model vs model+effort+gates) |
+| ~~Q-1.3~~ | 1 | ✅ Binding: **model only** (effort/gates from task_class) |
 | ~~Q-1.4~~ | 1 | ✅ Constraint predicate: **flat match list**, all-match |
 | ~~Q-1.5~~ | 1 | ✅ Escalation: **option A** (escalate.go calls routing; local ladder + dup fable check deleted) |
 | ~~Q-1.6~~ | 1 | ✅ Safety-class: **reserved `constraints:` block** (no per-field flag) |
-| Q-1.7 | 1 | De-escalation reset N (successes before escalation decays) — NEW |
-| Q-1.8 | 1 | Which task classes require which verification gates — NEW |
+| ~~Q-1.7~~ | 1 | ✅ De-escalation reset: **3 successes** |
+| ~~Q-1.8~~ | 1 | ✅ Gates: **per-class ∪ reward_hack-risk auto-trigger** (>0.4 → behavioral-verify) |
 | ~~Q-2.1~~ | 2 | ✅ Staleness: **global horizon, halved for vendor-live** (ratifies shipped code) |
 | ~~Q-2.2~~ | 2 | ✅ Cost: **type all three now** (consumer on roadmap; costs.go gets first real caller) |
 | Q-2.3 | 2 | Effort-map granularity + provenance |
 | ~~Q-2.4~~ | 2 | ✅ Axes: **6 frozen** (terminal, multi_file, discernment, reward_hack, long_context, tool_use) |
 | ~~Q-2.5~~ | 2 | ✅ Seed: **current-real, Hermes seeded now** (shipped registry-seed.yaml) |
-| Q-3.1 | 3 | Task descriptor input schema |
+| ~~Q-3.1~~ | 3 | ✅ Descriptor: **class+role (req), data+harness (opt)**; --harness to wire |
 | ~~Q-3.2~~ | 3 | ✅ Exit codes: **0/1/3/4 shipped** with caller-halt obligation (ic route decide) |
-| Q-3.3 | 3 | rationale vs explain (no witness duplication) |
+| ~~Q-3.3~~ | 3 | ✅ rationale=one-liner in decision; **ic route explain**=full trace |
 | ~~Q-4.1~~ | 4 | ✅ Event types: **7 + escalation pair, complete** (no decision_made baseline in v1) |
 | ~~Q-4.2~~ | 4 | ✅ Witness: **reference/join key** (decision stored once, events point at it) |
 | ⏳ Q-4.3 | 4 | Store-reconcile done (reuses decision store); PolicyHash-compute still Phase-2-gated |

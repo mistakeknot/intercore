@@ -25,7 +25,7 @@ func cmdRoute(ctx context.Context, args []string) int {
 Usage: ic route <subcommand> [args]
 
 Subcommands:
-  decide  --class=<c> --role=<r> [--data=<sensitivity>] --registry=<path>
+  decide  --class=<c> --role=<r> [--data=<sensitivity>] [--harness=<h>] --registry=<path>
                                                     Registry-based routing decision (constraint-enforced)
   record-evidence --kind=escalation|gate ...        Record an escalation/gate evidence event (observable via 'list')
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
@@ -142,6 +142,14 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 	return 0
 }
 
+// harnessNote formats the optional harness for the rationale string.
+func harnessNote(h string) string {
+	if h == "" {
+		return ""
+	}
+	return " harness=" + h
+}
+
 // cmdRouteDecide is the registry-based, constraint-enforcing decision path
 // (spec §3). It loads the registry, applies trust-zone constraints against the
 // task descriptor, and emits the eligible deployments (or a typed block).
@@ -150,7 +158,8 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	class := f.String("class", "")
 	role := f.String("role", "")
-	data := f.String("data", "") // data-sensitivity label, e.g. client-confidential
+	data := f.String("data", "")       // data-sensitivity label, e.g. client-confidential
+	harness := f.String("harness", "") // selects the per-harness binding (Q-3.1); optional
 	registryPath := f.String("registry", "")
 
 	if class == "" || role == "" {
@@ -174,6 +183,9 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 	td := routing.TaskDescriptor{Role: role, Class: class, Fields: map[string]string{}}
 	if data != "" {
 		td.Fields["data"] = data
+	}
+	if harness != "" {
+		td.Fields["harness"] = harness // selects per-harness binding once bindings load from routing.yaml
 	}
 
 	// v1 constraint set: the client-confidential trust-zone rule (the DoD's
@@ -218,13 +230,17 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 	sort.Strings(eligible)
 	chosen := eligible[0]
 
+	rationale := fmt.Sprintf("role=%s class=%s%s → %s (%d eligible)",
+		role, class, harnessNote(harness), chosen, len(eligible))
 	out := map[string]any{
 		"model":              chosen,
 		"role":               role,
 		"class":              class,
+		"harness":            harness,
 		"eligible":           eligible,
 		"registry_as_of":     reg.Version,
 		"verification_gates": []string{}, // populated when gates wire in
+		"rationale":          rationale, // one-liner (Q-3.3); full trace via `ic route explain`
 	}
 	if flagJSON {
 		enc := json.NewEncoder(os.Stdout)
