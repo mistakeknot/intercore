@@ -49,6 +49,30 @@ func (e *Engine) Publish(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("getwd: %w", err)
 		}
+	} else {
+		// A --cwd that doesn't resolve to a real directory must hard-error here,
+		// not fall through to FindPluginRoot's walk-up-the-tree search. Without
+		// this check, filepath.Abs on a nonexistent relative path silently
+		// resolves against the process's actual working directory, and the
+		// walk-up in FindPluginRoot/FindMarketplace can land on an unrelated
+		// plugin root there — publishing the wrong plugin with no error
+		// (see: a nonexistent relative --cwd silently republished the plugin
+		// at the process cwd instead of failing).
+		absCWD, err := filepath.Abs(cwd)
+		if err != nil {
+			return fmt.Errorf("publish: --cwd path invalid: %w", err)
+		}
+		info, err := os.Stat(absCWD)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return fmt.Errorf("publish: --cwd path does not exist: %s", absCWD)
+			}
+			return fmt.Errorf("publish: --cwd path stat failed: %s: %w", absCWD, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("publish: --cwd path is not a directory: %s", absCWD)
+		}
+		cwd = absCWD
 	}
 
 	pluginRoot, err := FindPluginRoot(cwd)

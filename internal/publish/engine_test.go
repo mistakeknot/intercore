@@ -81,6 +81,128 @@ func TestPublishClearsLockOnDirtyWorktree(t *testing.T) {
 	}
 }
 
+// TestPublishNonexistentRelativeCWDErrorsWithoutFallback reproduces the
+// sylveste-1zu incident: `ic publish --auto --cwd=interverse/interline`, run
+// from inside a directory that IS itself a valid plugin (interpulse), where
+// the relative --cwd doesn't exist from there. Before the fix,
+// filepath.Abs resolved the missing relative path against the process cwd,
+// FindPluginRoot's walk-up then landed on the process cwd's own plugin root,
+// and publish silently ran against the wrong (process-cwd) plugin three
+// times in the real incident. It must now hard-error and must NOT touch the
+// process-cwd plugin at all.
+func TestPublishNonexistentRelativeCWDErrorsWithoutFallback(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	// processCWDPlugin stands in for "interpulse" in the incident: a real,
+	// valid, publishable plugin that happens to be the process's actual cwd.
+	processCWDPlugin := scaffoldPluginRepo(t, "1.0.0", "1.0.0")
+
+	oldCWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(processCWDPlugin); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldCWD) })
+
+	db := setupTestDB(t)
+	var out strings.Builder
+	// "interverse/interline"-shaped relative path: doesn't exist relative to
+	// the process cwd (processCWDPlugin).
+	eng := NewEngine(db, PublishOpts{Mode: BumpPatch, Auto: true, CWD: filepath.Join("interverse", "interline")})
+	eng.SetOutput(func(format string, args ...interface{}) {
+		fmt.Fprintf(&out, format, args...)
+	})
+
+	err = eng.Publish(context.Background())
+	if err == nil {
+		t.Fatalf("expected error for nonexistent relative --cwd, got nil (output: %q)", out.String())
+	}
+	// Compute the expected resolved path the same way the implementation
+	// does (filepath.Abs, which joins against the real process cwd) rather
+	// than against processCWDPlugin's pre-chdir string form, since macOS
+	// tempdirs round-trip through a /private symlink that only os.Getwd
+	// resolves.
+	realCWD, err2 := os.Getwd()
+	if err2 != nil {
+		t.Fatal(err2)
+	}
+	wantPath := filepath.Join(realCWD, "interverse", "interline")
+	wantMsg := "publish: --cwd path does not exist: " + wantPath
+	if err.Error() != wantMsg {
+		t.Errorf("error = %q, want %q", err.Error(), wantMsg)
+	}
+
+	// Must NOT have silently published the process-cwd plugin.
+	if out.String() != "" {
+		t.Errorf("expected no publish output (no fallback to process cwd), got: %q", out.String())
+	}
+	pluginJSON := filepath.Join(processCWDPlugin, ".claude-plugin", "plugin.json")
+	data, rerr := os.ReadFile(pluginJSON)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !strings.Contains(string(data), `"1.0.0"`) {
+		t.Errorf("process-cwd plugin.json was mutated by the failed --cwd publish: %s", data)
+	}
+	store := NewStore(db)
+	active, gerr := store.GetActive(context.Background(), "demo")
+	if gerr != nil {
+		t.Fatalf("get active: %v", gerr)
+	}
+	if active != nil {
+		t.Errorf("publish_state row created for a --cwd resolution failure: %+v", active)
+	}
+}
+
+// TestPublishNonexistentAbsoluteCWDErrors covers the non-relative shape of
+// the same bug class: an absolute --cwd that doesn't exist must also
+// hard-error rather than be handed to FindPluginRoot's walk-up search.
+func TestPublishNonexistentAbsoluteCWDErrors(t *testing.T) {
+	tmp := t.TempDir()
+	missing := filepath.Join(tmp, "does-not-exist")
+
+	db := setupTestDB(t)
+	eng := NewEngine(db, PublishOpts{Mode: BumpPatch, CWD: missing})
+	eng.SetOutput(func(string, ...interface{}) {})
+
+	err := eng.Publish(context.Background())
+	if err == nil {
+		t.Fatal("expected error for nonexistent absolute --cwd, got nil")
+	}
+	wantMsg := "publish: --cwd path does not exist: " + missing
+	if err.Error() != wantMsg {
+		t.Errorf("error = %q, want %q", err.Error(), wantMsg)
+	}
+}
+
+// TestPublishCWDExistsButNotDirectoryErrors covers the "exists but is a
+// file, not a directory" edge case, which must also hard-error rather than
+// be passed through to FindPluginRoot.
+func TestPublishCWDExistsButNotDirectoryErrors(t *testing.T) {
+	tmp := t.TempDir()
+	filePath := filepath.Join(tmp, "not-a-dir")
+	if err := os.WriteFile(filePath, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	db := setupTestDB(t)
+	eng := NewEngine(db, PublishOpts{Mode: BumpPatch, CWD: filePath})
+	eng.SetOutput(func(string, ...interface{}) {})
+
+	err := eng.Publish(context.Background())
+	if err == nil {
+		t.Fatal("expected error for --cwd that is a file, got nil")
+	}
+	wantMsg := "publish: --cwd path is not a directory: " + filePath
+	if err.Error() != wantMsg {
+		t.Errorf("error = %q, want %q", err.Error(), wantMsg)
+	}
+}
+
 // scaffoldPluginRepo builds a marketplace scaffold + committed plugin git repo
 // in a tempdir. Returns the plugin root.
 func scaffoldPluginRepo(t *testing.T, pluginVersion, marketVersion string) string {
