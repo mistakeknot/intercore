@@ -208,7 +208,7 @@ The cross-host case: Hermes on zklw reaching `ic route`.
 | ~~Q-2.4~~ | 2 | ✅ Axes: **6 frozen** (terminal, multi_file, discernment, reward_hack, long_context, tool_use) |
 | ~~Q-2.5~~ | 2 | ✅ Seed: **current-real, Hermes seeded now** (shipped registry-seed.yaml) |
 | Q-3.1 | 3 | Task descriptor input schema |
-| Q-3.2 | 3 | Exit codes + caller obligations |
+| ~~Q-3.2~~ | 3 | ✅ Exit codes: **0/1/3/4 shipped** with caller-halt obligation (ic route decide) |
 | Q-3.3 | 3 | rationale vs explain (no witness duplication) |
 | ~~Q-4.1~~ | 4 | ✅ Event types: **7 + escalation pair, complete** (no decision_made baseline in v1) |
 | ~~Q-4.2~~ | 4 | ✅ Witness: **reference/join key** (decision stored once, events point at it) |
