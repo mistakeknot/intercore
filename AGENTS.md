@@ -5,6 +5,7 @@ Kernel layer (Layer 1) of the Demarch autonomous software agency platform. Host-
 ## Canonical References
 1. [`PHILOSOPHY.md`](../../PHILOSOPHY.md) -- direction for ideation and planning decisions.
 2. `CLAUDE.md` -- implementation details, architecture, testing, and release workflow.
+3. [Worktree-first coordination contract](../../docs/guide-worktree-first-coordination.md) -- canonical worktree rules. Relevant to `ic publish`: publish waves touch nested plugin repos absent from a root worktree, so they run against the main checkout (§5).
 
 ## Quick Reference
 
