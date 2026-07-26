@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -101,14 +103,46 @@ func checkPluginMarketplaceDrift(result *DoctorResult, mktVersions map[string]st
 			continue
 		}
 		if plugin.Version != mktVer {
+			localIsNewer := semverLess(mktVer, plugin.Version)
+			role := CurrentPublishRole()
+
+			// A local checkout that TRAILS the marketplace is the normal steady
+			// state on a machine that does not publish (mk-ldnb). Reporting 21
+			// of those as errors trains everyone to ignore doctor output.
+			if !localIsNewer && role == RoleVerifier {
+				result.Findings = append(result.Findings, Finding{
+					Severity: "info",
+					Category: "drift",
+					Plugin:   plugin.Name,
+					Message: fmt.Sprintf("local checkout behind marketplace (plugin.json=%s marketplace=%s); this machine is role=%s",
+						plugin.Version, mktVer, role),
+					Fix: "no action -- publish from the signer machine",
+				})
+				continue
+			}
+
+			sev := "error"
+			fix := fmt.Sprintf("update marketplace to %s", plugin.Version)
+			if !localIsNewer {
+				// Local is older on a signer machine: still worth flagging, but
+				// the fix is to pull, NOT to push a stale version outward.
+				sev = "warning"
+				fix = fmt.Sprintf("local checkout is behind; pull before publishing (marketplace=%s)", mktVer)
+			}
+
 			result.Findings = append(result.Findings, Finding{
-				Severity: "error",
+				Severity: sev,
 				Category: "drift",
 				Plugin:   plugin.Name,
 				Message:  fmt.Sprintf("plugin.json=%s marketplace=%s", plugin.Version, mktVer),
-				Fix:      fmt.Sprintf("update marketplace to %s", plugin.Version),
+				Fix:      fix,
 			})
-			if opts.Fix {
+
+			// Only ever move the marketplace FORWARD. The previous version wrote
+			// the local value unconditionally, so --fix on a machine whose
+			// checkouts trailed would downgrade the marketplace -- silently
+			// rolling back every plugin it "repaired".
+			if opts.Fix && localIsNewer {
 				UpdateMarketplaceVersion(result.MarketRoot, plugin.Name, plugin.Version)
 			}
 		}
@@ -165,45 +199,110 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 	}
 }
 
+// checkCCMarketplaceSync compares every known marketplace clone against every
+// other and reports version disagreements as ERRORS.
+//
+// The previous implementation had a blind spot that hid a real divergence
+// (mk-963o). It began:
+//
+//	if absMarket == absCCPath { return }   // "same directory"
+//
+// but marketRoot IS the CC checkout whenever doctor runs from a plugin outside
+// the Sylveste tree -- which is precisely the situation that creates the
+// divergence. So the check disabled itself in the one directory where it
+// mattered. Publishing interbrowse 0.5.2 left core/marketplace at 0.5.1 and
+// doctor, run from ~/projects/interbrowse, reported nothing.
+//
+// It was also severity "warning", so even when it did fire it did not fail.
 func checkCCMarketplaceSync(result *DoctorResult, marketRoot string, mktVersions map[string]string, opts DoctorOpts) {
-	ccPath := CCMarketplacePath()
-	if ccPath == "" {
-		return
-	}
-	absMarket, _ := filepath.Abs(marketRoot)
-	absCCPath, _ := filepath.Abs(ccPath)
-	if absMarket == absCCPath {
-		return // same directory
+	divergence, clones := MarketplaceCloneDivergence(marketRoot)
+
+	if len(clones) < 2 {
+		return // only one clone on this machine; nothing to disagree with
 	}
 
-	ccVersions, err := ListMarketplacePlugins(ccPath)
-	if err != nil {
-		result.Findings = append(result.Findings, Finding{
-			Severity: "warning",
-			Category: "drift",
-			Message:  fmt.Sprintf("cannot read CC marketplace: %v", err),
-		})
+	if len(divergence) == 0 {
 		return
 	}
 
-	for name, mktVer := range mktVersions {
-		ccVer, ok := ccVersions[name]
-		if !ok {
-			continue
+	names := make([]string, 0, len(divergence))
+	for name := range divergence {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		byClone := divergence[name]
+		paths := make([]string, 0, len(byClone))
+		for p := range byClone {
+			paths = append(paths, p)
 		}
-		if ccVer != mktVer {
-			result.Findings = append(result.Findings, Finding{
-				Severity: "warning",
-				Category: "drift",
-				Plugin:   name,
-				Message:  fmt.Sprintf("CC marketplace=%s monorepo=%s", ccVer, mktVer),
-				Fix:      "sync CC marketplace",
-			})
-			if opts.Fix {
-				SyncCCMarketplace(marketRoot, name, mktVer)
+		sort.Strings(paths)
+
+		parts := make([]string, 0, len(paths))
+		newest := ""
+		for _, p := range paths {
+			parts = append(parts, fmt.Sprintf("%s=%s", shortenClonePath(p), byClone[p]))
+			if v := byClone[p]; newest == "" || semverLess(newest, v) {
+				newest = v
+			}
+		}
+
+		result.Findings = append(result.Findings, Finding{
+			Severity: "error",
+			Category: "drift",
+			Plugin:   name,
+			Message:  fmt.Sprintf("marketplace clones disagree: %s", strings.Join(parts, " ")),
+			Fix:      fmt.Sprintf("sync all clones to %s", newest),
+		})
+
+		if opts.Fix && newest != "" {
+			// Write the newest version into whichever clone already holds this
+			// plugin; SyncPeerMarketplaces skips clones that lack it.
+			for _, p := range paths {
+				if byClone[p] == newest {
+					SyncPeerMarketplaces(p, name, newest)
+					break
+				}
 			}
 		}
 	}
+}
+
+// shortenClonePath trims the home prefix so findings stay readable.
+func shortenClonePath(p string) string {
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(p, home+string(filepath.Separator)) {
+		return "~" + p[len(home):]
+	}
+	return p
+}
+
+// semverLess reports whether a sorts before b for dotted numeric versions.
+// Non-numeric segments compare lexically. Good enough to pick the newest of two
+// versions of the same plugin; not a general semver implementation.
+func semverLess(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		var av, bv string
+		if i < len(as) {
+			av = as[i]
+		}
+		if i < len(bs) {
+			bv = bs[i]
+		}
+		ai, aerr := strconv.Atoi(av)
+		bi, berr := strconv.Atoi(bv)
+		if aerr == nil && berr == nil {
+			if ai != bi {
+				return ai < bi
+			}
+			continue
+		}
+		if av != bv {
+			return av < bv
+		}
+	}
+	return false
 }
 
 func checkOrphanedCache(result *DoctorResult, opts DoctorOpts) {

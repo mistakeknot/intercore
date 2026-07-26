@@ -305,39 +305,133 @@ func CCMarketplacePath() string {
 	return ""
 }
 
-// SyncCCMarketplace updates the CC marketplace checkout to match the monorepo.
-func SyncCCMarketplace(marketRoot, pluginName, version string) error {
-	ccPath := CCMarketplacePath()
-	if ccPath == "" {
-		return nil // no CC checkout, nothing to sync
+// KnownMarketplaceClones returns every marketplace checkout this machine knows
+// about, as absolute paths, deduplicated, each verified to contain a readable
+// marketplace.json. marketRoot is always included when it qualifies.
+//
+// Why this exists (mk-963o): `ic publish` resolves the marketplace by walking up
+// from cwd, so a plugin inside the Sylveste tree updates core/marketplace while a
+// plugin outside it (interbrowse lives at ~/projects/interbrowse) updates the
+// Claude Code checkout instead. Syncing only "monorepo -> CC" left the monorepo
+// clone stale whenever a publish came in through the other door: publishing
+// interbrowse 0.5.2 left core/marketplace reading 0.5.1.
+//
+// Extra clones can be declared with IC_MARKETPLACE_CLONES (os.PathListSeparator
+// delimited) for layouts this does not guess.
+func KnownMarketplaceClones(marketRoot string) []string {
+	var cands []string
+	if marketRoot != "" {
+		cands = append(cands, marketRoot)
+	}
+	if cc := CCMarketplacePath(); cc != "" {
+		cands = append(cands, cc)
+	}
+	if env := os.Getenv("IC_MARKETPLACE_CLONES"); env != "" {
+		for _, p := range strings.Split(env, string(os.PathListSeparator)) {
+			if p = strings.TrimSpace(p); p != "" {
+				cands = append(cands, p)
+			}
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		cands = append(cands, filepath.Join(home, "projects", "Sylveste", "core", "marketplace"))
 	}
 
-	// Check if they're the same directory
-	absMarket, _ := filepath.Abs(marketRoot)
-	absCCPath, _ := filepath.Abs(ccPath)
-	if absMarket == absCCPath {
-		return nil // same directory, no sync needed
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range cands {
+		abs, err := filepath.Abs(c)
+		if err != nil || seen[abs] {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(abs, ".claude-plugin", "marketplace.json")); err != nil {
+			continue
+		}
+		seen[abs] = true
+		out = append(out, abs)
 	}
+	return out
+}
 
-	ccVersion, err := ReadMarketplaceVersion(ccPath, pluginName)
+// MarketplaceCloneDivergence reports plugins whose version disagrees across the
+// known clones. The returned map is keyed by plugin name; each value maps an
+// absolute clone path to the version it records. Only disagreements appear.
+//
+// A plugin missing from a clone is not a disagreement -- clones legitimately
+// carry different plugin sets -- only differing versions are.
+func MarketplaceCloneDivergence(marketRoot string) (map[string]map[string]string, []string) {
+	clones := KnownMarketplaceClones(marketRoot)
+	if len(clones) < 2 {
+		return nil, clones
+	}
+	perClone := make(map[string]map[string]string, len(clones))
+	for _, c := range clones {
+		if v, err := ListMarketplacePlugins(c); err == nil {
+			perClone[c] = v
+		}
+	}
+	out := map[string]map[string]string{}
+	for clone, versions := range perClone {
+		for name, ver := range versions {
+			for other, otherVersions := range perClone {
+				if other == clone {
+					continue
+				}
+				otherVer, ok := otherVersions[name]
+				if !ok || otherVer == ver {
+					continue
+				}
+				if out[name] == nil {
+					out[name] = map[string]string{}
+				}
+				out[name][clone] = ver
+				out[name][other] = otherVer
+			}
+		}
+	}
+	return out, clones
+}
+
+// SyncPeerMarketplaces propagates a published version to every known clone other
+// than the one just written. This is the symmetric replacement for
+// SyncCCMarketplace: it works regardless of which clone the publish resolved to,
+// which is the whole point (mk-963o).
+func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
+	absMarket, err := filepath.Abs(marketRoot)
 	if err != nil {
-		return nil // plugin not in CC marketplace, skip
+		return fmt.Errorf("abs marketRoot: %w", err)
 	}
-	if ccVersion == version {
-		return nil // already in sync
+	var firstErr error
+	for _, clone := range KnownMarketplaceClones(marketRoot) {
+		if clone == absMarket {
+			continue
+		}
+		have, err := ReadMarketplaceVersion(clone, pluginName)
+		if err != nil || have == version {
+			continue // plugin absent from this clone, or already in sync
+		}
+		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("update %s: %w", clone, err)
+			}
+			continue
+		}
+		// Best-effort publish of the sync commit, same posture as before.
+		GitAdd(clone, filepath.Join(".claude-plugin", "marketplace.json"))
+		GitCommit(clone, fmt.Sprintf("chore: sync %s to v%s", pluginName, version))
+		GitPush(clone)
 	}
+	return firstErr
+}
 
-	if err := UpdateMarketplaceVersion(ccPath, pluginName, version); err != nil {
-		return fmt.Errorf("update CC marketplace: %w", err)
-	}
-
-	// Commit and push the CC marketplace checkout (best-effort)
-	GitAdd(ccPath, filepath.Join(".claude-plugin", "marketplace.json"))
-	msg := fmt.Sprintf("chore: sync %s to v%s", pluginName, version)
-	GitCommit(ccPath, msg)
-	GitPush(ccPath) // errors are ignored — CC sync is best-effort
-
-	return nil
+// SyncCCMarketplace updates the CC marketplace checkout to match the monorepo.
+//
+// Deprecated: use SyncPeerMarketplaces. This is one-directional and returns
+// early when marketRoot IS the CC checkout, which is exactly the case that
+// leaves the monorepo clone stale (mk-963o). Retained so existing call sites
+// keep compiling; it now delegates.
+func SyncCCMarketplace(marketRoot, pluginName, version string) error {
+	return SyncPeerMarketplaces(marketRoot, pluginName, version)
 }
 
 // RefreshCCMarketplace tells the running Claude Code process to re-read the marketplace index.
