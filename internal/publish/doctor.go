@@ -168,12 +168,32 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 		}
 		instVer := entries[0].Version
 		if instVer != mktVer {
+			// Severity depends on DIRECTION, and the asymmetry is the whole
+			// point (mk-fkfr).
+			//
+			// installed BEHIND marketplace is the normal, expected steady state
+			// between a publish and the next Claude Code restart -- Claude Code
+			// installs from the marketplace at startup, so this self-heals with
+			// no human action. Reporting it as an error made `doctor` exit
+			// non-zero on a perfectly healthy machine (7 such findings stood
+			// open on zklw), and a check that cries wolf on normal operation
+			// gets ignored, which is just a slower way of not running it.
+			//
+			// installed AHEAD of marketplace cannot happen through any normal
+			// path: it means a cache holds a version the marketplace never
+			// published. That does not self-heal and is worth stopping for.
+			severity := "info"
+			fix := fmt.Sprintf("resolves itself on the next Claude Code restart (or: update installed to %s)", mktVer)
+			if semverLess(mktVer, instVer) {
+				severity = "error"
+				fix = fmt.Sprintf("installed version is AHEAD of the marketplace; expected at most %s", mktVer)
+			}
 			result.Findings = append(result.Findings, Finding{
-				Severity: "error",
+				Severity: severity,
 				Category: "drift",
 				Plugin:   name,
 				Message:  fmt.Sprintf("installed=%s marketplace=%s", instVer, mktVer),
-				Fix:      fmt.Sprintf("update installed to %s", mktVer),
+				Fix:      fix,
 			})
 			if opts.Fix {
 				cachePath := filepath.Join(CacheBase(), name, mktVer)

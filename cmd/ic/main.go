@@ -94,7 +94,7 @@ func main() {
 	case "init":
 		exitCode = cmdInit(ctx)
 	case "version":
-		exitCode = cmdVersion(ctx)
+		exitCode = cmdVersion(ctx, subArgs)
 	case "health":
 		exitCode = cmdHealth(ctx)
 	case "sentinel":
@@ -377,8 +377,64 @@ func cmdInit(ctx context.Context) int {
 	return 0
 }
 
-func cmdVersion(ctx context.Context) int {
-	fmt.Printf("ic %s\n", version)
+func cmdVersion(ctx context.Context, args []string) int {
+	stamp := CurrentBuildStamp()
+
+	// `ic version --json` exists so a health check can compare this binary's
+	// commit against the repo without parsing human-formatted output. The
+	// provenance check that consumes it runs unattended; grepping prose is how
+	// checks quietly start matching nothing.
+	//
+	// --json is a GLOBAL flag, consumed into flagJSON before subcommand args are
+	// collected -- scanning `args` for it here matches nothing and falls through
+	// to human output without erroring, which is exactly the silent-no-op shape
+	// this whole effort exists to eliminate.
+	if flagJSON {
+		out := map[string]any{
+			"version":     stamp.Version,
+			"commit":      stamp.Commit,
+			"commit_time": stamp.Time,
+			"dirty":       stamp.Dirty,
+			"os":          stamp.OS,
+			"arch":        stamp.Arch,
+			"source":      stamp.Source,
+			"go":          stamp.Go,
+		}
+		if d, err := openDB(); err == nil {
+			defer d.Close()
+			if v, err := d.SchemaVersion(); err == nil {
+				out["schema"] = v
+			}
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(out)
+		return 0
+	}
+
+	fmt.Printf("ic %s\n", stamp.Version)
+
+	// Say "unstamped" out loud rather than printing nothing. A missing line
+	// reads as "there was nothing to say"; this binary genuinely cannot prove
+	// where it came from, and an operator should see that.
+	switch {
+	case stamp.Commit == "":
+		fmt.Printf("commit: unstamped (built without VCS info)\n")
+	case stamp.Dirty:
+		fmt.Printf("commit: %s-dirty (uncommitted changes at build time)\n", stamp.ShortCommit())
+	default:
+		fmt.Printf("commit: %s\n", stamp.ShortCommit())
+	}
+	// Go's vcs.time is the COMMIT timestamp, not when the binary was linked.
+	// Calling it "built" would misdate every rebuild of an old commit.
+	if stamp.Time != "" {
+		label := "commit time"
+		if stamp.Source == SourceLdflags {
+			label = "built"
+		}
+		fmt.Printf("%-7s %s (%s)\n", label+":", stamp.Time, stamp.Source)
+	}
+	fmt.Printf("target: %s/%s %s\n", stamp.OS, stamp.Arch, stamp.Go)
 
 	d, err := openDB()
 	if err != nil {
@@ -387,11 +443,15 @@ func cmdVersion(ctx context.Context) int {
 	}
 	defer d.Close()
 
+	// The schema version describes the LOCAL DATABASE, not this binary. Two
+	// machines reporting different schema versions have migrated to different
+	// points; it says nothing about which build each is running. That
+	// distinction cost a wrong diagnosis once already, so label it.
 	v, err := d.SchemaVersion()
 	if err != nil {
 		fmt.Printf("schema: unknown\n")
 	} else {
-		fmt.Printf("schema: v%d\n", v)
+		fmt.Printf("schema: v%d (local database)\n", v)
 	}
 	return 0
 }
