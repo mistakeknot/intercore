@@ -10,6 +10,14 @@ import (
 	"testing"
 )
 
+func gitShow(repo, ref string) (string, error) {
+	out, err := exec.Command("git", "-C", repo, "show", ref).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 const receiptLine = `printf '{"schema_version":1,"verified":true}\n'`
 
 // TestVerifierUnavailableIsNotStale is the regression guard for mk-cg3z. It
@@ -174,13 +182,26 @@ func TestVerifierThatCouldNotStartIsUnavailable(t *testing.T) {
 // A contract only one side implements is the failure this whole effort is
 // about, so the shipped verifier is asserted to use the reserved exit code for
 // its dependency checks and to emit a receipt on success.
+//
+// Read from Clavain's main ref rather than its working tree. The neighbouring
+// checkout is shared and is routinely parked on someone else's feature branch,
+// which made this fail on one machine and pass on another for reasons having
+// nothing to do with the contract. "Shipped" means main; a check whose result
+// depends on which branch a sibling happens to have out teaches you to ignore
+// it.
 func TestClavainVerifierSpeaksTheProtocol(t *testing.T) {
-	script := filepath.Join("..", "..", "..", "..", "os", "Clavain", "scripts", releaseVerifyScript)
-	body, err := os.ReadFile(script)
+	repo := filepath.Join("..", "..", "..", "..", "os", "Clavain")
+	script := filepath.Join(repo, "scripts", releaseVerifyScript)
+
+	text, err := gitShow(repo, "main:scripts/"+releaseVerifyScript)
 	if err != nil {
-		t.Skipf("clavain checkout not present beside intercore: %v", err)
+		body, readErr := os.ReadFile(script)
+		if readErr != nil {
+			t.Skipf("clavain checkout not present beside intercore: %v", readErr)
+		}
+		t.Logf("main ref unreadable (%v); falling back to the working tree", err)
+		text = string(body)
 	}
-	text := string(body)
 	if !strings.Contains(text, fmt.Sprintf("exit %d", releaseUnavailableExit)) {
 		t.Errorf("%s never uses the reserved unavailable exit code %d", script, releaseUnavailableExit)
 	}
