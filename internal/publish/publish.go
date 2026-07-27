@@ -137,4 +137,10 @@ var (
 	ErrNoActivePublish       = errors.New("no active publish to resume")
 	ErrApprovalRequired      = errors.New("agent-mutated plugin requires human approval — create .publish-approved or run 'ic publish' manually")
 	ErrStaleReleaseArtifacts = errors.New("release artifacts are stale")
+	// ErrReleaseVerifierUnavailable means the verifier could not reach a verdict
+	// — a missing dependency, an unresolvable module replacement, a script that
+	// exited 0 without asserting anything. It is NOT a claim about the artifacts.
+	// Collapsing it into ErrStaleReleaseArtifacts told operators "stale" on
+	// machines that had simply never been able to look (mk-cg3z).
+	ErrReleaseVerifierUnavailable = errors.New("release verifier could not run")
 )

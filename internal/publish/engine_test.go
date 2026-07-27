@@ -345,11 +345,14 @@ func scaffoldReleasePublishRepos(t *testing.T, pluginVersion, marketVersion stri
 	if err := os.WriteFile(filepath.Join(pluginRoot, "bin", "release.txt"), []byte("stale\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Emits the success receipt the contract requires: exit 0 alone does not
+	// count as a verdict (see verifyReleaseArtifacts).
 	verifyScript := `#!/usr/bin/env bash
 set -euo pipefail
 printf 'verify\n' >>"$RELEASE_TRACE"
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 grep -qx fresh "$repo_root/bin/release.txt"
+printf '{"schema_version":1,"verified":true}\n'
 `
 	if err := os.WriteFile(filepath.Join(pluginRoot, "scripts", "verify-release-binaries.sh"), []byte(verifyScript), 0o755); err != nil {
 		t.Fatal(err)

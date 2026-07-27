@@ -574,7 +574,12 @@ func ListCacheEntries() (map[string][]CacheEntry, error) {
 // This handles plugins with go.mod replace directives that point to monorepo-relative
 // paths — those resolve from the source dir but not from the cache.
 //
-// Best-effort: returns nil on skip or failure (logged as warning by caller).
+// Best-effort: the caller logs a warning rather than failing the publish. But
+// "best-effort" is not the same as silent. Two skips are genuine non-events —
+// no go.mod, no launcher — and stay quiet. A plugin that has BOTH and still
+// yields no build target is a defect and says so, because the quiet version of
+// that branch hid a 100%-miss parser across all five Go MCP plugins until a
+// survey went looking for it (mk-cg3z).
 func BuildGoMCPBinary(pluginName, srcRoot, cacheDest string) error {
 	// Skip if no go.mod
 	if _, err := os.Stat(filepath.Join(srcRoot, "go.mod")); os.IsNotExist(err) {
@@ -590,7 +595,9 @@ func BuildGoMCPBinary(pluginName, srcRoot, cacheDest string) error {
 	// Parse launcher to find the build target and output binary name
 	buildTarget, binaryName := parseLauncherScript(launcherPath)
 	if buildTarget == "" {
-		return nil // can't determine what to build
+		return fmt.Errorf("%s: cannot find a 'go build -o' line in bin/launch-mcp.sh; "+
+			"the MCP binary will not be pre-built and every fresh install pays a "+
+			"build on first launch", pluginName)
 	}
 
 	// Build from source dir (where replace directives resolve), output to cache
@@ -611,8 +618,18 @@ func BuildGoMCPBinary(pluginName, srcRoot, cacheDest string) error {
 	return nil
 }
 
-// parseLauncherScript extracts the go build target and binary name from a launch-mcp.sh.
-// Looks for patterns like: go build -o "$SCRIPT_DIR/server" ./cmd/server
+// parseLauncherScript extracts the go build target and binary name from a
+// launch-mcp.sh. Handles both forms in use:
+//
+//	go build -o "$SCRIPT_DIR/server" ./cmd/server    # output path is literal-ish
+//	go build -o "$BINARY" ./cmd/server/              # output path is a variable
+//
+// The old pattern required a "/" inside the -o argument, so the second form
+// matched nothing — and the caller treated "no match" as "nothing to do". Every
+// launcher in the marketplace uses the second form, so the pre-build had never
+// run for any plugin. Deriving the name from the build target instead of the
+// output argument is both more robust and what `go build` itself does when -o
+// is omitted.
 func parseLauncherScript(path string) (buildTarget, binaryName string) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -620,17 +637,39 @@ func parseLauncherScript(path string) (buildTarget, binaryName string) {
 	}
 	defer f.Close()
 
-	// Match: go build -o <output> <target>
-	goBuildRe := regexp.MustCompile(`go\s+build\s+-o\s+\S+/(\S+)\s+(\S+)`)
+	// Match: go build [flags] -o <output> <target>
+	goBuildRe := regexp.MustCompile(`go\s+build\s+.*?-o\s+(\S+)\s+(\S+)`)
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if m := goBuildRe.FindStringSubmatch(line); m != nil {
-			return m[2], m[1] // target, binary name
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "#") {
+			continue
 		}
+		m := goBuildRe.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		target := strings.TrimRight(strings.Trim(m[2], `"'`), "/")
+		if target == "" {
+			continue
+		}
+		return target, launcherBinaryName(m[1], target)
 	}
 	return "", ""
+}
+
+// launcherBinaryName prefers an explicit literal output name and falls back to
+// Go's own default — the last element of the build target — when the -o
+// argument is a shell variable we cannot expand.
+func launcherBinaryName(outArg, target string) string {
+	out := strings.Trim(outArg, `"'`)
+	if !strings.Contains(out, "$") {
+		if base := filepath.Base(out); base != "." && base != "/" {
+			return base
+		}
+	}
+	return filepath.Base(target)
 }
 
 // copyTrackedTree copies only paths present in the source repository index.
