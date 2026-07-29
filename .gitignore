@@ -11,6 +11,8 @@
 .clavain/keys/*.key
 .clavain/keys/*.archive
 .clavain/**/*.db
+.clavain/**/*.db-shm
+.clavain/**/*.db-wal
 !.clavain/keys/*.pub
 
 # Runtime
