@@ -123,6 +123,8 @@ func main() {
 		exitCode = cmdLane(ctx, subArgs)
 	case "config":
 		exitCode = cmdConfig(ctx, subArgs)
+	case "autonomy":
+		exitCode = cmdAutonomy(ctx, subArgs)
 	case "agency":
 		exitCode = cmdAgency(ctx, subArgs)
 	case "compat":
@@ -237,6 +239,7 @@ Commands:
   portfolio dep list <id>       List dependencies for portfolio
   portfolio dep remove <id> --upstream=<p> --downstream=<p>  Remove dependency
   portfolio relay <id> [--interval=2s]  Run event relay for portfolio
+  autonomy status               Show declared delegation level + what it derives
   config set <key> <value>      Set a kernel config value
   config get <key>              Get a kernel config value
   config list [--verbose]       List kernel config values

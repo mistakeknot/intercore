@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mistakeknot/intercore/internal/autonomy"
 	"github.com/mistakeknot/intercore/internal/state"
 )
 
@@ -18,6 +19,7 @@ const kernelScope = "global"
 var knownConfigKeys = map[string]string{
 	"global_max_dispatches": "Maximum active dispatches across all runs (0 = unlimited)",
 	"max_spawn_depth":       "Maximum dispatch spawn depth (0 = unlimited)",
+	autonomy.ConfigKey:      "Declared human-delegation level, L0-L5 (see docs/canon/autonomy.md)",
 }
 
 func cmdConfig(ctx context.Context, args []string) int {
@@ -52,8 +54,18 @@ func cmdConfigSet(ctx context.Context, args []string) int {
 	key := args[0]
 	value := args[1]
 
-	// Validate value is a number for known keys
-	if _, ok := knownConfigKeys[key]; ok {
+	// The delegation level is bounded, not merely numeric — an out-of-range
+	// value would resolve back to the default at read time and silently look
+	// like it had been applied.
+	if key == autonomy.ConfigKey {
+		level, err := autonomy.ParseLevel(value)
+		if err != nil {
+			slog.Error("config set: invalid delegation level", "error", err)
+			return 3
+		}
+		value = strconv.Itoa(level)
+	} else if _, ok := knownConfigKeys[key]; ok {
+		// Validate value is a number for known keys
 		if _, err := strconv.Atoi(value); err != nil {
 			slog.Error("config set: value must be an integer", "value", value)
 			return 3

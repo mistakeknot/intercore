@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/mistakeknot/intercore/internal/autonomy"
 	"github.com/mistakeknot/intercore/internal/budget"
 	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/dispatch"
@@ -124,6 +125,19 @@ func cmdRunSet(ctx context.Context, args []string) int {
 		}
 		slog.Error("run set failed", "error", err)
 		return 2
+	}
+
+	// Surface an auto_advance override that diverges from what the declared
+	// delegation level implies. Without this the run silently behaves at a
+	// different level than the one on record, which is the failure mode the
+	// single-declared-level design exists to prevent.
+	if autoAdvance != nil {
+		delegation := autonomy.Resolve(ctx, state.New(d.SqlDB()))
+		if *autoAdvance != delegation.AutoAdvance {
+			fmt.Fprintf(os.Stderr,
+				"note: auto_advance=%t overrides the L%d default (%t) — run no longer matches the declared delegation level\n",
+				*autoAdvance, delegation.Level, delegation.AutoAdvance)
+		}
 	}
 
 	fmt.Println("updated")

@@ -10,8 +10,10 @@ import (
 	"strings"
 
 	"github.com/mistakeknot/intercore/internal/action"
+	"github.com/mistakeknot/intercore/internal/autonomy"
 	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/phase"
+	"github.com/mistakeknot/intercore/internal/state"
 )
 
 func cmdRunCreate(ctx context.Context, args []string) int {
@@ -133,6 +135,12 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 
 	store := phase.New(d.SqlDB())
 
+	// The declared delegation level supplies the auto_advance default. This is
+	// the only place new runs get that value; a per-run override is applied
+	// afterward via `ic run set --auto-advance`, which records the divergence.
+	delegation := autonomy.Resolve(ctx, state.New(d.SqlDB()))
+	autoAdvance := delegation.AutoAdvance
+
 	// Portfolio mode: create parent + children
 	if projects != "" {
 		projectPaths := strings.Split(projects, ",")
@@ -153,7 +161,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		portfolio := &phase.Run{
 			Goal:          goal,
 			Complexity:    complexity,
-			AutoAdvance:   true,
+			AutoAdvance:   autoAdvance,
 			BudgetWarnPct: budgetWarnPct,
 			Phases:        customPhases,
 			MaxDispatches: maxDispatches,
@@ -175,7 +183,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 				ProjectDir:    p,
 				Goal:          goal,
 				Complexity:    complexity,
-				AutoAdvance:   true,
+				AutoAdvance:   autoAdvance,
 				BudgetWarnPct: budgetWarnPct,
 				Phases:        customPhases,
 				Metadata:      metadata,
@@ -221,7 +229,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 		ProjectDir:    project,
 		Goal:          goal,
 		Complexity:    complexity,
-		AutoAdvance:   true,
+		AutoAdvance:   autoAdvance,
 		BudgetWarnPct: budgetWarnPct,
 		Phases:        customPhases,
 		BudgetEnforce: budgetEnforce,
