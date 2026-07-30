@@ -37,6 +37,11 @@ type CheckResult struct {
 	PolicyMatch string `json:"policy_match"`
 	PolicyHash  string `json:"policy_hash"`
 	Reason      string `json:"reason"`
+	// DelegationCapped is true when the declared human-delegation level
+	// downgraded a decision the policy alone would have authorized. It
+	// distinguishes "the policy said confirm" from "the policy said auto and
+	// the delegation level was too low to allow it".
+	DelegationCapped bool `json:"delegation_capped,omitempty"`
 }
 
 // LoadPolicy loads a policy from YAML file.

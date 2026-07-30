@@ -3,6 +3,8 @@ package authz
 import (
 	"fmt"
 	"time"
+
+	"github.com/mistakeknot/intercore/pkg/autonomy"
 )
 
 const defaultClockSkewTolerance = 5 * time.Minute
@@ -26,6 +28,16 @@ type CheckInput struct {
 	ClockSkewTolerance     time.Duration
 	VettingSHAs            map[string]string
 	WorkdirHEAD            map[string]string
+	// Delegation is the declared human-delegation level in force. When set, it
+	// caps how permissive the policy may be for operations that carry a
+	// delegation floor (see autonomy.MinLevelForAuto).
+	//
+	// Nil means "no level was supplied", and no ceiling is applied. That is a
+	// library default, not a security posture: the command layer that owns the
+	// authorization path must always supply one, because the level it falls
+	// back to when the kernel is unreadable (autonomy.DefaultLevel, L2) sits
+	// below the push floor and therefore fails closed on its own.
+	Delegation *autonomy.Resolution
 }
 
 // Check returns the policy decision for an operation.
@@ -61,7 +73,32 @@ func Check(policy *Policy, input CheckInput) (CheckResult, error) {
 	}
 
 	result.Reason = "requires satisfied"
-	return result, nil
+	return applyDelegationCeiling(result, input), nil
+}
+
+// applyDelegationCeiling downgrades an authorized decision to confirm when the
+// declared delegation level is below what the operation requires.
+//
+// The ceiling binds force_auto as well as auto. force_auto is a policy-authored
+// escape hatch, and a ceiling that policy could lift by editing a YAML file
+// would not be a ceiling — it would restore, silently, exactly the behavior of
+// pushing at an authority level nobody declared. The escape hatch that still
+// works is the one-shot signed token, which is a per-action human
+// authorization and short-circuits before this function is ever reached.
+func applyDelegationCeiling(result CheckResult, input CheckInput) CheckResult {
+	if input.Delegation == nil {
+		return result
+	}
+	if result.Mode != ModeAuto && result.Mode != ModeForceAuto {
+		return result
+	}
+	if input.Delegation.PermitsAuto(input.Op) {
+		return result
+	}
+	result.Mode = ModeConfirm
+	result.DelegationCapped = true
+	result.Reason = input.Delegation.ExplainRefusal(input.Op)
+	return result
 }
 
 // Evaluate checks whether a single rule's requirements are satisfied.

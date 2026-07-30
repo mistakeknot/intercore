@@ -8,14 +8,16 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
+	"time"
 
-	"github.com/mistakeknot/intercore/internal/autonomy"
 	"github.com/mistakeknot/intercore/internal/budget"
 	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/phase"
 	"github.com/mistakeknot/intercore/internal/runtrack"
 	"github.com/mistakeknot/intercore/internal/state"
+	"github.com/mistakeknot/intercore/pkg/autonomy"
 )
 
 func cmdRunSet(ctx context.Context, args []string) int {
@@ -107,6 +109,28 @@ func cmdRunSet(ctx context.Context, args []string) int {
 		}
 	}
 
+	// An auto_advance override that diverges from the declared delegation level
+	// leaves a durable record on the run, not just a message on the terminal.
+	// "This run behaved at a level nobody declared" has to be answerable later,
+	// by querying, or the declared level is only advisory.
+	//
+	// It rides the same UpdateConfiguration call as the override itself, so the
+	// record and the divergence it describes commit together or not at all.
+	var delegation autonomy.Resolution
+	diverged := false
+	if autoAdvance != nil {
+		delegation = autonomy.ResolveDB(ctx, d.SqlDB())
+		diverged = *autoAdvance != delegation.AutoAdvance
+	}
+	if diverged {
+		merged, err := mergeAutonomyOverride(metadataMerge, *autoAdvance, delegation)
+		if err != nil {
+			slog.Error("run set: cannot record autonomy override", "error", err)
+			return 3
+		}
+		metadataMerge = merged
+	}
+
 	err = store.UpdateConfiguration(ctx, id, phase.RunConfigUpdate{
 		Complexity:    complexity,
 		AutoAdvance:   autoAdvance,
@@ -127,21 +151,53 @@ func cmdRunSet(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	// Surface an auto_advance override that diverges from what the declared
-	// delegation level implies. Without this the run silently behaves at a
-	// different level than the one on record, which is the failure mode the
-	// single-declared-level design exists to prevent.
-	if autoAdvance != nil {
-		delegation := autonomy.Resolve(ctx, state.New(d.SqlDB()))
-		if *autoAdvance != delegation.AutoAdvance {
-			fmt.Fprintf(os.Stderr,
-				"note: auto_advance=%t overrides the L%d default (%t) — run no longer matches the declared delegation level\n",
-				*autoAdvance, delegation.Level, delegation.AutoAdvance)
-		}
+	// Surface the same divergence on the terminal. The metadata record above is
+	// for querying later; this is for the operator doing it right now.
+	if diverged {
+		fmt.Fprintf(os.Stderr,
+			"note: auto_advance=%t overrides the L%d default (%t) — run no longer matches the declared delegation level\n",
+			*autoAdvance, delegation.Level, delegation.AutoAdvance)
+		fmt.Fprintf(os.Stderr,
+			"      recorded on the run as metadata.%s\n", autonomyOverrideKey)
 	}
 
 	fmt.Println("updated")
 	return 0
+}
+
+// autonomyOverrideKey is the reserved run-metadata key holding the record of an
+// auto_advance override that diverged from the declared delegation level.
+const autonomyOverrideKey = "autonomy_override"
+
+// mergeAutonomyOverride folds the override record into any caller-supplied
+// --metadata-merge document.
+//
+// The key is reserved: a caller-supplied value under it is replaced, because
+// this is an audit record about what the kernel did and a run must not be able
+// to describe its own divergence. Everything else in the caller's document is
+// preserved. The result stays a single merge so the record and the override it
+// describes land in one transaction.
+func mergeAutonomyOverride(callerMerge string, autoAdvance bool, d autonomy.Resolution) (string, error) {
+	doc := map[string]any{}
+	if strings.TrimSpace(callerMerge) != "" {
+		if err := json.Unmarshal([]byte(callerMerge), &doc); err != nil {
+			return "", fmt.Errorf("metadata merge is not a JSON object: %w", err)
+		}
+	}
+	doc[autonomyOverrideKey] = map[string]any{
+		"auto_advance":        autoAdvance,
+		"implied_by_level":    d.AutoAdvance,
+		"delegation_level":    d.Level,
+		"delegation_name":     d.Name,
+		"delegation_declared": d.Declared,
+		"delegation_source":   d.Source,
+		"recorded_at":         time.Now().Unix(),
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 func cmdRunAgent(ctx context.Context, args []string) int {
 	if len(args) == 0 {

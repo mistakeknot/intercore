@@ -10,10 +10,9 @@ import (
 	"strings"
 
 	"github.com/mistakeknot/intercore/internal/action"
-	"github.com/mistakeknot/intercore/internal/autonomy"
 	"github.com/mistakeknot/intercore/internal/cli"
 	"github.com/mistakeknot/intercore/internal/phase"
-	"github.com/mistakeknot/intercore/internal/state"
+	"github.com/mistakeknot/intercore/pkg/autonomy"
 )
 
 func cmdRunCreate(ctx context.Context, args []string) int {
@@ -138,7 +137,7 @@ func cmdRunCreate(ctx context.Context, args []string) int {
 	// The declared delegation level supplies the auto_advance default. This is
 	// the only place new runs get that value; a per-run override is applied
 	// afterward via `ic run set --auto-advance`, which records the divergence.
-	delegation := autonomy.Resolve(ctx, state.New(d.SqlDB()))
+	delegation := autonomy.ResolveDB(ctx, d.SqlDB())
 	autoAdvance := delegation.AutoAdvance
 
 	// Portfolio mode: create parent + children

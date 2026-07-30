@@ -7,8 +7,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/mistakeknot/intercore/internal/autonomy"
-	"github.com/mistakeknot/intercore/internal/state"
+	"github.com/mistakeknot/intercore/pkg/autonomy"
 )
 
 func cmdAutonomy(ctx context.Context, args []string) int {
@@ -39,7 +38,7 @@ func cmdAutonomyStatus(ctx context.Context) int {
 	}
 	defer d.Close()
 
-	res := autonomy.Resolve(ctx, state.New(d.SqlDB()))
+	res := autonomy.ResolveDB(ctx, d.SqlDB())
 
 	if flagJSON {
 		if err := json.NewEncoder(os.Stdout).Encode(res); err != nil {

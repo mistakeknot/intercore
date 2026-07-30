@@ -9,8 +9,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mistakeknot/intercore/internal/autonomy"
 	"github.com/mistakeknot/intercore/internal/state"
+	"github.com/mistakeknot/intercore/pkg/autonomy"
 )
 
 const kernelScope = "global"
