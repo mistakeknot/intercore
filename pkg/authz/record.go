@@ -29,6 +29,28 @@ type recordExecer interface {
 	Exec(query string, args ...interface{}) (sql.Result, error)
 }
 
+// MarshalVetting renders a vetting map exactly as it is stored in the
+// authorizations row, returning "" for an absent map.
+//
+// It exists so a caller that must SIGN the row can obtain byte-identical
+// bytes to what RecordWithID stores. The signed payload includes `vetting`,
+// so a second independent json.Marshal would be a latent verification failure
+// the moment the two diverged. token.go already follows the marshal-once rule
+// by hand; this makes it a shared contract rather than a convention.
+//
+// "" doubles as the canonical NULL encoding required by the signing payload
+// spec, so callers pass the result straight into SignRow.Vetting.
+func MarshalVetting(v map[string]interface{}) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("marshal vetting: %w", err)
+	}
+	return string(data), nil
+}
+
 // Record inserts one row into authorizations.
 func Record(db *sql.DB, args RecordArgs) error {
 	if db == nil {
@@ -78,20 +100,20 @@ func RecordWithID(db recordExecer, args RecordArgs) (string, error) {
 		args.CreatedAt = time.Now().Unix()
 	}
 
+	stored, err := MarshalVetting(args.Vetting)
+	if err != nil {
+		return "", err
+	}
 	var vettingJSON interface{}
-	if args.Vetting != nil {
-		data, err := json.Marshal(args.Vetting)
-		if err != nil {
-			return "", fmt.Errorf("marshal vetting: %w", err)
-		}
-		vettingJSON = string(data)
+	if stored != "" {
+		vettingJSON = stored
 	}
 
 	// sig_version=1 marks the row as signable under the current (v1.5)
 	// signing scheme. Pre-migration rows keep sig_version=0 (via schema
 	// default) — "pre-signing vintage". The column must be set explicitly
 	// here so new post-cutover rows don't inherit the 0 default.
-	_, err := db.Exec(`
+	_, err = db.Exec(`
 		INSERT INTO authorizations (
 			id, op_type, target, agent_id, bead_id, mode,
 			policy_match, policy_hash, vetted_sha, vetting,
