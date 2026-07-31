@@ -24,34 +24,89 @@ import (
 // floor that loosens it.
 const PushAutoFloor = 3
 
-// opAutoFloor maps an operation to the delegation level it needs before policy
-// alone may authorize it.
+// OpRuling records the delegation-floor decision for one operation — including
+// the operations deliberately left unfloored.
 //
-// Only pushes to a remote are listed. `ic-publish-patch` is deliberately absent:
-// publishing already refuses agent-mutated plugins upstream, so gating it here
-// would be a second lock on a door that is bolted, and it would change the
-// publish-wave workflow without evidence that it needs changing. Adding it is
-// one line if that judgement turns out to be wrong.
+// Exempt operations are listed rather than omitted because "no floor" is a
+// ruling, not an absence. An op missing from this table has never been
+// considered; an op here with Floor 0 was considered and exempted, and the
+// reason is on the record. `ic autonomy status` prints both, so telling those
+// two cases apart does not require reading this file.
 //
-// An operation with no entry has no delegation floor and is governed by policy
-// alone, exactly as it was before this table existed.
-var opAutoFloor = map[string]int{
-	"git-push-main": PushAutoFloor,
-	"bd-push-dolt":  PushAutoFloor,
+// Reason travels with the floor deliberately. The alternative — floors here,
+// rationale in docs/canon/autonomy.md — is how the hand-written sentence this
+// table replaced went stale: the prose and the code had no reason to change
+// together.
+type OpRuling struct {
+	Op    string `json:"op"`
+	Floor int    `json:"floor"`
+	// Reason states why, in the terms a human refused by it needs.
+	Reason string `json:"reason"`
+}
+
+// opRulings is the whole record. Keep it sorted by op; TestOpRulingsAreSorted
+// enforces that so the generated canon block has a stable diff.
+var opRulings = []OpRuling{
+	{
+		Op:    "bd-push-dolt",
+		Floor: PushAutoFloor,
+		Reason: "publishes issue state to the shared Dolt remote — the same " +
+			"irreversibility as a git push, on a different substrate",
+	},
+	{
+		Op:    "bead-close",
+		Floor: 0,
+		Reason: "local and reversible (`bd update --status open` undoes it), and " +
+			"frequent enough that a floor would tax ordinary work with no " +
+			"safety payoff",
+	},
+	{
+		Op:    "git-push-main",
+		Floor: PushAutoFloor,
+		Reason: "publishes commits that other people and CI act on, and the " +
+			"pushing agent cannot retract them",
+	},
+	{
+		Op:    "ic-publish-patch",
+		Floor: 0,
+		Reason: "publishing already refuses agent-mutated plugins upstream, so a " +
+			"floor here would be a second lock on a bolted door — and it would " +
+			"change the publish-wave workflow without evidence it needs changing",
+	},
 }
 
 // MinLevelForAuto returns the delegation level op requires before policy alone
 // may authorize it, or 0 when op carries no delegation floor.
+//
+// A linear scan over a handful of entries costs nothing on the authorization
+// path and keeps opRulings a single ordered source of truth rather than a map
+// plus a parallel list.
 func MinLevelForAuto(op string) int {
-	return opAutoFloor[op]
+	for _, r := range opRulings {
+		if r.Op == op {
+			return r.Floor
+		}
+	}
+	return 0
 }
 
-// FlooredOps returns the operations that carry a delegation floor. Order is not
-// guaranteed; callers that display it should sort.
+// Rulings returns every recorded floor decision, floored and exempt alike, in
+// sorted order. Callers render it directly; this is the inspectable surface
+// that makes a refusal predictable before it happens.
+func Rulings() []OpRuling {
+	out := make([]OpRuling, len(opRulings))
+	copy(out, opRulings)
+	return out
+}
+
+// FlooredOps returns only the operations that carry a delegation floor. Order
+// is not guaranteed; callers that display it should sort.
 func FlooredOps() map[string]int {
-	out := make(map[string]int, len(opAutoFloor))
-	for op, level := range opAutoFloor {
-		out[op] = level
+	out := make(map[string]int, len(opRulings))
+	for _, r := range opRulings {
+		if r.Floor > 0 {
+			out[r.Op] = r.Floor
+		}
 	}
 	return out
 }

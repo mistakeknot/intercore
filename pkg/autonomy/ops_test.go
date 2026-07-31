@@ -73,6 +73,86 @@ func TestFlooredOpsIsACopy(t *testing.T) {
 	}
 }
 
+func TestRulingsIsACopy(t *testing.T) {
+	got := Rulings()
+	got[0].Floor = 99
+	got[0].Op = "clobbered"
+	for _, r := range Rulings() {
+		if r.Op == "clobbered" || r.Floor == 99 {
+			t.Fatal("mutating the Rulings result changed the real table")
+		}
+	}
+}
+
+// TestOpRulingsAreSorted keeps the generated canon table's diff stable. An
+// unsorted table would reorder the rendered rows on unrelated edits and make
+// `gen-autonomy-position.py --check` fail for reasons nobody changed.
+func TestOpRulingsAreSorted(t *testing.T) {
+	rulings := Rulings()
+	for i := 1; i < len(rulings); i++ {
+		if rulings[i-1].Op >= rulings[i].Op {
+			t.Errorf("opRulings not sorted/unique: %q then %q",
+				rulings[i-1].Op, rulings[i].Op)
+		}
+	}
+}
+
+// TestRulingsAgreeWithMinLevelForAuto pins the two surfaces together. The whole
+// point of publishing the table is that it predicts refusals, so a table that
+// disagreed with the function actually doing the refusing would be worse than
+// no table at all.
+func TestRulingsAgreeWithMinLevelForAuto(t *testing.T) {
+	for _, r := range Rulings() {
+		if got := MinLevelForAuto(r.Op); got != r.Floor {
+			t.Errorf("Rulings() says %s floor=%d, MinLevelForAuto says %d",
+				r.Op, r.Floor, got)
+		}
+	}
+}
+
+// TestEveryRulingHasAReason guards the rendered canon table: the reason column
+// is generated from these strings, and a blank one ships an empty cell that
+// reads as "no reason was needed" rather than "nobody wrote one".
+func TestEveryRulingHasAReason(t *testing.T) {
+	for _, r := range Rulings() {
+		if strings.TrimSpace(r.Reason) == "" {
+			t.Errorf("ruling for %q has no reason", r.Op)
+		}
+		if r.Floor < 0 || r.Floor > MaxLevel {
+			t.Errorf("ruling for %q has floor %d, outside L%d-L%d",
+				r.Op, r.Floor, MinLevel, MaxLevel)
+		}
+	}
+}
+
+// TestAuditedOpsAreRuledOn records the outcome of the coverage audit. These four
+// are the outward-facing operations the policy names; each was considered, and
+// the exempt ones are exempt on the record rather than by omission. Adding a
+// fifth gated op to policy without ruling on it here is exactly the gap this
+// test exists to make visible.
+func TestAuditedOpsAreRuledOn(t *testing.T) {
+	want := map[string]int{
+		"git-push-main":    PushAutoFloor,
+		"bd-push-dolt":     PushAutoFloor,
+		"ic-publish-patch": 0,
+		"bead-close":       0,
+	}
+	got := make(map[string]int, len(want))
+	for _, r := range Rulings() {
+		got[r.Op] = r.Floor
+	}
+	for op, floor := range want {
+		actual, ok := got[op]
+		if !ok {
+			t.Errorf("op %q has no recorded ruling", op)
+			continue
+		}
+		if actual != floor {
+			t.Errorf("op %q floor = %d, want %d", op, actual, floor)
+		}
+	}
+}
+
 func TestPermitsAuto(t *testing.T) {
 	for level := MinLevel; level <= MaxLevel; level++ {
 		r := Resolution{Level: level}
