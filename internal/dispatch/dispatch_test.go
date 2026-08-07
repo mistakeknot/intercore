@@ -629,3 +629,75 @@ func TestGenerateID(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+func TestCancelByRunEmitsEvents(t *testing.T) {
+	dir := t.TempDir()
+	d, err := db.Open(filepath.Join(dir, "test.db"), 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := d.Migrate(context.Background()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	type recorded struct{ id, runID, from, to string }
+	var events []recorded
+	store := New(d.SqlDB(), func(dispatchID, runID, fromStatus, toStatus string) {
+		events = append(events, recorded{dispatchID, runID, fromStatus, toStatus})
+	})
+	ctx := context.Background()
+
+	// Two dispatches on run-x: one running (cancellable), one completed (terminal).
+	runX := "run-x"
+	d1 := &Dispatch{AgentType: "codex", ProjectDir: "/tmp/p", ScopeID: &runX}
+	id1, err := store.Create(ctx, d1)
+	if err != nil {
+		t.Fatalf("Create d1: %v", err)
+	}
+	d2 := &Dispatch{AgentType: "codex", ProjectDir: "/tmp/p", ScopeID: &runX}
+	id2, err := store.Create(ctx, d2)
+	if err != nil {
+		t.Fatalf("Create d2: %v", err)
+	}
+	if err := store.UpdateStatus(ctx, id2, StatusCompleted, nil); err != nil {
+		t.Fatalf("complete d2: %v", err)
+	}
+	// A dispatch on another run must be untouched.
+	runY := "run-y"
+	d3 := &Dispatch{AgentType: "codex", ProjectDir: "/tmp/p", ScopeID: &runY}
+	id3, err := store.Create(ctx, d3)
+	if err != nil {
+		t.Fatalf("Create d3: %v", err)
+	}
+
+	events = nil // ignore setup transitions
+	n, err := store.CancelByRun(ctx, runX)
+	if err != nil {
+		t.Fatalf("CancelByRun: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("cancelled = %d, want 1 (only the non-terminal dispatch)", n)
+	}
+
+	// Exactly one witness event: d1's transition to cancelled.
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1: %+v", len(events), events)
+	}
+	if events[0].id != id1 || events[0].runID != runX || events[0].to != StatusCancelled {
+		t.Errorf("event = %+v, want id=%s run=%s to=cancelled", events[0], id1, runX)
+	}
+	if events[0].from != StatusSpawned {
+		t.Errorf("event from = %q, want %q (true previous status)", events[0].from, StatusSpawned)
+	}
+
+	// d2 stayed completed; d3 untouched.
+	got2, _ := store.Get(ctx, id2)
+	if got2.Status != StatusCompleted {
+		t.Errorf("d2 status = %q, want completed", got2.Status)
+	}
+	got3, _ := store.Get(ctx, id3)
+	if got3.Status != StatusSpawned {
+		t.Errorf("d3 status = %q, want spawned", got3.Status)
+	}
+}

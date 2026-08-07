@@ -30,11 +30,17 @@ echo "=== File Permissions ==="
 # Test that ic init creates directory with 0700 and DB file with 0600.
 # Use a fresh subdirectory under CWD (ic validates --db is under CWD).
 PERM_DB="$TEST_DIR/perms/.clavain/intercore.db"
+# Portable permission stat: GNU uses -c '%a', BSD (macOS) uses -f '%Lp'.
+if stat -c '%a' /tmp >/dev/null 2>&1; then
+    stat_perm() { stat -c '%a' "$1"; }
+else
+    stat_perm() { stat -f '%Lp' "$1"; }
+fi
 ic init --db="$PERM_DB"
-dir_perm=$(stat -c '%a' "$TEST_DIR/perms/.clavain")
+dir_perm=$(stat_perm "$TEST_DIR/perms/.clavain")
 [[ "$dir_perm" == "700" ]] || fail "directory permissions: expected 700, got $dir_perm"
 pass "directory permissions: $dir_perm"
-file_perm=$(stat -c '%a' "$PERM_DB")
+file_perm=$(stat_perm "$PERM_DB")
 [[ "$file_perm" == "600" ]] || fail "DB file permissions: expected 600, got $file_perm"
 pass "DB file permissions: $file_perm"
 
@@ -238,11 +244,14 @@ echo "$status_out" | grep -q "brainstorm" || fail "run status should show brains
 pass "run status"
 
 # Advance: brainstorm → brainstorm-reviewed
+# Default gate requires an artifact for the current phase — register one first.
+ic run artifact add "$RUN_ID" --phase=brainstorm --path=docs/brainstorms/test.md --db="$TEST_DB" >/dev/null
 advance_out=$(ic run advance "$RUN_ID" --db="$TEST_DB")
 echo "$advance_out" | grep -q "brainstorm-reviewed" || fail "advance should go to brainstorm-reviewed, got: $advance_out"
 pass "run advance (brainstorm → brainstorm-reviewed)"
 
 # Advance: brainstorm-reviewed → strategized
+ic run artifact add "$RUN_ID" --phase=brainstorm-reviewed --path=docs/brainstorms/test-reviewed.md --db="$TEST_DB" >/dev/null
 advance_out=$(ic run advance "$RUN_ID" --db="$TEST_DB")
 echo "$advance_out" | grep -q "strategized" || fail "advance should go to strategized, got: $advance_out"
 pass "run advance (brainstorm-reviewed → strategized)"
@@ -396,7 +405,7 @@ artifact_list=$(ic run artifact list "$RUN_ID" --db="$TEST_DB")
 echo "$artifact_list" | grep -q "$ARTIFACT_ID" || fail "artifact list should include first artifact"
 echo "$artifact_list" | grep -q "$ARTIFACT_ID2" || fail "artifact list should include second artifact"
 artifact_count=$(echo "$artifact_list" | wc -l)
-[[ $artifact_count -eq 2 ]] || fail "artifact list should have 2 artifacts, got: $artifact_count"
+[[ $artifact_count -eq 4 ]] || fail "artifact list should have 4 artifacts (2 gate-setup + 2 added here), got: $artifact_count"
 pass "run artifact list"
 
 # Filter by phase

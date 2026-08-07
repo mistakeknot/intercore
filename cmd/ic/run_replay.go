@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/mistakeknot/intercore/internal/cli"
+	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/event"
 	"github.com/mistakeknot/intercore/internal/phase"
 	"github.com/mistakeknot/intercore/internal/replay"
@@ -19,12 +20,15 @@ type replayGate struct {
 }
 
 type replayOutput struct {
-	RunID     string            `json:"run_id"`
-	Mode      string            `json:"mode"`
-	RunStatus string            `json:"run_status"`
-	Decisions []replay.Decision `json:"decisions"`
-	Inputs    []*replay.Input   `json:"inputs"`
-	Reexecute replayGate        `json:"reexecute"`
+	RunID          string            `json:"run_id"`
+	Mode           string            `json:"mode"`
+	RunStatus      string            `json:"run_status"`
+	Decisions      []replay.Decision `json:"decisions"`
+	Inputs         []*replay.Input   `json:"inputs"`
+	EventsExpected int               `json:"events_expected"`
+	EventsFound    int               `json:"events_found"`
+	Sparse         bool              `json:"sparse"`
+	Reexecute      replayGate        `json:"reexecute"`
 }
 
 func cmdRunReplay(ctx context.Context, args []string) int {
@@ -82,7 +86,7 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 	}
 
 	evStore := event.NewStore(d.SqlDB())
-	events, err := evStore.ListEvents(ctx, runID, 0, 0, 0, 0, limit)
+	events, err := evStore.ListEvents(ctx, runID, 0, 0, 0, 0, 0, limit)
 	if err != nil {
 		slog.Error("run replay: list events failed", "error", err)
 		return 2
@@ -106,13 +110,45 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 	}
 	out.Decisions = replay.BuildTimeline(events, inputs)
 
+	// Sparsity check (f-184): a replay that certifies a timeline with holes
+	// is worse than no replay — recovery and reexecute gating will trust it.
+	// events_expected is a documented LOWER-BOUND heuristic: one spawn plus
+	// one terminal event per dispatch, plus one advance per phase TRANSITION
+	// (chain length minus one — a 3-phase run completes with 2 advances).
+	// Rollbacks/retries only add more, so found < expected is always a real
+	// gap, never a false alarm.
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
+	dispatches, err := dStore.List(ctx, &runID)
+	if err != nil {
+		slog.Error("run replay: list dispatches failed", "error", err)
+		return 2
+	}
+	terminal := 0
+	for _, disp := range dispatches {
+		switch disp.Status {
+		case "completed", "failed", "cancelled", "timeout":
+			terminal++
+		}
+	}
+	chain := run.Phases
+	if chain == nil {
+		chain = phase.DefaultPhaseChain
+	}
+	phaseTransitions := len(chain) - 1
+	if phaseTransitions < 0 {
+		phaseTransitions = 0
+	}
+	out.EventsExpected = len(dispatches) + terminal + phaseTransitions
+	out.EventsFound = len(out.Decisions)
+	out.Sparse = out.EventsFound < out.EventsExpected
+
 	if mode == "simulate" {
 		out.Reexecute.Reason = "simulate mode has no side effects"
 	} else {
 		if !allowLive {
 			out.Reexecute.Reason = "live reexecute is gated: pass --allow-live to request it"
 		} else {
-			out.Reexecute.Reason = "live reexecute is currently disallowed by kernel policy"
+			out.Reexecute.Reason = "live reexecute is not implemented"
 		}
 	}
 
@@ -126,6 +162,10 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 		fmt.Printf("Mode: %s\n", out.Mode)
 		fmt.Printf("Decisions: %d\n", len(out.Decisions))
 		fmt.Printf("Recorded inputs: %d\n", len(out.Inputs))
+		fmt.Printf("Events: %d found / %d expected\n", out.EventsFound, out.EventsExpected)
+		if out.Sparse {
+			fmt.Printf("SPARSE: the event record is incomplete — this replay does NOT certify the full timeline\n")
+		}
 		for _, d := range out.Decisions {
 			fmt.Printf("  [%s#%d] %s %s -> %s\n", d.Source, d.EventID, d.Type, d.FromState, d.ToState)
 		}
@@ -133,6 +173,11 @@ func cmdRunReplay(ctx context.Context, args []string) int {
 	}
 
 	if mode == "reexecute" {
+		fmt.Fprintf(os.Stderr, "ic: run replay: --mode=reexecute is not implemented: the kernel has no live re-execution path\n")
+		return 1
+	}
+	if out.Sparse {
+		fmt.Fprintf(os.Stderr, "ic: run replay: event record is sparse (%d/%d events) — replay is not a completeness certificate\n", out.EventsFound, out.EventsExpected)
 		return 1
 	}
 	return 0

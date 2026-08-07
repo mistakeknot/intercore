@@ -19,8 +19,10 @@ type Decision struct {
 	ArtifactRefs []string `json:"artifact_refs,omitempty"`
 }
 
-// BuildTimeline deterministically reconstructs phase/dispatch decisions and links
-// them to recorded nondeterministic inputs.
+// BuildTimeline deterministically reconstructs decisions from the event stream
+// and links them to recorded nondeterministic inputs. All event sources are
+// included — filtering to phase/dispatch would silently drop coordination,
+// review, and other events, letting a replay certify a timeline with holes.
 func BuildTimeline(events []event.Event, inputs []*Input) []Decision {
 	inputsByEvent := make(map[string][]*Input)
 	for _, in := range inputs {
@@ -33,9 +35,6 @@ func BuildTimeline(events []event.Event, inputs []*Input) []Decision {
 
 	out := make([]Decision, 0, len(events))
 	for _, e := range events {
-		if e.Source != event.SourcePhase && e.Source != event.SourceDispatch {
-			continue
-		}
 		d := Decision{
 			EventID:   e.ID,
 			Source:    e.Source,

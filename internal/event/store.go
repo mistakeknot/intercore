@@ -93,24 +93,43 @@ func (s *Store) AddDispatchEvent(ctx context.Context, dispatchID, runID, fromSta
 	return nil
 }
 
+// AddBudgetEvent records a budget threshold crossing (budget.warning /
+// budget.exceeded) as a run-scoped phase event so it surfaces in the
+// unified ListEvents stream. from_phase/to_phase are empty strings: no
+// phase transition occurs, and the columns are NOT NULL.
+func (s *Store) AddBudgetEvent(ctx context.Context, runID, eventType, reason string) error {
+	reason = s.redactStr(reason)
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO phase_events (
+			run_id, from_phase, to_phase, event_type, reason
+		) VALUES (?, '', '', ?, NULLIF(?, ''))`,
+		runID, eventType, reason,
+	)
+	if err != nil {
+		return fmt.Errorf("add budget event: %w", err)
+	}
+	return nil
+}
+
 // ListEvents returns unified events for a run, merging phase_events,
 // dispatch_events, coordination_events, and review_events, ordered by
 // timestamp. Uses per-source sub-limits to prevent high-volume sources
 // from crowding out low-volume ones. Discovery events are excluded
 // (system-level, no run_id column — use ListAllEvents for those).
 //
-// Per-source sub-limits mean each source gets at most ceil(limit/4) rows.
+// Per-source sub-limits mean each source gets at most ceil(limit/5) rows.
 // Callers debugging a single source should use source-specific query methods.
 // Polling callers must loop until fewer than limit rows are returned to
 // guarantee all events are drained.
-func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceCoordinationID, sinceReviewID int64, limit int) ([]Event, error) {
+func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinceDispatchID, sinceCoordinationID, sinceReviewID, sinceInterspectID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 
 	// Per-source sub-limit guarantees each source gets representation.
-	// 4 sources in run-scoped query (discovery excluded — no run_id column).
-	perSource := perSourceLimit(limit, 4)
+	// 5 sources in run-scoped query (discovery excluded — no run_id column).
+	perSource := perSourceLimit(limit, 5)
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
@@ -151,12 +170,23 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 			ORDER BY created_at ASC, id ASC
 			LIMIT ?
 		)
+		UNION ALL
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'interspect' AS source, event_type,
+				agent_name AS from_state, '' AS to_state, COALESCE(override_reason, '') AS reason,
+				COALESCE(context_json, '') AS envelope_json, created_at
+			FROM interspect_events
+			WHERE (run_id = ? OR ? = '') AND id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
 		runID, sincePhaseID, perSource,
 		runID, runID, sinceDispatchID, perSource,
 		runID, runID, sinceCoordinationID, perSource,
 		runID, runID, sinceReviewID, perSource,
+		runID, runID, sinceInterspectID, perSource,
 		limit,
 	)
 	if err != nil {
@@ -167,15 +197,15 @@ func (s *Store) ListEvents(ctx context.Context, runID string, sincePhaseID, sinc
 	return scanEvents(rows)
 }
 
-// ListAllEvents returns events across all runs, merging all five event tables.
+// ListAllEvents returns events across all runs, merging all six event tables.
 // Per-source sub-limits ensure each source is represented regardless of volume.
 // Polling callers must loop until fewer than limit rows are returned.
-func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceCoordinationID, sinceReviewID int64, limit int) ([]Event, error) {
+func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID, sinceDiscoveryID, sinceCoordinationID, sinceReviewID, sinceInterspectID int64, limit int) ([]Event, error) {
 	if limit <= 0 {
 		limit = 1000
 	}
 
-	perSource := perSourceLimit(limit, 5)
+	perSource := perSourceLimit(limit, 6)
 
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
@@ -226,6 +256,16 @@ func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID
 			ORDER BY created_at ASC, id ASC
 			LIMIT ?
 		)
+		UNION ALL
+		SELECT id, run_id, source, event_type, from_state, to_state, reason, envelope_json, created_at FROM (
+			SELECT id, COALESCE(run_id, '') AS run_id, 'interspect' AS source, event_type,
+				agent_name AS from_state, '' AS to_state, COALESCE(override_reason, '') AS reason,
+				COALESCE(context_json, '') AS envelope_json, created_at
+			FROM interspect_events
+			WHERE id > ?
+			ORDER BY created_at ASC, id ASC
+			LIMIT ?
+		)
 		ORDER BY created_at ASC, source ASC, id ASC
 		LIMIT ?`,
 		sincePhaseID, perSource,
@@ -233,6 +273,7 @@ func (s *Store) ListAllEvents(ctx context.Context, sincePhaseID, sinceDispatchID
 		sinceDiscoveryID, perSource,
 		sinceCoordinationID, perSource,
 		sinceReviewID, perSource,
+		sinceInterspectID, perSource,
 		limit,
 	)
 	if err != nil {

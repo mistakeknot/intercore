@@ -332,6 +332,11 @@ intercore_lock() {
         # Exit 2+ = binary error — fall through to legacy
     fi
     # Fallback: direct mkdir with minimal owner.json for ic lock clean visibility
+    # SEMANTICS NOTE: unlike the Go path (internal/lock), this fallback NEVER
+    # breaks stale locks in acquire — it retries ~1s then returns contention.
+    # Stale fallback locks are reclaimed only by intercore_lock_clean, which
+    # removes by mtime alone (no PID-liveness check — keep max_age generous).
+    # The Go acquire path breaks stale locks only when the owner PID is dead.
     local lock_dir="/tmp/intercore/locks/${name}/${scope}"
     mkdir -p "$(dirname "$lock_dir")" 2>/dev/null || true
     local retries=0 max_retries=10

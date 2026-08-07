@@ -215,7 +215,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 	var bq phase.BudgetQuerier
 	if run.BudgetEnforce {
 		sStore := state.New(d.SqlDB())
-		checker := budget.New(store, dStore, sStore, nil)
+		checker := budget.New(store, dStore, sStore, newBudgetRecorder(d.SqlDB()))
 		bq = &cliBudgetQuerier{checker: checker}
 	}
 
@@ -581,7 +581,7 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 
 	pStore := phase.New(d.SqlDB())
 	rtStore := runtrack.New(d.SqlDB())
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 
 	// Get current state for dry-run and validation
 	run, err := pStore.Get(ctx, runID)

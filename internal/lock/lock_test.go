@@ -87,12 +87,12 @@ func TestAcquireContention(t *testing.T) {
 	m.Release(ctx, "mutex", "s1", "b:host")
 }
 
-func TestStaleBreaking(t *testing.T) {
+func TestStaleBreakingDeadPID(t *testing.T) {
 	m := setupTestManager(t)
 	ctx := context.Background()
 
-	// Acquire a lock.
-	err := m.Acquire(ctx, "stale", "s1", "old:host", time.Second)
+	// Acquire a lock owned by a (very likely dead) PID.
+	err := m.Acquire(ctx, "stale", "s1", "99999:host", time.Second)
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -102,15 +102,47 @@ func TestStaleBreaking(t *testing.T) {
 	of := ownerFilePath(ld)
 	meta, _ := readOwnerFile(of)
 	meta.Created = time.Now().Add(-10 * time.Second).Unix()
+	meta.PID = 99999
 	data, _ := json.Marshal(meta)
 	os.WriteFile(of, data, 0600)
 
-	// Second acquire should break the stale lock and succeed.
+	// Second acquire should break the stale lock (dead owner) and succeed.
 	err = m.Acquire(ctx, "stale", "s1", "new:host", time.Second)
 	if err != nil {
 		t.Fatalf("acquire stale: %v", err)
 	}
 	m.Release(ctx, "stale", "s1", "new:host")
+}
+
+func TestStaleLockLivePIDNotBroken(t *testing.T) {
+	m := setupTestManager(t)
+	ctx := context.Background()
+
+	// Acquire a lock owned by the current (alive) test process.
+	owner := fmt.Sprintf("%d:host", os.Getpid())
+	err := m.Acquire(ctx, "live", "s1", owner, time.Second)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	// Backdate owner.json past StaleAge — the lock is stale by AGE only.
+	ld, _ := m.lockDir("live", "s1")
+	of := ownerFilePath(ld)
+	meta, _ := readOwnerFile(of)
+	meta.Created = time.Now().Add(-10 * time.Second).Unix()
+	data, _ := json.Marshal(meta)
+	os.WriteFile(of, data, 0600)
+
+	// A contender must NOT break it: the owner process is alive.
+	err = m.Acquire(ctx, "live", "s1", "new:host", 300*time.Millisecond)
+	if !errors.Is(err, ErrTimeout) {
+		t.Errorf("acquire over live-owner stale-aged lock = %v, want ErrTimeout", err)
+	}
+
+	// The original owner can still release — it never lost the lock.
+	if err := m.Release(ctx, "live", "s1", owner); err != nil {
+		t.Fatalf("release by live owner: %v", err)
+	}
 }
 
 func TestReleaseOwnerVerification(t *testing.T) {

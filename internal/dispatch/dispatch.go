@@ -234,7 +234,9 @@ var allowedUpdateCols = map[string]bool{
 }
 
 // UpdateStatus transitions a dispatch to a new status with optional field updates.
-// Records a dispatch event in the same transaction when an event recorder is set.
+// When an event recorder is set, it fires AFTER the transition commits —
+// post-commit, fire-and-forget. A crash between commit and recorder loses
+// the event; the dispatches row remains the source of truth.
 func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields UpdateFields) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -470,9 +472,42 @@ func (s *Store) CountUncleanVerdicts(ctx context.Context, scopeID string) (int, 
 // CancelByRun marks all non-terminal dispatches as cancelled for a run.
 // Dispatches are scoped to runs via scope_id = run_id.
 // Returns the number of dispatches cancelled.
+// When an event recorder is set, one dispatch_transition event fires per
+// cancelled dispatch — post-commit, fire-and-forget (same semantics as
+// UpdateStatus). Cancellation is the most irreversible dispatch transition;
+// it must not be the only unreachable one.
 func (s *Store) CancelByRun(ctx context.Context, runID string) (int64, error) {
 	now := time.Now().Unix()
-	result, err := s.db.ExecContext(ctx, `
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("cancel dispatches for rollback: begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Capture candidates inside the transaction so each cancellation can be
+	// witnessed by an event with its true previous status.
+	type transition struct{ id, prev string }
+	var transitions []transition
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, status FROM dispatches
+		WHERE scope_id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'timeout')`,
+		runID,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("cancel dispatches for rollback: read: %w", err)
+	}
+	for rows.Next() {
+		var tr transition
+		if err := rows.Scan(&tr.id, &tr.prev); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("cancel dispatches for rollback: scan: %w", err)
+		}
+		transitions = append(transitions, tr)
+	}
+	rows.Close()
+
+	result, err := tx.ExecContext(ctx, `
 		UPDATE dispatches SET status = ?, completed_at = ?
 		WHERE scope_id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'timeout')`,
 		StatusCancelled, now, runID,
@@ -483,6 +518,17 @@ func (s *Store) CancelByRun(ctx context.Context, runID string) (int64, error) {
 	n, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("cancel dispatches for rollback: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("cancel dispatches for rollback: commit: %w", err)
+	}
+
+	// Fire recorder after commit (fire-and-forget) — never blocks the cancel.
+	if s.eventRecorder != nil {
+		for _, tr := range transitions {
+			s.eventRecorder(tr.id, runID, tr.prev, StatusCancelled)
+		}
 	}
 	return n, nil
 }

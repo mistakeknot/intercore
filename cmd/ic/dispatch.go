@@ -142,7 +142,7 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 		}
 	}
 
-	store := dispatch.New(d.SqlDB(), nil)
+	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	result, err := dispatch.Spawn(ctx, store, opts)
 	if err != nil {
 		slog.Error("dispatch spawn failed", "error", err)
@@ -173,7 +173,7 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB(), nil)
+	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	disp, err := store.Get(ctx, args[0])
 	if err != nil {
 		if err == dispatch.ErrNotFound {
@@ -204,7 +204,7 @@ func cmdDispatchList(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB(), nil)
+	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	var dispatches []*dispatch.Dispatch
 
 	if activeOnly {
@@ -248,7 +248,7 @@ func cmdDispatchPoll(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB(), nil)
+	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	disp, err := dispatch.Poll(ctx, store, args[0])
 	if err != nil {
 		if err == dispatch.ErrNotFound {
@@ -295,7 +295,7 @@ func cmdDispatchWait(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB(), nil)
+	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	disp, err := dispatch.Wait(ctx, store, id, pollInterval, timeout)
 	if err != nil {
 		if err == dispatch.ErrNotFound {
@@ -331,7 +331,7 @@ func cmdDispatchKill(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB(), nil)
+	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	if err := dispatch.Kill(ctx, store, args[0]); err != nil {
 		if err == dispatch.ErrNotFound {
 			slog.Error("dispatch kill: not found", "id", args[0])
@@ -366,7 +366,7 @@ func cmdDispatchPrune(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	store := dispatch.New(d.SqlDB(), nil)
+	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	count, err := store.Prune(ctx, dur)
 	if err != nil {
 		slog.Error("dispatch prune failed", "error", err)
@@ -426,7 +426,7 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	if err := dStore.UpdateTokens(ctx, id, fields); err != nil {
 		if err == dispatch.ErrNotFound {
 			slog.Error("dispatch tokens: not found", "id", id)
@@ -440,7 +440,7 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 	if disp, err := dStore.Get(ctx, id); err == nil && disp.ScopeID != nil {
 		pStore := phase.New(d.SqlDB())
 		sStore := state.New(d.SqlDB())
-		checker := budget.New(pStore, dStore, sStore, nil)
+		checker := budget.New(pStore, dStore, sStore, newBudgetRecorder(d.SqlDB()))
 		result, err := checker.Check(ctx, *disp.ScopeID)
 		if err != nil {
 			slog.Debug("budget: check", "error", err)
@@ -488,7 +488,7 @@ func cmdDispatchRetry(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 
 	if !escalate {
 		result, err := dispatch.Retry(ctx, dStore, id, dispatch.DefaultRetryPolicy())

@@ -48,7 +48,7 @@ func cmdSituationSnapshot(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	pStore := phase.New(d.SqlDB())
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	eStore := event.NewStore(d.SqlDB())
 	sStore := scheduler.NewStore(d.SqlDB())
 

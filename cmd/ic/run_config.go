@@ -369,7 +369,7 @@ func cmdRunTokens(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	agg, err := dStore.AggregateTokens(ctx, runID)
 	if err != nil {
 		slog.Error("run tokens failed", "error", err)
@@ -422,10 +422,10 @@ func cmdRunBudget(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	pStore := phase.New(d.SqlDB())
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	sStore := state.New(d.SqlDB())
 
-	checker := budget.New(pStore, dStore, sStore, nil)
+	checker := budget.New(pStore, dStore, sStore, newBudgetRecorder(d.SqlDB()))
 	result, err := checker.Check(ctx, runID)
 	if err != nil {
 		slog.Error("run budget failed", "error", err)

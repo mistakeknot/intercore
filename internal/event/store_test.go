@@ -80,7 +80,7 @@ func TestAddDispatchEvent_DefaultEnvelope(t *testing.T) {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
 
-	events, err := store.ListEvents(ctx, "run-env", 0, 0, 0, 0, 10)
+	events, err := store.ListEvents(ctx, "run-env", 0, 0, 0, 0, 0, 10)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestListEvents_MergesPhaseAndDispatch(t *testing.T) {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
 
-	events, err := store.ListEvents(ctx, "run001", 0, 0, 0, 0, 100)
+	events, err := store.ListEvents(ctx, "run001", 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestListEvents_CausalReconstructionByTraceID(t *testing.T) {
 		t.Fatalf("AddDispatchEvent: %v", err)
 	}
 
-	events, err := store.ListEvents(ctx, runID, 0, 0, 0, 0, 100)
+	events, err := store.ListEvents(ctx, runID, 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestListEvents_SinceFiltering(t *testing.T) {
 	}
 
 	// Get all first
-	all, err := store.ListEvents(ctx, "run002", 0, 0, 0, 0, 100)
+	all, err := store.ListEvents(ctx, "run002", 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestListEvents_SinceFiltering(t *testing.T) {
 	}
 
 	// Get since first event — should return 2
-	filtered, err := store.ListEvents(ctx, "run002", all[0].ID, 0, 0, 0, 100)
+	filtered, err := store.ListEvents(ctx, "run002", all[0].ID, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents filtered: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestListEvents_DualCursorsIndependent(t *testing.T) {
 
 	// Advance dispatch cursor past both dispatch events, but leave phase cursor at 0
 	// This should still return both phase events
-	events, err := store.ListEvents(ctx, "run003", 0, 100, 0, 0, 100)
+	events, err := store.ListEvents(ctx, "run003", 0, 100, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestListAllEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +337,7 @@ func TestListEvents_ExcludesDiscovery(t *testing.T) {
 	}
 
 	// Run-scoped ListEvents should NOT include discovery events
-	events, err := store.ListEvents(ctx, "runExcl", 0, 0, 0, 0, 100)
+	events, err := store.ListEvents(ctx, "runExcl", 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestListAllEvents_IncludesDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 100)
+	events, err := store.ListAllEvents(ctx, 0, 0, 0, 0, 0, 0, 100)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -896,7 +896,7 @@ func TestListEvents_PerSourceRepresentation(t *testing.T) {
 	}
 
 	// List with limit=20 — both sources should be represented
-	events, err := store.ListEvents(ctx, "run-nucleation", 0, 0, 0, 0, 20)
+	events, err := store.ListEvents(ctx, "run-nucleation", 0, 0, 0, 0, 0, 20)
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -917,14 +917,14 @@ func TestListEvents_PerSourceRepresentation(t *testing.T) {
 		t.Error("expected coordination events")
 	}
 
-	// Phase should have exactly 5 (perSourceLimit(20,4)=5, and we inserted 5)
-	if sources["phase"] != 5 {
-		t.Errorf("phase events = %d, want 5", sources["phase"])
+	// Phase should have exactly 4 (perSourceLimit(20,5)=4 — 5 sources incl. interspect)
+	if sources["phase"] != 4 {
+		t.Errorf("phase events = %d, want 4", sources["phase"])
 	}
 
-	// Coordination capped at perSource=5 (out of 100 available)
-	if sources["coordination"] > 5 {
-		t.Errorf("coordination events %d exceeds per-source limit of 5", sources["coordination"])
+	// Coordination capped at perSource=4 (out of 100 available)
+	if sources["coordination"] > 4 {
+		t.Errorf("coordination events %d exceeds per-source limit of 4", sources["coordination"])
 	}
 
 	t.Logf("sources: %v (total: %d)", sources, len(events))
@@ -946,7 +946,7 @@ func TestListEvents_EdgeCases(t *testing.T) {
 	}
 
 	// limit=1: perSourceLimit(1,4)=1, outer limit=1
-	events, err := store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 1)
+	events, err := store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 0, 1)
 	if err != nil {
 		t.Fatalf("ListEvents limit=1: %v", err)
 	}
@@ -955,7 +955,7 @@ func TestListEvents_EdgeCases(t *testing.T) {
 	}
 
 	// limit > total: should return all 2
-	events, err = store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 200)
+	events, err = store.ListEvents(ctx, "run-edge", 0, 0, 0, 0, 0, 200)
 	if err != nil {
 		t.Fatalf("ListEvents limit=200: %v", err)
 	}

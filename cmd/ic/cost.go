@@ -128,7 +128,7 @@ func cmdCostReconcile(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	eStore := event.NewStore(d.SqlDB())
 	rStore := budget.NewReconcileStore(d.SqlDB(), dStore)
 
@@ -204,7 +204,7 @@ func cmdCostList(ctx context.Context, args []string) int {
 	}
 	defer d.Close()
 
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	rStore := budget.NewReconcileStore(d.SqlDB(), dStore)
 
 	recs, err := rStore.List(ctx, runID, limit)

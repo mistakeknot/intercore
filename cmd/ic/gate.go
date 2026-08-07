@@ -63,7 +63,7 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 
 	store := phase.New(d.SqlDB())
 	rtStore := runtrack.New(d.SqlDB())
-	dStore := dispatch.New(d.SqlDB(), nil)
+	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	depStore := portfolio.NewDepStore(d.SqlDB())
 
 	// Budget querier: check if run has budget enforcement
@@ -71,7 +71,7 @@ func cmdGateCheck(ctx context.Context, args []string) int {
 	run, runErr := store.Get(ctx, runID)
 	if runErr == nil && run.BudgetEnforce {
 		sStore := state.New(d.SqlDB())
-		checker := budget.New(store, dStore, sStore, nil)
+		checker := budget.New(store, dStore, sStore, newBudgetRecorder(d.SqlDB()))
 		bq = &cliBudgetQuerier{checker: checker}
 	}
 

@@ -339,7 +339,15 @@ func (m *Manager) tryBreakStale(ld string) bool {
 		return false // Not stale yet.
 	}
 
-	// Stale lock — attempt to break atomically.
+	// PID-liveness check: a stale-aged lock whose owner process is still
+	// running is a live lock — age alone never justifies breaking it.
+	// Same policy as Clean (lock.go:270); without this, any holder longer
+	// than StaleAge loses mutual exclusion.
+	if meta.PID > 0 && pidAlive(meta.PID) {
+		return false
+	}
+
+	// Stale lock with a dead (or unknown) owner — attempt to break atomically.
 	// Rename owner.json to a unique temp name; only one goroutine succeeds.
 	breaking := of + fmt.Sprintf(".breaking.%d", time.Now().UnixNano())
 	if err := os.Rename(of, breaking); err != nil {

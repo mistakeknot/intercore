@@ -55,7 +55,7 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 	allRuns := f.Bool("all")
 	consumer := f.String("consumer", "")
 
-	var sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview int64
+	var sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview, sinceCoordination int64
 	var err error
 
 	sincePhase, err = f.Int64("since-phase", 0)
@@ -76,6 +76,11 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 	sinceReview, err = f.Int64("since-review", 0)
 	if err != nil {
 		slog.Error("events tail: invalid --since-review", "value", f.String("since-review", ""))
+		return 3
+	}
+	sinceCoordination, err = f.Int64("since-coordination", 0)
+	if err != nil {
+		slog.Error("events tail: invalid --since-coordination", "value", f.String("since-coordination", ""))
 		return 3
 	}
 
@@ -112,8 +117,8 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 	stStore := state.New(d.SqlDB())
 
 	// Restore cursor if consumer is named
-	if consumer != "" && sincePhase == 0 && sinceDispatch == 0 && sinceDiscovery == 0 && sinceReview == 0 {
-		sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview = loadCursor(ctx, stStore, consumer, runID)
+	if consumer != "" && sincePhase == 0 && sinceDispatch == 0 && sinceDiscovery == 0 && sinceReview == 0 && sinceCoordination == 0 {
+		sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview, sinceCoordination = loadCursor(ctx, stStore, consumer, runID)
 	}
 
 	enc := json.NewEncoder(os.Stdout)
@@ -123,9 +128,9 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 		var err error
 
 		if allRuns || runID == "" {
-			events, err = evStore.ListAllEvents(ctx, sincePhase, sinceDispatch, sinceDiscovery, 0, sinceReview, limit)
+			events, err = evStore.ListAllEvents(ctx, sincePhase, sinceDispatch, sinceDiscovery, sinceCoordination, sinceReview, sinceInterspect, limit)
 		} else {
-			events, err = evStore.ListEvents(ctx, runID, sincePhase, sinceDispatch, 0, sinceReview, limit)
+			events, err = evStore.ListEvents(ctx, runID, sincePhase, sinceDispatch, sinceCoordination, sinceReview, sinceInterspect, limit)
 		}
 		if err != nil {
 			slog.Error("events tail failed", "error", err)
@@ -152,11 +157,17 @@ func cmdEventsTail(ctx context.Context, args []string) int {
 			if e.Source == event.SourceReview && e.ID > sinceReview {
 				sinceReview = e.ID
 			}
+			if e.Source == event.SourceCoordination && e.ID > sinceCoordination {
+				sinceCoordination = e.ID
+			}
+			if e.Source == event.SourceInterspect && e.ID > sinceInterspect {
+				sinceInterspect = e.ID
+			}
 		}
 
 		// Save cursor after each batch (skip on encode error to avoid advancing past undelivered events)
 		if consumer != "" && len(events) > 0 && !encodeErr {
-			saveCursor(ctx, stStore, consumer, runID, sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview)
+			saveCursor(ctx, stStore, consumer, runID, sincePhase, sinceDispatch, sinceInterspect, sinceDiscovery, sinceReview, sinceCoordination)
 		}
 
 		if encodeErr {
@@ -270,7 +281,7 @@ func cmdEventsCursorRegister(ctx context.Context, args []string) int {
 		ttl = 0
 	}
 
-	payload := `{"phase":0,"dispatch":0,"interspect":0,"discovery":0,"review":0}`
+	payload := `{"phase":0,"dispatch":0,"interspect":0,"discovery":0,"review":0,"coordination":0}`
 	if err := stStore.Set(ctx, "cursor", consumer, json.RawMessage(payload), ttl); err != nil {
 		slog.Error("events cursor register failed", "error", err)
 		return 2
@@ -709,35 +720,36 @@ func recordIntent(ctx context.Context, evStore *event.Store, eventType, payloadJ
 
 // --- cursor helpers ---
 
-func loadCursor(ctx context.Context, store *state.Store, consumer, scope string) (phase, dispatch, interspect, discovery, review int64) {
+func loadCursor(ctx context.Context, store *state.Store, consumer, scope string) (phase, dispatch, interspect, discovery, review, coordination int64) {
 	key := consumer
 	if scope != "" {
 		key = consumer + ":" + scope
 	}
 	payload, err := store.Get(ctx, "cursor", key)
 	if err != nil {
-		return 0, 0, 0, 0, 0
+		return 0, 0, 0, 0, 0, 0
 	}
 
 	var cursor struct {
-		Phase      int64 `json:"phase"`
-		Dispatch   int64 `json:"dispatch"`
-		Interspect int64 `json:"interspect"`
-		Discovery  int64 `json:"discovery"`
-		Review     int64 `json:"review"`
+		Phase        int64 `json:"phase"`
+		Dispatch     int64 `json:"dispatch"`
+		Interspect   int64 `json:"interspect"`
+		Discovery    int64 `json:"discovery"`
+		Review       int64 `json:"review"`
+		Coordination int64 `json:"coordination"`
 	}
 	if err := json.Unmarshal(payload, &cursor); err != nil {
-		return 0, 0, 0, 0, 0
+		return 0, 0, 0, 0, 0, 0
 	}
-	return cursor.Phase, cursor.Dispatch, cursor.Interspect, cursor.Discovery, cursor.Review
+	return cursor.Phase, cursor.Dispatch, cursor.Interspect, cursor.Discovery, cursor.Review, cursor.Coordination
 }
 
-func saveCursor(ctx context.Context, store *state.Store, consumer, scope string, phaseID, dispatchID, interspectID, discoveryID, reviewID int64) {
+func saveCursor(ctx context.Context, store *state.Store, consumer, scope string, phaseID, dispatchID, interspectID, discoveryID, reviewID, coordinationID int64) {
 	key := consumer
 	if scope != "" {
 		key = consumer + ":" + scope
 	}
-	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d,"interspect":%d,"discovery":%d,"review":%d}`, phaseID, dispatchID, interspectID, discoveryID, reviewID)
+	payload := fmt.Sprintf(`{"phase":%d,"dispatch":%d,"interspect":%d,"discovery":%d,"review":%d,"coordination":%d}`, phaseID, dispatchID, interspectID, discoveryID, reviewID, coordinationID)
 	// Use existing TTL if cursor was registered as durable; otherwise default 24h
 	ttl := cursorTTL(ctx, store, key)
 	if err := store.Set(ctx, "cursor", key, json.RawMessage(payload), ttl); err != nil {
