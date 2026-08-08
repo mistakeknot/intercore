@@ -18,6 +18,20 @@ func GitStatus(dir string) (clean bool, err error) {
 	return len(bytes.TrimSpace(out)) == 0, nil
 }
 
+// GitShowFile returns a tracked file's contents as committed at HEAD.
+// relPath is relative to the repository root, not to the caller's directory.
+func GitShowFile(dir, relPath string) ([]byte, error) {
+	cmd := exec.Command("git", "-C", dir, "show", "HEAD:"+relPath)
+	var out, stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("git show HEAD:%s: %s: %w",
+			relPath, strings.TrimSpace(stderr.String()), err)
+	}
+	return out.Bytes(), nil
+}
+
 // GitRemoteReachable checks if the origin remote is accessible.
 func GitRemoteReachable(dir string) error {
 	cmd := exec.Command("git", "-C", dir, "ls-remote", "--exit-code", "origin", "HEAD")

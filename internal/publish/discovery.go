@@ -7,6 +7,54 @@ import (
 	"path/filepath"
 )
 
+// ReadPluginVersionAtHEAD returns the version in plugin.json as COMMITTED at
+// HEAD, which is not necessarily the version in the worktree.
+//
+// The difference is the whole point: a bump that was written but never committed
+// makes the worktree say one thing and every clone say another, and a publish
+// driven off the worktree value advertises a version no commit contains.
+func ReadPluginVersionAtHEAD(pluginRoot string) (string, error) {
+	top, err := GitTopLevel(pluginRoot)
+	if err != nil {
+		return "", err
+	}
+	abs, err := filepath.Abs(pluginRoot)
+	if err != nil {
+		return "", err
+	}
+	// git reports a symlink-resolved top level, so compare like with like. On
+	// macOS a temp dir is /var/... to the caller and /private/var/... to git;
+	// without this the relative path comes out as a pile of "..", which git
+	// rejects as outside the repository.
+	if resolved, rErr := filepath.EvalSymlinks(top); rErr == nil {
+		top = resolved
+	}
+	if resolved, rErr := filepath.EvalSymlinks(abs); rErr == nil {
+		abs = resolved
+	}
+	rel, err := filepath.Rel(top, abs)
+	if err != nil {
+		return "", err
+	}
+	// filepath.Join drops a leading "./" when the plugin root IS the repo root.
+	relManifest := filepath.Join(rel, ".claude-plugin", "plugin.json")
+
+	data, err := GitShowFile(pluginRoot, filepath.ToSlash(relManifest))
+	if err != nil {
+		return "", err
+	}
+	var raw struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return "", fmt.Errorf("parse committed plugin.json: %w", err)
+	}
+	if raw.Version == "" {
+		return "", fmt.Errorf("committed plugin.json: missing 'version' field")
+	}
+	return raw.Version, nil
+}
+
 // FindPluginRoot walks up from dir looking for .claude-plugin/plugin.json.
 // Returns the parent directory of .claude-plugin/ (the plugin root).
 func FindPluginRoot(dir string) (string, error) {

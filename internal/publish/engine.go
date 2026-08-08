@@ -235,6 +235,26 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 	}
 
+	if syncOnly {
+		// Sync-only rests on one premise: the bump is ALREADY COMMITTED and only
+		// the marketplace is behind. Nothing checked that premise, and the path is
+		// also reached by retrying a publish whose commit was rejected — where
+		// plugin.json is bumped in the worktree and no commit contains it. Syncing
+		// then advertises a version that exists nowhere in history, which is
+		// exactly the divergence publish-drift exists to detect. Verify instead of
+		// assuming; the validation block below is skipped on this path.
+		committed, cErr := ReadPluginVersionAtHEAD(pluginRoot)
+		if cErr != nil {
+			return fmt.Errorf("verify the bump is committed: %w", cErr)
+		}
+		if committed != targetVersion {
+			return fmt.Errorf(
+				"refusing to sync %s v%s: committed plugin.json is v%s, so the bump is not committed. "+
+					"Commit the version bump and any regenerated manifests, then re-run",
+				plugin.Name, targetVersion, committed)
+		}
+	}
+
 	var releaseDirtyFiles []string
 	if !syncOnly {
 		// Phase 2: Validation
@@ -364,6 +384,23 @@ func (e *Engine) Publish(ctx context.Context) error {
 			return err
 		}
 
+		// Generated manifests are derived FROM the version we just wrote, so they
+		// can only be rebuilt here — after the bump, before the commit. Leaving
+		// this out is not cosmetic. A monorepo pre-commit hook that enforces
+		// parity between plugin.json and its generated siblings rejects the
+		// version commit, the bump stays uncommitted, and the natural retry then
+		// takes the sync-only path below and publishes a marketplace version whose
+		// source bump was never committed. Observed on interrank 0.3.5,
+		// 2026-08-08: exit status 0, and the drift check caught it afterwards.
+		regenDirtyFiles, regenErr := RegenerateGeneratedManifests(pluginRoot, plugin.Name)
+		if regenErr != nil {
+			setError(PhaseBump, regenErr)
+			return fmt.Errorf("regenerate generated manifests: %w", regenErr)
+		}
+		if len(regenDirtyFiles) > 0 {
+			e.out("  Regenerated generated manifests\n")
+		}
+
 		// Phase 4: Commit plugin
 		setPhase(PhaseCommitPlugin)
 		e.out("  Committing plugin...\n")
@@ -379,6 +416,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 		// Include files modified by the post-bump hook
 		filesToAdd = append(filesToAdd, releaseDirtyFiles...)
 		filesToAdd = append(filesToAdd, hookDirtyFiles...)
+		filesToAdd = append(filesToAdd, regenDirtyFiles...)
 
 		if err := GitAdd(pluginRoot, filesToAdd...); err != nil {
 			setError(PhaseCommitPlugin, err)
@@ -525,17 +563,18 @@ func (e *Engine) Publish(ctx context.Context) error {
 	// session's load state — then run the post-release probe. A tripped
 	// probe is loud but non-fatal: the publish already happened; the canary
 	// and the rollback verb are the recovery path.
+	priorVersion := rollbackPriorVersion(mktVer, plugin.Version, targetVersion)
 	if err := RegisterCanary(ReleaseCanary{
 		Plugin:       plugin.Name,
 		Marketplace:  "interagency-marketplace",
 		Version:      targetVersion,
-		PriorVersion: plugin.Version,
+		PriorVersion: priorVersion,
 		PublishedAt:  time.Now().Unix(),
 		Status:       "pending",
 	}); err != nil {
 		e.out("  warning: release canary registration: %v\n", err)
 	} else {
-		e.out("  Release canary registered: %s v%s (prior v%s)\n", plugin.Name, targetVersion, plugin.Version)
+		e.out("  Release canary registered: %s v%s (prior v%s)\n", plugin.Name, targetVersion, priorVersion)
 	}
 	if issues := ProbeRelease(plugin.Name, "interagency-marketplace", targetVersion); len(issues) > 0 {
 		for _, is := range issues {
@@ -654,6 +693,71 @@ func RunPluginValidator(pluginRoot string) error {
 		output = strings.TrimSpace(stderr.String())
 	}
 	return fmt.Errorf("validate-plugin.sh found errors:\n%s", output)
+}
+
+// rollbackPriorVersion picks the version a rollback should return to: the one
+// the marketplace advertised BEFORE this publish.
+//
+// Not the local manifest's version. The two diverge on the sync-only path, where
+// plugin.json already holds the target: recording it there makes prior == current,
+// resolveRollbackTarget stops honouring the record, and the genuinely prior
+// version gets pruned as an orphan. Observed on interrank 0.3.5 (2026-08-08):
+// "prior v0.3.5" for a v0.3.5 release, and nothing retained to roll back to.
+//
+// Falls back to the local version only when the marketplace value is unusable —
+// unreadable, or already equal to the target — because a prior equal to the
+// current is the same as having no record at all.
+func rollbackPriorVersion(marketplaceVersion, localVersion, targetVersion string) string {
+	if marketplaceVersion != "" && marketplaceVersion != targetVersion {
+		return marketplaceVersion
+	}
+	return localVersion
+}
+
+// RegenerateGeneratedManifests rebuilds manifests the monorepo derives from
+// plugin.json, and returns the files it changed so the caller can stage them
+// with the version commit.
+//
+// Must be called AFTER the version is written: the generator reads the version
+// out of plugin.json, so running it earlier regenerates the old version and the
+// parity gate it exists to satisfy still rejects the commit.
+//
+// The generator runs with its working directory set to the monorepo root, not the
+// plugin directory. Its --root defaults to the working directory, and from a
+// plugin directory it finds no plugins and exits 0 — a silent no-op that looks
+// exactly like success.
+//
+// Returns nil when the monorepo has no such generator, so plugins that live
+// outside a monorepo publish unchanged.
+func RegenerateGeneratedManifests(pluginRoot, pluginName string) ([]string, error) {
+	script := findMonorepoScript(pluginRoot, filepath.Join("scripts", "gen-kimi-manifests.py"))
+	if script == "" {
+		return nil, nil // no generator in this tree — nothing to regenerate
+	}
+	monorepoRoot := filepath.Dir(filepath.Dir(script))
+
+	cmd := execCommand("python3", script, "--plugin", pluginName)
+	cmd.Dir = monorepoRoot
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		output := strings.TrimSpace(stderr.String())
+		if output == "" {
+			output = strings.TrimSpace(stdout.String())
+		}
+		return nil, fmt.Errorf("%s --plugin %s: %s: %w",
+			filepath.Base(script), pluginName, output, err)
+	}
+
+	// Unstaged changes only: the bump wrote plugin.json and its derived files but
+	// has not staged them either, so this list legitimately includes them. git add
+	// is idempotent, and a duplicate path is cheaper than a missing one.
+	dirty, err := GitDirtyFiles(pluginRoot)
+	if err != nil {
+		return nil, fmt.Errorf("list regenerated files: %w", err)
+	}
+	return dirty, nil
 }
 
 // findMonorepoScript walks up from a directory to find a script path relative to the monorepo root.
