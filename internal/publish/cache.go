@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -62,13 +64,14 @@ func ForceRebuildCache(pluginName, version, srcRoot string) error {
 // false positives (e.g. a file literally named .orphaned_at deep inside a
 // plugin's source tree) and are ignored.
 //
-// Returns the count of removed dirs and bytes freed.
-func CleanOrphans() (count int, bytesFreed int64, err error) {
+// Directories a running process is executing out of are kept regardless of
+// their marker, and reported in the returned PruneReport.
+func CleanOrphans() (PruneReport, error) {
 	root := CacheRoot()
 	if root == "" {
-		return 0, 0, fmt.Errorf("cannot determine cache root")
+		return PruneReport{}, fmt.Errorf("cannot determine cache root")
 	}
-	return cleanOrphansIn(root, 0)
+	return cleanOrphansIn(root, 0, RunningExecutables())
 }
 
 // CleanOrphansOlderThan removes marked orphans whose marker file is older
@@ -76,21 +79,46 @@ func CleanOrphans() (count int, bytesFreed int64, err error) {
 // is a deferred-deletion signal (a live session may still read hooks from the
 // dir), so the automatic path grants a grace window that the explicit
 // `ic publish clean` does not.
-func CleanOrphansOlderThan(minAge time.Duration) (count int, bytesFreed int64, err error) {
+//
+// THE GRACE WINDOW IS A PROXY, AND IT IS THE WRONG ONE. It asks how long ago a
+// version was superseded, when the question is whether anyone is still running
+// it — and those diverge exactly where it matters: a session open for weeks is
+// the likeliest holder AND the furthest outside any window. Measured on
+// Clavain 2026-08-14: `ic publish clean` (minAge 0, so no window at all)
+// unlinked intermux 0.1.11 while two servers were executing it. The marker age
+// stays as a backstop; liveness is now the evidence.
+func CleanOrphansOlderThan(minAge time.Duration) (PruneReport, error) {
 	root := CacheRoot()
 	if root == "" {
-		return 0, 0, fmt.Errorf("cannot determine cache root")
+		return PruneReport{}, fmt.Errorf("cannot determine cache root")
 	}
-	return cleanOrphansIn(root, minAge)
+	return cleanOrphansIn(root, minAge, RunningExecutables())
 }
 
 // cleanOrphansIn is the testable core of CleanOrphans/CleanOrphansOlderThan.
-// Takes an explicit root path so tests can use t.TempDir().
-func cleanOrphansIn(root string, minAge time.Duration) (count int, bytesFreed int64, err error) {
+// Takes an explicit root path and process table so tests can use t.TempDir()
+// and a synthetic fleet.
+func cleanOrphansIn(root string, minAge time.Duration, procs []ProcExe) (PruneReport, error) {
+	var report PruneReport
+
+	// Same rule as the version prune: an empty process table is a failed
+	// reading, not an idle machine, and deleting on that basis is the exact
+	// mistake this guard exists to prevent.
+	if len(procs) == 0 {
+		report.Blocked = "process table unreadable; declined to clean any orphaned directory"
+		return report, nil
+	}
+	held := heldVersionDirs(root, procs)
+	return cleanOrphansWalk(root, minAge, held, report)
+}
+
+// cleanOrphansWalk performs the marker walk itself.
+func cleanOrphansWalk(root string, minAge time.Duration, held map[string][]ProcExe,
+	report PruneReport) (PruneReport, error) {
 	rootDepth := strings.Count(root, string(os.PathSeparator))
 	expectedMarkerDepth := rootDepth + 4 // <root>/<marketplace>/<plugin>/<version>/.orphaned_at
 
-	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip inaccessible entries
 		}
@@ -104,6 +132,18 @@ func cleanOrphansIn(root string, minAge time.Duration) (count int, bytesFreed in
 			if strings.Contains(orphanDir, "temp_git_") {
 				return nil
 			}
+			// The interlock, ahead of the age test: a marked directory someone
+			// is executing is not deletable at any marker age, including the
+			// zero-grace path `ic publish clean` takes.
+			if holders := held[filepath.Clean(orphanDir)]; len(holders) > 0 {
+				report.Held = append(report.Held, HeldVersion{
+					Key:     CacheEntry{Path: orphanDir}.Key(),
+					Version: filepath.Base(orphanDir),
+					Path:    orphanDir,
+					Holders: holders,
+				})
+				return filepath.SkipDir
+			}
 			if minAge > 0 {
 				info, statErr := d.Info()
 				if statErr != nil || time.Since(info.ModTime()) < minAge {
@@ -114,13 +154,14 @@ func cleanOrphansIn(root string, minAge time.Duration) (count int, bytesFreed in
 			if err := os.RemoveAll(orphanDir); err != nil {
 				return nil // best effort
 			}
-			count++
-			bytesFreed += size
+			report.Pruned++
+			report.BytesFreed += size
 			return filepath.SkipDir
 		}
 		return nil
 	})
-	return count, bytesFreed, err
+	sortHeld(report.Held)
+	return report, err
 }
 
 // StripGitDirs removes .git/ directories from all cache entries.
@@ -155,11 +196,14 @@ func StripGitDirs() (count int, bytesFreed int64, err error) {
 // directories are skipped (orphans have their own cleanup). Plugins whose installed version
 // cannot be determined and have no marketplace record are skipped wholesale (Sylveste-0lt:
 // no ground truth means "touch nothing", never "delete everything").
-// Returns the number of directories removed and total bytes freed.
-func PruneStaleVersions(keep int) (count int, bytesFreed int64, err error) {
+// Version directories a running process is executing out of are kept
+// regardless, and reported in the returned PruneReport — `doctor --fix` reaches
+// this path, so leaving it unguarded would make the interlock bypassable
+// through the command whose whole job is to leave things healthy.
+func PruneStaleVersions(keep int) (PruneReport, error) {
 	entries, err := ListCacheEntries()
 	if err != nil {
-		return 0, 0, err
+		return PruneReport{}, err
 	}
 
 	// ListCacheEntries keys are bare plugin names (interagency-marketplace
@@ -177,16 +221,7 @@ func PruneStaleVersions(keep int) (count int, bytesFreed int64, err error) {
 		}
 	}
 
-	for _, c := range pruneCandidates(entries, installed, keep, protect) {
-		size := dirSize(c.Path)
-		if rmErr := os.RemoveAll(c.Path); rmErr != nil {
-			continue // best effort
-		}
-		count++
-		bytesFreed += size
-	}
-
-	return count, bytesFreed, nil
+	return pruneStaleVersions(CacheRoot(), entries, installed, keep, protect, RunningExecutables()), nil
 }
 
 // sortVersionsDesc sorts cache entries by version, newest first.
@@ -259,6 +294,18 @@ type CacheEntry struct {
 	IsSymlink   bool
 	Orphaned    bool
 	Marketplace string // empty for ListCacheEntries, populated by ListAllCacheEntries
+}
+
+// Key is the "<plugin>@<marketplace>" identity used throughout the prune — the
+// same shape as installed_plugins.json's keys.
+//
+// Derived from Path rather than from the struct's fields because Marketplace is
+// only populated by ListAllCacheEntries; the layout
+// <root>/<marketplace>/<plugin>/<version> holds for both walkers, so the path
+// is the one source that is always right.
+func (c CacheEntry) Key() string {
+	pluginDir := filepath.Dir(c.Path)
+	return filepath.Base(pluginDir) + "@" + filepath.Base(filepath.Dir(pluginDir))
 }
 
 // CacheRoot returns the parent directory of all marketplace caches.
@@ -388,20 +435,45 @@ func pruneCandidates(entries map[string][]CacheEntry, installed map[string]strin
 	return out
 }
 
+// HeldVersion is a stale version directory that was NOT deleted because live
+// processes are executing out of it.
+type HeldVersion struct {
+	Key     string // "<plugin>@<marketplace>"
+	Version string
+	Path    string
+	Holders []ProcExe
+}
+
+// PruneReport describes what a prune did and, as importantly, what it declined
+// to do. Skips are returned rather than merely logged: a prune that silently
+// frees less space than expected is indistinguishable from one that found
+// nothing, and the difference is the whole point of the liveness interlock.
+type PruneReport struct {
+	Pruned     int
+	BytesFreed int64
+	Held       []HeldVersion
+	// Blocked is non-empty when the prune declined to delete ANYTHING because
+	// it could not establish what is running.
+	Blocked string
+}
+
 // PruneStaleVersionsAcrossMarketplaces removes stale plugin versions from EVERY
 // marketplace cache, not just interagency-marketplace. For each plugin, keeps the
 // version listed in installed_plugins.json, anything in protect (the version a
 // publish just wrote), and the keep-1 most recent others. Plugins with no
 // installed record and no protect entry are left untouched (Sylveste-0lt).
-func PruneStaleVersionsAcrossMarketplaces(keep int, protect map[string]string) (count int, bytesFreed int64, err error) {
+//
+// Version directories that a running process is executing out of are kept
+// regardless of all of the above, and reported in the returned PruneReport.
+func PruneStaleVersionsAcrossMarketplaces(keep int, protect map[string]string) (PruneReport, error) {
 	entries, err := ListAllCacheEntries()
 	if err != nil {
-		return 0, 0, err
+		return PruneReport{}, err
 	}
 
 	ip, err := ReadInstalled()
 	if err != nil {
-		return 0, 0, err
+		return PruneReport{}, err
 	}
 	installed := make(map[string]string, len(ip.Plugins))
 	for key, rec := range ip.Plugins {
@@ -419,15 +491,83 @@ func PruneStaleVersionsAcrossMarketplaces(keep int, protect map[string]string) (
 		merged[k] = v
 	}
 
-	for _, c := range pruneCandidates(entries, installed, keep, merged) {
+	return pruneStaleVersions(CacheRoot(), entries, installed, keep, merged, RunningExecutables()), nil
+}
+
+// pruneStaleVersions is the injectable core: the caller supplies the cache
+// root, the walked entries, the installed map, and the process table, so the
+// whole decision — including the liveness interlock — is exercisable in a test
+// against the real code rather than a restatement of it.
+func pruneStaleVersions(root string, entries map[string][]CacheEntry, installed map[string]string,
+	keep int, protect map[string]string, procs []ProcExe) PruneReport {
+	var report PruneReport
+
+	// COULD NOT LOOK IS NOT NOTHING THERE. An empty process table is not a
+	// system with no processes — it is a system whose process table we failed
+	// to read, and treating the two alike is what would license deleting a
+	// directory in active use. Decline the whole prune and say so; disk space
+	// is recoverable on the next run, an unnameable running artifact is not.
+	if len(procs) == 0 {
+		report.Blocked = "process table unreadable; declined to prune anything"
+		return report
+	}
+
+	held := heldVersionDirs(root, procs)
+
+	for _, c := range pruneCandidates(entries, installed, keep, protect) {
+		// The liveness check is deliberately the LAST gate, after policy has
+		// already decided this version is stale. It is a safety interlock, not
+		// a rule about which versions matter: whatever the policy concludes, a
+		// directory someone is running is not deletable.
+		if holders := held[filepath.Clean(c.Path)]; len(holders) > 0 {
+			report.Held = append(report.Held, HeldVersion{
+				Key:     c.Key(),
+				Version: c.Version,
+				Path:    c.Path,
+				Holders: holders,
+			})
+			continue
+		}
 		size := dirSize(c.Path)
 		if rmErr := os.RemoveAll(c.Path); rmErr != nil {
 			continue
 		}
-		count++
-		bytesFreed += size
+		report.Pruned++
+		report.BytesFreed += size
 	}
-	return count, bytesFreed, nil
+	sortHeld(report.Held)
+	return report
+}
+
+// sortHeld gives the report a stable order so callers print the same thing
+// twice for the same state.
+func sortHeld(held []HeldVersion) {
+	sort.Slice(held, func(i, j int) bool {
+		if held[i].Key != held[j].Key {
+			return held[i].Key < held[j].Key
+		}
+		return held[i].Version < held[j].Version
+	})
+}
+
+// Summary renders a held version as "<plugin>@<marketplace> <version> (N
+// process(es): pid, pid, ...)", capped so a fleet of two dozen holders does not
+// bury the rest of a publish's output.
+func (h HeldVersion) Summary() string {
+	const maxPIDs = 5
+	pids := make([]string, 0, len(h.Holders))
+	for i, p := range h.Holders {
+		if i == maxPIDs {
+			pids = append(pids, fmt.Sprintf("+%d more", len(h.Holders)-maxPIDs))
+			break
+		}
+		pids = append(pids, strconv.Itoa(p.PID))
+	}
+	noun := "processes"
+	if len(h.Holders) == 1 {
+		noun = "process"
+	}
+	return fmt.Sprintf("%s %s (%d %s: %s)", h.Key, h.Version, len(h.Holders), noun, strings.Join(pids, ", "))
 }
 
 // PruneDanglingSymlinks removes version symlinks whose targets no longer

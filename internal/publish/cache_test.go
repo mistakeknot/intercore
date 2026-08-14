@@ -327,11 +327,16 @@ func TestCleanOrphansIn_GraceWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A process table with nothing inside the cache: liveness is known, and
+	// known-idle, so the grace window remains the deciding rule.
+	idle := []ProcExe{{PID: 1, Exe: "/sbin/launchd"}}
+
 	// Aged pass: only the old marker clears the 24h grace window.
-	count, _, err := cleanOrphansIn(root, 24*time.Hour)
+	aged, err := cleanOrphansIn(root, 24*time.Hour, idle)
 	if err != nil {
 		t.Fatalf("cleanOrphansIn(aged): %v", err)
 	}
+	count := aged.Pruned
 	if count != 1 {
 		t.Errorf("aged pass: expected 1 removal, got %d", count)
 	}
@@ -343,12 +348,12 @@ func TestCleanOrphansIn_GraceWindow(t *testing.T) {
 	}
 
 	// Unconditional pass (manual `ic publish clean`) removes the rest.
-	count, _, err = cleanOrphansIn(root, 0)
+	unconditional, err := cleanOrphansIn(root, 0, idle)
 	if err != nil {
 		t.Fatalf("cleanOrphansIn(0): %v", err)
 	}
-	if count != 1 {
-		t.Errorf("unconditional pass: expected 1 removal, got %d", count)
+	if unconditional.Pruned != 1 {
+		t.Errorf("unconditional pass: expected 1 removal, got %d", unconditional.Pruned)
 	}
 	if _, err := os.Stat(youngDir); !os.IsNotExist(err) {
 		t.Error("young orphan should be removed by unconditional pass")
