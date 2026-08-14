@@ -633,29 +633,70 @@ func danglingSymlinksIn(root string) ([]string, error) {
 
 // CountStaleAcrossMarketplaces reports the number of stale + orphaned cache entries
 // across every marketplace. Used by `ic publish clean --dry-run`.
-func CountStaleAcrossMarketplaces() (orphaned int, stale int, err error) {
+// A preview that counts a directory the real command will refuse to touch is
+// worse than no preview: it is the exact question ("is it safe to clean?")
+// answered wrongly. So the dry-run consults the process table too, and reports
+// held directories separately rather than folding them into the delete counts.
+func CountStaleAcrossMarketplaces() (orphaned int, stale int, held []HeldVersion, blocked string, err error) {
 	entries, err := ListAllCacheEntries()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, "", err
 	}
 	ip, err := ReadInstalled()
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, nil, "", err
 	}
-	for key, versions := range entries {
-		var installedVer string
-		if rec, ok := ip.Plugins[key]; ok && len(rec) > 0 {
-			installedVer = rec[0].Version
+
+	installed := make(map[string]string, len(ip.Plugins))
+	for key, rec := range ip.Plugins {
+		if len(rec) > 0 {
+			installed[key] = rec[0].Version
 		}
+	}
+
+	orphaned, stale, held, blocked = countStaleIn(CacheRoot(), entries, installed, RunningExecutables())
+	return orphaned, stale, held, blocked, nil
+}
+
+// countStaleIn is the testable core of CountStaleAcrossMarketplaces. Takes an
+// explicit root and process list so a test can drive both without a real cache
+// or a real process table.
+func countStaleIn(root string, entries map[string][]CacheEntry, installed map[string]string,
+	procs []ProcExe) (orphaned int, stale int, held []HeldVersion, blocked string) {
+
+	if len(procs) == 0 {
+		// Mirrors what the real clean does: an unreadable process table is a
+		// failed reading, not an idle machine, so nothing would be deleted.
+		blocked = "process table unreadable; a real clean would decline to prune anything"
+	}
+	heldDirs := heldVersionDirs(root, procs)
+
+	for key, versions := range entries {
+		installedVer := installed[key]
 		for _, v := range versions {
-			if v.Orphaned {
+			isOrphan := v.Orphaned
+			isStale := !v.IsSymlink && v.Version != installedVer
+			if !isOrphan && !isStale {
+				continue
+			}
+			if holders := heldDirs[filepath.Clean(v.Path)]; len(holders) > 0 {
+				held = append(held, HeldVersion{
+					Key:     v.Key(),
+					Version: v.Version,
+					Path:    v.Path,
+					Holders: holders,
+				})
+				continue
+			}
+			if isOrphan {
 				orphaned++
-			} else if !v.IsSymlink && v.Version != installedVer {
+			} else {
 				stale++
 			}
 		}
 	}
-	return orphaned, stale, nil
+	sortHeld(held)
+	return orphaned, stale, held, blocked
 }
 
 // ListCacheEntries returns all cached plugin versions grouped by plugin name.

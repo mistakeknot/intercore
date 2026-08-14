@@ -194,6 +194,88 @@ func TestCleanOrphans_KeepsMarkedDirectoryWithRunningProcess(t *testing.T) {
 	}
 }
 
+// The preview must not promise a deletion the real command will refuse. Shipped
+// without this, `--dry-run` counted held directories among the ones it "would
+// clean" — which is the wrong answer to the only question a dry-run is asked.
+// Fixture is the 2026-08-14 state on Clavain: intermux 0.1.13 installed, 0.1.12
+// marked orphaned by `claude plugin update` with six sessions still inside it.
+func TestCountStaleIn_ReportsHeldSeparatelyFromDeletable(t *testing.T) {
+	root := makeCacheTree(t, [][3]string{
+		{"interagency-marketplace", "intermux", "0.1.12"},     // orphaned AND held
+		{"interagency-marketplace", "intermux", "0.1.13"},     // installed
+		{"interagency-marketplace", "tldr-swinton", "0.7.18"}, // orphaned, nobody home
+		{"interagency-marketplace", "tldr-swinton", "0.7.19"}, // installed
+		{"claude-plugins-official", "vercel", "0.40.0"},       // stale, nobody home
+		{"claude-plugins-official", "vercel", "0.42.1"},       // installed
+	})
+	heldDir := filepath.Join(root, "interagency-marketplace", "intermux", "0.1.12")
+	idleOrphan := filepath.Join(root, "interagency-marketplace", "tldr-swinton", "0.7.18")
+	for _, d := range []string{heldDir, idleOrphan} {
+		if err := os.WriteFile(filepath.Join(d, ".orphaned_at"), []byte("1"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	entries, err := listAllCacheEntriesIn(root)
+	if err != nil {
+		t.Fatalf("listAllCacheEntriesIn: %v", err)
+	}
+	installed := map[string]string{
+		"intermux@interagency-marketplace":     "0.1.13",
+		"tldr-swinton@interagency-marketplace": "0.7.19",
+		"vercel@claude-plugins-official":       "0.42.1",
+	}
+
+	var procs []ProcExe
+	for _, pid := range []int{23010, 86616, 60460, 1623, 62684, 96059} {
+		procs = append(procs, ProcExe{PID: pid, Exe: filepath.Join(heldDir, "bin", "intermux-mcp")})
+	}
+
+	orphaned, stale, held, blocked := countStaleIn(root, entries, installed, procs)
+
+	if blocked != "" {
+		t.Errorf("blocked = %q, want empty: the process table was readable", blocked)
+	}
+	if orphaned != 1 {
+		t.Errorf("orphaned = %d, want 1 — the held 0.1.12 must NOT be counted as deletable", orphaned)
+	}
+	if stale != 1 {
+		t.Errorf("stale = %d, want 1 (vercel 0.40.0)", stale)
+	}
+	if len(held) != 1 {
+		t.Fatalf("held = %+v, want exactly one entry", held)
+	}
+	if held[0].Key != "intermux@interagency-marketplace" || held[0].Version != "0.1.12" {
+		t.Errorf("held = %s %s, want intermux@interagency-marketplace 0.1.12", held[0].Key, held[0].Version)
+	}
+	if len(held[0].Holders) != 6 {
+		t.Errorf("Holders = %d, want 6", len(held[0].Holders))
+	}
+	if !strings.Contains(held[0].Summary(), "23010") {
+		t.Errorf("Summary() = %q, must name pids to restart", held[0].Summary())
+	}
+}
+
+// An unreadable process table makes the preview's counts meaningless in the same
+// way it makes the real prune unsafe, so the dry-run says so rather than
+// printing numbers it cannot stand behind.
+func TestCountStaleIn_EmptyProcessTableReportsDeclineUpFront(t *testing.T) {
+	root := makeCacheTree(t, [][3]string{
+		{"interagency-marketplace", "intermux", "0.1.12"},
+		{"interagency-marketplace", "intermux", "0.1.13"},
+	})
+	entries, err := listAllCacheEntriesIn(root)
+	if err != nil {
+		t.Fatalf("listAllCacheEntriesIn: %v", err)
+	}
+	installed := map[string]string{"intermux@interagency-marketplace": "0.1.13"}
+
+	_, _, _, blocked := countStaleIn(root, entries, installed, nil)
+	if blocked == "" {
+		t.Error("empty process table must produce a decline notice, not a silent count")
+	}
+}
+
 func TestCleanOrphans_EmptyProcessTableDeclinesEntirely(t *testing.T) {
 	root := makeCacheTree(t, [][3]string{{"interagency-marketplace", "intermux", "0.1.11"}})
 	dir := filepath.Join(root, "interagency-marketplace", "intermux", "0.1.11")
