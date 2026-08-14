@@ -56,6 +56,9 @@
     "ParentRunID": {
       "type": "string"
     },
+    "GoalID": {
+      "type": "string"
+    },
     "MaxDispatches": {
       "type": "integer"
     },
@@ -112,6 +115,7 @@
     "TokenBudget",
     "BudgetWarnPct",
     "ParentRunID",
+    "GoalID",
     "MaxDispatches",
     "BudgetEnforce",
     "MaxAgents",
