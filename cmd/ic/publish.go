@@ -223,10 +223,19 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 
 	totalCount := 0
 
-	count, bytes, err := publish.CleanOrphans()
+	orphans, err := publish.CleanOrphans()
 	if err != nil {
 		slog.Error("publish clean: orphans failed", "error", err)
 	}
+	for _, h := range orphans.Held {
+		fmt.Printf("Kept in-use orphan: %s — restart those sessions to release it\n", h.Summary())
+		totalCount++
+	}
+	if orphans.Blocked != "" {
+		fmt.Printf("Declined to clean orphans: %s\n", orphans.Blocked)
+		totalCount++
+	}
+	count, bytes := orphans.Pruned, orphans.BytesFreed
 	if count > 0 {
 		fmt.Printf("Cleaned %d orphaned directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
 		totalCount += count
@@ -241,13 +250,25 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 		totalCount += count
 	}
 
-	count, bytes, err = publish.PruneStaleVersionsAcrossMarketplaces(1, nil)
+	report, err := publish.PruneStaleVersionsAcrossMarketplaces(1, nil)
 	if err != nil {
 		slog.Error("publish clean: stale versions failed", "error", err)
 	}
-	if count > 0 {
-		fmt.Printf("Pruned %d stale version directories (%.1f MB freed)\n", count, float64(bytes)/1024/1024)
-		totalCount += count
+	if report.Pruned > 0 {
+		fmt.Printf("Pruned %d stale version directories (%.1f MB freed)\n",
+			report.Pruned, float64(report.BytesFreed)/1024/1024)
+		totalCount += report.Pruned
+	}
+	// A version kept because something is running it is the most useful thing
+	// this command can say, so it is reported even when nothing was pruned —
+	// and it counts as output, so `clean` does not then claim "Cache is clean."
+	for _, h := range report.Held {
+		fmt.Printf("Kept in-use version: %s — restart those sessions to release it\n", h.Summary())
+		totalCount++
+	}
+	if report.Blocked != "" {
+		fmt.Printf("Declined to prune stale versions: %s\n", report.Blocked)
+		totalCount++
 	}
 
 	// Prune AFTER the version prune: removing stale dirs is what strands the

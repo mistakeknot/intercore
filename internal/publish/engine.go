@@ -521,22 +521,42 @@ func (e *Engine) Publish(ctx context.Context) error {
 	// we JUST published is passed as explicit protection: RefreshCCMarketplace
 	// above can rewrite installed_plugins.json concurrently, and the prune must
 	// not depend on that file to know this version is live (Sylveste-0lt).
-	if pruned, freed, err := PruneStaleVersionsAcrossMarketplaces(1, map[string]string{
+	if report, err := PruneStaleVersionsAcrossMarketplaces(1, map[string]string{
 		plugin.Name + "@interagency-marketplace": targetVersion,
 	}); err != nil {
 		e.out("  warning: stale version prune: %v\n", err)
-	} else if pruned > 0 {
-		e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n", pruned, float64(freed)/1024/1024)
+	} else {
+		if report.Pruned > 0 {
+			e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n",
+				report.Pruned, float64(report.BytesFreed)/1024/1024)
+		}
+		// Say what was kept and why. Silence here is what let a directory be
+		// deleted out from under 23 running servers without a word.
+		for _, h := range report.Held {
+			e.out("  Kept in-use version: %s — restart those sessions to release it\n", h.Summary())
+		}
+		if report.Blocked != "" {
+			e.out("  warning: stale version prune: %s\n", report.Blocked)
+		}
 	}
 
 	// The version prune skips dirs carrying an .orphaned_at marker, and until
 	// now nothing on the publish path ever removed them — they persisted until
 	// someone manually ran `ic publish clean`, tripping version-drift checks
 	// downstream. Clean them here once past the session-continuity grace window.
-	if cleaned, freed, err := CleanOrphansOlderThan(24 * time.Hour); err != nil {
+	if report, err := CleanOrphansOlderThan(24 * time.Hour); err != nil {
 		e.out("  warning: orphan clean: %v\n", err)
-	} else if cleaned > 0 {
-		e.out("  Cleaned %d orphaned cache dir(s) (%.1f MB freed)\n", cleaned, float64(freed)/1024/1024)
+	} else {
+		if report.Pruned > 0 {
+			e.out("  Cleaned %d orphaned cache dir(s) (%.1f MB freed)\n",
+				report.Pruned, float64(report.BytesFreed)/1024/1024)
+		}
+		for _, h := range report.Held {
+			e.out("  Kept in-use orphan: %s — restart those sessions to release it\n", h.Summary())
+		}
+		if report.Blocked != "" {
+			e.out("  warning: orphan clean: %s\n", report.Blocked)
+		}
 	}
 
 	// Bridge symlinks whose targets the prune already removed can never

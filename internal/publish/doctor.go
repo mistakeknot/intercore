@@ -349,12 +349,28 @@ func checkOrphanedCache(result *DoctorResult, opts DoctorOpts) {
 			Fix:      "clean orphaned dirs",
 		})
 		if opts.Fix {
-			count, bytes, _ := CleanOrphans()
-			if count > 0 {
+			report, _ := CleanOrphans()
+			if report.Pruned > 0 {
 				result.Findings = append(result.Findings, Finding{
 					Severity: "info",
 					Category: "cache",
-					Message:  fmt.Sprintf("cleaned %d orphaned dirs (%.1f MB freed)", count, float64(bytes)/1024/1024),
+					Message: fmt.Sprintf("cleaned %d orphaned dirs (%.1f MB freed)",
+						report.Pruned, float64(report.BytesFreed)/1024/1024),
+				})
+			}
+			for _, h := range report.Held {
+				result.Findings = append(result.Findings, Finding{
+					Severity: "warning",
+					Category: "cache",
+					Message:  fmt.Sprintf("kept in-use orphan: %s", h.Summary()),
+					Fix:      "restart those sessions, then re-run: ic publish clean",
+				})
+			}
+			if report.Blocked != "" {
+				result.Findings = append(result.Findings, Finding{
+					Severity: "warning",
+					Category: "cache",
+					Message:  "orphan clean declined: " + report.Blocked,
 				})
 			}
 		}
@@ -458,12 +474,31 @@ func checkStaleCacheVersions(result *DoctorResult, opts DoctorOpts) {
 			Fix:      "run: ic publish clean",
 		})
 		if opts.Fix {
-			count, bytes, _ := PruneStaleVersions(1)
-			if count > 0 {
+			report, _ := PruneStaleVersions(1)
+			if report.Pruned > 0 {
 				result.Findings = append(result.Findings, Finding{
 					Severity: "info",
 					Category: "cache",
-					Message:  fmt.Sprintf("pruned %d stale version(s) (%.1f MB freed)", count, float64(bytes)/1024/1024),
+					Message: fmt.Sprintf("pruned %d stale version(s) (%.1f MB freed)",
+						report.Pruned, float64(report.BytesFreed)/1024/1024),
+				})
+			}
+			// A version left in place because it is running is a finding in its
+			// own right: it is the one piece of cache state a --fix run cannot
+			// resolve, and it names exactly who can.
+			for _, h := range report.Held {
+				result.Findings = append(result.Findings, Finding{
+					Severity: "warning",
+					Category: "cache",
+					Message:  fmt.Sprintf("kept in-use version: %s", h.Summary()),
+					Fix:      "restart those sessions, then re-run: ic publish clean",
+				})
+			}
+			if report.Blocked != "" {
+				result.Findings = append(result.Findings, Finding{
+					Severity: "warning",
+					Category: "cache",
+					Message:  "stale version prune declined: " + report.Blocked,
 				})
 			}
 		}
