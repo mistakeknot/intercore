@@ -203,7 +203,7 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 	dryRun := f.Bool("dry-run")
 
 	if dryRun {
-		orphaned, stale, err := publish.CountStaleAcrossMarketplaces()
+		orphaned, stale, held, blocked, err := publish.CountStaleAcrossMarketplaces()
 		if err != nil {
 			slog.Error("publish clean failed", "error", err)
 			return 2
@@ -218,6 +218,14 @@ func cmdPublishClean(ctx context.Context, args []string) int {
 		fmt.Printf("  %d stale version directories\n", stale)
 		fmt.Printf("  %d dangling version symlinks\n", dangling)
 		fmt.Printf("  .git directories in cache entries\n")
+		// Printed after the counts so the preview and the real run agree about
+		// what will survive, not just about what will go.
+		for _, h := range held {
+			fmt.Printf("Would keep in-use: %s — restart those sessions to release it\n", h.Summary())
+		}
+		if blocked != "" {
+			fmt.Printf("Would decline: %s\n", blocked)
+		}
 		return 0
 	}
 
