@@ -22,7 +22,7 @@ ic version                                 # CLI + schema versions
 **Location:** `core/intercore/`
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
 **Schema:** v30 (31 tables, `PRAGMA user_version` tracked)
-**CLI version:** 0.3.3
+**CLI version:** 0.3.5
 
 ## Directory Layout
 
