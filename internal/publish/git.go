@@ -3,7 +3,9 @@ package publish
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -85,14 +87,73 @@ func GitCommit(dir, message string) error {
 }
 
 // GitPullRebase runs git pull --rebase to sync with remote.
+//
+// A failed pull aborts whatever rebase it started, so no caller inherits a
+// repository wedged mid-rebase (mk-pn74). This used to return the error and
+// walk away, leaving rebase state on disk that blocked every subsequent
+// publish until a human repaired the clone by hand -- and the operator had no
+// way to tell from the message that the tree had been left in that state.
+//
+// The error therefore says which happened. "The pull failed" and "the pull
+// failed and your repository is now mid-rebase" call for different responses,
+// so they must not read identically.
 func GitPullRebase(dir string) error {
 	cmd := exec.Command("git", "-C", dir, "pull", "--rebase")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git pull --rebase: %s: %w", stderr.String(), err)
+		return fmt.Errorf("git pull --rebase: %s: %w%s",
+			strings.TrimSpace(stderr.String()), err, abortAnyRebase(dir))
 	}
 	return nil
+}
+
+// abortAnyRebase restores dir when a rebase is in progress, returning a note to
+// append to the caller's error. It returns "" when there was nothing to abort,
+// so a pull that failed before starting a rebase -- no upstream, unreachable
+// remote, dirty tree -- never claims to have aborted one.
+func abortAnyRebase(dir string) string {
+	if !rebaseInProgress(dir) {
+		return ""
+	}
+	cmd := exec.Command("git", "-C", dir, "rebase", "--abort")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Sprintf(" [WARNING: %s is STILL mid-rebase, `git rebase --abort` failed: %s]",
+			dir, strings.TrimSpace(stderr.String()))
+	}
+	return fmt.Sprintf(" [rebase aborted; %s restored to its pre-pull state]", dir)
+}
+
+// rebaseInProgress reports whether dir has an interrupted rebase.
+//
+// Detection goes through `git rev-parse --git-path` rather than a hardcoded
+// .git/rebase-merge: inside a worktree .git is a FILE, and the rebase state
+// actually lives under the parent repository's .git/worktrees/<name>/. Guessing
+// the path would silently report "no rebase" for every worktree, which is the
+// same could-not-look-reported-as-not-there mistake this whole bead is about.
+func rebaseInProgress(dir string) bool {
+	for _, name := range []string{"rebase-merge", "rebase-apply"} {
+		cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-path", name)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = nil
+		if err := cmd.Run(); err != nil {
+			continue
+		}
+		p := strings.TrimSpace(out.String())
+		if p == "" {
+			continue
+		}
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(dir, p)
+		}
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // GitPush pushes to origin. Never forces, never amends.

@@ -3,6 +3,7 @@ package publish
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -184,6 +185,153 @@ func TestCheckCCMarketplaceSync_ErrorsFromEitherCwd(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- mk-pn74 (a): a push that could not land must be reported ---------------
+
+// gitMarketplaceClone returns a marketplace checkout backed by a real git repo
+// with a working bare origin, so push behaviour is exercised rather than assumed.
+func gitMarketplaceClone(t *testing.T, plugins ...pluginEntry) (clone, origin string) {
+	t.Helper()
+	clone = setupMarketplace(t, plugins...)
+	origin = newBareOrigin(t)
+	runGit(t, clone, "init", "-b", "main")
+	runGit(t, clone, "remote", "add", "origin", origin)
+	runGit(t, clone, "add", ".")
+	runGit(t, clone, "commit", "-m", "seed")
+	runGit(t, clone, "push", "-u", "origin", "main")
+	return clone, origin
+}
+
+// The silent failure. SyncPeerMarketplaces used to discard the return values of
+// GitAdd, GitCommit and GitPush, so a peer clone that could not publish its sync
+// commit kept it locally and reported nothing. That unpushed commit is what made
+// the NEXT publish from that clone start diverged -- and the divergence is what
+// conflicted on the version line and left a publish half-applied.
+//
+// The peer here is a real git repo with NO remote, so its push cannot succeed.
+// An error is the only correct outcome.
+func TestSyncPeerMarketplaces_ReportsAPushItCouldNotLand(t *testing.T) {
+	isolateHome(t)
+	src := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.300"})
+
+	peer := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.299"})
+	runGit(t, peer, "init", "-b", "main")
+	runGit(t, peer, "add", ".")
+	runGit(t, peer, "commit", "-m", "seed")
+
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+
+	err := SyncPeerMarketplaces(src, "clavain", "0.6.300")
+	if err == nil {
+		t.Fatal("the sync commit could not be pushed, yet SyncPeerMarketplaces " +
+			"reported success -- this is the mk-pn74 silent failure")
+	}
+	if !strings.Contains(err.Error(), peer) {
+		t.Errorf("error does not name the clone that failed, so an operator cannot act on it: %v", err)
+	}
+
+	// The state the silence used to hide: file written, commit made, nothing pushed.
+	if v, _ := ReadMarketplaceVersion(peer, "clavain"); v != "0.6.300" {
+		t.Errorf("peer file not updated: %q", v)
+	}
+	if got := gitOutput(t, peer, "log", "-1", "--pretty=%s"); !strings.Contains(got, "sync clavain to v0.6.300") {
+		t.Errorf("no sync commit in the peer clone: %q", got)
+	}
+}
+
+// Control. Without it, the test above would still pass if SyncPeerMarketplaces
+// had simply been changed to always return an error.
+func TestSyncPeerMarketplaces_QuietWhenThePushLands(t *testing.T) {
+	isolateHome(t)
+	src := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.300"})
+	peer, _ := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.299"})
+
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+
+	if err := SyncPeerMarketplaces(src, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("the push could land, but sync reported: %v", err)
+	}
+	if got := gitOutput(t, peer, "log", "origin/main", "-1", "--pretty=%s"); !strings.Contains(got, "sync clavain to v0.6.300") {
+		t.Errorf("commit never reached origin: %q", got)
+	}
+}
+
+// A marketplace that is a plain directory is fully synced by the file write.
+// Reporting git failures for it would turn every such clone into a permanent
+// warning, so the git steps are skipped rather than attempted-and-excused.
+func TestSyncPeerMarketplaces_PlainDirectoryIsNotAGitFailure(t *testing.T) {
+	isolateHome(t)
+	src := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.300"})
+	peer := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.299"}) // no git init
+
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+
+	if err := SyncPeerMarketplaces(src, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("non-git marketplace reported as a git failure: %v", err)
+	}
+	if v, _ := ReadMarketplaceVersion(peer, "clavain"); v != "0.6.300" {
+		t.Errorf("plain-directory clone not updated: %q", v)
+	}
+}
+
+// --- mk-pn74 (c): pull before writing, so the bump cannot conflict ----------
+
+// The reorder. A clone that is BEHIND its remote must be able to publish a
+// bump. Under the old write-commit-then-pull order this conflicted on the
+// version line every single time the clone was behind, because the replayed
+// commit edited the same line the fresh base had just changed.
+func TestUpdateMarketplaceAndPublish_FromACloneThatIsBehind(t *testing.T) {
+	isolateHome(t)
+	clone, origin := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.298"})
+
+	// Another machine publishes 0.6.299 first, so `clone` is now behind.
+	other := cloneOf(t, origin)
+	if err := UpdateMarketplaceVersion(other, "clavain", "0.6.299"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, other, "commit", "-am", "chore: bump clavain to v0.6.299")
+	runGit(t, other, "push", "origin", "main")
+
+	if err := UpdateMarketplaceAndPublish(clone, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("publishing from a behind clone: %v", err)
+	}
+	if rebaseInProgress(clone) {
+		t.Error("clone left mid-rebase")
+	}
+
+	// The bump reached origin ...
+	runGit(t, other, "pull", "--ff-only", "origin", "main")
+	if v, _ := ReadMarketplaceVersion(other, "clavain"); v != "0.6.300" {
+		t.Errorf("origin at %q, want 0.6.300", v)
+	}
+	// ... and the concurrent 0.6.299 publish was not run over on the way.
+	if log := gitOutput(t, other, "log", "--pretty=%s"); !strings.Contains(log, "bump clavain to v0.6.299") {
+		t.Errorf("the other machine's publish was lost: %s", log)
+	}
+}
+
+// Pulling first makes "someone already published this exact version" reachable
+// for the first time. That has to be a no-op: the write would change nothing
+// and the commit would fail as empty, turning a successful outcome into a hard
+// error. The reorder creates this case, so the reorder answers for it.
+func TestUpdateMarketplaceAndPublish_AlreadyAtTargetIsANoOp(t *testing.T) {
+	isolateHome(t)
+	clone, origin := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.298"})
+
+	other := cloneOf(t, origin)
+	if err := UpdateMarketplaceVersion(other, "clavain", "0.6.300"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, other, "commit", "-am", "chore: bump clavain to v0.6.300")
+	runGit(t, other, "push", "origin", "main")
+
+	if err := UpdateMarketplaceAndPublish(clone, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("republishing a version that already landed: %v", err)
+	}
+	if v, _ := ReadMarketplaceVersion(clone, "clavain"); v != "0.6.300" {
+		t.Errorf("clone at %q after the no-op sync", v)
 	}
 }
 
