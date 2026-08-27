@@ -467,6 +467,38 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 	return firstErr
 }
 
+// UpdateMarketplaceAndPublish brings marketRoot in step with its remote, then
+// writes the new version, commits it and pushes.
+//
+// The ORDER is the fix (mk-pn74). This sequence used to be write, commit, pull,
+// push -- and against a one-line version field that makes a conflict inevitable
+// whenever the clone is behind: the replayed commit edits `"version": X` while
+// the freshly pulled base already says `"version": Y`. Same line, every time.
+// Pulling first means the bump is computed from whatever the remote currently
+// says, so the rebase has nothing to disagree with.
+func UpdateMarketplaceAndPublish(marketRoot, pluginName, version string) error {
+	if err := GitPullRebase(marketRoot); err != nil {
+		return fmt.Errorf("pull --rebase (marketplace): %w", err)
+	}
+	// Re-read AFTER the pull. Pulling first is what makes "another machine
+	// already published this version" reachable, and in that case there is
+	// nothing to commit -- an empty commit would fail and turn a successful
+	// no-op into a hard error.
+	if have, err := ReadMarketplaceVersion(marketRoot, pluginName); err == nil && have == version {
+		return nil
+	}
+	if err := UpdateMarketplaceVersion(marketRoot, pluginName, version); err != nil {
+		return err
+	}
+	if err := GitAdd(marketRoot, filepath.Join(".claude-plugin", "marketplace.json")); err != nil {
+		return err
+	}
+	if err := GitCommit(marketRoot, fmt.Sprintf("chore: bump %s to v%s", pluginName, version)); err != nil {
+		return err
+	}
+	return GitPushGated(marketRoot)
+}
+
 // SyncCCMarketplace updates the CC marketplace checkout to match the monorepo.
 //
 // Deprecated: use SyncPeerMarketplaces. This is one-directional and returns
