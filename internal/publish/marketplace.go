@@ -424,16 +424,33 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 			}
 			continue
 		}
+		// Committing only means something in a git clone. A marketplace that is
+		// a plain directory is fully synced by the write below and must never be
+		// reported as a git failure.
+		isGit := isGitRepo(clone)
+
+		// Prefer fast-forwarding. By the time this runs the engine has ALREADY
+		// pushed the new version to origin, which leaves every peer clone
+		// exactly one commit behind -- so authoring a second commit here does
+		// not race the remote occasionally, it loses to it every single time.
+		// That guaranteed-rejected push is the divergence generator behind
+		// mk-pn74: when the peer is the Claude Code cache clone the subsequent
+		// re-clone hides the evidence, and when it is the monorepo clone the
+		// rejected commit simply stays, waiting to conflict on the next publish.
+		// Taking what origin already has cannot diverge.
+		if isGit && GitPullFFOnly(clone) == nil {
+			if now, err := ReadMarketplaceVersion(clone, pluginName); err == nil && now == version {
+				continue
+			}
+		}
+
 		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("update %s: %w", clone, err)
 			}
 			continue
 		}
-		// A clone that is not a git working copy has nothing to publish; writing
-		// the manifest above WAS the whole job. Absence of a repository is not a
-		// failed publish, so it is not reported as one.
-		if !isGitRepo(clone) {
+		if !isGit {
 			continue
 		}
 
