@@ -276,6 +276,41 @@ func TestSyncPeerMarketplaces_PlainDirectoryIsNotAGitFailure(t *testing.T) {
 	}
 }
 
+// A peer clone that shares the origin already has the new version waiting for
+// it: the engine pushes marketRoot BEFORE this runs. Fast-forwarding is the
+// whole job, and it must not author a second commit -- that commit is the
+// divergence generator, guaranteed-rejected rather than occasionally unlucky.
+//
+// Observed live while verifying this bead: publishing clavain 0.6.301 emitted
+// `! [rejected] main -> main (fetch first)` for the cache clone, on the very
+// first run.
+func TestSyncPeerMarketplaces_FastForwardsInsteadOfAuthoringACommit(t *testing.T) {
+	isolateHome(t)
+	src, origin := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.300"})
+	peer := cloneOf(t, origin)
+
+	// The engine's own push: origin now carries 0.6.301, so `peer` is behind.
+	if err := UpdateMarketplaceVersion(src, "clavain", "0.6.301"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, src, "commit", "-am", "chore: bump clavain to v0.6.301")
+	runGit(t, src, "push", "origin", "main")
+
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+
+	if err := SyncPeerMarketplaces(src, "clavain", "0.6.301"); err != nil {
+		t.Fatalf("peer could have fast-forwarded, but sync reported: %v", err)
+	}
+	if v, _ := ReadMarketplaceVersion(peer, "clavain"); v != "0.6.301" {
+		t.Errorf("peer at %q, want 0.6.301", v)
+	}
+	// The assertion that matters: no commit of our own, so nothing to diverge.
+	if ahead := gitOutput(t, peer, "log", "--oneline", "origin/main..HEAD"); ahead != "" {
+		t.Errorf("peer authored a commit instead of fast-forwarding, which is the "+
+			"divergence generator: %s", ahead)
+	}
+}
+
 // --- mk-pn74 (c): pull before writing, so the bump cannot conflict ----------
 
 // The reorder. A clone that is BEHIND its remote must be able to publish a

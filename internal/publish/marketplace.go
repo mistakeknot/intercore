@@ -424,14 +424,32 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 		if err != nil || have == version {
 			continue // plugin absent from this clone, or already in sync
 		}
+		// Committing only means something in a git clone. A marketplace that is
+		// a plain directory is fully synced by the write below and must never be
+		// reported as a git failure.
+		_, gitErr := GitTopLevel(clone)
+		isGit := gitErr == nil
+
+		// Prefer fast-forwarding. By the time this runs the engine has ALREADY
+		// pushed the new version to origin, which leaves every peer clone
+		// exactly one commit behind -- so authoring a second commit here does
+		// not race the remote occasionally, it loses to it every single time.
+		// That guaranteed-rejected push is the divergence generator behind
+		// mk-pn74: when the peer is the Claude Code cache clone the subsequent
+		// re-clone hides the evidence, and when it is the monorepo clone the
+		// rejected commit simply stays, waiting to conflict on the next publish.
+		// Taking what origin already has cannot diverge.
+		if isGit && GitPullFFOnly(clone) == nil {
+			if now, err := ReadMarketplaceVersion(clone, pluginName); err == nil && now == version {
+				continue
+			}
+		}
+
 		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
 			errs = append(errs, fmt.Errorf("update %s: %w", clone, err))
 			continue
 		}
-		// Committing only means something in a git clone. A marketplace that is
-		// a plain directory is fully synced by the write above, and must not be
-		// reported as a git failure.
-		if _, err := GitTopLevel(clone); err != nil {
+		if !isGit {
 			continue
 		}
 		if err := GitAdd(clone, filepath.Join(".claude-plugin", "marketplace.json")); err != nil {

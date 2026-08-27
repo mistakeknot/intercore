@@ -156,6 +156,20 @@ func rebaseInProgress(dir string) bool {
 	return false
 }
 
+// GitPullFFOnly fast-forwards dir to its upstream, refusing to create a merge
+// or replay anything. It fails when the clone has diverged or is dirty, which
+// is the point: callers use it to ask "can I just take what the remote already
+// has?" and need a plain no rather than a rebase.
+func GitPullFFOnly(dir string) error {
+	cmd := exec.Command("git", "-C", dir, "pull", "--ff-only")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git pull --ff-only: %s: %w", strings.TrimSpace(stderr.String()), err)
+	}
+	return nil
+}
+
 // GitPush pushes to origin. Never forces, never amends.
 func GitPush(dir string) error {
 	cmd := exec.Command("git", "-C", dir, "push")
