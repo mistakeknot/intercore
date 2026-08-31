@@ -67,6 +67,19 @@ func writeIn(t *testing.T, dir, name, contents string) {
 	}
 }
 
+// gitIdentity gives a repository its own committer identity.
+//
+// Production GitCommit shells out to a plain `git commit` with no GIT_AUTHOR_*
+// environment, unlike the runGit helper. A fixture that leans on the
+// developer's global config therefore passes locally -- macOS git happily
+// derives an identity from user and hostname -- and fails on a CI runner with
+// "Author identity unknown". The repo has to carry its own.
+func gitIdentity(t *testing.T, dir string) {
+	t.Helper()
+	runGit(t, dir, "config", "user.email", "noreply@anthropic.com")
+	runGit(t, dir, "config", "user.name", "Claude")
+}
+
 // newBareOrigin creates an empty bare repository suitable as a push target.
 func newBareOrigin(t *testing.T) string {
 	t.Helper()
@@ -82,6 +95,7 @@ func cloneOf(t *testing.T, origin string) string {
 	base := t.TempDir()
 	dir := filepath.Join(base, "clone")
 	runGit(t, base, "clone", origin, dir)
+	gitIdentity(t, dir)
 	return dir
 }
 
