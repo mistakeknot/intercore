@@ -197,6 +197,7 @@ func gitMarketplaceClone(t *testing.T, plugins ...pluginEntry) (clone, origin st
 	clone = setupMarketplace(t, plugins...)
 	origin = newBareOrigin(t)
 	runGit(t, clone, "init", "-b", "main")
+	gitIdentity(t, clone)
 	runGit(t, clone, "remote", "add", "origin", origin)
 	runGit(t, clone, "add", ".")
 	runGit(t, clone, "commit", "-m", "seed")
@@ -218,6 +219,7 @@ func TestSyncPeerMarketplaces_ReportsAPushItCouldNotLand(t *testing.T) {
 
 	peer := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.299"})
 	runGit(t, peer, "init", "-b", "main")
+	gitIdentity(t, peer)
 	runGit(t, peer, "add", ".")
 	runGit(t, peer, "commit", "-m", "seed")
 
