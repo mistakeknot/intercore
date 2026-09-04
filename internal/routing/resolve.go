@@ -15,11 +15,16 @@ type DispatchCandidate struct {
 // profile is separate from the ordered fallback chain so existing callers can
 // continue consuming only Profile.Model.
 type ResolvedDispatch struct {
-	RequestedRole string              `json:"requested_role,omitempty"`
-	RequestedTier string              `json:"requested_tier,omitempty"`
-	ProfileRef    string              `json:"profile_ref"`
-	Profile       DispatchProfile     `json:"profile"`
-	FallbackChain []DispatchCandidate `json:"fallback_chain"`
+	ProducerIdentity      string                      `json:"producer_identity,omitempty"`
+	ProducerModel         string                      `json:"producer_model,omitempty"`
+	ValidatorRelationship string                      `json:"validator_relationship,omitempty"`
+	FallbackReason        string                      `json:"fallback_reason,omitempty"`
+	Excluded              []ExcludedDispatchCandidate `json:"excluded,omitempty"`
+	RequestedRole         string                      `json:"requested_role,omitempty"`
+	RequestedTier         string                      `json:"requested_tier,omitempty"`
+	ProfileRef            string                      `json:"profile_ref"`
+	Profile               DispatchProfile             `json:"profile"`
+	FallbackChain         []DispatchCandidate         `json:"fallback_chain"`
 }
 
 // Resolver performs model resolution using loaded config.

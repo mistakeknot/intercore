@@ -40,6 +40,9 @@ func TestBuildDecisionContextMergesRoleAuditFields(t *testing.T) {
 }
 
 func TestBuildDecisionContextRejectsNonObjectJSON(t *testing.T) {
+	if _, err := BuildDecisionContext(`null`, DecisionContextFields{Role: "validation"}); err == nil {
+		t.Fatal("BuildDecisionContext accepted null JSON")
+	}
 	if _, err := BuildDecisionContext(`[]`, DecisionContextFields{Role: "validation"}); err == nil {
 		t.Fatal("BuildDecisionContext accepted non-object JSON")
 	}

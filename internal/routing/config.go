@@ -36,14 +36,16 @@ type PhaseConfig struct {
 
 // DispatchConfig holds Codex CLI dispatch tier routing.
 type DispatchConfig struct {
-	Roles    map[string]string          `yaml:"roles"`
-	Tiers    map[string]DispatchProfile `yaml:"tiers"`
-	Fallback map[string]string          `yaml:"fallback"` // legacy missing-tier aliases
+	ModelAliases map[string]string          `yaml:"model_aliases"`
+	Roles        map[string]string          `yaml:"roles"`
+	Tiers        map[string]DispatchProfile `yaml:"tiers"`
+	Fallback     map[string]string          `yaml:"fallback"` // legacy missing-tier aliases
 }
 
 // DispatchProfile is a complete, executable routing choice. Fallbacks contain
 // ordered references to other profiles in DispatchConfig.Tiers.
 type DispatchProfile struct {
+	ModelIdentity       string   `json:"model_identity,omitempty" yaml:"-"`
 	Role                string   `json:"role" yaml:"role"`
 	Backend             string   `json:"backend" yaml:"backend"`
 	Model               string   `json:"model" yaml:"model"`

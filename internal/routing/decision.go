@@ -27,6 +27,9 @@ func BuildDecisionContext(raw string, fields DecisionContextFields) (string, err
 		if err := json.Unmarshal([]byte(raw), &contextMap); err != nil {
 			return "", fmt.Errorf("parse routing decision context: %w", err)
 		}
+		if contextMap == nil {
+			return "", fmt.Errorf("routing decision context must be a JSON object")
+		}
 	}
 	for key, value := range map[string]string{
 		"role":                   fields.Role,

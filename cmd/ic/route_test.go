@@ -19,9 +19,16 @@ func TestRouteDispatchRoleJSON(t *testing.T) {
 	}
 	config := `
 dispatch:
+  model_aliases:
+    fable: claude-fable-5-1
   roles:
     deep-execution: deep-astra
+    validation: fable-review
   tiers:
+    fable-review:
+      backend: claude
+      model: fable
+      fallbacks: [deep-sol]
     deep-astra:
       role: deep-execution
       backend: codex
@@ -83,5 +90,28 @@ dispatch:
 	}
 	if len(got.FallbackChain) != 1 || got.FallbackChain[0].Profile.Model != "gpt-5.6-sol" {
 		t.Errorf("fallback chain = %#v, want one Sol fallback", got.FallbackChain)
+	}
+	readEnd, writeEnd, err = os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = writeEnd
+	code = cmdRouteDispatch(context.Background(), []string{"--role=validation", "--producer-identity=anthropic/claude-fable-5-1[1m]"})
+	_ = writeEnd.Close()
+	os.Stdout = oldStdout
+	out, err = io.ReadAll(readEnd)
+	_ = readEnd.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Fatalf("validation code = %d; output=%s", code, out)
+	}
+	got = routing.ResolvedDispatch{}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Profile.Model != "gpt-5.6-sol" || got.ProducerModel != "claude-fable-5-1" || len(got.Excluded) != 1 {
+		t.Fatalf("CLI did not enforce canonical separation: %#v", got)
 	}
 }

@@ -27,7 +27,8 @@ Subcommands:
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
-  dispatch --role=<name> --json                     Resolve a complete role profile and fallbacks
+  dispatch --role=<name> [--producer-identity=<id>] --json  Resolve independent role profiles
+  identity --model=<id>                            Canonical model identity for review separation
   dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
   table   [--phase=<p>]                             Show full routing table
   record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
@@ -43,6 +44,23 @@ Subcommands:
 		return cmdRouteBatch(ctx, args[1:])
 	case "dispatch":
 		return cmdRouteDispatch(ctx, args[1:])
+	case "identity":
+		cfg, err := loadRoutingConfig()
+		if err != nil {
+			slog.Error("route identity", "error", err)
+			return 2
+		}
+		model, err := routing.NewResolver(cfg).CanonicalModelIdentity(cli.ParseFlags(args[1:]).String("model", ""))
+		if err != nil {
+			slog.Error("route identity", "error", err)
+			return 1
+		}
+		if flagJSON {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"model_identity": model})
+		} else {
+			fmt.Println(model)
+		}
+		return 0
 	case "table":
 		return cmdRouteTable(ctx, args[1:])
 	case "record":
@@ -195,9 +213,9 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 			slog.Error("route dispatch", "error", err)
 			return 2
 		}
-		resolved, ok := routing.NewResolver(cfg).ResolveDispatchRole(role)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "role %q: no dispatch profile found\n", role)
+		resolved, err := routing.NewResolver(cfg).ResolveDispatchRoleForProducer(role, f.String("producer-identity", ""))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
 			return 1
 		}
 		if flagJSON {
