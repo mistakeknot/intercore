@@ -2,6 +2,7 @@ package publish
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -396,12 +397,25 @@ func MarketplaceCloneDivergence(marketRoot string) (map[string]map[string]string
 // than the one just written. This is the symmetric replacement for
 // SyncCCMarketplace: it works regardless of which clone the publish resolved to,
 // which is the whole point (mk-963o).
+//
+// Every clone is still attempted even after one fails -- a peer that cannot be
+// reached must not stop the others -- but the failures are now REPORTED rather
+// than discarded (mk-pn74). The previous version dropped the return values of
+// GitAdd, GitCommit and GitPush on the floor under a "best-effort" comment.
+// Best-effort without reporting is not fail-open, it is fail-silent: a push
+// that lost a race left the clone holding an unpushed commit and said nothing,
+// so the next publish from that clone started diverged and conflicted on the
+// version line. The observed 4-seconds-apart pair of duplicate 0.6.298 bumps in
+// interagency-marketplace is exactly this happening unobserved.
+//
+// Callers treat the result as non-fatal (the engine prints it as a warning);
+// the point is that it is no longer invisible.
 func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 	absMarket, err := filepath.Abs(marketRoot)
 	if err != nil {
 		return fmt.Errorf("abs marketRoot: %w", err)
 	}
-	var firstErr error
+	var errs []error
 	for _, clone := range KnownMarketplaceClones(marketRoot) {
 		if clone == absMarket {
 			continue
@@ -410,18 +424,83 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 		if err != nil || have == version {
 			continue // plugin absent from this clone, or already in sync
 		}
-		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
-			if firstErr == nil {
-				firstErr = fmt.Errorf("update %s: %w", clone, err)
+		// Committing only means something in a git clone. A marketplace that is
+		// a plain directory is fully synced by the write below and must never be
+		// reported as a git failure.
+		_, gitErr := GitTopLevel(clone)
+		isGit := gitErr == nil
+
+		// Prefer fast-forwarding. By the time this runs the engine has ALREADY
+		// pushed the new version to origin, which leaves every peer clone
+		// exactly one commit behind -- so authoring a second commit here does
+		// not race the remote occasionally, it loses to it every single time.
+		// That guaranteed-rejected push is the divergence generator behind
+		// mk-pn74: when the peer is the Claude Code cache clone the subsequent
+		// re-clone hides the evidence, and when it is the monorepo clone the
+		// rejected commit simply stays, waiting to conflict on the next publish.
+		// Taking what origin already has cannot diverge.
+		if isGit && GitPullFFOnly(clone) == nil {
+			if now, err := ReadMarketplaceVersion(clone, pluginName); err == nil && now == version {
+				continue
 			}
+		}
+
+		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
+			errs = append(errs, fmt.Errorf("update %s: %w", clone, err))
 			continue
 		}
-		// Best-effort publish of the sync commit, same posture as before.
-		GitAdd(clone, filepath.Join(".claude-plugin", "marketplace.json"))
-		GitCommit(clone, fmt.Sprintf("chore: sync %s to v%s", pluginName, version))
-		GitPush(clone)
+		if !isGit {
+			continue
+		}
+		if err := GitAdd(clone, filepath.Join(".claude-plugin", "marketplace.json")); err != nil {
+			errs = append(errs, fmt.Errorf("stage %s: %w", clone, err))
+			continue
+		}
+		if err := GitCommit(clone, fmt.Sprintf("chore: sync %s to v%s", pluginName, version)); err != nil {
+			errs = append(errs, fmt.Errorf("commit %s: %w", clone, err))
+			continue
+		}
+		if err := GitPush(clone); err != nil {
+			errs = append(errs, fmt.Errorf(
+				"push %s (clone now holds an unpushed sync commit and will start diverged): %w",
+				clone, err))
+			continue
+		}
 	}
-	return firstErr
+	return errors.Join(errs...)
+}
+
+// UpdateMarketplaceAndPublish brings marketRoot in step with its remote, then
+// writes the new version, commits it and pushes.
+//
+// The ORDER is the fix (mk-pn74). This sequence used to be write, commit, pull,
+// push -- and against a one-line version field that makes a conflict inevitable
+// whenever the clone is behind: the replayed commit edits `"version": X` while
+// the freshly pulled base already says `"version": Y`. Same line, every time.
+// Pulling first means the bump is computed from whatever the remote currently
+// says, so the rebase has nothing to disagree with.
+func UpdateMarketplaceAndPublish(marketRoot, pluginName, version string) error {
+	if err := GitPullRebase(marketRoot); err != nil {
+		return fmt.Errorf("sync marketplace before bump: %w", err)
+	}
+	// Re-read AFTER the pull. Pulling first is what makes "another machine
+	// already published this version" reachable, and in that case there is
+	// nothing to commit -- an empty commit would fail and turn a successful
+	// no-op into a hard error. The reorder creates this case, so the reorder
+	// has to answer for it.
+	if have, err := ReadMarketplaceVersion(marketRoot, pluginName); err == nil && have == version {
+		return nil
+	}
+	if err := UpdateMarketplaceVersion(marketRoot, pluginName, version); err != nil {
+		return err
+	}
+	if err := GitAdd(marketRoot, filepath.Join(".claude-plugin", "marketplace.json")); err != nil {
+		return err
+	}
+	if err := GitCommit(marketRoot, fmt.Sprintf("chore: bump %s to v%s", pluginName, version)); err != nil {
+		return err
+	}
+	return GitPush(marketRoot)
 }
 
 // SyncCCMarketplace updates the CC marketplace checkout to match the monorepo.

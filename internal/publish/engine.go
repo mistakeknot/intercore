@@ -457,29 +457,10 @@ func (e *Engine) Publish(ctx context.Context) error {
 	setPhase(PhaseUpdateMarket)
 	e.out("  Updating marketplace...\n")
 
-	if err := UpdateMarketplaceVersion(marketRoot, plugin.Name, targetVersion); err != nil {
-		setError(PhaseUpdateMarket, err)
-		return err
-	}
-
-	marketplaceJSON := filepath.Join(".claude-plugin", "marketplace.json")
-	if err := GitAdd(marketRoot, marketplaceJSON); err != nil {
-		setError(PhaseUpdateMarket, err)
-		return err
-	}
-
-	mktCommitMsg := fmt.Sprintf("chore: bump %s to v%s", plugin.Name, targetVersion)
-	if err := GitCommit(marketRoot, mktCommitMsg); err != nil {
-		setError(PhaseUpdateMarket, err)
-		return err
-	}
-
-	if err := GitPullRebase(marketRoot); err != nil {
-		setError(PhaseUpdateMarket, err)
-		return fmt.Errorf("pull --rebase (marketplace): %w", err)
-	}
-
-	if err := GitPush(marketRoot); err != nil {
+	// Pull, then write, then commit and push -- in that order (mk-pn74). See
+	// UpdateMarketplaceAndPublish: committing before pulling made a same-line
+	// conflict on the version field inevitable whenever this clone was behind.
+	if err := UpdateMarketplaceAndPublish(marketRoot, plugin.Name, targetVersion); err != nil {
 		setError(PhaseUpdateMarket, err)
 		return err
 	}
