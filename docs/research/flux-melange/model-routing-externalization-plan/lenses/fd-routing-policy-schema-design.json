@@ -1,0 +1,28 @@
+{
+  "id": "fd-routing-policy-schema-design",
+  "kind": "base",
+  "parents": [],
+  "domain": "policy-as-data schema design (IAM/admission-control/feature-flag rule engines)",
+  "axioms": [
+    "A policy schema is only as evolvable as its least-flexible identity key; if any field is treated as a stable primary key but is actually vendor-mutable, every downstream consumer inherits that fragility silently.",
+    "An abstraction that claims 'roles, not model names' only holds if there is a defined, enforced extension mechanism for roles — otherwise operators route around it by aliasing role names to model names within a few quarters.",
+    "A decision function advertised as a 'pure filter' must actually be free of hidden state (load order, cache staleness, harness-side mutation) or its composability claim is false.",
+    "Schema versioning claims ('ignore-with-warning on unknown versions') are only meaningful if every consumer implements the same interpretation of 'unknown' — divergent interpretations are equivalent to no contract at all.",
+    "A compatibility shim that preserves old call sites is a security- and correctness-relevant surface, not just an ergonomics convenience, because it can silently reintroduce the exact behavior the new system was built to replace.",
+    "Effort/parameter normalization across heterogeneous vendor semantics is lossy by construction; the schema must define what happens at the lossy edges (e.g. no equivalent dial), or callers will each improvise differently."
+  ],
+  "primitives": [
+    "schema field / key (registry key, role name, version integer)",
+    "identity stability (does a key survive rename/deprecation/migration)",
+    "extension mechanism (who/what can add a new value without a doctrine edit)",
+    "decision function purity (stateless input -> output mapping)",
+    "consumer / call site (a place in code that reads the schema)",
+    "compat shim (old-interface wrapper over new mechanism)"
+  ],
+  "failure_mode": [
+    "Treats schema-as-written as schema-as-enforced — misses gaps between what a spec document promises and what the decision function or CLI actually validates at runtime, since this lens reasons about the contract, not the implementation's fidelity to it.",
+    "Under-weights domain-content correctness (e.g. whether a benchmark number is right, whether a trust-zone rule is the correct rule) in favor of structural evolvability — a schema can be perfectly evolvable while encoding wrong facts or unsafe policy.",
+    "Assumes a single canonical consumer model; may miss multi-harness divergence risk (two harnesses interpreting the same schema differently) unless explicitly prompted to check cross-consumer consistency, since its home domain (single rule engine) usually has one enforcement point."
+  ],
+  "findings": []
+}

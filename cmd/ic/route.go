@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,9 @@ func cmdRoute(ctx context.Context, args []string) int {
 Usage: ic route <subcommand> [args]
 
 Subcommands:
+  decide  --class=<c> --role=<r> [--data=<sensitivity>] [--harness=<h>] --registry=<path>
+                                                    Registry-based routing decision (constraint-enforced)
+  record-evidence --kind=escalation|gate ...        Record an escalation/gate evidence event (observable via 'list')
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
@@ -32,11 +36,18 @@ Subcommands:
   table   [--phase=<p>]                             Show full routing table
   record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
   list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
+
+Exit codes (decide): 0 decision, 1 no-eligible-model, 3 malformed-input, 4 constraint-violation.
+On a non-zero exit the caller MUST halt; it MUST NOT fall back to a native model knob.
 `)
 		return 3
 	}
 
 	switch args[0] {
+	case "decide":
+		return cmdRouteDecide(ctx, args[1:])
+	case "record-evidence":
+		return cmdRouteRecordEvidence(ctx, args[1:])
 	case "model":
 		return cmdRouteModel(ctx, args[1:])
 	case "batch":
@@ -53,6 +64,193 @@ Subcommands:
 		slog.Error("route: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
+}
+
+// Exit codes for `ic route decide` — the spec's typed failures (§3, Q-3.2).
+// Distinct codes let a harness adapter detect WHY routing failed and honor the
+// fail-closed obligation: any non-zero exit means halt, never native fallback.
+const (
+	exitDecision      = 0 // a decision was produced
+	exitNoEligible    = 1 // no deployment survived filtering
+	exitMalformed     = 3 // bad/missing input
+	exitConstraintViolation = 4 // an applicable constraint blocked every candidate
+)
+
+// cmdRouteRecordEvidence records an escalation or gate evidence event to the
+// decision store, so a harness (e.g. the Hermes adapter on zklw) can make
+// escalation/gate outcomes observable via `ic route list` by shelling out to
+// `ic`, with no Go library linkage. This is the emission entry point for the
+// DoD's "escalation/gate-execution observable in evidence" clause.
+func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	kind := f.String("kind", "")
+	if kind != "escalation" && kind != "gate" {
+		fmt.Fprintln(os.Stderr, "ic route record-evidence: --kind=escalation|gate is required")
+		return exitMalformed
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route record-evidence", "error", err)
+		return 2
+	}
+	defer d.Close()
+	store := routing.NewDecisionStore(d.SqlDB())
+
+	projectDir := f.String("project", "")
+	if projectDir == "" {
+		if wd, werr := os.Getwd(); werr == nil {
+			projectDir = wd
+		}
+	}
+
+	var id int64
+	switch kind {
+	case "escalation":
+		id, err = store.RecordEscalation(ctx, routing.EscalationEvidence{
+			ChainKey:   f.String("chain", ""),
+			FromModel:  f.String("from", ""),
+			ToModel:    f.String("to", ""),
+			StrikeMode: f.String("mode", ""),
+			Detail:     f.String("detail", ""),
+			Exhausted:  f.Bool("exhausted"),
+			Agent:      f.String("agent", ""),
+			ProjectDir: projectDir,
+			RunID:      f.String("run", ""),
+			SessionID:  f.String("session", ""),
+		})
+	case "gate":
+		id, err = store.RecordGate(ctx, routing.GateEvidence{
+			Gate:       f.String("gate", ""),
+			Model:      f.String("model", ""),
+			Executed:   f.Bool("executed"),
+			Agent:      f.String("agent", ""),
+			ProjectDir: projectDir,
+			RunID:      f.String("run", ""),
+			SessionID:  f.String("session", ""),
+		})
+	}
+	if err != nil {
+		slog.Error("route record-evidence", "error", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]any{"id": id, "kind": kind})
+	} else {
+		fmt.Printf("Evidence recorded: id=%d kind=%s\n", id, kind)
+	}
+	return 0
+}
+
+// harnessNote formats the optional harness for the rationale string.
+func harnessNote(h string) string {
+	if h == "" {
+		return ""
+	}
+	return " harness=" + h
+}
+
+// cmdRouteDecide is the registry-based, constraint-enforcing decision path
+// (spec §3). It loads the registry, applies trust-zone constraints against the
+// task descriptor, and emits the eligible deployments (or a typed block).
+// This is what a harness (Clavain, Codex, Hermes) actually calls.
+func cmdRouteDecide(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	class := f.String("class", "")
+	role := f.String("role", "")
+	data := f.String("data", "")       // data-sensitivity label, e.g. client-confidential
+	harness := f.String("harness", "") // selects the per-harness binding (Q-3.1); optional
+	registryPath := f.String("registry", "")
+
+	if class == "" || role == "" {
+		fmt.Fprintln(os.Stderr, "ic route decide: --class and --role are required")
+		return exitMalformed
+	}
+	if registryPath == "" {
+		registryPath = findConfigFile("registry.yaml")
+	}
+	if registryPath == "" {
+		fmt.Fprintln(os.Stderr, "ic route decide: registry not found (pass --registry=<path>)")
+		return exitMalformed
+	}
+
+	reg, err := routing.LoadRegistry(registryPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic route decide: %v\n", err)
+		return exitMalformed
+	}
+
+	td := routing.TaskDescriptor{Role: role, Class: class, Fields: map[string]string{}}
+	if data != "" {
+		td.Fields["data"] = data
+	}
+	if harness != "" {
+		td.Fields["harness"] = harness // selects per-harness binding once bindings load from routing.yaml
+	}
+
+	// v1 constraint set: the client-confidential trust-zone rule (the DoD's
+	// first clause). Future: load the constraints block from routing.yaml.
+	constraints := []routing.Constraint{{
+		Match:            map[string]string{"data": "client-confidential"},
+		RequireTrustZone: []routing.TrustZone{routing.ZoneLocal, routing.ZoneApprovedVendor},
+	}}
+
+	eligible := reg.EligibleDeployments(constraints, td)
+
+	// Distinguish "constraint blocked everything" from "registry was empty":
+	// if a constraint applies and nothing is eligible, that is a fail-closed
+	// constraint violation (exit 4), not a plain no-model (exit 1).
+	if len(eligible) == 0 {
+		constraintApplied := false
+		for _, c := range constraints {
+			if c.Applies(td) {
+				constraintApplied = true
+				break
+			}
+		}
+		code := exitNoEligible
+		reason := "no eligible deployment"
+		if constraintApplied {
+			code = exitConstraintViolation
+			reason = "constraint-violation: no deployment satisfies the trust-zone requirement for this task"
+		}
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"decision": nil, "eligible": []string{}, "reason": reason,
+				"exit_code": code,
+			})
+		} else {
+			fmt.Fprintln(os.Stderr, reason)
+		}
+		return code
+	}
+
+	// Deterministic pick for now: first eligible by sorted key. (Vector-based
+	// ranking is the next mechanism step; the contract surface is stable.)
+	sort.Strings(eligible)
+	chosen := eligible[0]
+
+	rationale := fmt.Sprintf("role=%s class=%s%s → %s (%d eligible)",
+		role, class, harnessNote(harness), chosen, len(eligible))
+	out := map[string]any{
+		"model":              chosen,
+		"role":               role,
+		"class":              class,
+		"harness":            harness,
+		"eligible":           eligible,
+		"registry_as_of":     reg.Version,
+		"verification_gates": []string{}, // populated when gates wire in
+		"rationale":          rationale, // one-liner (Q-3.3); full trace via `ic route explain`
+	}
+	if flagJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(out)
+	} else {
+		fmt.Println(chosen)
+	}
+	return exitDecision
 }
 
 // findConfigFile searches for a config file by walking up from CWD.

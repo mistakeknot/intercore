@@ -1,0 +1,32 @@
+{
+  "id": "fd-coppice-rotation-stewardship",
+  "kind": "base",
+  "parents": [],
+  "domain": "Pre-modern coppice / rotational silviculture: stewardship of a woodland worked on staggered multi-decade rotations — felling and regrowth sequencing across compartments, deferred-consequence plantings, deadwood culling discipline, transition-window vulnerability, and staggered-age diversity versus monoculture fragility",
+  "axioms": [
+    "A living system is not built once but worked on staggered rotations; the design's soundness is judged by every intermediate state the sequence passes through, not only by its endpoint canopy. A phase ordering is safe only if every half-felled coup is itself a habitable stand.",
+    "A felled coup passes through a vulnerable transition when it is neither the old stand that sheltered the ground nor the established regrowth that will replace it; this in-between season, when a phase has landed but its dependencies or dependents have not, is when the system is most exposed and is exactly the state endpoint-only reasoning skips.",
+    "A planting policy without a felling policy is incomplete: a stand that is only ever planted and never thinned accumulates standing deadwood — retired deployments, orphaned bindings, superseded shims, accreted policy edits — that becomes latent fuel until a stale artifact carries a live failure across the wood.",
+    "Some plantings mature a generation downstream past the point of un-planting; a sapling whose species is fixed for the life of the stand (a compat shim, a schema-version integer, a borrowed precedent) must be chosen for what the stand becomes, because the flaw shows only after the option to have planted otherwise has closed.",
+    "An efficient monoculture — every consumer rooted in the same few artifacts — yields the most this rotation and is felled entire by the one blight fitted to it; resilience comes from staggered ages and diversity (versioned snapshots, staged rollout, a canary coup), even at a cost to this season's efficiency.",
+    "The dangerous mistake is never the tree that fails this year but the rotation planned so every coup comes due in the same season, or the planting whose flaw surfaces a generation downstream when it can no longer be unmade."
+  ],
+  "primitives": [
+    "phase rotation / staggered felling schedule across compartments (the 7-phase sequence)",
+    "transition-window / half-felled intermediate state (phase landed, dependency or dependent not)",
+    "planting rule vs. felling rule asymmetry (registry 'rows appear when routed to' with no removal cadence)",
+    "standing deadwood accumulation (retired-deployment rows, orphaned bindings, superseded shim entries, accreted policy edits)",
+    "deferred-consequence planting past the point of un-planting (compat shim, schema-version integer, borrowed precedent)",
+    "monoculture vs. staggered-age diversity (shared-root efficiency vs. firebreaks / canary coups / versioned snapshots)",
+    "the single blight fitted to the monoculture and its blast radius across coups",
+    "floating / perpetually-deferred coup (Phase 7 'can float')",
+    "felling ledger / longitudinal cull history (age structure of the policy stand over rotations)"
+  ],
+  "failure_mode": [
+    "Blind to whether a data value is correctly sourced, provenanced, dated, or re-verifiable — it reasons about change-over-time of the STAND (what culls what, what the half-felled season looks like, what matures downstream), not about the calibration lineage or drift cadence of any single VALUE, which belongs to the metrology lens.",
+    "Blind to steady-state runtime enforcement: whether a constraint holds fail-closed, whether an authority boundary between harnesses is drawn correctly, or whether an adapter conforms at a single point in time — that static-snapshot enforcement surface belongs to the pilotage lens; this lens only asks about sequencing and lifecycle across rotations.",
+    "Can over-index on temporal / lifecycle bureaucracy and manufacture rotation-scheduling or deadwood-culling concerns even where a phase is genuinely independently shippable, the intermediate state is in fact habitable, or the accumulated rows are inert and low-stakes — flagging a missing felling cadence where nothing actually rots.",
+    "Frames every threat as change-over-time and can under-weight a defect fully visible in a single static snapshot of the finished design (a wrong value, an unenforced gate) that has nothing to do with sequencing, accumulation, or downstream-maturing consequence."
+  ],
+  "findings": ["f-011", "f-012", "f-013"]
+}

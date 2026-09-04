@@ -1,0 +1,37 @@
+{
+  "id": "fd-pilotage-authority-boundary",
+  "kind": "base",
+  "parents": [],
+  "domain": "Traditional harbor pilotage (the centuries-refined practice of a local pilot bringing a foreign vessel through waters no chart fully captures: the pilot-advises / master-commands authority boundary, fail-safe passage planning, no-go channel discipline, and written sailing directions read by many pilots at many ports)",
+  "axioms": [
+    "There is a hard authority boundary: the pilot advises the passage and holds local knowledge, but the master commands the vessel and owns where it actually goes; a constraint owned on the wrong side of this boundary cannot be enforced.",
+    "A passage must be planned fail-safe: a single missed mark or unanticipated channel must still leave water under the keel; any plan that only succeeds when everything goes right is planned onto the rocks.",
+    "A no-go zone is a hard boundary that grounds the vessel, categorically distinct from a caution any master can overrule; 'fail closed' means the former, and asserting it is not the same as fencing it.",
+    "Written sailing directions never substitute for a local pilot's judgment but must state precisely which decisions they do and do not cover; the boundary of the directions' authority must be explicit.",
+    "The same directions are read by many pilots at many ports; without a conformance obligation the weakest port's interpretation becomes the system's real safety floor, and a passage that succeeds at a familiar port can ground the same vessel at the next.",
+    "When a safe passage cannot be made there must be a defined safe harbor (block and escalate); a refusal with no obligated fallback is a pilot stepping off the bridge mid-channel."
+  ],
+  "primitives": [
+    "authority boundary (advisor vs. commander; contract vs. harness venue selection)",
+    "no-go channel / fail-closed constraint vs. advisory caution",
+    "fail-safe margin (water under the keel under single failure)",
+    "passage plan / routing decision handed off across the boundary",
+    "sailing directions (the shared contract/spec) vs. local knowledge (harness internals)",
+    "conformance obligation across ports (harness adapters)",
+    "verification gate as router output vs. adapter enforcement",
+    "degradation policy split by constraint criticality (unknown-version handling)",
+    "safe harbor / obligated fallback on no-eligible-model or constraint block"
+  ],
+  "failure_mode": [
+    "Blind to whether the data values feeding a constraint are correctly sourced, dated, or traceable \u2014 it assumes the trust-zone label and capability values are right and only asks whether the constraint is enforced across the authority handoff.",
+    "Can over-attribute risk to boundary/handoff seams and manufacture conformance concerns even where a single harness is the only real consumer and cross-port divergence is not yet a live surface.",
+    "Frames safety almost entirely as enforcement-and-fallback; can under-weight failures rooted in the decision inputs themselves (a correctly-enforced gate fed by a drifted or fabricated capability value looks safe through this lens)."
+  ],
+  "findings": [
+    "f-006",
+    "f-007",
+    "f-008",
+    "f-009",
+    "f-010"
+  ]
+}

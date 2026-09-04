@@ -1,0 +1,38 @@
+{
+  "id": "fd-vat-dye-deferred-commitment",
+  "kind": "base",
+  "parents": [],
+  "domain": "Pre-modern living-vat dyeing craft (indigo reduction vat and mordant dyeing): committing irreversible batches to a bath whose readiness is inferred from proxy signs rather than measured, the deferred and oxidation-latent revelation of the true color after the dip, the mordant that must be laid before the dye and cannot be corrected after, and the fugitive result that looks identical at pull-time and fades only after airing",
+  "axioms": [
+    "A living vat's readiness cannot be directly assayed, only inferred from proxy signs (the flower, the coppery skin over yellow-green liquor, the smell); the signs can lie \u2014 a vat can look ready and be exhausted, look sick and still take \u2014 so committing a batch on a sign is always committing on an inference, never on a measurement.",
+    "The cloth pulled from the vat is NOT the color it will be; only oxidation in the air, after the dip and over time, reveals the true result. The true result is therefore LATENT past the moment of commitment: you dip, then wait to learn whether the dip took, and by then the cloth is committed and the dye is spent.",
+    "The mordant must be laid into the fiber BEFORE the dye and can never be corrected after; an unmordanted or mis-mordanted cloth drinks the dye and looks, when wet, exactly like a properly-mordanted one, then releases the color fugitively as it dries \u2014 so a pre-condition applied after commitment, or assumed already laid, produces a batch indistinguishable-when-wet from a correct one.",
+    "The dip is irreversible: cloth cannot be un-dipped and a bath cannot be re-measured after the batch is in it; a batch committed to an exhausted or drifted vat is simply lost dye and lost cloth, not a recoverable error.",
+    "The dangerous fault is never the batch that comes out visibly wrong and is re-dyed, but the FUGITIVE batch that comes out looking perfect, passes every inspection you can run while it is wet, is folded and sold, and fades only in the buyer's house \u2014 the fugitive color propagates downstream because it looked right at every pull-time gate.",
+    "A dyer does not dip into a vat whose readiness she cannot read; the discipline of an unreadable vat is to DECLINE commitment (refuse the batch until the state can be assayed), not to dip anyway and hope to notice the fault in the airing \u2014 because by the airing the cloth is already lost if she was wrong."
+  ],
+  "primitives": [
+    "irreversible commitment / the un-dippable dip (a routing decision applied, live traffic entering a cut-over path, a confidential descriptor sent to a vendor \u2014 the instant a batch enters a bath it cannot leave)",
+    "readiness inferred from proxy signs, not measured (a benchmark score standing in for this-task fitness, an 'unknown'-provenance capability axis, a recorded-not-live registry row)",
+    "the latent true result revealed only after airing (behaviorally-verified fast color vs. the wet color pulled at commit-time)",
+    "wet color vs. oxidized color (an output that looks right at pull-time \u2014 tests-green, well-formed decision, clean demo \u2014 vs. the after-air result downstream use / real cost reveals)",
+    "the mordant laid before the dye (trust-zone label, verification-gate selection, effort resolution, liveness check \u2014 pre-conditions that cannot be corrected after commitment)",
+    "the fugitive result (a reward-hacked or under-struck output that passes every pull-time gate and fades only after airing in the buyer's house)",
+    "the exhausted / drifted vat (a stale registry row, a deployment whose live state no longer matches its recorded capability vector)",
+    "the airing-and-recovery latency (how many committed-and-lost batches occur before the interspect / two-strikes loop reacts to a fugitive decision)",
+    "declining to dip an unreadable vat (pre-commit refusal to route to an unassayable target vs. post-commit hope that 'conservatism' will catch it)",
+    "folding-and-selling-wet (an acceptance criterion that reads a pull-time pass as proof the dip took, with no airing step)"
+  ],
+  "failure_mode": [
+    "Blind to whether a data VALUE traces back to a primary standard, is calibrated, dated, or re-verifiable \u2014 it asks whether the router is committing an un-recoverable batch on a merely-trusted sign and whether the true result appears only after the cloth is already committed downstream, not whether a number traces to a standard; provenance lineage, calibration cadence, and unit-conversion authority belong to the metrology lens.",
+    "Blind to whether a shared spec's WORDS force one reading across independent implementers, whether divergent-but-faithful readings are collatable, and whether a gap invites conjectural emendation \u2014 it asks whether the ACT a clause governs commits an irreversible batch on an inferred signal before the true result can be seen, not whether two readers agree what the clause says; that semantic-transmission surface belongs to the scribal lens.",
+    "Blind to the runtime ENFORCEMENT of a constraint fail-closed, the pilot-advises/master-commands authority boundary, and whether a gate holds across a live handoff \u2014 it owns strictly the TEMPORAL ORDER and IRREVERSIBILITY (was the mordant laid before the dip, is a fugitive commitment revealed too late to un-dip), not whether the gate holds at the boundary; that enforcement-and-authority surface belongs to the pilotage lens.",
+    "Blind to sequencing of phases, felling/regrowth cadence, transition-window inconsistency, deadwood culling, and monoculture-versus-diversity resilience across the multi-decade rotation \u2014 it reasons about the SINGLE irreversible dip (whether THIS batch was committed to an exhausted vat on a trusted sign and revealed fugitive only after airing), not the stand over decades; that lifecycle-over-rotations surface belongs to the coppice lens.",
+    "Can over-index on irreversibility-and-latency and manufacture a deferred-commitment or fugitive-result concern where the commitment is in fact cheaply reversible (a decision re-run at no cost before anything downstream acts), the readiness signal is in fact directly measured rather than a proxy, or the true result IS observable at pull-time \u2014 flagging a missing airing step where the wet color genuinely is the final color."
+  ],
+  "findings": [
+    "f-021",
+    "f-022",
+    "f-023"
+  ]
+}

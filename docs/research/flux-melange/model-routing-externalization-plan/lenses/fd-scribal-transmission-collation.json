@@ -1,0 +1,38 @@
+{
+  "id": "fd-scribal-transmission-collation",
+  "kind": "base",
+  "parents": [],
+  "domain": "Pre-modern textual transmission and collation (scribal / recitation-canon tradition): stemmatic recovery of an archetype from divergent witnesses, collation of independent copies to make variants visible, an apparatus of variant readings, marginal correction that glosses without altering the received text, and the discipline against silent conjectural emendation at the point of copying",
+  "axioms": [
+    "An authoritative text read by many independent hands is only single-meaninged if its WORDS force one reading; a clause that admits two faithful-but-divergent readings is already corrupting, because each copyist renders his reading correctly-by-his-lights into a different behavior and every copy passes its own inspection.",
+    "A variant is invisible in any single witness and appears only in the DISAGREEMENT between two copies laid side by side; without collation \u2014 running the same input through independent implementers and reading the outputs against one another \u2014 a divergence cannot be detected as a divergence, and single-witness validation proves only that one copy is internally coherent.",
+    "A gap, silence, or ambiguity in the text invites conjectural emendation: a conscientious copyist who meets it will supply a plausible private repair, and a hundred reasonable repairs of the same gap yield a hundred divergent texts, all confident, none the same; the discipline is to MARK the gap and refer it to the authoritative exemplar, never to fill it silently at the point of copying.",
+    "A marginal correction (a gloss that keeps an old reading serviceable) must stay provably subordinate to and separate from the received text; the moment a later hand mistakes the gloss for the text, the correction is absorbed into the base and a legacy reading silently outlives what it named.",
+    "The dangerous corruption is never the obviously-garbled copy that gets discarded but the smooth, plausible, internally-coherent copy that quietly carries a reading no exemplar authorizes \u2014 because a plausible corruption propagates: every downstream copyist faithfully reproduces it until enough witnesses share it that the corruption is indistinguishable from the archetype and the original reading is lost.",
+    "When witnesses disagree there must be a named authoritative exemplar and a written apparatus of readings to adjudicate which is canonical, or the archetype becomes unrecoverable and the smoothest, newest, or loudest copy silently becomes the de-facto standard while the intended meaning is lost with no way to prove drift."
+  ],
+  "primitives": [
+    "canonical text / authoritative exemplar (the single contract spec: routing.yaml v1, registry v1, evidence event v1)",
+    "independent witnesses / copyists (intercore decision fn, Clavain adapter, Codex delegate, interspect writer, Hermes gateway hook)",
+    "collation of witnesses to surface a variant (same task descriptor -> same decision across implementers)",
+    "conformance corpus / golden decisions / reference implementation (the missing collation apparatus)",
+    "spec gap that invites conjectural emendation (unenumerated value, unstated tie-break, 'conservatively' / 'gracefully' / 'ignore-with-warning' left to the reader)",
+    "silent conjectural emendation (a plausible private repair supplied at the point of copying instead of referred to the exemplar)",
+    "marginal gloss subordinate to the received text (compat shim / legacy-name map that must not be read as an authoritative registry entry)",
+    "plausible corruption that propagates across copies (a smooth divergent reading every downstream implementer reproduces)",
+    "recension apparatus / emendation record (dated, attributed, evidence-traced routing.yaml edits so the archetype stays recoverable)",
+    "single-witness validation masquerading as collation ('hand-traced from the spec alone', one-harness round-trip demo)"
+  ],
+  "failure_mode": [
+    "Blind to whether a data VALUE is correctly sourced, provenanced, dated, or re-verifiable against a primary standard \u2014 it asks whether a CLAUSE reads the same to two implementers, not whether a number traces back; calibration lineage, drift cadence, and unit-conversion provenance belong to the metrology lens.",
+    "Blind to whether a constraint is ENFORCED fail-closed at runtime and whether authority boundaries between harnesses hold at execution \u2014 it asks whether two implementers even agree what the gate SAYS, not whether the gate holds across the handoff; that steady-state enforcement-and-boundary surface belongs to the pilotage lens.",
+    "Blind to sequencing, transition-window inconsistency, felling/culling cadence, deadwood accumulation, and monoculture-versus-diversity resilience across the phase rotation \u2014 it reasons about semantic fidelity of the text at a point in time, not lifecycle-over-rotations; that temporal surface belongs to the coppice lens.",
+    "Can over-index on interpretive ambiguity and manufacture variant-reading or collation concerns even where a single harness is the only real implementer, the clause is in fact unambiguous, or the divergent reading is low-stakes and self-correcting \u2014 flagging a missing conformance corpus where the words genuinely force one reading.",
+    "Frames every threat as divergent-reading-of-shared-words and can under-weight a defect fully visible in a single reading of the finished design (a wrong value, an unenforced gate, a bad phase ordering) that has nothing to do with two implementers disagreeing about what the text means."
+  ],
+  "findings": [
+    "f-014",
+    "f-015",
+    "f-016"
+  ]
+}

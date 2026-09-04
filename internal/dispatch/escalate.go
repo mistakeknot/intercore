@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/routing"
 	"github.com/mistakeknot/intercore/internal/state"
 )
 
@@ -53,42 +54,21 @@ func DefaultEscalationPolicy() EscalationPolicy {
 	}
 }
 
-// fableEscalationOpen mirrors routing.fableWindowOpen (fail-closed).
-func fableEscalationOpen() bool { return os.Getenv("CLAVAIN_FABLE_AVAILABLE") == "1" }
-
 // nextRungModel returns the model for the next attempt given the chain state.
-// Strikes at the current rung below StrikesPerRung → same model.
-// Otherwise step one rung up the ladder; "fable" degrades to "opus" when the
-// window is closed. Returns ("", false) when the ladder is exhausted.
+// Strikes at the current rung below StrikesPerRung → same model. Otherwise it
+// asks the routing mechanism for the next-more-capable rung.
+//
+// The capability ordering is NO LONGER owned here (fd-architecture F1): the
+// hardcoded ["sonnet","opus","fable"] walk and the frontier-window check are
+// gone. routing.NextRung is the single authority for "what is more capable
+// than X", so escalation and fresh routing can never disagree, and the
+// registry-vector upgrade lands in one place. Policy.Ladder is retained on the
+// struct for config compatibility but is no longer consulted for ordering.
 func (p EscalationPolicy) nextRungModel(currentModel string, strikesAtRung int) (string, bool) {
 	if strikesAtRung < p.StrikesPerRung {
 		return currentModel, true
 	}
-	idx := -1
-	for i, m := range p.Ladder {
-		if m == currentModel {
-			idx = i
-			break
-		}
-	}
-	// Model not on the ladder (e.g. a codex ID): treat as base rung.
-	if idx == -1 {
-		idx = 0
-		if currentModel != "" && p.Ladder[0] != currentModel {
-			// step to the first ladder rung ABOVE base
-		}
-	}
-	if idx+1 >= len(p.Ladder) {
-		return "", false // exhausted
-	}
-	next := p.Ladder[idx+1]
-	if next == "fable" && !fableEscalationOpen() {
-		if currentModel == "opus" {
-			return "", false // opus→fable with window closed = nowhere to go
-		}
-		next = "opus"
-	}
-	return next, true
+	return routing.NextRung(currentModel)
 }
 
 // ChainState is the durable per-chain record (survives fresh re-triggers —
