@@ -29,9 +29,23 @@ func testConfig() *Config {
 			},
 		},
 		Dispatch: DispatchConfig{
-			Tiers: map[string]TierConfig{
-				"fast": {Model: "haiku"},
-				"deep": {Model: "opus"},
+			Roles: map[string]string{
+				"main-integrator": "main-astra",
+			},
+			Tiers: map[string]DispatchProfile{
+				"fast": {
+					Role: "routine-execution", Backend: "codex", Model: "haiku",
+					ReasoningEffort: "high", ServiceTier: "standard",
+				},
+				"deep": {
+					Role: "deep-execution", Backend: "codex", Model: "opus",
+					Fallbacks: []string{"fast"},
+				},
+				"main-astra": {
+					Role: "main-integrator", Backend: "codex", Model: "gpt-6-astra",
+					ReasoningEffort: "xhigh", ServiceTier: "standard",
+					MinimumCodexVersion: "0.153.1", Fallbacks: []string{"deep"},
+				},
 			},
 			Fallback: map[string]string{
 				"medium": "fast",
@@ -190,6 +204,49 @@ func TestResolveDispatchTierCycleProtection(t *testing.T) {
 	got := r.ResolveDispatchTier("a")
 	if got != "" {
 		t.Errorf("cycle: got %q, want empty", got)
+	}
+}
+
+func TestResolveDispatchRoleReturnsCompleteProfileAndFallbackChain(t *testing.T) {
+	r := NewResolver(testConfig())
+
+	got, ok := r.ResolveDispatchRole("main-integrator")
+	if !ok {
+		t.Fatal("ResolveDispatchRole(main-integrator) = not found")
+	}
+	if got.ProfileRef != "main-astra" {
+		t.Errorf("ProfileRef = %q, want main-astra", got.ProfileRef)
+	}
+	if got.Profile.Model != "gpt-6-astra" || got.Profile.ReasoningEffort != "xhigh" {
+		t.Errorf("Profile = %#v, want Astra/xhigh", got.Profile)
+	}
+	if len(got.FallbackChain) != 2 {
+		t.Fatalf("FallbackChain len = %d, want 2: %#v", len(got.FallbackChain), got.FallbackChain)
+	}
+	if got.FallbackChain[0].ProfileRef != "deep" || got.FallbackChain[0].Profile.Model != "opus" {
+		t.Errorf("fallback[0] = %#v, want deep/opus", got.FallbackChain[0])
+	}
+	if got.FallbackChain[1].ProfileRef != "fast" || got.FallbackChain[1].Profile.Model != "haiku" {
+		t.Errorf("fallback[1] = %#v, want fast/haiku", got.FallbackChain[1])
+	}
+}
+
+func TestResolveDispatchRoleRejectsUnknownRoleAndCycles(t *testing.T) {
+	cfg := testConfig()
+	fast := cfg.Dispatch.Tiers["fast"]
+	fast.Fallbacks = []string{"deep"}
+	cfg.Dispatch.Tiers["fast"] = fast
+	r := NewResolver(cfg)
+
+	if _, ok := r.ResolveDispatchRole("unknown"); ok {
+		t.Fatal("ResolveDispatchRole(unknown) unexpectedly resolved")
+	}
+	got, ok := r.ResolveDispatchRole("main-integrator")
+	if !ok {
+		t.Fatal("ResolveDispatchRole(main-integrator) = not found")
+	}
+	if len(got.FallbackChain) != 2 {
+		t.Fatalf("cycle should be deduplicated, got %d fallbacks: %#v", len(got.FallbackChain), got.FallbackChain)
 	}
 }
 

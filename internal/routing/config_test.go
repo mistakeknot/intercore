@@ -26,12 +26,22 @@ subagents:
   overrides:
     "interflux:review:fd-safety": opus
 dispatch:
+  roles:
+    main-integrator: main-astra
   tiers:
     fast:
+      role: routine-execution
+      backend: codex
       model: haiku
+      reasoning_effort: high
+      service_tier: standard
+      minimum_codex_version: 0.153.1
       description: "Quick tasks"
     deep:
+      role: deep-execution
+      backend: codex
       model: opus
+      fallbacks: [fast]
       description: "Complex tasks"
   fallback:
     medium: fast
@@ -111,6 +121,21 @@ roles:
 	}
 	if fast.Model != "haiku" {
 		t.Errorf("dispatch.tiers.fast.model = %q, want haiku", fast.Model)
+	}
+	if fast.Role != "routine-execution" || fast.Backend != "codex" {
+		t.Errorf("dispatch.tiers.fast identity = %q/%q, want routine-execution/codex", fast.Role, fast.Backend)
+	}
+	if fast.ReasoningEffort != "high" || fast.ServiceTier != "standard" {
+		t.Errorf("dispatch.tiers.fast execution = %q/%q, want high/standard", fast.ReasoningEffort, fast.ServiceTier)
+	}
+	if fast.MinimumCodexVersion != "0.153.1" {
+		t.Errorf("dispatch.tiers.fast minimum_codex_version = %q, want 0.153.1", fast.MinimumCodexVersion)
+	}
+	if got := cfg.Dispatch.Roles["main-integrator"]; got != "main-astra" {
+		t.Errorf("dispatch.roles.main-integrator = %q, want main-astra", got)
+	}
+	if got := cfg.Dispatch.Tiers["deep"].Fallbacks; len(got) != 1 || got[0] != "fast" {
+		t.Errorf("dispatch.tiers.deep.fallbacks = %v, want [fast]", got)
 	}
 	if v := cfg.Dispatch.Fallback["medium"]; v != "fast" {
 		t.Errorf("dispatch.fallback.medium = %q, want fast", v)

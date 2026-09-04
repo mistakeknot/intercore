@@ -3,10 +3,48 @@ package routing
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 )
+
+// DecisionContextFields are the role-aware audit fields stored in the existing
+// routing_decisions.context_json column.
+type DecisionContextFields struct {
+	Role                  string
+	Profile               string
+	ProducerIdentity      string
+	ValidatorRelationship string
+	FallbackReason        string
+}
+
+// BuildDecisionContext merges role-aware audit fields into an optional JSON
+// object without requiring a schema migration.
+func BuildDecisionContext(raw string, fields DecisionContextFields) (string, error) {
+	contextMap := map[string]any{}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &contextMap); err != nil {
+			return "", fmt.Errorf("parse routing decision context: %w", err)
+		}
+	}
+	for key, value := range map[string]string{
+		"role":                   fields.Role,
+		"profile":                fields.Profile,
+		"producer_identity":      fields.ProducerIdentity,
+		"validator_relationship": fields.ValidatorRelationship,
+		"fallback_reason":        fields.FallbackReason,
+	} {
+		if value != "" {
+			contextMap[key] = value
+		}
+	}
+	encoded, err := json.Marshal(contextMap)
+	if err != nil {
+		return "", fmt.Errorf("encode routing decision context: %w", err)
+	}
+	return string(encoded), nil
+}
 
 // Decision represents a persisted routing decision record.
 type Decision struct {
@@ -125,20 +163,20 @@ func (s *DecisionStore) Record(ctx context.Context, opts RecordDecisionOpts) (in
 func (s *DecisionStore) Get(ctx context.Context, id int64) (*Decision, error) {
 	d := &Decision{}
 	var (
-		dispatchID sql.NullString
-		runID      sql.NullString
-		sessionID  sql.NullString
-		beadID     sql.NullString
-		phase      sql.NullString
-		category   sql.NullString
-		floorFrom  sql.NullString
-		floorTo    sql.NullString
-		candidates sql.NullString
-		excluded   sql.NullString
-		policyHash sql.NullString
-		overrideID sql.NullString
-		complexity sql.NullInt64
-		contextJSON sql.NullString
+		dispatchID   sql.NullString
+		runID        sql.NullString
+		sessionID    sql.NullString
+		beadID       sql.NullString
+		phase        sql.NullString
+		category     sql.NullString
+		floorFrom    sql.NullString
+		floorTo      sql.NullString
+		candidates   sql.NullString
+		excluded     sql.NullString
+		policyHash   sql.NullString
+		overrideID   sql.NullString
+		complexity   sql.NullInt64
+		contextJSON  sql.NullString
 		floorApplied int
 	)
 
@@ -244,20 +282,20 @@ func (s *DecisionStore) List(ctx context.Context, opts ListDecisionOpts) ([]Deci
 	for rows.Next() {
 		d := Decision{}
 		var (
-			dispatchID  sql.NullString
-			runID       sql.NullString
-			sessionID   sql.NullString
-			beadID      sql.NullString
-			phase       sql.NullString
-			category    sql.NullString
-			floorFrom   sql.NullString
-			floorTo     sql.NullString
-			candidates  sql.NullString
-			excluded    sql.NullString
-			policyHash  sql.NullString
-			overrideID  sql.NullString
-			complexity  sql.NullInt64
-			contextJSON sql.NullString
+			dispatchID   sql.NullString
+			runID        sql.NullString
+			sessionID    sql.NullString
+			beadID       sql.NullString
+			phase        sql.NullString
+			category     sql.NullString
+			floorFrom    sql.NullString
+			floorTo      sql.NullString
+			candidates   sql.NullString
+			excluded     sql.NullString
+			policyHash   sql.NullString
+			overrideID   sql.NullString
+			complexity   sql.NullInt64
+			contextJSON  sql.NullString
 			floorApplied int
 		)
 

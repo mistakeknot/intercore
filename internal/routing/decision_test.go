@@ -2,12 +2,48 @@ package routing
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/mistakeknot/intercore/internal/db"
 )
+
+func TestBuildDecisionContextMergesRoleAuditFields(t *testing.T) {
+	raw, err := BuildDecisionContext(`{"sprint":true}`, DecisionContextFields{
+		Role:                  "deep-execution",
+		Profile:               "deep-astra",
+		ProducerIdentity:      "codex:gpt-6-astra",
+		ValidatorRelationship: "different-resolved-model",
+		FallbackReason:        "account_access_absent",
+	})
+	if err != nil {
+		t.Fatalf("BuildDecisionContext: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	for key, want := range map[string]any{
+		"sprint":                 true,
+		"role":                   "deep-execution",
+		"profile":                "deep-astra",
+		"producer_identity":      "codex:gpt-6-astra",
+		"validator_relationship": "different-resolved-model",
+		"fallback_reason":        "account_access_absent",
+	} {
+		if got[key] != want {
+			t.Errorf("context[%q] = %#v, want %#v", key, got[key], want)
+		}
+	}
+}
+
+func TestBuildDecisionContextRejectsNonObjectJSON(t *testing.T) {
+	if _, err := BuildDecisionContext(`[]`, DecisionContextFields{Role: "validation"}); err == nil {
+		t.Fatal("BuildDecisionContext accepted non-object JSON")
+	}
+}
 
 func testDecisionStore(t *testing.T) *DecisionStore {
 	t.Helper()

@@ -5,6 +5,23 @@ import (
 	"strings"
 )
 
+// DispatchCandidate is a named fallback profile returned to dispatchers.
+type DispatchCandidate struct {
+	ProfileRef string          `json:"profile_ref"`
+	Profile    DispatchProfile `json:"profile"`
+}
+
+// ResolvedDispatch is the complete role/tier resolution contract. The primary
+// profile is separate from the ordered fallback chain so existing callers can
+// continue consuming only Profile.Model.
+type ResolvedDispatch struct {
+	RequestedRole string              `json:"requested_role,omitempty"`
+	RequestedTier string              `json:"requested_tier,omitempty"`
+	ProfileRef    string              `json:"profile_ref"`
+	Profile       DispatchProfile     `json:"profile"`
+	FallbackChain []DispatchCandidate `json:"fallback_chain"`
+}
+
 // Resolver performs model resolution using loaded config.
 type Resolver struct {
 	cfg    *Config
@@ -98,17 +115,86 @@ func (r *Resolver) ResolveModel(opts ResolveOpts) string {
 // ResolveDispatchTier resolves a dispatch tier name to a model ID.
 // Follows the fallback chain up to 3 hops.
 func (r *Resolver) ResolveDispatchTier(tier string) string {
-	for hops := 0; hops < 3; hops++ {
-		if t, ok := r.cfg.Dispatch.Tiers[tier]; ok {
-			return t.Model
-		}
-		if fb, ok := r.cfg.Dispatch.Fallback[tier]; ok {
-			tier = fb
-		} else {
-			break
+	resolved, ok := r.resolveDispatch(tier)
+	if !ok {
+		return ""
+	}
+	return resolved.Profile.Model
+}
+
+// ResolveDispatchRole resolves a named role to a complete executable profile
+// and its ordered fallback chain.
+func (r *Resolver) ResolveDispatchRole(role string) (ResolvedDispatch, bool) {
+	profileRef, ok := r.cfg.Dispatch.Roles[role]
+	if !ok || profileRef == "" {
+		return ResolvedDispatch{}, false
+	}
+	resolved, ok := r.resolveDispatch(profileRef)
+	if !ok {
+		return ResolvedDispatch{}, false
+	}
+	resolved.RequestedRole = role
+	if resolved.Profile.Role == "" {
+		resolved.Profile.Role = role
+	}
+	return resolved, true
+}
+
+// ResolveDispatchProfile resolves a tier/profile reference and returns the
+// primary profile plus all reachable fallbacks in deterministic declaration
+// order. Cycles and duplicate references are ignored.
+func (r *Resolver) ResolveDispatchProfile(profileRef string) (ResolvedDispatch, bool) {
+	resolved, ok := r.resolveDispatch(profileRef)
+	if ok {
+		resolved.RequestedTier = profileRef
+	}
+	return resolved, ok
+}
+
+func (r *Resolver) resolveDispatch(profileRef string) (ResolvedDispatch, bool) {
+	primaryRef, primary, ok := r.lookupDispatchProfile(profileRef)
+	if !ok {
+		return ResolvedDispatch{}, false
+	}
+
+	resolved := ResolvedDispatch{
+		ProfileRef:    primaryRef,
+		Profile:       primary,
+		FallbackChain: []DispatchCandidate{},
+	}
+	seen := map[string]bool{primaryRef: true}
+	var appendFallbacks func([]string)
+	appendFallbacks = func(refs []string) {
+		for _, ref := range refs {
+			actualRef, profile, found := r.lookupDispatchProfile(ref)
+			if !found || seen[actualRef] {
+				continue
+			}
+			seen[actualRef] = true
+			resolved.FallbackChain = append(resolved.FallbackChain, DispatchCandidate{
+				ProfileRef: actualRef,
+				Profile:    profile,
+			})
+			appendFallbacks(profile.Fallbacks)
 		}
 	}
-	return ""
+	appendFallbacks(primary.Fallbacks)
+	return resolved, true
+}
+
+// lookupDispatchProfile follows the legacy fallback alias map only while a
+// concrete profile is absent. Concrete profile fallbacks use the ordered
+// DispatchProfile.Fallbacks field instead.
+func (r *Resolver) lookupDispatchProfile(profileRef string) (string, DispatchProfile, bool) {
+	seen := map[string]bool{}
+	for profileRef != "" && !seen[profileRef] {
+		seen[profileRef] = true
+		if profile, ok := r.cfg.Dispatch.Tiers[profileRef]; ok {
+			return profileRef, profile, true
+		}
+		profileRef = r.cfg.Dispatch.Fallback[profileRef]
+	}
+	return "", DispatchProfile{}, false
 }
 
 // ResolveBatch resolves models for a list of agent short names.

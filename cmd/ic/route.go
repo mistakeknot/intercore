@@ -27,6 +27,7 @@ Subcommands:
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
+  dispatch --role=<name> --json                     Resolve a complete role profile and fallbacks
   dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
   table   [--phase=<p>]                             Show full routing table
   record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
@@ -181,10 +182,32 @@ func cmdRouteBatch(ctx context.Context, args []string) int {
 func cmdRouteDispatch(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	tier := f.String("tier", "")
+	role := f.String("role", "")
 	subagentType := f.String("type", "")
 	currentPhase := f.String("phase", "")
 	if tier == "" && subagentType == "" && len(f.Positionals) > 0 {
 		tier = f.Positionals[0]
+	}
+
+	if role != "" {
+		cfg, err := loadRoutingConfig()
+		if err != nil {
+			slog.Error("route dispatch", "error", err)
+			return 2
+		}
+		resolved, ok := routing.NewResolver(cfg).ResolveDispatchRole(role)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "role %q: no dispatch profile found\n", role)
+			return 1
+		}
+		if flagJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(resolved)
+		} else {
+			fmt.Println(resolved.Profile.Model)
+		}
+		return 0
 	}
 
 	// When --type is provided, resolve subagent type to model via dispatch tiers
@@ -221,7 +244,7 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 
 	// Original --tier path (backward compat)
 	if tier == "" {
-		fmt.Fprintf(os.Stderr, "ic route dispatch: requires --tier=<name> or --type=<name>\n")
+		fmt.Fprintf(os.Stderr, "ic route dispatch: requires --role=<name>, --tier=<name>, or --type=<name>\n")
 		return 3
 	}
 
@@ -363,6 +386,21 @@ func cmdRouteRecord(ctx context.Context, args []string) int {
 	opts.PolicyHash = f.String("policy-hash", "")
 	opts.OverrideID = f.String("override-id", "")
 	opts.ContextJSON = f.String("context", "")
+	contextFields := routing.DecisionContextFields{
+		Role:                  f.String("role", ""),
+		Profile:               f.String("profile", ""),
+		ProducerIdentity:      f.String("producer-identity", ""),
+		ValidatorRelationship: f.String("validator-relationship", ""),
+		FallbackReason:        f.String("fallback-reason", ""),
+	}
+	if opts.ContextJSON != "" || contextFields != (routing.DecisionContextFields{}) {
+		merged, err := routing.BuildDecisionContext(opts.ContextJSON, contextFields)
+		if err != nil {
+			slog.Error("route record: invalid context", "error", err)
+			return 3
+		}
+		opts.ContextJSON = merged
+	}
 
 	if complexity := f.String("complexity", ""); complexity != "" {
 		if v, err := strconv.Atoi(complexity); err == nil {

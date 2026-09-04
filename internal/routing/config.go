@@ -36,15 +36,26 @@ type PhaseConfig struct {
 
 // DispatchConfig holds Codex CLI dispatch tier routing.
 type DispatchConfig struct {
-	Tiers    map[string]TierConfig `yaml:"tiers"`
-	Fallback map[string]string     `yaml:"fallback"`
+	Roles    map[string]string          `yaml:"roles"`
+	Tiers    map[string]DispatchProfile `yaml:"tiers"`
+	Fallback map[string]string          `yaml:"fallback"` // legacy missing-tier aliases
 }
 
-// TierConfig holds a single dispatch tier definition.
-type TierConfig struct {
-	Model       string `yaml:"model"`
-	Description string `yaml:"description"`
+// DispatchProfile is a complete, executable routing choice. Fallbacks contain
+// ordered references to other profiles in DispatchConfig.Tiers.
+type DispatchProfile struct {
+	Role                string   `json:"role" yaml:"role"`
+	Backend             string   `json:"backend" yaml:"backend"`
+	Model               string   `json:"model" yaml:"model"`
+	ReasoningEffort     string   `json:"reasoning_effort" yaml:"reasoning_effort"`
+	ServiceTier         string   `json:"service_tier" yaml:"service_tier"`
+	MinimumCodexVersion string   `json:"minimum_codex_version,omitempty" yaml:"minimum_codex_version"`
+	Fallbacks           []string `json:"fallbacks,omitempty" yaml:"fallbacks"`
+	Description         string   `json:"description,omitempty" yaml:"description"`
 }
+
+// TierConfig is retained as a source-compatible alias for older callers.
+type TierConfig = DispatchProfile
 
 // ComplexityConfig holds B2 complexity-aware routing.
 type ComplexityConfig struct {
@@ -103,7 +114,10 @@ func LoadConfig(routingPath, rolesPath string) (*Config, error) {
 		cfg.Subagents.Defaults.Categories = map[string]string{}
 	}
 	if cfg.Dispatch.Tiers == nil {
-		cfg.Dispatch.Tiers = map[string]TierConfig{}
+		cfg.Dispatch.Tiers = map[string]DispatchProfile{}
+	}
+	if cfg.Dispatch.Roles == nil {
+		cfg.Dispatch.Roles = map[string]string{}
 	}
 	if cfg.Dispatch.Fallback == nil {
 		cfg.Dispatch.Fallback = map[string]string{}
