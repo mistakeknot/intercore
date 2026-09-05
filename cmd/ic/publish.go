@@ -53,6 +53,7 @@ func cmdPublishRun(ctx context.Context, args []string) int {
 		opts.Mode = publish.BumpMinor
 	}
 	opts.DryRun = f.Bool("dry-run")
+	opts.Scoped = f.Bool("scoped")
 	opts.Auto = f.Bool("auto")
 	opts.CWD = f.String("cwd", "")
 	// v2 authz token env reads happen here at the composition root — the
@@ -558,6 +559,7 @@ Usage:
   ic publish --minor             Auto-increment minor version
   ic publish --auto [--cwd=<d>]  Auto mode (for hooks): patch bump, no prompts
   ic publish --dry-run           Show what would happen
+  ic publish --patch --scoped    Publish only this plugin; preserve peer clones and unrelated local state
 
   ic publish doctor              Detect all drift and health issues
   ic publish doctor --fix        Auto-repair everything

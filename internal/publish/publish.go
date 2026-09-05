@@ -60,6 +60,7 @@ type PublishOpts struct {
 	DryRun  bool
 	Auto    bool   // suppress prompts, for hook usage
 	CWD     string // override working directory
+	Scoped  bool   // restrict local mutations to the selected plugin; leave peer clones and global maintenance alone
 
 	// v2 authz token path — set from the composition root (cmd/ic/publish.go)
 	// by reading $CLAVAIN_AUTHZ_TOKEN / $CLAVAIN_AGENT_ID. Empty values fall

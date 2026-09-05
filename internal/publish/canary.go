@@ -22,6 +22,8 @@ type ReleaseCanary struct {
 	Status       string `json:"status"` // pending | passed | failed | rolled_back
 	CheckedAt    int64  `json:"checked_at,omitempty"`
 	Note         string `json:"note,omitempty"`
+	Scoped       bool   `json:"scoped,omitempty"`
+	MarketRoot   string `json:"market_root,omitempty"` // canonical checkout for scoped rollback; never rediscover a peer
 }
 
 // CanaryPath returns the release-canary state file (~/.clavain/release-canaries.json).
@@ -185,6 +187,12 @@ func ProbeArtifact(dir string) []ProbeIssue {
 // pointer agreement — installed_plugins.json and marketplace.json must both
 // name the just-published version and the installPath must exist.
 func ProbeRelease(pluginName, marketplace, version string) []ProbeIssue {
+	return probeRelease(pluginName, marketplace, version, "")
+}
+
+// An explicit marketRoot selects the canonical published checkout for scoped
+// releases; empty preserves the existing local marketplace-index check.
+func probeRelease(pluginName, marketplace, version, marketRoot string) []ProbeIssue {
 	var issues []ProbeIssue
 	key := pluginName + "@" + marketplace
 
@@ -208,7 +216,17 @@ func ProbeRelease(pluginName, marketplace, version string) []ProbeIssue {
 		}
 	}
 
-	if mv := MarketplaceVersions()[key]; mv != "" && mv != version {
+	var mv string
+	if marketRoot != "" {
+		var err error
+		mv, err = ReadMarketplaceVersion(marketRoot, pluginName)
+		if err != nil {
+			issues = append(issues, ProbeIssue{"pointer", "cannot read canonical marketplace: " + err.Error()})
+		}
+	} else {
+		mv = MarketplaceVersions()[key]
+	}
+	if mv != version && (marketRoot != "" || mv != "") {
 		issues = append(issues, ProbeIssue{"pointer", fmt.Sprintf("marketplace.json points at %s, published %s", mv, version)})
 	}
 	return issues
@@ -267,9 +285,32 @@ func rollbackLocalState(marketRoot, pluginName, target string) error {
 func RollbackPlugin(from, pluginName string, out func(string, ...interface{})) error {
 	const marketplace = "interagency-marketplace"
 
-	marketRoot, err := FindMarketplace(from)
+	// Read scope before resolving a checkout. On unreadable state, falling back
+	// to legacy peer synchronization could publish an unrelated user's commits.
+	cs, err := readCanariesFrom(CanaryPath())
 	if err != nil {
-		return fmt.Errorf("locate marketplace: %w", err)
+		return fmt.Errorf("read rollback scope: %w", err)
+	}
+	var recordedPrior, marketRoot string
+	scoped := false
+	for _, c := range cs {
+		if c.Plugin == pluginName && c.Marketplace == marketplace {
+			recordedPrior, scoped = c.PriorVersion, c.Scoped
+			if scoped {
+				marketRoot = c.MarketRoot
+			}
+		}
+	}
+	if scoped {
+		if !filepath.IsAbs(marketRoot) {
+			return fmt.Errorf("scoped rollback has no absolute canonical marketplace path; refusing peer fallback")
+		}
+		out("  Scoped rollback: canonical marketplace %s; peer checkouts unchanged\n", marketRoot)
+	} else {
+		marketRoot, err = FindMarketplace(from)
+		if err != nil {
+			return fmt.Errorf("locate marketplace: %w", err)
+		}
 	}
 	current, err := ReadMarketplaceVersion(marketRoot, pluginName)
 	if err != nil {
@@ -279,14 +320,6 @@ func RollbackPlugin(from, pluginName string, out func(string, ...interface{})) e
 	entries, err := ListCacheEntries()
 	if err != nil {
 		return fmt.Errorf("cache entries: %w", err)
-	}
-	var recordedPrior string
-	if cs, err := readCanariesFrom(CanaryPath()); err == nil {
-		for _, c := range cs {
-			if c.Plugin == pluginName && c.Marketplace == marketplace {
-				recordedPrior = c.PriorVersion
-			}
-		}
 	}
 	target, err := resolveRollbackTarget(entries[pluginName], current, recordedPrior)
 	if err != nil {
@@ -308,11 +341,13 @@ func RollbackPlugin(from, pluginName string, out func(string, ...interface{})) e
 		}
 	}
 
-	if err := SyncCCMarketplace(marketRoot, pluginName, target); err != nil {
-		out("  warning: CC marketplace sync: %v\n", err)
-	}
-	if err := RefreshCCMarketplace(); err != nil {
-		out("  warning: CC marketplace refresh: %v\n", err)
+	if !scoped {
+		if err := SyncCCMarketplace(marketRoot, pluginName, target); err != nil {
+			out("  warning: CC marketplace sync: %v\n", err)
+		}
+		if err := RefreshCCMarketplace(); err != nil {
+			out("  warning: CC marketplace refresh: %v\n", err)
+		}
 	}
 	if path := CanaryPath(); path != "" {
 		if err := markCanaryIn(path, pluginName, marketplace, "rolled_back", "rolled back to "+target); err != nil {

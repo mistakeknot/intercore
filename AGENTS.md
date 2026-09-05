@@ -157,7 +157,7 @@ Registered contract types cover: coordination, dispatch, phase/run, runtrack, sc
 | Portfolio | `portfolio dep/relay/order/status` |
 | Situation | `situation snapshot` |
 | Config/Agency | `config set/get/list`, `agency load/validate/show/capabilities` |
-| Publish | `publish <version>/--patch/--minor/--auto/--dry-run/init/status/doctor/clean` |
+| Publish | `publish <version>/--patch/--minor/--auto/--scoped/--dry-run/init/status/doctor/clean` |
 | Route | `route model/batch/dispatch/table/record/list` |
 | Landed | `landed record/list/revert/summary` |
 | Session | `session start/attribute/end/current/list/tokens` |

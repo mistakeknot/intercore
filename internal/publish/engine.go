@@ -89,6 +89,14 @@ func (e *Engine) Publish(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if e.opts.Scoped {
+		// Persist a stable checkout identity, not a staging-tree symlink that may
+		// disappear before rollback. Never substitute a peer if it later vanishes.
+		marketRoot, err = filepath.EvalSymlinks(marketRoot)
+		if err != nil {
+			return fmt.Errorf("resolve canonical marketplace: %w", err)
+		}
+	}
 
 	// Check if the developer already bumped (marketplace is stale).
 	// If plugin.json version > marketplace version, a bump is unnecessary —
@@ -128,6 +136,11 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("Syncing %s v%s to marketplace\n", plugin.Name, targetVersion)
 	} else {
 		e.out("Publishing %s: %s → %s\n", plugin.Name, plugin.Version, targetVersion)
+	}
+	if e.opts.Scoped {
+		e.out("  Scoped publish: selected plugin, canonical marketplace, cache, installed record and hook bridges only.\n")
+		e.out("  Canonical marketplace: %s\n", marketRoot)
+		e.out("  Skipping peer marketplace sync/refresh, global cache cleanup, rig sync and diagram generation.\n")
 	}
 	if e.opts.DryRun {
 		e.out("  Plugin root:  %s\n", pluginRoot)
@@ -505,66 +518,68 @@ func (e *Engine) Publish(ctx context.Context) error {
 		e.out("  warning: installed_plugins.json: %v\n", err)
 	}
 
-	// Sync CC marketplace checkout
-	if err := SyncCCMarketplace(marketRoot, plugin.Name, targetVersion); err != nil {
-		e.out("  warning: CC marketplace sync: %v\n", err)
-	}
+	if !e.opts.Scoped {
+		// Sync CC marketplace checkout
+		if err := SyncCCMarketplace(marketRoot, plugin.Name, targetVersion); err != nil {
+			e.out("  warning: CC marketplace sync: %v\n", err)
+		}
 
-	// Refresh CC's in-memory marketplace index
-	if err := RefreshCCMarketplace(); err != nil {
-		e.out("  warning: CC marketplace refresh: %v\n", err)
-	}
+		// Refresh CC's in-memory marketplace index
+		if err := RefreshCCMarketplace(); err != nil {
+			e.out("  warning: CC marketplace refresh: %v\n", err)
+		}
 
-	// Prune stale cache versions across ALL marketplaces, not just interagency.
-	// This is a multi-marketplace sweep so plugins from claude-plugins-official,
-	// arouth-plugins, etc. don't accumulate stale versions either. The version
-	// we JUST published is passed as explicit protection: RefreshCCMarketplace
-	// above can rewrite installed_plugins.json concurrently, and the prune must
-	// not depend on that file to know this version is live (Sylveste-0lt).
-	if report, err := PruneStaleVersionsAcrossMarketplaces(1, map[string]string{
-		plugin.Name + "@interagency-marketplace": targetVersion,
-	}); err != nil {
-		e.out("  warning: stale version prune: %v\n", err)
-	} else {
-		if report.Pruned > 0 {
-			e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n",
-				report.Pruned, float64(report.BytesFreed)/1024/1024)
+		// Prune stale cache versions across ALL marketplaces, not just interagency.
+		// This is a multi-marketplace sweep so plugins from claude-plugins-official,
+		// arouth-plugins, etc. don't accumulate stale versions either. The version
+		// we JUST published is passed as explicit protection: RefreshCCMarketplace
+		// above can rewrite installed_plugins.json concurrently, and the prune must
+		// not depend on that file to know this version is live (Sylveste-0lt).
+		if report, err := PruneStaleVersionsAcrossMarketplaces(1, map[string]string{
+			plugin.Name + "@interagency-marketplace": targetVersion,
+		}); err != nil {
+			e.out("  warning: stale version prune: %v\n", err)
+		} else {
+			if report.Pruned > 0 {
+				e.out("  Pruned %d stale cache version(s) (%.1f MB freed)\n",
+					report.Pruned, float64(report.BytesFreed)/1024/1024)
+			}
+			// Say what was kept and why. Silence here is what let a directory be
+			// deleted out from under 23 running servers without a word.
+			for _, h := range report.Held {
+				e.out("  Kept in-use version: %s — restart those sessions to release it\n", h.Summary())
+			}
+			if report.Blocked != "" {
+				e.out("  warning: stale version prune: %s\n", report.Blocked)
+			}
 		}
-		// Say what was kept and why. Silence here is what let a directory be
-		// deleted out from under 23 running servers without a word.
-		for _, h := range report.Held {
-			e.out("  Kept in-use version: %s — restart those sessions to release it\n", h.Summary())
-		}
-		if report.Blocked != "" {
-			e.out("  warning: stale version prune: %s\n", report.Blocked)
-		}
-	}
 
-	// The version prune skips dirs carrying an .orphaned_at marker, and until
-	// now nothing on the publish path ever removed them — they persisted until
-	// someone manually ran `ic publish clean`, tripping version-drift checks
-	// downstream. Clean them here once past the session-continuity grace window.
-	if report, err := CleanOrphansOlderThan(24 * time.Hour); err != nil {
-		e.out("  warning: orphan clean: %v\n", err)
-	} else {
-		if report.Pruned > 0 {
-			e.out("  Cleaned %d orphaned cache dir(s) (%.1f MB freed)\n",
-				report.Pruned, float64(report.BytesFreed)/1024/1024)
+		// The version prune skips dirs carrying an .orphaned_at marker, and until
+		// now nothing on the publish path ever removed them — they persisted until
+		// someone manually ran `ic publish clean`, tripping version-drift checks
+		// downstream. Clean them here once past the session-continuity grace window.
+		if report, err := CleanOrphansOlderThan(24 * time.Hour); err != nil {
+			e.out("  warning: orphan clean: %v\n", err)
+		} else {
+			if report.Pruned > 0 {
+				e.out("  Cleaned %d orphaned cache dir(s) (%.1f MB freed)\n",
+					report.Pruned, float64(report.BytesFreed)/1024/1024)
+			}
+			for _, h := range report.Held {
+				e.out("  Kept in-use orphan: %s — restart those sessions to release it\n", h.Summary())
+			}
+			if report.Blocked != "" {
+				e.out("  warning: orphan clean: %s\n", report.Blocked)
+			}
 		}
-		for _, h := range report.Held {
-			e.out("  Kept in-use orphan: %s — restart those sessions to release it\n", h.Summary())
-		}
-		if report.Blocked != "" {
-			e.out("  warning: orphan clean: %s\n", report.Blocked)
-		}
-	}
 
-	// Bridge symlinks whose targets the prune already removed can never
-	// resolve again — retire them so version listings stay truthful.
-	if removed, err := PruneDanglingSymlinks(); err != nil {
-		e.out("  warning: dangling symlink prune: %v\n", err)
-	} else if removed > 0 {
-		e.out("  Removed %d dangling version symlink(s)\n", removed)
+		// Bridge symlinks whose targets the prune already removed can never
+		// resolve again — retire them so version listings stay truthful.
+		if removed, err := PruneDanglingSymlinks(); err != nil {
+			e.out("  warning: dangling symlink prune: %v\n", err)
+		} else if removed > 0 {
+			e.out("  Removed %d dangling version symlink(s)\n", removed)
+		}
 	}
 
 	// Post-publish assertion (Sylveste-0lt): the path installed_plugins.json
@@ -584,6 +599,10 @@ func (e *Engine) Publish(ctx context.Context) error {
 	// probe is loud but non-fatal: the publish already happened; the canary
 	// and the rollback verb are the recovery path.
 	priorVersion := rollbackPriorVersion(mktVer, plugin.Version, targetVersion)
+	canaryMarketRoot := ""
+	if e.opts.Scoped {
+		canaryMarketRoot = marketRoot
+	}
 	if err := RegisterCanary(ReleaseCanary{
 		Plugin:       plugin.Name,
 		Marketplace:  "interagency-marketplace",
@@ -591,12 +610,20 @@ func (e *Engine) Publish(ctx context.Context) error {
 		PriorVersion: priorVersion,
 		PublishedAt:  time.Now().Unix(),
 		Status:       "pending",
+		Scoped:       e.opts.Scoped,
+		MarketRoot:   canaryMarketRoot,
 	}); err != nil {
 		e.out("  warning: release canary registration: %v\n", err)
 	} else {
 		e.out("  Release canary registered: %s v%s (prior v%s)\n", plugin.Name, targetVersion, priorVersion)
 	}
-	if issues := ProbeRelease(plugin.Name, "interagency-marketplace", targetVersion); len(issues) > 0 {
+	// A scoped publish deliberately leaves peer indexes unchanged. Verify the
+	// canonical marketplace we just pushed, not a preserved user's peer clone.
+	probeMarketRoot := ""
+	if e.opts.Scoped {
+		probeMarketRoot = marketRoot
+	}
+	if issues := probeRelease(plugin.Name, "interagency-marketplace", targetVersion, probeMarketRoot); len(issues) > 0 {
 		for _, is := range issues {
 			e.out("  ERROR: post-release probe [%s]: %s\n", is.Check, is.Detail)
 		}
@@ -620,24 +647,26 @@ func (e *Engine) Publish(ctx context.Context) error {
 		CreateSymlinks(plugin.Name, plugin.Version, targetVersion)
 	}
 
-	// Phase 7b: Sync agent-rig.json (best-effort — non-fatal)
-	if rigPath, err := FindAgentRig(pluginRoot); err == nil {
-		result, err := SyncRig(rigPath, plugin.Name, plugin.Description(), "interagency-marketplace")
-		if err != nil {
-			e.out("  warning: rig sync: %v\n", err)
-		} else if result.Added {
-			e.out("  Added %s to agent-rig.json\n", plugin.Name)
-			if err := CommitAndPushRig(result.ClavRoot, plugin.Name, targetVersion); err != nil {
-				e.out("  warning: rig commit/push: %v\n", err)
+	if !e.opts.Scoped {
+		// Phase 7b: Sync agent-rig.json (best-effort — non-fatal)
+		if rigPath, err := FindAgentRig(pluginRoot); err == nil {
+			result, err := SyncRig(rigPath, plugin.Name, plugin.Description(), "interagency-marketplace")
+			if err != nil {
+				e.out("  warning: rig sync: %v\n", err)
+			} else if result.Added {
+				e.out("  Added %s to agent-rig.json\n", plugin.Name)
+				if err := CommitAndPushRig(result.ClavRoot, plugin.Name, targetVersion); err != nil {
+					e.out("  warning: rig commit/push: %v\n", err)
+				}
 			}
 		}
-	}
 
-	// Phase 7c: Regenerate interchart ecosystem diagram (best-effort — non-fatal)
-	if interchartRoot, err := FindInterchart(pluginRoot); err == nil {
-		e.out("  Regenerating ecosystem diagram...\n")
-		if err := RegenerateInterchart(interchartRoot, pluginRoot); err != nil {
-			e.out("  warning: interchart: %v\n", err)
+		// Phase 7c: Regenerate interchart ecosystem diagram (best-effort — non-fatal)
+		if interchartRoot, err := FindInterchart(pluginRoot); err == nil {
+			e.out("  Regenerating ecosystem diagram...\n")
+			if err := RegenerateInterchart(interchartRoot, pluginRoot); err != nil {
+				e.out("  warning: interchart: %v\n", err)
+			}
 		}
 	}
 

@@ -227,6 +227,7 @@ ic publish --patch                        Auto-increment patch version
 ic publish --minor                        Auto-increment minor version
 ic publish --auto [--cwd=<d>]             Auto mode (hooks): patch, no prompts
 ic publish --dry-run                      Show what would happen
+ic publish --patch --scoped               Preserve unrelated local state and peer marketplace checkouts
 ic publish init [--name=<name>]           Register plugin in marketplace
 ic publish status [--all]                 Show publish state
 ic publish doctor [--fix] [--json]        Detect/repair drift
@@ -234,6 +235,24 @@ ic publish clean [--dry-run]              Prune orphans, stale versions
 ```
 
 **Pipeline phases:** discovery -> validation -> bump -> commit plugin -> push plugin -> update marketplace -> sync local -> sync agent-rig.json -> done. Each phase is tracked in SQLite for crash recovery. The agent-rig sync is best-effort: after marketplace sync, checks if the plugin is listed in `os/clavain/agent-rig.json` and adds it to the recommended tier if missing.
+
+`--scoped` retains versioning, validation, plugin and canonical marketplace
+commits/pushes, the selected plugin's cache, installed record, hook bridges and
+release canary. It skips all peer marketplace synchronization/refresh, global
+cache pruning (including orphans and dangling links), cross-repo rig updates and
+diagram generation. Peer indexes intentionally remain unchanged and may report
+version drift; the immediate release probe checks the canonical marketplace.
+No cleanup is scheduled for later. Combine with `--dry-run` to preview the scope.
+The default publish pipeline is unchanged. This flag does not bypass dirty-worktree,
+approval or release-artifact gates. Normal Git push protection still applies;
+the flag does not impose a branch policy.
+
+The canary records scoped mode and the resolved canonical checkout path.
+`ic publish rollback <plugin>` honors that record even when invoked elsewhere:
+it restores the selected plugin and canonical marketplace without syncing or
+refreshing peers. If that checkout is gone, rollback fails instead of using a
+peer. Unreadable canary state also fails closed; legacy records without scoped
+mode retain the existing rollback behavior.
 
 ## Exit Codes
 
