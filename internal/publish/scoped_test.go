@@ -24,6 +24,7 @@ func TestPublishIsolationNegativeControl(t *testing.T) {
 
 func testPublishIsolation(t *testing.T, scoped bool) {
 	t.Helper()
+	t.Setenv("IC_MARKETPLACE_CLONES", "") // never expose real peer clones to the negative control
 	pluginRoot, marketRoot, trace := scaffoldReleasePublishRepos(t, "1.0.0", "1.0.0")
 	write := func(path, body string, mode os.FileMode) {
 		t.Helper()

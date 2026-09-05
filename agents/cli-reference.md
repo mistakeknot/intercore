@@ -242,6 +242,8 @@ release canary. It skips all peer marketplace synchronization/refresh, global
 cache pruning (including orphans and dangling links), cross-repo rig updates and
 diagram generation. Peer indexes intentionally remain unchanged and may report
 version drift; the immediate release probe checks the canonical marketplace.
+Canonical means the checkout selected by normal discovery; outside the monorepo
+this can be the Claude Code checkout itself. Inspect the printed path.
 No cleanup is scheduled for later. Combine with `--dry-run` to preview the scope.
 The default publish pipeline is unchanged. This flag does not bypass dirty-worktree,
 approval or release-artifact gates. Normal Git push protection still applies;
