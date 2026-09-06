@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -19,6 +20,27 @@ import (
 )
 
 // --- Dispatch Commands ---
+
+func dispatchMutationError(operation string, err error) int {
+	var rejection *dispatch.SpawnRejection
+	if errors.Is(err, dispatch.ErrStaleStatus) {
+		rejection = &dispatch.SpawnRejection{Reason: "stale_status"}
+	} else if errors.Is(err, dispatch.ErrNotFound) {
+		rejection = &dispatch.SpawnRejection{Reason: "not_found"}
+	} else {
+		_ = errors.As(err, &rejection)
+	}
+	if rejection != nil {
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(rejection)
+		} else {
+			slog.Error("dispatch "+operation+": rejected", "error", rejection)
+		}
+		return 1
+	}
+	slog.Error("dispatch "+operation+" failed", "error", err)
+	return 2
+}
 
 func cmdDispatch(ctx context.Context, args []string) int {
 	if len(args) == 0 {
@@ -45,6 +67,27 @@ func cmdDispatch(ctx context.Context, args []string) int {
 		return cmdDispatchTokens(ctx, args[1:])
 	case "retry":
 		return cmdDispatchRetry(ctx, args[1:])
+	case "reconcile":
+		if len(args) != 2 {
+			return 3
+		}
+		d, err := openDB()
+		if err != nil {
+			slog.Error("dispatch reconcile", "error", err)
+			return 2
+		}
+		defer d.Close()
+		receipt, err := dispatch.New(d.SqlDB(), nil).ReconcileWorker(ctx, args[1])
+		if err != nil {
+			slog.Error("dispatch reconcile", "error", err)
+			return 1
+		}
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(receipt)
+		} else {
+			fmt.Println("Reconciliation appended; terminal attempt retained")
+		}
+		return 0
 	default:
 		slog.Error("dispatch: unknown subcommand", "subcommand", args[0])
 		return 3
@@ -54,20 +97,58 @@ func cmdDispatch(ctx context.Context, args []string) int {
 func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	opts := dispatch.SpawnOptions{
-		AgentType:   f.String("type", ""),
-		PromptFile:  f.String("prompt-file", ""),
-		ProjectDir:  f.String("project", ""),
-		OutputFile:  f.String("output", ""),
-		Name:        f.String("name", ""),
-		Model:       f.String("model", ""),
-		Sandbox:     f.String("sandbox", ""),
-		SandboxSpec: f.String("sandbox-spec", ""),
-		ScopeID:     f.String("scope-id", ""),
-		ParentID:    f.String("parent-id", ""),
-		DispatchSH:  f.String("dispatch-sh", ""),
+		AgentType:        f.String("type", ""),
+		PromptFile:       f.String("prompt-file", ""),
+		ProjectDir:       f.String("project", ""),
+		OutputFile:       f.String("output", ""),
+		Name:             f.String("name", ""),
+		Model:            f.String("model", ""),
+		Sandbox:          f.String("sandbox", ""),
+		SandboxSpec:      f.String("sandbox-spec", ""),
+		ScopeID:          f.String("scope-id", ""),
+		RunID:            f.String("run-id", ""),
+		ParentID:         f.String("parent-id", ""),
+		ParentDispatchID: f.String("parent-dispatch-id", ""),
+		DispatchSH:       f.String("dispatch-sh", ""),
 	}
 	scheduled := f.Bool("scheduled")
 	schedulerSession := f.String("scheduler-session", "")
+	for _, name := range []string{"run-id", "scope-id", "parent-dispatch-id"} {
+		if f.Has(name) && f.String(name, "") == "" {
+			slog.Error("dispatch spawn: binding requires a nonempty value", "flag", name)
+			return 3
+		}
+	}
+	policy := dispatch.SpawnPolicy{}
+	for name, target := range map[string]*int{
+		"max-active-per-run": &policy.MaxActivePerRun,
+		"max-active-global":  &policy.MaxActiveGlobal,
+		"max-agents-per-run": &policy.MaxAgentsPerRun,
+		"max-spawn-depth":    &policy.MaxSpawnDepth,
+	} {
+		if !f.Has(name) {
+			continue
+		}
+		raw, hasValue := f.Raw(name)
+		value, err := strconv.Atoi(raw)
+		if !hasValue || err != nil || value < 0 {
+			slog.Error("dispatch spawn: limit requires a nonnegative integer", "flag", name)
+			return 3
+		}
+		*target = value
+	}
+	if f.Has("budget-enforce") {
+		policy.BudgetEnforce = true
+		if raw, hasValue := f.Raw("budget-enforce"); hasValue {
+			value, err := strconv.ParseBool(raw)
+			if err != nil {
+				slog.Error("dispatch spawn: invalid budget-enforce boolean", "value", raw)
+				return 3
+			}
+			policy.BudgetEnforce = value
+		}
+	}
+	opts.Policy = &policy
 
 	if f.Has("timeout") {
 		dur, err := f.Duration("timeout", 0)
@@ -90,6 +171,13 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 		}
 		opts.ProjectDir = cwd
 	}
+	if err := opts.Validate(); err != nil {
+		slog.Error("dispatch spawn: invalid options", "error", err)
+		return 3
+	}
+	if opts.RunID != "" {
+		opts.ScopeID = opts.RunID
+	}
 
 	d, err := openDB()
 	if err != nil {
@@ -100,6 +188,9 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 
 	// --scheduled: submit to scheduler instead of direct exec.
 	if scheduled {
+		if opts.AgentType == "" {
+			opts.AgentType = "codex"
+		}
 		spawnJSON, err := scheduler.MarshalSpawnOpts(opts)
 		if err != nil {
 			slog.Error("dispatch spawn: marshal opts", "error", err)
@@ -136,8 +227,12 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	// Portfolio dispatch limit check (best-effort, relay-maintained cache).
 	// Note: this is advisory, not atomic — concurrent spawns may exceed the limit.
 	if opts.ScopeID != "" {
-		if limited, msg := checkPortfolioDispatchLimit(ctx, d.SqlDB(), opts.ScopeID); limited {
-			slog.Error("dispatch spawn: rejected", "reason", msg)
+		if rejection := checkPortfolioDispatchLimit(ctx, d.SqlDB(), opts.ScopeID); rejection != nil {
+			if flagJSON {
+				json.NewEncoder(os.Stdout).Encode(rejection)
+			} else {
+				slog.Error("dispatch spawn: rejected", "error", rejection)
+			}
 			return 1
 		}
 	}
@@ -145,6 +240,20 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	result, err := dispatch.Spawn(ctx, store, opts)
 	if err != nil {
+		var rejection *dispatch.SpawnRejection
+		if errors.As(err, &rejection) {
+			if flagJSON {
+				json.NewEncoder(os.Stdout).Encode(rejection)
+			} else {
+				slog.Error("dispatch spawn: rejected", "error", rejection)
+			}
+			return 1
+		}
+		var input *dispatch.InputError
+		if errors.As(err, &input) {
+			slog.Error("dispatch spawn: invalid options", "error", input)
+			return 3
+		}
 		slog.Error("dispatch spawn failed", "error", err)
 		return 2
 	}
@@ -185,7 +294,7 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		json.NewEncoder(os.Stdout).Encode(dispatchToMap(disp))
+		json.NewEncoder(os.Stdout).Encode(dispatch.ToOutput(disp))
 	} else {
 		printDispatch(disp)
 	}
@@ -218,9 +327,9 @@ func cmdDispatchList(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		items := make([]map[string]interface{}, len(dispatches))
+		items := make([]dispatch.DispatchOutput, len(dispatches))
 		for i, disp := range dispatches {
-			items[i] = dispatchToMap(disp)
+			items[i] = dispatch.ToOutput(disp)
 		}
 		json.NewEncoder(os.Stdout).Encode(items)
 	} else {
@@ -260,7 +369,7 @@ func cmdDispatchPoll(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		json.NewEncoder(os.Stdout).Encode(dispatchToMap(disp))
+		json.NewEncoder(os.Stdout).Encode(dispatch.ToOutput(disp))
 	} else {
 		printDispatch(disp)
 	}
@@ -307,7 +416,7 @@ func cmdDispatchWait(ctx context.Context, args []string) int {
 	}
 
 	if flagJSON {
-		json.NewEncoder(os.Stdout).Encode(dispatchToMap(disp))
+		json.NewEncoder(os.Stdout).Encode(dispatch.ToOutput(disp))
 	} else {
 		printDispatch(disp)
 	}
@@ -333,12 +442,7 @@ func cmdDispatchKill(ctx context.Context, args []string) int {
 
 	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	if err := dispatch.Kill(ctx, store, args[0]); err != nil {
-		if err == dispatch.ErrNotFound {
-			slog.Error("dispatch kill: not found", "id", args[0])
-			return 1
-		}
-		slog.Error("dispatch kill failed", "error", err)
-		return 2
+		return dispatchMutationError("kill", err)
 	}
 
 	fmt.Println("killed")
@@ -428,12 +532,7 @@ func cmdDispatchTokens(ctx context.Context, args []string) int {
 
 	dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	if err := dStore.UpdateTokens(ctx, id, fields); err != nil {
-		if err == dispatch.ErrNotFound {
-			slog.Error("dispatch tokens: not found", "id", id)
-			return 1
-		}
-		slog.Error("dispatch tokens failed", "error", err)
-		return 2
+		return dispatchMutationError("tokens", err)
 	}
 
 	// Budget check: if this dispatch belongs to a run, check budget thresholds
@@ -493,8 +592,7 @@ func cmdDispatchRetry(ctx context.Context, args []string) int {
 	if !escalate {
 		result, err := dispatch.Retry(ctx, dStore, id, dispatch.DefaultRetryPolicy())
 		if err != nil {
-			slog.Error("dispatch retry failed", "error", err)
-			return 2
+			return dispatchMutationError("retry", err)
 		}
 		if flagJSON {
 			json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
@@ -511,8 +609,7 @@ func cmdDispatchRetry(ctx context.Context, args []string) int {
 	// --escalate path
 	orig, err := dStore.Get(ctx, id)
 	if err != nil {
-		slog.Error("dispatch retry failed", "error", err)
-		return 2
+		return dispatchMutationError("retry", err)
 	}
 	origModel := ""
 	if orig.Model != nil {
@@ -540,8 +637,7 @@ func cmdDispatchRetry(ctx context.Context, args []string) int {
 			}
 			return 1
 		}
-		slog.Error("dispatch retry --escalate failed", "error", err)
-		return 2
+		return dispatchMutationError("retry --escalate", err)
 	}
 
 	if result.Escalated {
@@ -574,70 +670,6 @@ func cmdDispatchRetry(ctx context.Context, args []string) int {
 }
 
 // --- dispatch output helpers ---
-
-func dispatchToMap(d *dispatch.Dispatch) map[string]interface{} {
-	m := map[string]interface{}{
-		"id":          d.ID,
-		"agent_type":  d.AgentType,
-		"status":      d.Status,
-		"project_dir": d.ProjectDir,
-		"turns":       d.Turns,
-		"commands":    d.Commands,
-		"messages":    d.Messages,
-		"in_tokens":   d.InputTokens,
-		"out_tokens":  d.OutputTokens,
-		"created_at":  d.CreatedAt,
-	}
-	if d.PromptFile != nil {
-		m["prompt_file"] = *d.PromptFile
-	}
-	if d.OutputFile != nil {
-		m["output_file"] = *d.OutputFile
-	}
-	if d.PID != nil {
-		m["pid"] = *d.PID
-	}
-	if d.ExitCode != nil {
-		m["exit_code"] = *d.ExitCode
-	}
-	if d.Name != nil {
-		m["name"] = *d.Name
-	}
-	if d.Model != nil {
-		m["model"] = *d.Model
-	}
-	if d.StartedAt != nil {
-		m["started_at"] = *d.StartedAt
-	}
-	if d.CompletedAt != nil {
-		m["completed_at"] = *d.CompletedAt
-	}
-	if d.VerdictStatus != nil {
-		m["verdict_status"] = *d.VerdictStatus
-	}
-	if d.VerdictSummary != nil {
-		m["verdict_summary"] = *d.VerdictSummary
-	}
-	if d.ErrorMessage != nil {
-		m["error_message"] = *d.ErrorMessage
-	}
-	if d.CacheHits != nil {
-		m["cache_hits"] = *d.CacheHits
-	}
-	if d.SandboxSpec != nil {
-		m["sandbox_spec"] = json.RawMessage(*d.SandboxSpec)
-	}
-	if d.SandboxEffective != nil {
-		m["sandbox_effective"] = json.RawMessage(*d.SandboxEffective)
-	}
-	if d.ScopeID != nil {
-		m["scope_id"] = *d.ScopeID
-	}
-	if d.ParentID != nil {
-		m["parent_id"] = *d.ParentID
-	}
-	return m
-}
 
 func printDispatch(d *dispatch.Dispatch) {
 	fmt.Printf("ID:      %s\n", d.ID)
@@ -689,37 +721,37 @@ func printDispatch(d *dispatch.Dispatch) {
 // checkPortfolioDispatchLimit checks if the dispatch limit for a portfolio run is exceeded.
 // Returns (true, message) if the limit is reached, (false, "") otherwise.
 // Degrades gracefully: returns false if any lookup fails (no relay, no parent, etc.).
-func checkPortfolioDispatchLimit(ctx context.Context, db *sql.DB, scopeID string) (bool, string) {
+func checkPortfolioDispatchLimit(ctx context.Context, db *sql.DB, scopeID string) *dispatch.SpawnRejection {
 	phaseStore := phase.New(db)
 	stateStore := state.New(db)
 
 	run, err := phaseStore.Get(ctx, scopeID)
 	if err != nil || run.ParentRunID == nil {
-		return false, ""
+		return nil
 	}
 
 	parent, err := phaseStore.Get(ctx, *run.ParentRunID)
 	if err != nil || parent.MaxDispatches <= 0 {
-		return false, ""
+		return nil
 	}
 
 	payload, err := stateStore.Get(ctx, "active-dispatch-count", *run.ParentRunID)
 	if err != nil {
 		slog.Warn("dispatch spawn: no relay data for portfolio, dispatch limit not enforced", "portfolio_id", *run.ParentRunID)
-		return false, ""
+		return nil
 	}
 
 	var countStr string
 	if err := json.Unmarshal(payload, &countStr); err != nil {
-		return false, ""
+		return nil
 	}
 	count, err := strconv.Atoi(countStr)
 	if err != nil {
-		return false, ""
+		return nil
 	}
 
 	if count >= parent.MaxDispatches {
-		return true, fmt.Sprintf("portfolio dispatch limit reached (%d/%d)", count, parent.MaxDispatches)
+		return &dispatch.SpawnRejection{Reason: "portfolio_dispatch_limit", RunID: scopeID, Current: int64(count), Limit: int64(parent.MaxDispatches)}
 	}
-	return false, ""
+	return nil
 }

@@ -197,6 +197,11 @@ func scanJob(row *sql.Row) (*SpawnJob, error) {
 		return nil, err
 	}
 
+	// The persisted queue currently contains dispatch jobs only. Restore the
+	// runtime context required by Scheduler after loading an admitted job.
+	j.Type = JobTypeDispatch
+	j.ctx, j.cancel = context.WithCancel(context.Background())
+	j.Metadata = make(map[string]interface{})
 	j.Status = JobStatus(status)
 	j.Priority = JobPriority(priority)
 	j.SessionName = sessionName.String
@@ -239,6 +244,9 @@ func scanJobFromRows(rows *sql.Rows) (*SpawnJob, error) {
 		return nil, err
 	}
 
+	j.Type = JobTypeDispatch
+	j.ctx, j.cancel = context.WithCancel(context.Background())
+	j.Metadata = make(map[string]interface{})
 	j.Status = JobStatus(status)
 	j.Priority = JobPriority(priority)
 	j.SessionName = sessionName.String

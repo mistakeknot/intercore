@@ -66,6 +66,9 @@ func ShouldRetry(d *Dispatch, policy RetryPolicy) bool {
 	if d == nil {
 		return false
 	}
+	if d.AgentType == "flere" || (d.QuarantineReason != nil && *d.QuarantineReason == WorkerOutcomeIndeterminate) {
+		return false // fixed workers require a new, explicitly admitted attempt
+	}
 	if policy.MaxRetries <= 0 {
 		return false
 	}
@@ -101,10 +104,7 @@ func Retry(ctx context.Context, store *Store, originalID string, policy RetryPol
 	}
 
 	if !ShouldRetry(orig, policy) {
-		if orig.RetryCount >= policy.MaxRetries {
-			return nil, fmt.Errorf("retry: max retries (%d) exceeded for dispatch %s", policy.MaxRetries, originalID)
-		}
-		return nil, fmt.Errorf("retry: dispatch %s is not retryable (status=%s)", originalID, orig.Status)
+		return nil, &SpawnRejection{Reason: "not_retryable"}
 	}
 
 	attempt := orig.RetryCount + 1
@@ -129,7 +129,7 @@ func Retry(ctx context.Context, store *Store, originalID string, policy RetryPol
 		SpawnDepth:       orig.SpawnDepth,
 	}
 
-	newID, err := store.Create(ctx, d)
+	newID, err := store.admitRetry(ctx, d)
 	if err != nil {
 		return nil, fmt.Errorf("retry: create: %w", err)
 	}
@@ -142,6 +142,16 @@ func Retry(ctx context.Context, store *Store, originalID string, policy RetryPol
 		Attempt:    attempt,
 		BackoffMs:  backoff.Milliseconds(),
 	}, nil
+}
+
+// admitRetry is shared by ordinary and model-escalating retries. A retry is a
+// new reservation against the original run; it does not increase spawn depth.
+func (s *Store) admitRetry(ctx context.Context, d *Dispatch) (string, error) {
+	opts := SpawnOptions{retry: true}
+	if d.ScopeID != nil {
+		opts.RunID, opts.ScopeID = *d.ScopeID, *d.ScopeID
+	}
+	return s.admit(ctx, d, opts)
 }
 
 // RetryWithBackoff creates a retry dispatch and waits the computed backoff

@@ -45,9 +45,90 @@ ic dispatch list [--active] [--scope=<s>]  List dispatches
 ic dispatch poll <id>                      Check liveness, update stats
 ic dispatch wait <id> [--timeout=<dur>]    Block until terminal or timeout
 ic dispatch kill <id>                      SIGTERM then SIGKILL a dispatch
+ic dispatch reconcile <id>                 Append later Flere terminal proof; preserve the original attempt
 ic dispatch tokens <id> --set --in=N --out=N [--cache=N]   Update token counts
 ic dispatch prune --older-than=<dur>       Remove old terminal dispatches
 ```
+
+`dispatch spawn --run-id=<id>` requires an existing run and binds the dispatch
+scope to it. A different `--scope-id` is invalid. Parent scope/depth, stored enforced
+budget, stored agent cap, caller concurrency limits, and insertion are checked in
+one SQLite write transaction. An advisory budget remains advisory. A configured
+legacy budget checker can veto enforced admission but cannot replace the stored
+budget. Active work can still consume tokens after admission; admission is not a
+reservation of an estimated token allotment.
+
+Stored `kernel.global_max_dispatches` and `kernel.max_spawn_depth` limits apply
+in that same transaction and cannot be relaxed by caller flags. Invalid stored
+limits fail admission. A scoped retry must still reference an existing run and
+rechecks stored limits; it preserves the original depth while reserving a new
+attempt. This includes `dispatch retry --escalate`; Flere and indeterminate
+attempts are ineligible for either retry path. Retry, token, and kill rejections
+return exit 1 and a structured reason under `--json`; unexpected storage errors
+remain exit 2. Terminal Flere usage cannot be overwritten through `dispatch tokens`.
+Host timeout or cancellation records a failed indeterminate Flere attempt;
+later proof can be appended through reconciliation.
+
+Spawn requires host process inspection before starting a child. On macOS this
+includes `kern.proc.pid`, `kern.proc.all`, and `kern.bootsessionuuid`. A sandbox
+denying these queries receives `process_identity_unavailable` (exit 1, structured
+under `--json`); there is no weaker fallback. Hooks, CLI callers, and application
+hosts must supply that permission in their actual execution context. No hook in
+this package grants permissions or moves execution out of a caller's sandbox.
+
+For a supported host invocation, prepare the explicit Flere executable/profile
+as described in Clavain's `docs/guides/flere-worker.md`, then run from a normal
+host terminal or application supervisor with process inspection permission:
+
+```bash
+cd "$PROJECT_ROOT"
+ic --json dispatch spawn --run-id="$RUN_ID" --type=flere \
+  --project="$PWD" --prompt-file="$PROMPT_FILE" --model="$FLERE_MODEL" \
+  --sandbox=read-only --dispatch-sh="$CLAVAIN_SOURCE/scripts/dispatch.sh"
+```
+
+Running that command inside a restricted agent tool does not move it to the
+host. A `process_identity_unavailable` rejection requires a permitted host
+supervisor; changing policy, disabling checks, or retrying the same context
+does not provide that permission.
+
+Spawn records a versioned host birth identity in existing state under
+`dispatch.process`, scoped by dispatch ID. Darwin uses the boot-session UUID and
+the recorded fork time, so calendar changes do not change the birth. On macOS and
+Linux, detached kill requires matching birth, PID, and group before signalling.
+Group members observed before signalling can prove continued group ownership
+after the leader exits during that termination call. A leader already gone before
+inspection is collected; this does not prove cleanup of its orphaned descendants.
+
+A successfully read different birth proves the original process exited: poll,
+wait, and kill collect its evidence without signalling the new PID owner. Missing,
+invalid, or legacy unversioned identities, denied inspection, and lost membership
+do not prove exit. Cancellation then records an indeterminate failure and reports
+`process_identity_unverified`; wait returns the terminal dispatch and exit 1.
+Such attempts cannot automatically retry. Pruning an attempt also removes its
+identity, while retained attempts keep theirs. These are host/application checks,
+not an atomic operating-system handle for a Unix group; identities are rechecked
+before each signal. Windows uses a creation-time-validated process handle and
+TerminateProcess; Go does not implement sending os.Interrupt on Windows.
+
+`--type=flere` forwards to Clavain's explicit fixed worker. It requires a run,
+reviewed executable/profile, and a provider/model. It uses application-level
+canonical-root read-only enforcement. Completion requires the host receipt bound
+to this dispatch attempt and the native session's user/final assistant entries.
+Missing or inconsistent evidence yields `failed` with
+`failure_class=worker_outcome_indeterminate`; output text does not establish
+success. No Flere attempt is automatically retried. Reconciliation appends an
+event without rewriting the terminal attempt or granting task acceptance.
+
+`dispatch spawn --scheduled` persists the complete spawn configuration. Queue
+insertion grants no admission: execution must enter `dispatch.Spawn` again,
+which reads current policy in the admission transaction. The scheduler library
+requires an explicit executor; `scheduler.DispatchExecutor` decodes stored
+options, invokes admission, collects terminal evidence, and disables replay.
+Hosts own queue loading and persistence hooks. There is no scheduler daemon
+consumer in this repository, so this is not live automatic scheduling proof.
+Legacy queued snake_case maps are rejected rather than silently losing fields;
+new `scheduler submit` records use the complete typed representation.
 
 ### Run
 

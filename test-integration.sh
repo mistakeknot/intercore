@@ -649,7 +649,8 @@ echo "$RUN_EVENTS_JSON" | jq -e --arg run "$EVT_RUN" 'map(select(.envelope.trace
 pass "run events --json includes envelope"
 
 # Tail --all should also work
-ic --db="$TEST_DB" events tail --all | grep -q '"source":"phase"' || fail "events tail --all: no events"
+ALL_EVENTS=$(ic --db="$TEST_DB" events tail --all)
+grep -q '"source":"phase"' <<<"$ALL_EVENTS" || fail "events tail --all: no events"
 pass "events tail --all"
 
 # Consumer cursor: first tail stores events, second tail returns empty

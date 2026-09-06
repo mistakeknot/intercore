@@ -31,42 +31,42 @@ const (
 
 // Dispatch represents a tracked agent dispatch.
 type Dispatch struct {
-	ID            string
-	AgentType     string
-	Status        string
-	ProjectDir    string
-	PromptFile    *string
-	PromptHash    *string
-	OutputFile    *string
-	VerdictFile   *string
-	PID           *int
-	ExitCode      *int
-	Name          *string
-	Model         *string
+	ID               string
+	AgentType        string
+	Status           string
+	ProjectDir       string
+	PromptFile       *string
+	PromptHash       *string
+	OutputFile       *string
+	VerdictFile      *string
+	PID              *int
+	ExitCode         *int
+	Name             *string
+	Model            *string
 	Sandbox          *string
 	SandboxSpec      *string // JSON: requested sandbox contract
 	SandboxEffective *string // JSON: effective sandbox at completion
 	TimeoutSec       *int
-	Turns         int
-	Commands      int
-	Messages      int
-	InputTokens   int
-	OutputTokens  int
-	CacheHits     *int
-	CreatedAt     int64
-	StartedAt     *int64
-	CompletedAt   *int64
-	VerdictStatus *string
-	VerdictSummary *string
-	ErrorMessage  *string
-	ScopeID            *string
-	ParentID           *string
-	BaseRepoCommit     *string
-	RetryCount         int
-	ConflictType       *string
-	QuarantineReason   *string
-	SpawnDepth         int
-	ParentDispatchID   string
+	Turns            int
+	Commands         int
+	Messages         int
+	InputTokens      int
+	OutputTokens     int
+	CacheHits        *int
+	CreatedAt        int64
+	StartedAt        *int64
+	CompletedAt      *int64
+	VerdictStatus    *string
+	VerdictSummary   *string
+	ErrorMessage     *string
+	ScopeID          *string
+	ParentID         *string
+	BaseRepoCommit   *string
+	RetryCount       int
+	ConflictType     *string
+	QuarantineReason *string
+	SpawnDepth       int
+	ParentDispatchID string
 }
 
 // IsTerminal returns true if the dispatch is in a final state.
@@ -118,12 +118,16 @@ func generateID() (string, error) {
 
 // Create inserts a new dispatch record and returns its ID.
 func (s *Store) Create(ctx context.Context, d *Dispatch) (string, error) {
+	return createDispatch(ctx, s.db, d)
+}
+
+func createDispatch(ctx context.Context, q admissionQuerier, d *Dispatch) (string, error) {
 	id, err := generateID()
 	if err != nil {
 		return "", err
 	}
 
-	_, err = s.db.ExecContext(ctx, `
+	_, err = q.ExecContext(ctx, `
 		INSERT INTO dispatches (
 			id, agent_type, status, project_dir, prompt_file, prompt_hash,
 			output_file, verdict_file, name, model, sandbox, sandbox_spec,
@@ -147,12 +151,12 @@ func (s *Store) Create(ctx context.Context, d *Dispatch) (string, error) {
 func (s *Store) Get(ctx context.Context, id string) (*Dispatch, error) {
 	d := &Dispatch{}
 	var (
-		promptFile     sql.NullString
-		promptHash     sql.NullString
-		outputFile     sql.NullString
-		verdictFile    sql.NullString
-		pid            sql.NullInt64
-		exitCode       sql.NullInt64
+		promptFile       sql.NullString
+		promptHash       sql.NullString
+		outputFile       sql.NullString
+		verdictFile      sql.NullString
+		pid              sql.NullInt64
+		exitCode         sql.NullInt64
 		name             sql.NullString
 		model            sql.NullString
 		sandbox          sql.NullString
@@ -328,7 +332,7 @@ func (s *Store) UpdateTokens(ctx context.Context, id string, fields UpdateFields
 	}
 	args = append(args, id)
 
-	query := "UPDATE dispatches SET " + joinStrings(sets, ", ") + " WHERE id = ?"
+	query := "UPDATE dispatches SET " + joinStrings(sets, ", ") + " WHERE id = ? AND NOT (agent_type = 'flere' AND status IN ('completed','failed','timeout','cancelled'))"
 	result, err := s.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("dispatch update tokens: %w", err)
@@ -338,7 +342,10 @@ func (s *Store) UpdateTokens(ctx context.Context, id string, fields UpdateFields
 		return fmt.Errorf("dispatch update tokens: %w", err)
 	}
 	if n == 0 {
-		return ErrNotFound
+		if _, err := s.Get(ctx, id); err != nil {
+			return err
+		}
+		return ErrStaleStatus
 	}
 	return nil
 }
@@ -397,13 +404,28 @@ func (s *Store) List(ctx context.Context, scopeID *string) ([]*Dispatch, error) 
 // Prune deletes dispatches older than the given duration.
 func (s *Store) Prune(ctx context.Context, olderThan time.Duration) (int64, error) {
 	threshold := time.Now().Unix() - int64(olderThan.Seconds())
-	result, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("dispatch prune: %w", err)
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx,
 		"DELETE FROM dispatches WHERE created_at < ? AND status NOT IN ('spawned', 'running')",
 		threshold)
 	if err != nil {
 		return 0, fmt.Errorf("dispatch prune: %w", err)
 	}
-	return result.RowsAffected()
+	count, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM state WHERE key='dispatch.process' AND NOT EXISTS (SELECT 1 FROM dispatches WHERE dispatches.id=state.scope_id)`); err != nil {
+		return 0, fmt.Errorf("dispatch prune identities: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("dispatch prune commit: %w", err)
+	}
+	return count, nil
 }
 
 // --- Token aggregation ---

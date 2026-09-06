@@ -32,7 +32,7 @@ var CLIContracts = []ContractType{
 	// Note: SpawnResult is excluded because it embeds *exec.Cmd which contains
 	// uintptr fields that the jsonschema reflector cannot handle. SpawnResult is
 	// an in-process type; the CLI serializes only ID + PID.
-	{Name: "dispatch", Instance: dispatch.Dispatch{}},
+	{Name: "dispatch", Instance: dispatch.DispatchOutput{}},
 	{Name: "dispatch-token-aggregation", Instance: dispatch.TokenAggregation{}},
 
 	// phase

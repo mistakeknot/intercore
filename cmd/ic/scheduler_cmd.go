@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/intercore/internal/cli"
+	"github.com/mistakeknot/intercore/internal/dispatch"
 	"github.com/mistakeknot/intercore/internal/scheduler"
 )
 
@@ -48,6 +49,8 @@ func cmdSchedulerSubmit(ctx context.Context, args []string) int {
 	agentType := f.String("type", "codex")
 	sessionName := f.String("session", "")
 	name := f.String("name", "")
+	runID := f.String("run-id", "")
+	model := f.String("model", "")
 
 	priority, err := f.Int("priority", int(scheduler.PriorityNormal))
 	if err != nil {
@@ -76,12 +79,19 @@ func cmdSchedulerSubmit(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	// Build spawn opts JSON for persistence.
-	spawnOpts, err := scheduler.MarshalSpawnOpts(map[string]string{
-		"prompt_file": promptFile,
-		"project_dir": projectDir,
-		"agent_type":  agentType,
-		"name":        name,
-	})
+	opts := dispatch.SpawnOptions{
+		PromptFile: promptFile,
+		ProjectDir: projectDir,
+		AgentType:  agentType,
+		Name:       name,
+		RunID:      runID,
+		Model:      model,
+	}
+	if err := opts.Validate(); err != nil {
+		slog.Error("scheduler submit: invalid spawn options", "error", err)
+		return 3
+	}
+	spawnOpts, err := scheduler.MarshalSpawnOpts(opts)
 	if err != nil {
 		slog.Error("scheduler submit failed", "error", err)
 		return 2

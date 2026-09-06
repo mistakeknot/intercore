@@ -3,22 +3,46 @@
 package dispatch
 
 import (
+	"fmt"
 	"os"
-	"time"
+
+	"golang.org/x/sys/windows"
 )
 
-func isProcessAlive(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
+func terminateRecordedProcess(identity processIdentity) error {
+	if identity.PID <= 1 || identity.Birth == "" || identity.Version != processIdentityVersion {
+		return fmt.Errorf("invalid process identity")
 	}
-	// On Windows, os.FindProcess always succeeds. Probe with a nil signal
-	// to check if the process is still running.
-	err = p.Signal(os.Signal(nil))
-	if err == nil {
+	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.PROCESS_TERMINATE, false, uint32(identity.PID))
+	if err != nil {
+		if err == windows.ERROR_INVALID_PARAMETER {
+			return nil
+		}
+		return err
+	}
+	defer windows.CloseHandle(handle)
+	birth, err := windowsProcessBirth(handle)
+	if err != nil {
+		return err
+	}
+	if birth != identity.Birth {
+		return nil // the original process exited; never signal its PID's new owner
+	}
+	// The validated handle refers to this process even if its numeric PID is reused.
+	return windows.TerminateProcess(handle, 1)
+}
+
+func isProcessAlive(pid int) bool {
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		return err != windows.ERROR_INVALID_PARAMETER
+	}
+	defer windows.CloseHandle(handle)
+	state, err := windows.WaitForSingleObject(handle, 0)
+	if err != nil {
 		return true
 	}
-	return err.Error() == "os: process not finished"
+	return state != windows.WAIT_OBJECT_0
 }
 
 func killProcess(pid int) {
@@ -27,19 +51,7 @@ func killProcess(pid int) {
 		return
 	}
 
-	// On Windows there is no SIGTERM equivalent via os.Process.
-	// We first attempt a graceful kill, then escalate.
-	// os.Process.Signal(os.Interrupt) sends CTRL_BREAK_EVENT on Windows.
-	_ = p.Signal(os.Interrupt)
-
-	// Wait up to 5 seconds for graceful shutdown
-	for i := 0; i < 50; i++ {
-		time.Sleep(100 * time.Millisecond)
-		if !isProcessAlive(pid) {
-			return
-		}
-	}
-
-	// Escalate to hard kill (TerminateProcess)
+	// Fresh unreaped child only. Go does not implement Signal(os.Interrupt) on
+	// Windows; do not describe an unsupported no-op as graceful cancellation.
 	p.Kill()
 }

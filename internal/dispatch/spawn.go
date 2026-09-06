@@ -14,7 +14,7 @@ import (
 
 // SpawnOptions configures a dispatch spawn.
 type SpawnOptions struct {
-	AgentType        string        // "codex" (default)
+	AgentType        string        // backend passed to dispatch.sh; "codex" (default) supports direct execution
 	ProjectDir       string        // required: working directory for the agent
 	PromptFile       string        // required: path to prompt file
 	OutputFile       string        // optional: path for agent output
@@ -24,33 +24,45 @@ type SpawnOptions struct {
 	SandboxSpec      string        // optional: JSON sandbox specification
 	TimeoutSec       int           // optional: agent timeout in seconds
 	ScopeID          string        // optional: grouping scope
+	RunID            string        // optional: strict existing-run binding; becomes ScopeID
 	ParentID         string        // optional: parent dispatch ID
 	DispatchSH       string        // optional: explicit path to dispatch.sh
 	ParentDispatchID string        // optional: parent dispatch for spawn depth tracking
 	Policy           *SpawnPolicy  // optional: spawn policy to enforce
-	BudgetQuerier    BudgetQuerier // optional: budget checker (required if Policy.BudgetEnforce)
+	BudgetQuerier    BudgetQuerier // optional additional veto; never replaces persisted budget admission
+	retry            bool          // internal retry admission preserves the original spawn depth
 }
 
 // SpawnResult holds the result of a spawn operation.
 type SpawnResult struct {
-	ID  string
-	Cmd *exec.Cmd // retained for in-process callers; nil after ic exits
-	PID int
+	ID      string
+	Cmd     *exec.Cmd // retained for in-process callers; nil after ic exits
+	PID     int
+	process processIdentity
 }
+
+// Terminate uses the birth identity captured before this spawn was detached.
+func (r *SpawnResult) Terminate() error { return terminateRecordedProcess(r.process) }
 
 // Spawn creates a new dispatch record and starts the agent process.
 func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, error) {
-	if opts.ProjectDir == "" {
-		return nil, fmt.Errorf("spawn: project_dir is required")
+	if err := opts.Validate(); err != nil {
+		return nil, err
 	}
-	if opts.PromptFile == "" {
-		return nil, fmt.Errorf("spawn: prompt_file is required")
+	if err := checkProcessInspection(); err != nil {
+		return nil, err
+	}
+	if opts.RunID != "" {
+		opts.ScopeID = opts.RunID
 	}
 	if opts.AgentType == "" {
 		opts.AgentType = "codex"
 	}
 	if opts.Sandbox == "" {
 		opts.Sandbox = "workspace-write"
+		if opts.AgentType == "flere" {
+			opts.Sandbox = "read-only"
+		}
 	}
 
 	// Capture base repo commit (git HEAD) for write-set conflict detection
@@ -103,26 +115,10 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 		d.BaseRepoCommit = &baseCommit
 	}
 
-	// Compute spawn depth from parent dispatch
-	if opts.ParentDispatchID != "" {
-		d.ParentDispatchID = opts.ParentDispatchID
-		parent, err := store.Get(ctx, opts.ParentDispatchID)
-		if err == nil {
-			d.SpawnDepth = parent.SpawnDepth + 1
-		}
-		// If parent not found, depth stays 0 (best-effort)
-	}
-
-	// Check spawn policy before creating the record
-	if opts.Policy != nil {
-		if err := CheckPolicy(ctx, store, opts.BudgetQuerier, *opts.Policy, d); err != nil {
-			return nil, err
-		}
-	}
-
-	id, err := store.Create(ctx, d)
+	d.ParentDispatchID = opts.ParentDispatchID
+	id, err := store.admit(ctx, d, opts)
 	if err != nil {
-		return nil, fmt.Errorf("spawn: create record: %w", err)
+		return nil, fmt.Errorf("spawn: admission: %w", err)
 	}
 
 	// Build and start the command
@@ -134,6 +130,14 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 		return nil, fmt.Errorf("spawn: %w", err)
 	}
 
+	// Overwrite ambient identity only after this attempt has been admitted.
+	// The dispatch ID is the attempt identity; the worker cannot create another.
+	runID := ""
+	if d.ScopeID != nil {
+		runID = *d.ScopeID
+	}
+	cmd.Env = append(os.Environ(), "IC_RUN_ID="+runID, "IC_DISPATCH_ID="+id,
+		"CLAVAIN_DISPATCH_ID="+id, "IC_DISPATCH_ATTEMPT="+fmt.Sprint(d.RetryCount), "IC_PROMPT_HASH="+promptHash)
 	if err := cmd.Start(); err != nil {
 		store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{
 			"error_message": fmt.Sprintf("start: %v", err),
@@ -142,13 +146,19 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	}
 
 	pid := cmd.Process.Pid
-	now := time.Now().Unix()
-	store.UpdateStatus(ctx, id, StatusRunning, UpdateFields{
-		"pid":        pid,
-		"started_at": now,
-	})
-
-	return &SpawnResult{ID: id, Cmd: cmd, PID: pid}, nil
+	identity, err := store.recordProcessIdentity(ctx, id, pid)
+	if err != nil {
+		// No wait/reaper has started, so this is still our unreaped child and its
+		// PID cannot have been recycled. Never leave an ungovernable live attempt.
+		killProcess(pid)
+		_ = cmd.Wait()
+		_ = store.UpdateStatus(context.Background(), id, StatusFailed, UpdateFields{
+			"error_message":     "record process identity: " + err.Error(),
+			"quarantine_reason": WorkerOutcomeIndeterminate,
+		})
+		return nil, fmt.Errorf("spawn: process identity: %w", err)
+	}
+	return &SpawnResult{ID: id, Cmd: cmd, PID: pid, process: identity}, nil
 }
 
 // buildCmd constructs the exec.Cmd for the agent.
@@ -158,9 +168,9 @@ func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 	var cmd *exec.Cmd
 	if dispatchSH != "" {
 		// Use dispatch.sh wrapper
-		args := []string{"-C", opts.ProjectDir, "-o", outputFile, "--prompt-file", opts.PromptFile}
+		args := []string{"--to", opts.AgentType, "-C", opts.ProjectDir, "-o", outputFile, "--prompt-file", opts.PromptFile}
 		if opts.Name != "" {
-			args = append(args, "-n", opts.Name)
+			args = append(args, "--name", opts.Name)
 		}
 		if opts.Model != "" {
 			args = append(args, "-m", opts.Model)
@@ -173,6 +183,9 @@ func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 		}
 		cmd = exec.Command("bash", append([]string{dispatchSH}, args...)...)
 	} else {
+		if opts.AgentType != "codex" {
+			return nil, fmt.Errorf("backend %q requires dispatch.sh; direct execution only supports codex", opts.AgentType)
+		}
 		// Fallback: bare codex exec (no JSONL parsing, no verdict)
 		args := []string{"exec", "--prompt-file", opts.PromptFile}
 		if opts.Model != "" {
@@ -209,15 +222,18 @@ func resolveDispatchSH(explicit string) string {
 		}
 	}
 
-	// Walk up from CWD looking for hub/clavain/scripts/dispatch.sh
+	// Walk up from CWD, preferring the current monorepo layout. Older
+	// installations used hub/clavain and still support the wrapper contract.
 	dir, err := os.Getwd()
 	if err != nil {
 		return ""
 	}
 	for {
-		candidate := filepath.Join(dir, "hub", "clavain", "scripts", "dispatch.sh")
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+		for _, layout := range []string{filepath.Join("os", "Clavain"), filepath.Join("hub", "clavain")} {
+			candidate := filepath.Join(dir, layout, "scripts", "dispatch.sh")
+			if _, err := os.Stat(candidate); err == nil {
+				return candidate
+			}
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {

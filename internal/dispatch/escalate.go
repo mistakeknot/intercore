@@ -151,6 +151,9 @@ func RetryWithEscalation(ctx context.Context, store *Store, st *state.Store, ori
 	if err != nil {
 		return nil, fmt.Errorf("escalate: get original: %w", err)
 	}
+	if !ShouldRetry(orig, policy.Retry) {
+		return nil, &SpawnRejection{Reason: "not_retryable"}
+	}
 	origModel := ""
 	if orig.Model != nil {
 		origModel = *orig.Model
@@ -222,7 +225,7 @@ func RetryWithEscalation(ctx context.Context, store *Store, st *state.Store, ori
 	if nextModel != "" {
 		d.Model = &nextModel
 	}
-	newID, cerr := store.Create(ctx, d)
+	newID, cerr := store.admitRetry(ctx, d)
 	if cerr != nil {
 		return nil, fmt.Errorf("escalate: create: %w", cerr)
 	}

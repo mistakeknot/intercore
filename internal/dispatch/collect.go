@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -40,6 +41,16 @@ func Poll(ctx context.Context, store *Store, id string) (*Dispatch, error) {
 	pid := *d.PID
 
 	alive := isProcessAlive(pid)
+	if alive {
+		identity, err := store.processIdentity(ctx, d)
+		if err != nil {
+			return d, nil
+		}
+		alive, err = processIdentityAlive(identity)
+		if err != nil {
+			return d, nil
+		}
+	}
 
 	if alive {
 		// Read state file for live stats
@@ -71,6 +82,9 @@ func Collect(ctx context.Context, store *Store, id string) error {
 
 	if d.IsTerminal() {
 		return nil // already collected
+	}
+	if d.AgentType == "flere" {
+		return collectWorker(ctx, store, d)
 	}
 
 	fields := UpdateFields{
@@ -121,10 +135,28 @@ func Wait(ctx context.Context, store *Store, id string, pollInterval, timeout ti
 
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
+	finishInterrupted := func() (*Dispatch, error) {
+		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		latest, err := store.Get(cleanup, id)
+		if err != nil {
+			return nil, err
+		}
+		if latest.IsTerminal() {
+			return latest, nil
+		}
+		if err := interruptDispatch(cleanup, store, latest, StatusTimeout, "timeout waiting for dispatch"); err != nil && !errors.Is(err, ErrStaleStatus) && !IsSpawnRejection(err) {
+			return nil, err
+		}
+		return store.Get(cleanup, id)
+	}
 
 	for {
 		d, err := Poll(ctx, store, id)
 		if err != nil {
+			if ctx.Err() != nil {
+				return finishInterrupted()
+			}
 			return nil, err
 		}
 		if d.IsTerminal() {
@@ -133,15 +165,7 @@ func Wait(ctx context.Context, store *Store, id string, pollInterval, timeout ti
 
 		select {
 		case <-ctx.Done():
-			// Timeout — kill the process
-			if d.PID != nil {
-				killProcess(*d.PID)
-			}
-			store.UpdateStatus(context.Background(), id, StatusTimeout, UpdateFields{
-				"completed_at":  time.Now().Unix(),
-				"error_message": "timeout waiting for dispatch",
-			})
-			return store.Get(context.Background(), id)
+			return finishInterrupted()
 		case <-ticker.C:
 			// continue polling
 		}
@@ -157,19 +181,48 @@ func Kill(ctx context.Context, store *Store, id string) error {
 	if d.IsTerminal() {
 		return nil
 	}
+	reason := "killed by user"
 	if d.PID == nil {
-		return store.UpdateStatus(ctx, id, StatusCancelled, UpdateFields{
-			"completed_at":  time.Now().Unix(),
-			"error_message": "no PID to kill",
-		})
+		reason = "no PID to kill"
 	}
+	return interruptDispatch(ctx, store, d, StatusCancelled, reason)
+}
 
-	killProcess(*d.PID)
-
-	return store.UpdateStatus(ctx, id, StatusCancelled, UpdateFields{
-		"completed_at":  time.Now().Unix(),
-		"error_message": "killed by user",
-	})
+func interruptDispatch(ctx context.Context, store *Store, d *Dispatch, status, reason string) error {
+	if d.PID != nil {
+		if !isProcessAlive(*d.PID) {
+			return Collect(ctx, store, d.ID)
+		}
+		identity, err := store.processIdentity(ctx, d)
+		if err == nil {
+			var alive bool
+			alive, err = processIdentityAlive(identity)
+			if err == nil && !alive {
+				return Collect(ctx, store, d.ID)
+			}
+			if err == nil {
+				err = terminateRecordedProcess(identity)
+			}
+		}
+		if err != nil {
+			// Missing legacy proof, failed inspection, or lost membership is not permission
+			// to signal a live process. Preserve the unknown outcome and no-retry gate.
+			if updateErr := store.UpdateStatus(ctx, d.ID, StatusFailed, UpdateFields{
+				"completed_at":      time.Now().Unix(),
+				"error_message":     "process ownership unverified: " + err.Error(),
+				"quarantine_reason": WorkerOutcomeIndeterminate,
+			}); updateErr != nil {
+				return updateErr
+			}
+			return &SpawnRejection{Reason: "process_identity_unverified"}
+		}
+	}
+	fields := UpdateFields{"completed_at": time.Now().Unix(), "error_message": reason}
+	if d.AgentType == "flere" {
+		status = StatusFailed
+		fields["quarantine_reason"] = WorkerOutcomeIndeterminate
+	}
+	return store.UpdateStatus(ctx, d.ID, status, fields)
 }
 
 // --- internal helpers ---

@@ -65,9 +65,9 @@ func cmdConfigSet(ctx context.Context, args []string) int {
 		}
 		value = strconv.Itoa(level)
 	} else if _, ok := knownConfigKeys[key]; ok {
-		// Validate value is a number for known keys
-		if _, err := strconv.Atoi(value); err != nil {
-			slog.Error("config set: value must be an integer", "value", value)
+		// Kernel limits use zero for unlimited, never a negative sentinel.
+		if limit, err := strconv.Atoi(value); err != nil || limit < 0 {
+			slog.Error("config set: value must be a nonnegative integer", "value", value)
 			return 3
 		}
 	}

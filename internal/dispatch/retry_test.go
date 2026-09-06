@@ -133,6 +133,9 @@ func TestRetry(t *testing.T) {
 	}
 
 	scope := "test-run"
+	if _, err := store.db.Exec(`INSERT INTO runs(id,project_dir,goal) VALUES (?, '.', 'retry fixture')`, scope); err != nil {
+		t.Fatal(err)
+	}
 	name := "test-agent"
 	model := "sonnet"
 	promptFile := "/tmp/prompt.md"
@@ -333,6 +336,9 @@ func TestListRetryChain(t *testing.T) {
 	ctx := context.Background()
 
 	scope := "chain-test"
+	if _, err := store.db.Exec(`INSERT INTO runs(id,project_dir,goal) VALUES (?, '.', 'retry fixture')`, scope); err != nil {
+		t.Fatal(err)
+	}
 	policy := RetryPolicy{
 		MaxRetries:    3,
 		BaseBackoff:   100 * time.Millisecond,

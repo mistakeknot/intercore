@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -122,4 +124,160 @@ func TestResolveDispatchSH(t *testing.T) {
 	// Explicit path that doesn't exist → falls through to env/walk-up
 	// (may find monorepo dispatch.sh depending on CWD, so just verify no panic)
 	_ = resolveDispatchSH("/nonexistent/dispatch.sh")
+}
+
+func TestSpawn_ForwardsRequestedBackend(t *testing.T) {
+	for _, backend := range []string{"", "codex", "claude", "claude-code", "kimi", "flere"} {
+		t.Run(backend, func(t *testing.T) {
+			dir := t.TempDir()
+			prompt := filepath.Join(dir, "prompt.md")
+			argvFile := filepath.Join(dir, "argv")
+			wrapper := filepath.Join(dir, "dispatch.sh")
+			for path, content := range map[string]string{
+				prompt:  "test prompt",
+				wrapper: "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$IC_TEST_ARGV\"\n",
+			} {
+				if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			t.Setenv("IC_TEST_ARGV", argvFile)
+			store := testStore(t)
+			runID := ""
+			if backend == "flere" {
+				admissionRun(t, store, false, nil, 0)
+				runID = "run"
+			}
+			result, err := Spawn(context.Background(), store, SpawnOptions{
+				AgentType: backend, ProjectDir: dir, PromptFile: prompt, DispatchSH: wrapper, RunID: runID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := result.Cmd.Wait(); err != nil {
+				t.Fatal(err)
+			}
+			argv, err := os.ReadFile(argvFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantBackend := backend
+			if wantBackend == "" {
+				wantBackend = "codex"
+			}
+			args := strings.Split(strings.TrimSpace(string(argv)), "\n")
+			found := false
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "--to" && args[i+1] == wantBackend {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("wrapper argv = %q, want --to %s", args, wantBackend)
+			}
+			d, err := store.Get(context.Background(), result.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if d.AgentType != wantBackend {
+				t.Errorf("recorded backend = %q, want %q", d.AgentType, wantBackend)
+			}
+		})
+	}
+}
+
+func TestSpawn_WithoutWrapperRejectsOtherBackends(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("CLAVAIN_DISPATCH_SH", "")
+	t.Setenv("PATH", dir)
+	marker := filepath.Join(dir, "codex-ran")
+	t.Setenv("IC_TEST_ARGV", marker)
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$IC_TEST_ARGV\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prompt := filepath.Join(dir, "prompt.md")
+	if err := os.WriteFile(prompt, []byte("test prompt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, backend := range []string{"flere", "claude", "kimi", "auto"} {
+		t.Run(backend, func(t *testing.T) {
+			store := testStore(t)
+			result, err := Spawn(context.Background(), store, SpawnOptions{
+				AgentType: backend, ProjectDir: dir, PromptFile: prompt,
+			})
+			if result != nil {
+				_ = result.Cmd.Wait()
+			}
+			if err == nil || !strings.Contains(err.Error(), backend) {
+				t.Errorf("Spawn error = %v, want explicit unsupported backend %q", err, backend)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Errorf("Codex ran for requested backend %q", backend)
+			}
+		})
+	}
+}
+
+func TestSpawn_WithoutWrapperRunsCodex(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("CLAVAIN_DISPATCH_SH", "")
+	t.Setenv("PATH", dir)
+	argvFile := filepath.Join(dir, "argv")
+	t.Setenv("IC_TEST_ARGV", argvFile)
+	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$IC_TEST_ARGV\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	prompt := filepath.Join(dir, "prompt.md")
+	if err := os.WriteFile(prompt, []byte("test prompt"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Spawn(context.Background(), testStore(t), SpawnOptions{
+		ProjectDir: dir, PromptFile: prompt, Model: "test-model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := result.Cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSpace(string(argv)), "\n")
+	want := []string{"exec", "--prompt-file", prompt, "-m", "test-model"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Codex argv = %q, want %q", got, want)
+	}
+}
+
+func TestResolveDispatchSH_CurrentLayout(t *testing.T) {
+	root := t.TempDir()
+	wrapper := filepath.Join(root, "os", "Clavain", "scripts", "dispatch.sh")
+	legacyWrapper := filepath.Join(root, "hub", "clavain", "scripts", "dispatch.sh")
+	for _, path := range []string{wrapper, legacyWrapper} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	nested := filepath.Join(root, "core", "intercore")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(nested)
+	t.Setenv("CLAVAIN_DISPATCH_SH", "")
+	if got := resolveDispatchSH(""); got != wrapper {
+		t.Fatalf("discovered wrapper = %q, want %q", got, wrapper)
+	}
+	if err := os.Remove(wrapper); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveDispatchSH(""); got != legacyWrapper {
+		t.Fatalf("legacy wrapper = %q, want %q", got, legacyWrapper)
+	}
 }

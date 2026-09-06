@@ -145,6 +145,7 @@ func cmdRunAdvance(ctx context.Context, args []string) int {
 
 		var opts dispatch.SpawnOptions
 		opts.ProjectDir = run.ProjectDir
+		opts.RunID = run.ID
 		opts.AgentType = agent.AgentType
 
 		// If agent has a prior dispatch, re-use its spawn config

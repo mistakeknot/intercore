@@ -13,7 +13,7 @@ type SpawnPolicy struct {
 	BudgetEnforce   bool // reject spawn if run budget exceeded
 	MaxActivePerRun int  // max concurrent active dispatches per run
 	MaxActiveGlobal int  // max concurrent active dispatches across all runs
-	MaxAgentsPerRun int  // max total dispatches ever spawned for this run
+	MaxAgentsPerRun int  // max total retained dispatches for this run, including terminal records
 	MaxSpawnDepth   int  // max parent→child dispatch nesting depth
 }
 
@@ -40,8 +40,9 @@ type BudgetQuerier interface {
 	IsBudgetExceeded(ctx context.Context, runID string) (bool, error)
 }
 
-// CheckPolicy evaluates all spawn policy constraints.
-// Returns nil if the spawn is allowed, or a *SpawnRejection if rejected.
+// CheckPolicy is an advisory snapshot for callers planning work. Spawn performs
+// authoritative admission and insertion atomically; this function cannot reserve
+// a slot. Enforced budget checks fail closed if no checker or scope is available.
 func CheckPolicy(ctx context.Context, store *Store, budgetQ BudgetQuerier, policy SpawnPolicy, d *Dispatch) error {
 	scopeID := ""
 	if d.ScopeID != nil {
@@ -49,7 +50,10 @@ func CheckPolicy(ctx context.Context, store *Store, budgetQ BudgetQuerier, polic
 	}
 
 	// Budget enforcement
-	if policy.BudgetEnforce && scopeID != "" && budgetQ != nil {
+	if policy.BudgetEnforce {
+		if scopeID == "" || budgetQ == nil {
+			return &SpawnRejection{Reason: "budget_unavailable", RunID: scopeID}
+		}
 		exceeded, err := budgetQ.IsBudgetExceeded(ctx, scopeID)
 		if err != nil {
 			return fmt.Errorf("policy check budget: %w", err)
@@ -61,10 +65,19 @@ func CheckPolicy(ctx context.Context, store *Store, budgetQ BudgetQuerier, polic
 			}
 		}
 	}
+	return checkPolicyCounts(ctx, store.db, policy, d)
+}
+
+func checkPolicyCounts(ctx context.Context, q admissionQuerier, policy SpawnPolicy, d *Dispatch) error {
+	scopeID := ""
+	if d.ScopeID != nil {
+		scopeID = *d.ScopeID
+	}
 
 	// Per-run concurrency limit
 	if policy.MaxActivePerRun > 0 && scopeID != "" {
-		count, err := store.CountActiveByScope(ctx, scopeID)
+		var count int
+		err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM dispatches WHERE scope_id = ? AND status IN ('spawned', 'running')`, scopeID).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("policy check per-run concurrency: %w", err)
 		}
@@ -80,7 +93,8 @@ func CheckPolicy(ctx context.Context, store *Store, budgetQ BudgetQuerier, polic
 
 	// Global concurrency limit
 	if policy.MaxActiveGlobal > 0 {
-		count, err := store.CountActiveGlobal(ctx)
+		var count int
+		err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM dispatches WHERE status IN ('spawned', 'running')`).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("policy check global concurrency: %w", err)
 		}
@@ -93,9 +107,10 @@ func CheckPolicy(ctx context.Context, store *Store, budgetQ BudgetQuerier, polic
 		}
 	}
 
-	// Agent cap (total ever spawned per run)
+	// Agent cap (all retained dispatches per run, including terminal records)
 	if policy.MaxAgentsPerRun > 0 && scopeID != "" {
-		count, err := store.CountTotalByScope(ctx, scopeID)
+		var count int
+		err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM dispatches WHERE scope_id = ?`, scopeID).Scan(&count)
 		if err != nil {
 			return fmt.Errorf("policy check agent cap: %w", err)
 		}

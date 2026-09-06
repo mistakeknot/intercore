@@ -2,153 +2,96 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://intercore.dev/contracts/cli/dispatch.json",
   "properties": {
-    "ID": {
+    "id": {
       "type": "string"
     },
-    "AgentType": {
+    "agent_type": {
       "type": "string"
     },
-    "Status": {
+    "status": {
       "type": "string"
     },
-    "ProjectDir": {
+    "project_dir": {
       "type": "string"
     },
-    "PromptFile": {
+    "prompt_file": {
       "type": "string"
     },
-    "PromptHash": {
+    "output_file": {
       "type": "string"
     },
-    "OutputFile": {
-      "type": "string"
-    },
-    "VerdictFile": {
-      "type": "string"
-    },
-    "PID": {
+    "pid": {
       "type": "integer"
     },
-    "ExitCode": {
+    "exit_code": {
       "type": "integer"
     },
-    "Name": {
+    "name": {
       "type": "string"
     },
-    "Model": {
+    "model": {
       "type": "string"
     },
-    "Sandbox": {
-      "type": "string"
-    },
-    "SandboxSpec": {
-      "type": "string"
-    },
-    "SandboxEffective": {
-      "type": "string"
-    },
-    "TimeoutSec": {
+    "turns": {
       "type": "integer"
     },
-    "Turns": {
+    "commands": {
       "type": "integer"
     },
-    "Commands": {
+    "messages": {
       "type": "integer"
     },
-    "Messages": {
+    "in_tokens": {
       "type": "integer"
     },
-    "InputTokens": {
+    "out_tokens": {
       "type": "integer"
     },
-    "OutputTokens": {
+    "cache_hits": {
       "type": "integer"
     },
-    "CacheHits": {
+    "created_at": {
       "type": "integer"
     },
-    "CreatedAt": {
+    "started_at": {
       "type": "integer"
     },
-    "StartedAt": {
+    "completed_at": {
       "type": "integer"
     },
-    "CompletedAt": {
-      "type": "integer"
-    },
-    "VerdictStatus": {
+    "verdict_status": {
       "type": "string"
     },
-    "VerdictSummary": {
+    "verdict_summary": {
       "type": "string"
     },
-    "ErrorMessage": {
+    "error_message": {
       "type": "string"
     },
-    "ScopeID": {
+    "failure_class": {
       "type": "string"
     },
-    "ParentID": {
+    "sandbox_spec": true,
+    "sandbox_effective": true,
+    "scope_id": {
       "type": "string"
     },
-    "BaseRepoCommit": {
-      "type": "string"
-    },
-    "RetryCount": {
-      "type": "integer"
-    },
-    "ConflictType": {
-      "type": "string"
-    },
-    "QuarantineReason": {
-      "type": "string"
-    },
-    "SpawnDepth": {
-      "type": "integer"
-    },
-    "ParentDispatchID": {
+    "parent_id": {
       "type": "string"
     }
   },
   "additionalProperties": false,
   "type": "object",
   "required": [
-    "ID",
-    "AgentType",
-    "Status",
-    "ProjectDir",
-    "PromptFile",
-    "PromptHash",
-    "OutputFile",
-    "VerdictFile",
-    "PID",
-    "ExitCode",
-    "Name",
-    "Model",
-    "Sandbox",
-    "SandboxSpec",
-    "SandboxEffective",
-    "TimeoutSec",
-    "Turns",
-    "Commands",
-    "Messages",
-    "InputTokens",
-    "OutputTokens",
-    "CacheHits",
-    "CreatedAt",
-    "StartedAt",
-    "CompletedAt",
-    "VerdictStatus",
-    "VerdictSummary",
-    "ErrorMessage",
-    "ScopeID",
-    "ParentID",
-    "BaseRepoCommit",
-    "RetryCount",
-    "ConflictType",
-    "QuarantineReason",
-    "SpawnDepth",
-    "ParentDispatchID"
+    "id",
+    "agent_type",
+    "status",
+    "project_dir",
+    "turns",
+    "commands",
+    "messages",
+    "in_tokens",
+    "out_tokens",
+    "created_at"
   ]
 }
