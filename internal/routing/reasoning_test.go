@@ -94,6 +94,35 @@ func TestSelectedPolicyIndependentOfWorkingDirectory(t *testing.T) {
 	}
 }
 
+func TestPolicyPathPreservesSymlinkParentTraversal(t *testing.T) {
+	root := t.TempDir()
+	installation := filepath.Join(root, "standalone install")
+	for _, dir := range []string{"skills", "config"} {
+		if err := os.MkdirAll(filepath.Join(installation, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	policy := filepath.Join(installation, "config", "routing.yaml")
+	if err := os.WriteFile(policy, []byte("version: 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(installation, "skills"), filepath.Join(root, "clavain")); err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(root)
+	// Join/Abs would clean clavain/.. before following the installation link.
+	for _, path := range []string{root + "/clavain/../config/routing.yaml", "clavain/../config/routing.yaml"} {
+		got, err := ResolvePolicyPath(path)
+		if err != nil || got != want {
+			t.Errorf("policy %q = %q, %v; want %q", path, got, err, want)
+		}
+	}
+}
+
 func TestAlternateProfileIsScopedAndCannotDemoteFrontier(t *testing.T) {
 	cfg := reasoningConfig(t)
 	cfg.Reasoning.Profiles = map[string]PolicyProfile{"pilot": {Scope: "campaign", Roles: map[string]string{"frontier-planning": "sol"}}}

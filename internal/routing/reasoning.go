@@ -70,11 +70,13 @@ func ResolvePolicyPath(explicit string) (string, error) {
 		}
 	}
 	check := func(p string) (string, error) {
-		p, err := filepath.Abs(p)
+		// Follow installation links before cleaning '..'. Shared instructions may
+		// select ~/.agents/skills/clavain/../config/routing.yaml.
+		p, err := filepath.EvalSymlinks(p)
 		if err != nil {
 			return "", err
 		}
-		p, err = filepath.EvalSymlinks(p)
+		p, err = filepath.Abs(p)
 		if err != nil {
 			return "", err
 		}
