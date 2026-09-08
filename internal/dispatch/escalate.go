@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mistakeknot/intercore/internal/routing"
 	"github.com/mistakeknot/intercore/internal/state"
 )
 
@@ -16,16 +17,22 @@ import (
 type FailureMode string
 
 const (
-	FailTimeout  FailureMode = "timeout"
-	FailError    FailureMode = "error"
-	FailVerdict  FailureMode = "verdict-fail"
-	FailCriteria FailureMode = "criteria-fail"
-	FailUnknown  FailureMode = "unknown"
+	FailTimeout        FailureMode = "timeout"
+	FailError          FailureMode = "error"
+	FailVerdict        FailureMode = "verdict-fail"
+	FailCriteria       FailureMode = "criteria-fail"
+	FailUnknown        FailureMode = "unknown"
+	FailCapability     FailureMode = "capability-failure"
+	FailPremise        FailureMode = "premise-failure"
+	FailAuthentication FailureMode = "authentication"
+	FailRateLimit      FailureMode = "rate-limit"
+	FailPermission     FailureMode = "permission"
+	FailInfrastructure FailureMode = "infrastructure"
 )
 
 func ParseFailureMode(s string) FailureMode {
 	switch FailureMode(s) {
-	case FailTimeout, FailError, FailVerdict, FailCriteria:
+	case FailTimeout, FailError, FailVerdict, FailCriteria, FailCapability, FailPremise, FailAuthentication, FailRateLimit, FailPermission, FailInfrastructure:
 		return FailureMode(s)
 	default:
 		return FailUnknown
@@ -34,6 +41,9 @@ func ParseFailureMode(s string) FailureMode {
 
 // EscalationPolicy configures the two-strikes ladder.
 type EscalationPolicy struct {
+	Routing        *routing.Config
+	PolicyProfile  string
+	Context        routing.DecisionContext
 	Retry          RetryPolicy // per-rung retry behavior (backoff etc.)
 	Ladder         []string    // capability ladder, low→high
 	StrikesPerRung int         // failures at a rung before stepping up (doctrine: 2)
@@ -47,62 +57,53 @@ func DefaultEscalationPolicy() EscalationPolicy {
 		// MaxRetries must cover base strikes + one attempt per remaining rung
 		// (f-003: the shipped default of 3 would block the second escalation).
 		Retry:          RetryPolicy{MaxRetries: 4, BaseBackoff: 5 * time.Second, MaxBackoff: 5 * time.Minute, BackoffFactor: 2.0, RetryOnTimeout: true},
-		Ladder:         []string{"sonnet", "opus", "fable"},
+		Ladder:         nil, // capability assignments come from Clavain, never the kernel
 		StrikesPerRung: 2,
 		MaxEscalations: 2,
 	}
 }
 
-// fableEscalationOpen mirrors routing.fableWindowOpen (fail-closed).
-func fableEscalationOpen() bool { return os.Getenv("CLAVAIN_FABLE_AVAILABLE") == "1" }
+// EscalationPolicyFromConfig binds retry mechanics to the selected OS policy.
+func EscalationPolicyFromConfig(cfg *routing.Config) EscalationPolicy {
+	p := DefaultEscalationPolicy()
+	p.Routing = cfg
+	if cfg.Reasoning.Strikes > 0 {
+		p.StrikesPerRung = cfg.Reasoning.Strikes
+	}
+	return p
+}
 
-// nextRungModel returns the model for the next attempt given the chain state.
-// Strikes at the current rung below StrikesPerRung → same model.
-// Otherwise step one rung up the ladder; "fable" degrades to "opus" when the
-// window is closed. Returns ("", false) when the ladder is exhausted.
-func (p EscalationPolicy) nextRungModel(currentModel string, strikesAtRung int) (string, bool) {
-	if strikesAtRung < p.StrikesPerRung {
-		return currentModel, true
+// Legacy callers may explicitly supply a ladder. Unknown models fail closed.
+func (p EscalationPolicy) nextRungModel(current string, strikes int) (string, bool) {
+	if strikes < p.StrikesPerRung {
+		return current, true
 	}
-	idx := -1
 	for i, m := range p.Ladder {
-		if m == currentModel {
-			idx = i
-			break
+		if m == current && i+1 < len(p.Ladder) {
+			return p.Ladder[i+1], true
 		}
 	}
-	// Model not on the ladder (e.g. a codex ID): treat as base rung.
-	if idx == -1 {
-		idx = 0
-		if currentModel != "" && p.Ladder[0] != currentModel {
-			// step to the first ladder rung ABOVE base
-		}
-	}
-	if idx+1 >= len(p.Ladder) {
-		return "", false // exhausted
-	}
-	next := p.Ladder[idx+1]
-	if next == "fable" && !fableEscalationOpen() {
-		if currentModel == "opus" {
-			return "", false // opus→fable with window closed = nowhere to go
-		}
-		next = "opus"
-	}
-	return next, true
+	return "", false
+}
+
+func capabilityStrike(mode FailureMode) bool {
+	return mode == FailCapability || mode == FailPremise || mode == FailCriteria || mode == FailVerdict
 }
 
 // ChainState is the durable per-chain record (survives fresh re-triggers —
 // f-024/f-025: dispatch rows cannot carry this because a new top-level
 // Create() mints a fresh root with RetryCount=0).
 type ChainState struct {
-	ChainKey      string   `json:"chain_key"`
-	Dispatches    []string `json:"dispatches"`
-	Models        []string `json:"models"`
-	Failures      []string `json:"failures"` // "<mode>: <detail>" per attempt
-	CurrentModel  string   `json:"current_model"`
-	StrikesAtRung int      `json:"strikes_at_rung"`
-	Escalations   int      `json:"escalations"`
-	Exhausted     bool     `json:"exhausted"`
+	ChainKey      string                     `json:"chain_key"`
+	Dispatches    []string                   `json:"dispatches"`
+	Models        []string                   `json:"models"`
+	Failures      []string                   `json:"failures"` // "<mode>: <detail>" per attempt
+	CurrentModel  string                     `json:"current_model"`
+	StrikesAtRung int                        `json:"strikes_at_rung"`
+	Escalations   int                        `json:"escalations"`
+	Exhausted     bool                       `json:"exhausted"`
+	Decision      *routing.ReasoningDecision `json:"decision,omitempty"`
+	Retries       map[string]string          `json:"retries,omitempty"`
 }
 
 const chainScope = "escalation"
@@ -136,10 +137,11 @@ func SaveChainState(ctx context.Context, st *state.Store, cs *ChainState) error 
 // EscalationResult reports what RetryWithEscalation decided.
 type EscalationResult struct {
 	RetryResult
-	Model      string `json:"model"`
-	Escalated  bool   `json:"escalated"`
-	Exhausted  bool   `json:"exhausted"`
-	LessonFile string `json:"lesson_file,omitempty"`
+	Model      string                     `json:"model"`
+	Escalated  bool                       `json:"escalated"`
+	Exhausted  bool                       `json:"exhausted"`
+	LessonFile string                     `json:"lesson_file,omitempty"`
+	Decision   *routing.ReasoningDecision `json:"decision,omitempty"`
 }
 
 // RetryWithEscalation is the two-strikes ladder entry point. It records the
@@ -168,17 +170,95 @@ func RetryWithEscalation(ctx context.Context, store *Store, st *state.Store, ori
 	if cs.Exhausted {
 		return nil, fmt.Errorf("escalate: chain %s already exhausted — surface to human (lesson chain in state key %s)", chainKey, chainStateKey(chainKey))
 	}
+	if retryID := cs.Retries[originalID]; retryID != "" {
+		return nil, fmt.Errorf("escalate: attempt already retried as %s", retryID)
+	}
 	if cs.CurrentModel == "" {
 		cs.CurrentModel = origModel
 	}
 
-	// Record this failure as a strike at the current rung.
-	cs.Dispatches = append(cs.Dispatches, originalID)
-	cs.Models = append(cs.Models, cs.CurrentModel)
-	cs.Failures = append(cs.Failures, string(mode)+": "+detail)
-	cs.StrikesAtRung++
+	// Record all failures; only capability and premise failures consume strikes.
+	alreadyRecorded := false
+	for _, id := range cs.Dispatches {
+		if id == originalID {
+			alreadyRecorded = true
+		}
+	}
+	if !alreadyRecorded {
+		cs.Dispatches = append(cs.Dispatches, originalID)
+		cs.Models = append(cs.Models, cs.CurrentModel)
+		cs.Failures = append(cs.Failures, string(mode)+": "+detail)
+		if capabilityStrike(mode) {
+			cs.StrikesAtRung++
+		}
+		if mode == FailPremise {
+			cs.StrikesAtRung = policy.StrikesPerRung
+		}
+	}
+	if err := SaveChainState(ctx, st, cs); err != nil {
+		return nil, err
+	}
 
-	nextModel, ok := cs.nextModel(policy)
+	nextModel, ok := cs.CurrentModel, true
+	decision, err := loadReasoningDecision(ctx, store, originalID)
+	if err != nil {
+		return nil, err
+	}
+	if cs.Decision != nil {
+		decision = cs.Decision
+	}
+	if decision != nil && policy.Routing != nil && decision.PolicyHash != policy.Routing.PolicyHash {
+		return nil, fmt.Errorf("escalate: policy changed; reclassify before retry")
+	}
+	if decision != nil && (decision.RequestedRole == "plan-review" || decision.RequestedRole == "validation" || decision.RequestedRole == "cross-lab-review") && capabilityStrike(mode) && cs.StrikesAtRung >= policy.StrikesPerRung {
+		return nil, fmt.Errorf("escalate: review requires a newly resolved independent review contract")
+	}
+	if capabilityStrike(mode) && cs.StrikesAtRung >= policy.StrikesPerRung {
+		if policy.Routing != nil {
+			c := policy.Context
+			if decision != nil {
+				c = decision.Context
+				policy.PolicyProfile = decision.PolicyProfile
+			}
+			found := false
+			for _, reason := range c.Reasons {
+				if reason == "capability-failure" {
+					found = true
+				}
+			}
+			if !found {
+				c.Reasons = append(append([]string{}, c.Reasons...), "capability-failure")
+			}
+			c.Rationale = c.Rationale + "; escalation: " + detail
+			resolved, resolveErr := routing.NewResolver(policy.Routing).ResolveDecision("escalation", cs.CurrentModel, policy.PolicyProfile, c)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("escalate: required frontier unavailable: %w", resolveErr)
+			}
+			// Avoid oscillating between frontier models already tried in this chain.
+			candidates := append([]routing.DispatchCandidate{{ProfileRef: resolved.ProfileRef, Profile: resolved.Profile}}, resolved.FallbackChain...)
+			ok = false
+			for _, candidate := range candidates {
+				seen := false
+				for _, m := range cs.Models {
+					identity, _ := routing.NewResolver(policy.Routing).CanonicalModelIdentity(m)
+					if identity == candidate.Profile.ModelIdentity {
+						seen = true
+					}
+				}
+				if !seen {
+					resolved.ProfileRef = candidate.ProfileRef
+					resolved.Profile = candidate.Profile
+					resolved.FallbackChain = nil
+					nextModel = candidate.Profile.Model
+					decision = &resolved
+					ok = true
+					break
+				}
+			}
+		} else {
+			nextModel, ok = cs.nextModel(policy)
+		}
+	}
 	if !ok {
 		cs.Exhausted = true
 		lesson := writeLessonChain(orig, cs)
@@ -225,9 +305,22 @@ func RetryWithEscalation(ctx context.Context, store *Store, st *state.Store, ori
 	if nextModel != "" {
 		d.Model = &nextModel
 	}
+	if decision != nil {
+		d.AgentType = decision.Profile.Backend
+	}
 	newID, cerr := store.admitRetry(ctx, d)
 	if cerr != nil {
 		return nil, fmt.Errorf("escalate: create: %w", cerr)
+	}
+	cs.Decision = decision
+	if cs.Retries == nil {
+		cs.Retries = map[string]string{}
+	}
+	cs.Retries[originalID] = newID
+	if decision != nil {
+		if err := recordReasoningDecision(ctx, store, newID, d.ProjectDir, decision); err != nil {
+			return nil, err
+		}
 	}
 	if serr := SaveChainState(ctx, st, cs); serr != nil {
 		return nil, fmt.Errorf("escalate: save chain: %w", serr)
@@ -237,6 +330,7 @@ func RetryWithEscalation(ctx context.Context, store *Store, st *state.Store, ori
 		RetryResult: RetryResult{OriginalID: originalID, NewID: newID, Attempt: attempt, BackoffMs: backoff.Milliseconds()},
 		Model:       nextModel,
 		Escalated:   escalated,
+		Decision:    decision,
 	}, nil
 }
 

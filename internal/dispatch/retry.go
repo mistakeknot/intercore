@@ -133,6 +133,15 @@ func Retry(ctx context.Context, store *Store, originalID string, policy RetryPol
 	if err != nil {
 		return nil, fmt.Errorf("retry: create: %w", err)
 	}
+	decision, err := loadReasoningDecision(ctx, store, originalID)
+	if err != nil {
+		return nil, err
+	}
+	if decision != nil {
+		if err := recordReasoningDecision(ctx, store, newID, d.ProjectDir, decision); err != nil {
+			return nil, err
+		}
+	}
 
 	backoff := policy.Backoff(orig.RetryCount)
 

@@ -4,33 +4,38 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"github.com/mistakeknot/intercore/internal/routing"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 )
 
 // SpawnOptions configures a dispatch spawn.
 type SpawnOptions struct {
-	AgentType        string        // backend passed to dispatch.sh; "codex" (default) supports direct execution
-	ProjectDir       string        // required: working directory for the agent
-	PromptFile       string        // required: path to prompt file
-	OutputFile       string        // optional: path for agent output
-	Name             string        // optional: human label
-	Model            string        // optional: codex model
-	Sandbox          string        // optional: sandbox mode (default: "workspace-write")
-	SandboxSpec      string        // optional: JSON sandbox specification
-	TimeoutSec       int           // optional: agent timeout in seconds
-	ScopeID          string        // optional: grouping scope
-	RunID            string        // optional: strict existing-run binding; becomes ScopeID
-	ParentID         string        // optional: parent dispatch ID
-	DispatchSH       string        // optional: explicit path to dispatch.sh
-	ParentDispatchID string        // optional: parent dispatch for spawn depth tracking
-	Policy           *SpawnPolicy  // optional: spawn policy to enforce
-	BudgetQuerier    BudgetQuerier // optional additional veto; never replaces persisted budget admission
-	retry            bool          // internal retry admission preserves the original spawn depth
+	Decision         *routing.ReasoningDecision // complete contract, serialized with scheduled jobs
+	AgentType        string                     // backend passed to dispatch.sh; "codex" (default) supports direct execution
+	ProjectDir       string                     // required: working directory for the agent
+	PromptFile       string                     // required: path to prompt file
+	OutputFile       string                     // optional: path for agent output
+	Name             string                     // optional: human label
+	Model            string                     // optional: codex model
+	Sandbox          string                     // optional: sandbox mode (default: "workspace-write")
+	SandboxSpec      string                     // optional: JSON sandbox specification
+	TimeoutSec       int                        // optional: agent timeout in seconds
+	ScopeID          string                     // optional: grouping scope
+	RunID            string                     // optional: strict existing-run binding; becomes ScopeID
+	ParentID         string                     // optional: parent dispatch ID
+	DispatchSH       string                     // optional: explicit path to dispatch.sh
+	ParentDispatchID string                     // optional: parent dispatch for spawn depth tracking
+	Policy           *SpawnPolicy               // optional: spawn policy to enforce
+	BudgetQuerier    BudgetQuerier              // optional additional veto; never replaces persisted budget admission
+	retry            bool                       // internal retry admission preserves the original spawn depth
 }
 
 // SpawnResult holds the result of a spawn operation.
@@ -46,6 +51,13 @@ func (r *SpawnResult) Terminate() error { return terminateRecordedProcess(r.proc
 
 // Spawn creates a new dispatch record and starts the agent process.
 func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, error) {
+	if opts.Decision != nil {
+		if err := validateReasoningDecision(opts.Decision); err != nil {
+			return nil, fmt.Errorf("spawn: reasoning contract: %w", err)
+		}
+		opts.AgentType = opts.Decision.Profile.Backend
+		opts.Model = opts.Decision.Profile.Model
+	}
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
@@ -122,6 +134,12 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	}
 
 	// Build and start the command
+	if opts.Decision != nil {
+		if err := recordReasoningDecision(ctx, store, id, opts.ProjectDir, opts.Decision); err != nil {
+			_ = store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{"error_message": err.Error()})
+			return nil, err
+		}
+	}
 	cmd, err := buildCmd(opts, outputFile)
 	if err != nil {
 		store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{
@@ -161,6 +179,27 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	return &SpawnResult{ID: id, Cmd: cmd, PID: pid, process: identity}, nil
 }
 
+func validateReasoningDecision(d *routing.ReasoningDecision) error {
+	if d.PolicySource == "" || d.PolicyHash == "" || d.RequestedRole == "" {
+		return fmt.Errorf("missing source, hash or role")
+	}
+	cfg, err := routing.LoadConfig(d.PolicySource, "")
+	if err != nil {
+		return err
+	}
+	if cfg.PolicyHash != d.PolicyHash {
+		return fmt.Errorf("selected policy changed; reclassify before admission")
+	}
+	resolved, err := routing.NewResolver(cfg).ResolveDecision(d.RequestedRole, d.ProducerIdentity, d.PolicyProfile, d.Context)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(resolved, *d) {
+		return fmt.Errorf("decision does not match selected policy; resolve again")
+	}
+	return nil
+}
+
 // buildCmd constructs the exec.Cmd for the agent.
 func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 	dispatchSH := resolveDispatchSH(opts.DispatchSH)
@@ -175,6 +214,17 @@ func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 		if opts.Model != "" {
 			args = append(args, "-m", opts.Model)
 		}
+		if d := opts.Decision; d != nil {
+			raw, _ := json.Marshal(d)
+			candidate, _ := json.Marshal(routing.DispatchCandidate{ProfileRef: d.ProfileRef, Profile: d.Profile})
+			args = append(args, "--role-resolved", "--role", d.RequestedRole, "--resolved-profile-ref", d.ProfileRef, "--resolved-route-json", string(raw), "--resolved-profile-json", string(candidate), "--reasoning-effort", d.Profile.ReasoningEffort, "--service-tier", d.Profile.ServiceTier)
+			if d.ProducerIdentity != "" {
+				args = append(args, "--producer-identity", d.ProducerIdentity, "--validator-relationship", d.ValidatorRelationship)
+			}
+			if d.Profile.MinimumCodexVersion != "" {
+				args = append(args, "--minimum-codex-version", d.Profile.MinimumCodexVersion)
+			}
+		}
 		if opts.Sandbox != "" {
 			args = append(args, "--sandbox", opts.Sandbox)
 		}
@@ -183,6 +233,9 @@ func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 		}
 		cmd = exec.Command("bash", append([]string{dispatchSH}, args...)...)
 	} else {
+		if opts.Decision != nil {
+			return nil, fmt.Errorf("governed dispatch requires dispatch.sh; refusing bare model fallback")
+		}
 		if opts.AgentType != "codex" {
 			return nil, fmt.Errorf("backend %q requires dispatch.sh; direct execution only supports codex", opts.AgentType)
 		}
@@ -205,6 +258,32 @@ func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 	cmd.Stderr = nil
 
 	return cmd, nil
+}
+
+func recordReasoningDecision(ctx context.Context, store *Store, id, project string, decision *routing.ReasoningDecision) error {
+	raw, err := json.Marshal(decision)
+	if err != nil {
+		return err
+	}
+	excluded, _ := json.Marshal(decision.Excluded)
+	_, err = routing.NewDecisionStore(store.db).Record(ctx, routing.RecordDecisionOpts{DispatchID: id, Agent: decision.RequestedRole, SelectedModel: decision.Profile.Model, RuleMatched: "reasoning-contract", PolicyHash: decision.PolicyHash, ContextJSON: string(raw), Excluded: string(excluded), ProjectDir: project})
+	return err
+}
+
+func loadReasoningDecision(ctx context.Context, store *Store, id string) (*routing.ReasoningDecision, error) {
+	var raw string
+	err := store.db.QueryRowContext(ctx, "SELECT context_json FROM routing_decisions WHERE dispatch_id=? AND rule_matched='reasoning-contract' ORDER BY id DESC LIMIT 1", id).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var d routing.ReasoningDecision
+	if err = json.Unmarshal([]byte(raw), &d); err != nil {
+		return nil, err
+	}
+	return &d, nil
 }
 
 // resolveDispatchSH finds dispatch.sh in order of precedence:

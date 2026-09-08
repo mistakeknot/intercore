@@ -32,7 +32,7 @@ func testStores(t *testing.T) (*Store, *state.Store) {
 }
 
 func TestNextRungModelTwoStrikes(t *testing.T) {
-	policy := DefaultEscalationPolicy()
+	policy := fixtureEscalationPolicy()
 
 	tests := []struct {
 		name          string
@@ -46,7 +46,7 @@ func TestNextRungModelTwoStrikes(t *testing.T) {
 		{"sonnet 1 strike -> sonnet (retry same)", "sonnet", 1, false, "sonnet", true},
 		{"sonnet 2 strikes -> opus", "sonnet", 2, false, "opus", true},
 		{"opus 2 strikes, fable window open -> fable", "opus", 2, true, "fable", true},
-		{"opus 2 strikes, fable window closed -> exhausted", "opus", 2, false, "", false},
+		{"explicit ladder independent of host window", "opus", 2, false, "fable", true},
 		{"fable 2 strikes -> exhausted", "fable", 2, false, "", false},
 	}
 
@@ -86,10 +86,10 @@ func TestRetryWithEscalationLadder(t *testing.T) {
 	store.UpdateStatus(ctx, origID, StatusFailed, UpdateFields{"exit_code": 1})
 
 	chainKey := "chain-ladder-1"
-	policy := DefaultEscalationPolicy()
+	policy := fixtureEscalationPolicy()
 
 	// First failure: strikes go from 0 -> 1, still same rung (sonnet).
-	r1, err := RetryWithEscalation(ctx, store, stStore, origID, policy, chainKey, FailError, "boom1")
+	r1, err := RetryWithEscalation(ctx, store, stStore, origID, policy, chainKey, FailCapability, "boom1")
 	if err != nil {
 		t.Fatalf("RetryWithEscalation 1: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestRetryWithEscalationLadder(t *testing.T) {
 	// nextRungModel checks strikes BEFORE this failure is counted... actually
 	// strikes are incremented before nextModel() is called, so this call sees
 	// strikesAtRung=2 and escalates.
-	r2, err := RetryWithEscalation(ctx, store, stStore, r1.NewID, policy, chainKey, FailError, "boom2")
+	r2, err := RetryWithEscalation(ctx, store, stStore, r1.NewID, policy, chainKey, FailCapability, "boom2")
 	if err != nil {
 		t.Fatalf("RetryWithEscalation 2: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestChainSurvivesReTrigger(t *testing.T) {
 	t.Setenv("CLAVAIN_FABLE_AVAILABLE", "0")
 
 	chainKey := "chain-survive-1"
-	policy := DefaultEscalationPolicy()
+	policy := fixtureEscalationPolicy()
 	model := "sonnet"
 
 	// Dispatch A: fail, escalate call #1 (strikes 0->1, same rung).
@@ -158,7 +158,7 @@ func TestChainSurvivesReTrigger(t *testing.T) {
 	}
 	store.UpdateStatus(ctx, idA, StatusFailed, UpdateFields{"exit_code": 1})
 
-	r1, err := RetryWithEscalation(ctx, store, stStore, idA, policy, chainKey, FailError, "fail-A")
+	r1, err := RetryWithEscalation(ctx, store, stStore, idA, policy, chainKey, FailCapability, "fail-A")
 	if err != nil {
 		t.Fatalf("RetryWithEscalation (A): %v", err)
 	}
@@ -178,7 +178,7 @@ func TestChainSurvivesReTrigger(t *testing.T) {
 	// This is the SECOND failure recorded against chainKey overall (strikes
 	// 1->2), even though dispatch B itself has RetryCount=0 — strikes must
 	// continue rather than reset.
-	r2, err := RetryWithEscalation(ctx, store, stStore, idB, policy, chainKey, FailError, "fail-B")
+	r2, err := RetryWithEscalation(ctx, store, stStore, idB, policy, chainKey, FailCapability, "fail-B")
 	if err != nil {
 		t.Fatalf("RetryWithEscalation (B): %v", err)
 	}
@@ -220,7 +220,7 @@ func TestLessonPromptCarriesFailures(t *testing.T) {
 	store.UpdateStatus(ctx, origID, StatusFailed, UpdateFields{"exit_code": 1})
 
 	chainKey := "chain-lesson-1"
-	policy := DefaultEscalationPolicy()
+	policy := fixtureEscalationPolicy()
 
 	result, err := RetryWithEscalation(ctx, store, stStore, origID, policy, chainKey, FailCriteria, "criteria X not satisfied")
 	if err != nil {
@@ -265,7 +265,7 @@ func TestExhaustionWritesLessonChain(t *testing.T) {
 	store.UpdateStatus(ctx, origID, StatusFailed, UpdateFields{"exit_code": 1})
 
 	chainKey := "chain-exhaust-1"
-	policy := DefaultEscalationPolicy()
+	policy := fixtureEscalationPolicy()
 
 	// Already at the top rung ("fable") with 2 strikes -> immediately exhausted.
 	cs := &ChainState{ChainKey: chainKey, CurrentModel: "fable", StrikesAtRung: 1}
@@ -273,7 +273,7 @@ func TestExhaustionWritesLessonChain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := RetryWithEscalation(ctx, store, stStore, origID, policy, chainKey, FailTimeout, "timed out again")
+	result, err := RetryWithEscalation(ctx, store, stStore, origID, policy, chainKey, FailCapability, "criteria still fail")
 	if err == nil {
 		t.Fatal("expected error on exhaustion")
 	}
@@ -293,7 +293,7 @@ func TestExhaustionWritesLessonChain(t *testing.T) {
 	if !strings.Contains(string(content), "Escalation chain exhausted") {
 		t.Errorf("lesson file missing header:\n%s", content)
 	}
-	if !strings.Contains(string(content), "timed out again") {
+	if !strings.Contains(string(content), "criteria still fail") {
 		t.Errorf("lesson file missing failure detail:\n%s", content)
 	}
 }
@@ -313,7 +313,7 @@ func TestEscalationCap(t *testing.T) {
 	store.UpdateStatus(ctx, origID, StatusFailed, UpdateFields{"exit_code": 1})
 
 	chainKey := "chain-cap-1"
-	policy := DefaultEscalationPolicy()
+	policy := fixtureEscalationPolicy()
 	policy.MaxEscalations = 1
 
 	// Pre-seed chain state as if one escalation already happened (opus, 2
@@ -323,7 +323,7 @@ func TestEscalationCap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := RetryWithEscalation(ctx, store, stStore, origID, policy, chainKey, FailError, "still failing")
+	result, err := RetryWithEscalation(ctx, store, stStore, origID, policy, chainKey, FailCapability, "still failing")
 	if err == nil {
 		t.Fatal("expected MaxEscalations error")
 	}
@@ -341,4 +341,10 @@ func TestEscalationCap(t *testing.T) {
 	if !loaded.Exhausted {
 		t.Errorf("chain state Exhausted = false, want true")
 	}
+}
+
+func fixtureEscalationPolicy() EscalationPolicy {
+	p := DefaultEscalationPolicy()
+	p.Ladder = []string{"sonnet", "opus", "fable"}
+	return p
 }

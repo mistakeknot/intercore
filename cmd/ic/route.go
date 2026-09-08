@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -27,7 +28,7 @@ Subcommands:
   model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
   batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
-  dispatch --role=<name> [--producer-identity=<id>] --json  Resolve independent role profiles
+  dispatch --role=<name> [--policy=<path>] [--context-file=<json>] [--policy-profile=<name>] [--producer-identity=<id>] --json  Resolve independent role profiles
   identity --model=<id>                            Canonical model identity for review separation
   dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
   table   [--phase=<p>]                             Show full routing table
@@ -45,7 +46,8 @@ Subcommands:
 	case "dispatch":
 		return cmdRouteDispatch(ctx, args[1:])
 	case "identity":
-		cfg, err := loadRoutingConfig()
+		f := cli.ParseFlags(args[1:])
+		cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
 		if err != nil {
 			slog.Error("route identity", "error", err)
 			return 2
@@ -100,10 +102,12 @@ func findConfigFile(name string) string {
 	return ""
 }
 
-func loadRoutingConfig() (*routing.Config, error) {
-	routingPath := findConfigFile("routing.yaml")
-	if routingPath == "" {
-		return nil, fmt.Errorf("routing.yaml not found (searched up from CWD)")
+func loadRoutingConfig() (*routing.Config, error) { return loadSelectedRoutingConfig("") }
+
+func loadSelectedRoutingConfig(policy string) (*routing.Config, error) {
+	routingPath, err := routing.ResolvePolicyPath(policy)
+	if err != nil {
+		return nil, err
 	}
 
 	// Look for agent-roles.yaml near the routing.yaml (sibling or known paths)
@@ -137,7 +141,7 @@ func cmdRouteModel(ctx context.Context, args []string) int {
 	category := f.String("category", "")
 	agent := f.String("agent", "")
 
-	cfg, err := loadRoutingConfig()
+	cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
 	if err != nil {
 		slog.Error("route model", "error", err)
 		return 2
@@ -176,7 +180,7 @@ func cmdRouteBatch(ctx context.Context, args []string) int {
 		return 3
 	}
 
-	cfg, err := loadRoutingConfig()
+	cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
 	if err != nil {
 		slog.Error("route batch", "error", err)
 		return 2
@@ -208,12 +212,17 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 	}
 
 	if role != "" {
-		cfg, err := loadRoutingConfig()
+		cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
 		if err != nil {
 			slog.Error("route dispatch", "error", err)
 			return 2
 		}
-		resolved, err := routing.NewResolver(cfg).ResolveDispatchRoleForProducer(role, f.String("producer-identity", ""))
+		decisionContext, err := readDecisionContext(f.String("context-file", ""))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 3
+		}
+		resolved, err := routing.NewResolver(cfg).ResolveDecision(role, f.String("producer-identity", ""), f.String("policy-profile", ""), decisionContext)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
@@ -230,7 +239,7 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 
 	// When --type is provided, resolve subagent type to model via dispatch tiers
 	if subagentType != "" {
-		cfg, err := loadRoutingConfig()
+		cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
 		if err != nil {
 			slog.Error("route dispatch", "error", err)
 			return 2
@@ -266,7 +275,7 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 		return 3
 	}
 
-	cfg, err := loadRoutingConfig()
+	cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
 	if err != nil {
 		slog.Error("route dispatch", "error", err)
 		return 2
@@ -295,7 +304,7 @@ func cmdRouteTable(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	phase := f.String("phase", "")
 
-	cfg, err := loadRoutingConfig()
+	cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
 	if err != nil {
 		slog.Error("route table", "error", err)
 		return 2
@@ -523,4 +532,27 @@ func cmdRouteList(ctx context.Context, args []string) int {
 		}
 	}
 	return 0
+}
+
+// Strict decoding catches misspelled classification fields instead of demoting work.
+func readDecisionContext(path string) (routing.DecisionContext, error) {
+	var c routing.DecisionContext
+	if path == "" {
+		return c, nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return c, err
+	}
+	defer f.Close()
+	dec := json.NewDecoder(f)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		return c, err
+	}
+	var extra interface{}
+	if err := dec.Decode(&extra); err != io.EOF {
+		return c, fmt.Errorf("decision context must contain one JSON object")
+	}
+	return c, nil
 }

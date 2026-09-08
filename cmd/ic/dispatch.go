@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/mistakeknot/intercore/internal/budget"
@@ -110,6 +111,33 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 		ParentID:         f.String("parent-id", ""),
 		ParentDispatchID: f.String("parent-dispatch-id", ""),
 		DispatchSH:       f.String("dispatch-sh", ""),
+	}
+	if role := f.String("role", ""); role != "" {
+		if opts.Model != "" || opts.AgentType != "" {
+			slog.Error("role cannot be combined with model or type")
+			return 3
+		}
+		cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
+		if err != nil {
+			slog.Error("dispatch policy", "error", err)
+			return 2
+		}
+		c, err := readDecisionContext(f.String("context-file", ""))
+		if err != nil {
+			slog.Error("dispatch context", "error", err)
+			return 3
+		}
+		decision, err := routing.NewResolver(cfg).ResolveDecision(role, f.String("producer-identity", ""), f.String("policy-profile", ""), c)
+		if err != nil {
+			slog.Error("dispatch reasoning", "error", err)
+			return 1
+		}
+		opts.Decision = &decision
+		opts.Model = decision.Profile.Model
+		opts.AgentType = decision.Profile.Backend
+		if opts.DispatchSH == "" {
+			opts.DispatchSH = filepath.Join(filepath.Dir(cfg.PolicySource), "..", "scripts", "dispatch.sh")
+		}
 	}
 	scheduled := f.Bool("scheduled")
 	schedulerSession := f.String("scheduler-session", "")
@@ -623,7 +651,19 @@ func cmdDispatchRetry(ctx context.Context, args []string) int {
 
 	stateStore := state.New(d.SqlDB())
 	mode := dispatch.ParseFailureMode(failureModeStr)
-	result, err := dispatch.RetryWithEscalation(ctx, dStore, stateStore, id, dispatch.DefaultEscalationPolicy(), chainKey, mode, failureDetail)
+	cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
+	if err != nil {
+		slog.Error("escalation policy", "error", err)
+		return 2
+	}
+	ep := dispatch.EscalationPolicyFromConfig(cfg)
+	ep.PolicyProfile = f.String("policy-profile", "")
+	ep.Context, err = readDecisionContext(f.String("context-file", ""))
+	if err != nil {
+		slog.Error("escalation context", "error", err)
+		return 3
+	}
+	result, err := dispatch.RetryWithEscalation(ctx, dStore, stateStore, id, ep, chainKey, mode, failureDetail)
 	if err != nil {
 		if result != nil && result.Exhausted {
 			if flagJSON {
@@ -657,6 +697,7 @@ func cmdDispatchRetry(ctx context.Context, args []string) int {
 
 	if flagJSON {
 		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
+			"decision":   result.Decision,
 			"new_id":     result.NewID,
 			"model":      result.Model,
 			"escalated":  result.Escalated,

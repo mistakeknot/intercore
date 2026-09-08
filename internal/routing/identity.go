@@ -77,7 +77,7 @@ func (r *Resolver) ResolveDispatchRoleForProducer(role, producer string) (Resolv
 	if !ok {
 		return ResolvedDispatch{}, fmt.Errorf("role %q: no dispatch profile found", role)
 	}
-	review := role == "validation" || role == "cross-lab-review"
+	review := role == "validation" || role == "cross-lab-review" || role == "plan-review"
 	if review && producer == "" {
 		return ResolvedDispatch{}, fmt.Errorf("role %q requires --producer-identity", role)
 	}

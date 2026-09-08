@@ -1,18 +1,23 @@
 package routing
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
 
 // Config is the unified routing configuration.
 type Config struct {
-	Subagents  SubagentConfig   `yaml:"subagents"`
-	Dispatch   DispatchConfig   `yaml:"dispatch"`
-	Complexity ComplexityConfig `yaml:"complexity"`
-	Roles      RolesConfig      `yaml:"-"` // loaded from separate file
+	PolicySource string           `yaml:"-"`
+	PolicyHash   string           `yaml:"-"`
+	Reasoning    ReasoningPolicy  `yaml:"reasoning"`
+	Subagents    SubagentConfig   `yaml:"subagents"`
+	Dispatch     DispatchConfig   `yaml:"dispatch"`
+	Complexity   ComplexityConfig `yaml:"complexity"`
+	Roles        RolesConfig      `yaml:"-"` // loaded from separate file
 }
 
 // SubagentConfig holds Claude Code subagent routing rules.
@@ -104,6 +109,11 @@ func LoadConfig(routingPath, rolesPath string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse routing.yaml: %w", err)
 	}
+	cfg.PolicySource, _ = filepath.Abs(routingPath)
+	if canonical, err := filepath.EvalSymlinks(cfg.PolicySource); err == nil {
+		cfg.PolicySource = canonical
+	}
+	cfg.PolicyHash = fmt.Sprintf("%x", sha256.Sum256(data))
 
 	// Initialize nil maps
 	if cfg.Subagents.Phases == nil {
