@@ -67,7 +67,7 @@ dispatch:
 	}
 	oldStdout := os.Stdout
 	os.Stdout = writeEnd
-	code := cmdRouteDispatch(context.Background(), []string{"--role=deep-execution"})
+	code := cmdRouteDispatch(context.Background(), []string{"--policy=" + filepath.Join(configDir, "routing.yaml"), "--role=deep-execution"})
 	_ = writeEnd.Close()
 	os.Stdout = oldStdout
 	out, err := io.ReadAll(readEnd)
@@ -96,7 +96,7 @@ dispatch:
 		t.Fatal(err)
 	}
 	os.Stdout = writeEnd
-	code = cmdRouteDispatch(context.Background(), []string{"--role=validation", "--producer-identity=anthropic/claude-fable-5-1[1m]"})
+	code = cmdRouteDispatch(context.Background(), []string{"--policy=" + filepath.Join(configDir, "routing.yaml"), "--role=validation", "--producer-identity=anthropic/claude-fable-5-1[1m]"})
 	_ = writeEnd.Close()
 	os.Stdout = oldStdout
 	out, err = io.ReadAll(readEnd)

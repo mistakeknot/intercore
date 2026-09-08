@@ -1,10 +1,29 @@
 package routing
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+func TestUnavailableModelsSurviveDecisionContextRoundTrip(t *testing.T) {
+	before := DecisionContext{AvailableModels: []string{}}
+	raw, err := json.Marshal(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after DecisionContext
+	if err := json.Unmarshal(raw, &after); err != nil {
+		t.Fatal(err)
+	}
+	if after.AvailableModels == nil {
+		t.Fatal("known absent model access became unprobed access")
+	}
+	if _, err := NewResolver(reasoningConfig(t)).ResolveDecision("planning", "", "", after); err == nil {
+		t.Fatal("serialized absent model access admitted work")
+	}
+}
 
 func reasoningConfig(t *testing.T) *Config {
 	t.Helper()

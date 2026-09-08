@@ -40,7 +40,7 @@ type DecisionContext struct {
 	InvestigationActive bool              `json:"investigation_active,omitempty"`
 	Handoff             *ReasoningHandoff `json:"handoff,omitempty"`
 	// nil means access has not been probed; an empty array means no access.
-	AvailableModels []string `json:"available_models,omitempty"`
+	AvailableModels []string `json:"available_models"`
 }
 type ReasoningDecision struct {
 	ResolvedDispatch

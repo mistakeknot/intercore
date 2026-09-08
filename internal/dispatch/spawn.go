@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"time"
 )
@@ -194,7 +193,18 @@ func validateReasoningDecision(d *routing.ReasoningDecision) error {
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(resolved, *d) {
+	// Compare the serialized contract. JSON round trips normalize optional empty
+	// slices (for example a profile's fallbacks: []) to nil, without changing
+	// the policy meaning. Semantically distinct context fields retain their tags.
+	want, err := json.Marshal(resolved)
+	if err != nil {
+		return err
+	}
+	got, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(want, got) {
 		return fmt.Errorf("decision does not match selected policy; resolve again")
 	}
 	return nil
