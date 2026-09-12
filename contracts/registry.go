@@ -10,6 +10,7 @@ import (
 	"github.com/mistakeknot/intercore/internal/phase"
 	"github.com/mistakeknot/intercore/internal/runtrack"
 	"github.com/mistakeknot/intercore/internal/scheduler"
+	"github.com/mistakeknot/intercore/internal/usage"
 )
 
 // ContractType maps a CLI output name to a Go struct instance.
@@ -65,6 +66,10 @@ var CLIContracts = []ContractType{
 
 	// observation
 	{Name: "situation-snapshot", Instance: observation.Snapshot{}},
+
+	// usage evidence
+	{Name: "usage-observation", Instance: usage.Observation{}},
+	{Name: "usage-validity", Instance: usage.Validation{}},
 }
 
 // EventContracts lists types used for the event bus.

@@ -6,7 +6,7 @@
 
 ### Core Infrastructure
 
-**db** -- SQLite database management. Embeds `schema.sql` (31 tables), handles WAL mode, PRAGMAs, `SetMaxOpenConns(1)`, auto-backup before migration, `PRAGMA user_version` tracking. 15 incremental migration files (v16-v30) in `internal/db/migrations/`.
+**db** -- SQLite database management. Embeds `schema.sql` (39 tables), handles WAL mode, PRAGMAs, `SetMaxOpenConns(1)`, auto-backup before migration, `PRAGMA user_version` tracking. The current schema is v40.
 
 **state** -- Key-value state store with optional TTL. Used by event cursors, budget state, and coordination metadata.
 
@@ -62,6 +62,8 @@
 
 **session** -- Agent session registration and attribution tracking. Tracks session lifecycle (start/end), token accumulation (additive updates per turn), and point-in-time attribution changes (bead, run, phase). Tables: `sessions`, `session_attributions` (v26, v30).
 
+**usage** -- Provider-neutral append-only observation and validation evidence. Strict ingestion preserves nullable raw counters and sanitized provenance. Validation scans all kernel dispatch/session intervals, excludes only verified primary-key bindings, and keeps external activity and incomplete evidence unknown. Tables: `usage_observations`, `usage_validations` (v40).
+
 **routing** -- Cost-aware capability matching for model/agent selection. Unified routing logic replacing `lib-routing.sh` + `agent-roles.yaml` + `interserve classify`. Hierarchical resolution: per-agent override > phase-category > phase-model > default-category > default-model > "sonnet" fallback. Safety floor clamping from `agent-roles.yaml`. Dispatch tier resolution with 3-hop fallback chain. Batch resolution with category inference from agent name patterns. Routing decisions persisted for audit. Cost table: effective cost formula `input_per_mtok + 15 * output_per_mtok`. Tables: `routing_decisions` (v27).
 
 ### Landed Changes & Replay
@@ -84,13 +86,13 @@
 
 ## Contracts
 
-The `contracts/` package provides a JSON Schema contract registry for `ic` CLI output types. Schemas are generated via `go generate ./contracts/...` and written to `contracts/cli/` (24 schemas) and `contracts/events/` (4 schemas). This enables downstream consumers to validate `ic` JSON output without importing Go types.
+The `contracts/` package provides a JSON Schema contract registry for `ic` CLI output types. Schemas are generated via `go generate ./contracts/...` and written to `contracts/cli/` (27 schemas) and `contracts/events/` (9 schemas). This enables downstream consumers to validate `ic` JSON output without importing Go types.
 
-Registered contract types cover: coordination, dispatch, phase/run, runtrack, scheduler, lane, discovery, and events.
+Registered contract types cover: coordination, dispatch, phase/run, runtrack, scheduler, lane, discovery, usage evidence, and events.
 
 ## CLI Commands (Summary)
 
-21 subcommand files covering:
+Domain command handlers cover:
 
 | Domain | Commands |
 |--------|----------|
@@ -106,6 +108,7 @@ Registered contract types cover: coordination, dispatch, phase/run, runtrack, sc
 | Lane | `lane create/list/status/close/events/sync/members/velocity` |
 | Discovery | `discovery submit/status/list/score/promote/dismiss/feedback/profile/decay/rollback/search` |
 | Cost | `cost reconcile/list` |
+| Usage | `usage observe/list/validate` |
 | Interspect | `interspect record/query` |
 | Portfolio | `portfolio dep/relay/order/status` |
 | Situation | `situation snapshot` |
@@ -131,4 +134,3 @@ Registered contract types cover: coordination, dispatch, phase/run, runtrack, sc
 - `--verbose` -- Verbose output (slog info level)
 - `--vv` -- Debug-level verbose output
 - `--json` -- JSON output (must appear before subcommand)
-

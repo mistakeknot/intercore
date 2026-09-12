@@ -87,40 +87,13 @@ func (m *Migrator) Run(ctx context.Context) (int, error) {
 	}
 
 	if currentVersion == 0 {
-		return m.applyBaseline(ctx)
-	}
-
-	return m.applyAdditive(ctx, currentVersion)
-}
-
-func (m *Migrator) applyBaseline(ctx context.Context) (int, error) {
-	for _, mig := range m.migrations {
-		if !mig.Baseline {
-			continue
-		}
-		tx, err := m.db.db.BeginTx(ctx, nil)
-		if err != nil {
-			return 0, fmt.Errorf("begin baseline: %w", err)
-		}
-
-		if _, err := tx.ExecContext(ctx, mig.SQL); err != nil {
-			tx.Rollback()
-			return 0, fmt.Errorf("apply baseline %s: %w", mig.Name, err)
-		}
-
-		// Set version to max available — baseline includes the full schema,
-		// so no additive migrations should run after it.
-		targetVersion := m.MaxVersion()
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", targetVersion)); err != nil {
-			tx.Rollback()
-			return 0, fmt.Errorf("set version %d: %w", targetVersion, err)
-		}
-		if err := tx.Commit(); err != nil {
-			return 0, fmt.Errorf("commit baseline: %w", err)
+		if err := m.db.Migrate(ctx); err != nil {
+			return 0, fmt.Errorf("initialize current schema: %w", err)
 		}
 		return 1, nil
 	}
-	return 0, fmt.Errorf("no baseline migration found")
+
+	return m.applyAdditive(ctx, currentVersion)
 }
 
 func (m *Migrator) applyAdditive(ctx context.Context, currentVersion int) (int, error) {

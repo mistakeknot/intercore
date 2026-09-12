@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://intercore.dev/contracts/cli/usage-validity.json",
+  "properties": {
+    "id": {
+      "type": "integer"
+    },
+    "observation_id": {
+      "type": "string"
+    },
+    "evaluated_at": {
+      "type": "integer"
+    },
+    "max_age_seconds": {
+      "type": "integer"
+    },
+    "known_activity": {
+      "properties": {
+        "scope": {
+          "type": "string",
+          "enum": [
+            "all-kernel-activity-unfiltered"
+          ]
+        },
+        "scan_status": {
+          "type": "string",
+          "enum": [
+            "complete",
+            "unavailable"
+          ]
+        },
+        "bound_activity": {
+          "items": {
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dispatch",
+                  "session"
+                ]
+              },
+              "dispatch_id": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "session_row_id": {
+                "oneOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "project_dir": {
+                "type": "string"
+              },
+              "started_at": {
+                "type": "integer"
+              },
+              "ended_at": {
+                "oneOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "dispatch_id",
+              "session_row_id",
+              "project_dir",
+              "started_at",
+              "ended_at"
+            ]
+          },
+          "type": "array"
+        },
+        "other_activity": {
+          "items": {
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "dispatch",
+                  "session"
+                ]
+              },
+              "dispatch_id": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "session_row_id": {
+                "oneOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "project_dir": {
+                "type": "string"
+              },
+              "started_at": {
+                "type": "integer"
+              },
+              "ended_at": {
+                "oneOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "type": "object",
+            "required": [
+              "kind",
+              "dispatch_id",
+              "session_row_id",
+              "project_dir",
+              "started_at",
+              "ended_at"
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "scope",
+        "scan_status",
+        "bound_activity",
+        "other_activity"
+      ]
+    },
+    "known_overlap": {
+      "type": "string",
+      "enum": [
+        "observed",
+        "none-observed",
+        "unknown"
+      ]
+    },
+    "external_activity": {
+      "type": "string",
+      "enum": [
+        "unknown"
+      ]
+    },
+    "binding_coverage": {
+      "type": "string",
+      "enum": [
+        "complete",
+        "partial",
+        "none"
+      ]
+    },
+    "binding_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "capture_age_seconds": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "capture_freshness": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "stale",
+        "unknown"
+      ]
+    },
+    "source_age_seconds": {
+      "oneOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "source_freshness": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "stale",
+        "unknown"
+      ]
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "structure_status": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "invalid"
+      ]
+    },
+    "structure_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "required": [
+    "id",
+    "observation_id",
+    "evaluated_at",
+    "max_age_seconds",
+    "known_activity",
+    "known_overlap",
+    "external_activity",
+    "binding_coverage",
+    "binding_reasons",
+    "capture_age_seconds",
+    "capture_freshness",
+    "source_age_seconds",
+    "source_freshness",
+    "reasons",
+    "structure_status",
+    "structure_reasons"
+  ]
+}

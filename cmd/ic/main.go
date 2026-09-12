@@ -147,6 +147,8 @@ func main() {
 		exitCode = cmdSituation(ctx, subArgs)
 	case "receipt":
 		exitCode = cmdReceipt(ctx, subArgs)
+	case "usage":
+		exitCode = cmdUsage(ctx, subArgs)
 	default:
 		slog.Error("unknown command", "command", subcommand)
 		printUsage()
@@ -251,6 +253,9 @@ Commands:
   route list [--agent=<a>] [--model=<m>]  List routing decisions
   cost reconcile <run> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
   cost list <run> [--limit=N]   List past reconciliations
+  usage observe --record=<file> Append strict provider-neutral usage evidence
+  usage list [--limit=N | --observation=ID]  List usage observations
+  usage validate --observation=<id> [--max-age=<sec>]  Append kernel activity evidence
   publish <ver>                  Publish plugin (bump + push + sync)
   publish --patch                Auto-increment patch version
   publish doctor [--fix]         Detect/fix drift and health issues

@@ -18,9 +18,12 @@ import (
 //go:embed schema.sql
 var schemaDDL string
 
+//go:embed migrations/040_usage_observations.sql
+var usageMigrationDDL string
+
 const (
-	currentSchemaVersion = 39
-	maxSchemaVersion     = 39
+	currentSchemaVersion = 40
+	maxSchemaVersion     = 40
 )
 
 var (
@@ -554,6 +557,15 @@ func (d *DB) Migrate(ctx context.Context) error {
 	// Apply schema DDL
 	if _, err := tx.ExecContext(ctx, schemaDDL); err != nil {
 		return fmt.Errorf("migrate: apply schema: %w", err)
+	}
+
+	// v39 -> v40: append-only provider-neutral usage evidence. Keep the
+	// numbered migration authoritative and execute the same embedded bytes in
+	// the production DB.Migrate transaction before advancing user_version.
+	if currentVersion < 40 {
+		if _, err := tx.ExecContext(ctx, usageMigrationDDL); err != nil {
+			return fmt.Errorf("migrate v39→v40: %w", err)
+		}
 	}
 
 	// Set user_version inside same transaction

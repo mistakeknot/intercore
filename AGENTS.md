@@ -21,14 +21,14 @@ ic version                                 # CLI + schema versions
 **Module:** `github.com/mistakeknot/intercore`
 **Location:** `core/intercore/`
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
-**Schema:** v30 (31 tables, `PRAGMA user_version` tracked)
+**Schema:** v40 (39 tables, `PRAGMA user_version` tracked)
 **CLI version:** 0.3.5
 
 ## Directory Layout
 
 ```
-cmd/ic/          CLI entry point + 21 subcommand files
-internal/        28 packages (see Modules section)
+cmd/ic/          CLI entry point + subcommand handlers
+internal/        Domain packages (see Modules section)
 pkg/             2 packages: contract/, redaction/
 contracts/       JSON Schema contract registry + codegen (cli/, events/, overrides/)
 config/          costs.yaml (model pricing)
@@ -47,6 +47,11 @@ lib-intercore.sh Bash wrappers for hooks (44 functions)
 | Bash Wrappers | [agents/bash-wrappers.md](agents/bash-wrappers.md) | lib-intercore.sh (44 functions) |
 | Testing & Recovery | [agents/testing.md](agents/testing.md) | Test suites, DB corruption, stuck locks, schema mismatch |
 
+Provider-neutral usage evidence is append-only in `usage_observations` and
+`usage_validations`; see the Usage section in
+[agents/cli-reference.md](agents/cli-reference.md). It is observational and does
+not write routing or acceptance state.
+
 ## Package and CLI reference
 
 Read [agent-cli-reference.md](docs/agent-cli-reference.md) when working on a
@@ -55,7 +60,7 @@ particular package, command, exit code or global flag.
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~687 test functions across 28 packages)
+go test ./...                    # Unit tests
 go test -race ./...              # Race detector
 bash test-integration.sh         # Full CLI integration test (1320-line bash suite)
 ```

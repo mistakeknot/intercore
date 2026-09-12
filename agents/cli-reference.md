@@ -5,8 +5,8 @@ Complete `ic` command reference, flags, and exit codes.
 ## Architecture
 
 ```
-cmd/ic/          CLI entry point + 20 subcommand files (run, dispatch, gate, lock, events, coordination, scheduler, lane, discovery, portfolio, cost, interspect, agency, action, config, publish, route, landed, session, situation)
-internal/        30 packages — key ones: db/, state/, dispatch/, phase/, event/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, audit/, redaction/, publish/
+cmd/ic/          CLI entry point + domain handlers (run, dispatch, gate, lock, events, coordination, scheduler, lane, discovery, portfolio, cost, usage, interspect, agency, action, config, publish, route, landed, session, situation)
+internal/        Domain packages — key ones include db/, state/, dispatch/, phase/, event/, usage/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, audit/, redaction/, publish/
 lib-intercore.sh Bash wrappers for hooks (45 functions)
 ```
 
@@ -258,6 +258,37 @@ ic discovery search --embedding=@<file> [--source=<s>] [--min-score=<f>] [--limi
 ic cost reconcile <run_id> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
 ic cost list <run_id> [--limit=N]
 ```
+
+### Usage evidence
+
+```
+ic usage observe --record=<file>
+ic usage list [--limit=N | --observation=ID]
+ic usage validate --observation=<id> [--max-age=<seconds>]
+```
+
+`usage observe` accepts one regular JSON file no larger than 1 MiB. Its dedicated
+parser rejects unknown, duplicate, missing-value, and positional arguments. The
+record is a closed object with `id`, `provider`, `source`, `kind`, `status`,
+nullable `reason`, separate capture/source/interval/reset times, raw nullable
+`counters`, `identity`, `execution_refs`, sanitized `payload_sha256`, and nullable
+`supersedes`. Counter units and provider semantics are never combined; null and
+zero remain distinct. JSON number spellings are retained exactly, including
+integers above 2^53. Numbers are limited to 4096 characters and exponent magnitude
+10000. Stable-ID retries must be byte-equivalent after canonical encoding;
+equivalent spellings such as `1` and `1.0` conservatively conflict. Corrections
+append compatible provider/source/kind successors.
+
+Validation records structural validity, including strict canonical input and
+digest verification, and defaults to a 3600-second freshness threshold. It scans every
+`dispatches` and `sessions` row without project, provider, account, status, or
+result-limit filters. Closed intervals use `COALESCE(dispatch.started_at,
+dispatch.created_at)` and open NULL ends. Only verified `dispatches.id` or numeric
+`sessions.id` bindings can move overlap into `bound_activity`; native strings do
+not. Results never claim account, kernel, or external exclusivity:
+`external_activity` is always `unknown`, and absent or invalid evidence yields an
+explicit unknown classification. A complete valid scan with zero activity reports
+`none-observed`; it still cannot establish account exclusivity.
 
 ### Interspect
 
