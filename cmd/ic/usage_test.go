@@ -141,6 +141,9 @@ func TestCmdUsageObserveListValidate(t *testing.T) {
 	if rc := cmdUsage(context.Background(), []string{"list", "--observation", record.ID, "--limit=1"}); rc != 3 {
 		t.Fatalf("ambiguous list flags returned %d", rc)
 	}
+	if rc := cmdUsage(context.Background(), []string{"list", "--observation", "missing"}); rc != 1 {
+		t.Fatalf("missing exact observation returned %d", rc)
+	}
 
 	validateOut := captureDispatchOutput(t, func() int {
 		return cmdUsage(context.Background(), []string{"validate", "--observation", record.ID, "--max-age", "3600"})

@@ -289,6 +289,8 @@ not. Results never claim account, kernel, or external exclusivity:
 `external_activity` is always `unknown`, and absent or invalid evidence yields an
 explicit unknown classification. A complete valid scan with zero activity reports
 `none-observed`; it still cannot establish account exclusivity.
+Every validation records `kernel_history_retention_unverified`: the scan covers
+currently retained rows and cannot establish that older kernel activity was never pruned.
 
 ### Interspect
 

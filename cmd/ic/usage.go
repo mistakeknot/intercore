@@ -131,6 +131,9 @@ func cmdUsageList(ctx context.Context, args []string) int {
 	}
 	if err != nil {
 		slog.Error("usage list failed", "error", err)
+		if errors.Is(err, usagepkg.ErrNotFound) {
+			return 1
+		}
 		return 2
 	}
 	if flagJSON {

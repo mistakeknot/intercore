@@ -81,6 +81,14 @@ func TestExactNumberOrdering(t *testing.T) {
 	}
 }
 
+func TestFreshnessCannotOverflowForOldProviderTimestamp(t *testing.T) {
+	now := time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)
+	age, status := freshness(now, "1600-01-01T00:00:00Z", time.Hour)
+	if age == nil || *age <= 10_000_000_000 || status != FreshnessStale {
+		t.Fatalf("old timestamp: age=%v status=%s", age, status)
+	}
+}
+
 func TestInputValidationCountersIntervalsAndIdentity(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -223,7 +223,7 @@ func (s *Store) Validate(ctx context.Context, observationID string, opts Validat
 		KnownOverlap:     OverlapUnknown,
 		ExternalActivity: ExternalActivityUnknown,
 		BindingReasons:   []string{},
-		Reasons:          []string{},
+		Reasons:          []string{"kernel_history_retention_unverified"},
 		StructureStatus:  structureStatus,
 		StructureReasons: structureReasons,
 	}
@@ -491,7 +491,7 @@ func freshness(now time.Time, timestamp string, maxAge time.Duration) (*int64, s
 	if age < 0 {
 		return nil, FreshnessUnknown
 	}
-	if time.Duration(age)*time.Second > maxAge {
+	if age > int64(maxAge/time.Second) {
 		return &age, FreshnessStale
 	}
 	return &age, FreshnessFresh
