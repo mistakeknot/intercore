@@ -21,3 +21,18 @@
 /ic.exe
 .tldrs/
 .tldrsignore
+
+# Local tooling state that lives inside this tree.
+#
+# Both are created by tooling, never by a build, and neither belongs to any
+# commit. Left untracked they are not harmless: `go build` derives its VCS
+# stamp from `git status --porcelain`, which counts untracked paths, so every
+# binary built here reported `dirty: true` and matched no commit. That is what
+# rig-health's ic-provenance check had been failing on -- a deployed `ic` whose
+# provenance could not be established, from a tree whose only modification was
+# a beads store and a worktree directory.
+#
+# Sylveste's root .gitignore and the marketplace sibling already ignore these;
+# intercore was the repo that never got the same treatment.
+.beads/
+.claude/worktrees/
