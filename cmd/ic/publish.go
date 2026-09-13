@@ -442,7 +442,7 @@ func cmdPublishInit(ctx context.Context, args []string) int {
 			slog.Warn("publish init: marketplace commit failed", "error", err)
 		} else {
 			fmt.Println("  Pushing marketplace...")
-			if err := publish.GitPush(marketRoot); err != nil {
+			if err := publish.GitPushGated(marketRoot); err != nil {
 				slog.Warn("publish init: marketplace push failed", "error", err)
 			}
 		}

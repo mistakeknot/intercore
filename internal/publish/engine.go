@@ -492,7 +492,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 		return fmt.Errorf("pull --rebase (marketplace): %w", err)
 	}
 
-	if err := GitPush(marketRoot); err != nil {
+	if err := GitPushGated(marketRoot); err != nil {
 		setError(PhaseUpdateMarket, err)
 		return err
 	}
