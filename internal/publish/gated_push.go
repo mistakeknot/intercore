@@ -41,6 +41,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -122,7 +123,14 @@ func GitPushGated(dir string) error {
 	}
 	// Always clean up, including on failure and on the error paths below. A
 	// leaked candidate ref is small but it accumulates one per failed publish.
-	defer func() { _ = gitDeleteRemoteRef(dir, candidate) }()
+	// Say so when it cannot be removed: quietly dropping a cleanup failure is
+	// the same silence this change exists to end, only smaller.
+	defer func() {
+		if err := gitDeleteRemoteRef(dir, candidate); err != nil {
+			slog.Warn("publish gate: candidate ref left behind",
+				"ref", candidate, "dir", dir, "error", err)
+		}
+	}()
 
 	if err := waitForChecks(owner, repo, sha, contexts, token, gateTimeout(), candidate); err != nil {
 		return err
@@ -327,27 +335,70 @@ func awaitChecks(
 // forever on a repository that uses the other.
 func checkStates(owner, repo, sha, token string) (map[string]checkState, error) {
 	states := map[string]checkState{}
+	// Paginate. A busy commit can carry more than one page of check-runs, and a
+	// required context sitting on page 2 would otherwise never be seen -- the
+	// gate would fail closed on a timeout instead of reading the passing check.
+	seenAt := map[string]int64{}
+	for page := 1; page <= 20; page++ {
+		url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/check-runs?per_page=100&page=%d",
+			owner, repo, sha, page)
+		status, body, err := githubGet(url, token)
+		if err != nil {
+			return nil, err
+		}
+		if status != http.StatusOK {
+			return nil, fmt.Errorf("check-runs for %s: HTTP %d", sha[:12], status)
+		}
+		n, err := mergeCheckRuns(states, seenAt, body)
+		if err != nil {
+			return nil, err
+		}
+		if n < 100 {
+			break
+		}
+	}
 
 	status, body, err := githubGet(
-		fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/check-runs?per_page=100", owner, repo, sha), token)
+		fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/status?per_page=100", owner, repo, sha), token)
 	if err != nil {
 		return nil, err
 	}
-	if status != http.StatusOK {
-		return nil, fmt.Errorf("check-runs for %s: HTTP %d", sha[:12], status)
+	if status == http.StatusOK {
+		mergeLegacyStatuses(states, body)
 	}
+
+	return states, nil
+}
+
+// mergeCheckRuns folds one page of check-runs into states and reports how many
+// runs the page held.
+//
+// Re-runs produce several check-runs sharing a name. Taking whichever the API
+// happened to list last would let a stale conclusion override the current one
+// in either direction, so the newest start time wins explicitly rather than by
+// accident of ordering.
+func mergeCheckRuns(states map[string]checkState, seenAt map[string]int64, body []byte) (int, error) {
 	var runs struct {
 		CheckRuns []struct {
 			Name       string `json:"name"`
 			Status     string `json:"status"`
 			Conclusion string `json:"conclusion"`
 			DetailsURL string `json:"details_url"`
+			StartedAt  string `json:"started_at"`
 		} `json:"check_runs"`
 	}
 	if err := json.Unmarshal(body, &runs); err != nil {
-		return nil, fmt.Errorf("parse check-runs: %w", err)
+		return 0, fmt.Errorf("parse check-runs: %w", err)
 	}
 	for _, r := range runs.CheckRuns {
+		var started int64
+		if t, err := time.Parse(time.RFC3339, r.StartedAt); err == nil {
+			started = t.Unix()
+		}
+		if prev, ok := seenAt[r.Name]; ok && started < prev {
+			continue // an older attempt of a context we already have
+		}
+		seenAt[r.Name] = started
 		done := r.Status == "completed"
 		states[r.Name] = checkState{
 			done: done,
@@ -357,35 +408,31 @@ func checkStates(owner, repo, sha, token string) (map[string]checkState, error) 
 			detailsURL: r.DetailsURL,
 		}
 	}
+	return len(runs.CheckRuns), nil
+}
 
-	status, body, err = githubGet(
-		fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/status?per_page=100", owner, repo, sha), token)
-	if err != nil {
-		return nil, err
+// mergeLegacyStatuses adds commit statuses for contexts no check-run claimed.
+func mergeLegacyStatuses(states map[string]checkState, body []byte) {
+	var legacy struct {
+		Statuses []struct {
+			Context   string `json:"context"`
+			State     string `json:"state"`
+			TargetURL string `json:"target_url"`
+		} `json:"statuses"`
 	}
-	if status == http.StatusOK {
-		var legacy struct {
-			Statuses []struct {
-				Context   string `json:"context"`
-				State     string `json:"state"`
-				TargetURL string `json:"target_url"`
-			} `json:"statuses"`
+	if err := json.Unmarshal(body, &legacy); err != nil {
+		return
+	}
+	for _, st := range legacy.Statuses {
+		if _, taken := states[st.Context]; taken {
+			continue // a check-run of the same name already spoke
 		}
-		if err := json.Unmarshal(body, &legacy); err == nil {
-			for _, s := range legacy.Statuses {
-				if _, taken := states[s.Context]; taken {
-					continue // a check-run of the same name already spoke
-				}
-				states[s.Context] = checkState{
-					done:       s.State != "pending",
-					successful: s.State == "success",
-					detailsURL: s.TargetURL,
-				}
-			}
+		states[st.Context] = checkState{
+			done:       st.State != "pending",
+			successful: st.State == "success",
+			detailsURL: st.TargetURL,
 		}
 	}
-
-	return states, nil
 }
 
 var githubHTTP = &http.Client{Timeout: 30 * time.Second}
@@ -426,4 +473,17 @@ func isGitRepo(dir string) bool {
 	cmd := exec.Command("git", "-C", dir, "rev-parse", "--git-dir")
 	cmd.Stdout, cmd.Stderr = nil, nil
 	return cmd.Run() == nil
+}
+
+// hasUnpushedCommits reports whether dir's current branch is ahead of its
+// upstream. A branch with no upstream configured counts as not ahead: there is
+// nowhere for it to be ahead of.
+func hasUnpushedCommits(dir string) bool {
+	cmd := exec.Command("git", "-C", dir, "rev-list", "--count", "@{upstream}..HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	return err == nil && n > 0
 }

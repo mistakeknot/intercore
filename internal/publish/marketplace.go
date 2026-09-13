@@ -407,8 +407,22 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 			continue
 		}
 		have, err := ReadMarketplaceVersion(clone, pluginName)
-		if err != nil || have == version {
-			continue // plugin absent from this clone, or already in sync
+		if err != nil {
+			continue // plugin absent from this clone
+		}
+		if have == version {
+			// The manifest already says the right thing -- but that is not the
+			// same as the right thing having reached origin. UpdateMarketplaceVersion
+			// writes the file before the push is attempted, so a clone whose push
+			// failed last time looks "in sync" here forever and its local commit
+			// is never retried. That is precisely how a clone reaches 1 ahead and
+			// 147 behind without a word (mk-1e9o).
+			if hasUnpushedCommits(clone) {
+				if err := GitPushGated(clone); err != nil && firstErr == nil {
+					firstErr = fmt.Errorf("retry push %s: %w", clone, err)
+				}
+			}
+			continue
 		}
 		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
 			if firstErr == nil {
@@ -446,7 +460,7 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 		}
 		if err := GitPushGated(clone); err != nil {
 			if firstErr == nil {
-				firstErr = fmt.Errorf("push %s (commit is staged locally and will retry next publish): %w", clone, err)
+				firstErr = fmt.Errorf("push %s (commit is local; the next publish retries it): %w", clone, err)
 			}
 		}
 	}

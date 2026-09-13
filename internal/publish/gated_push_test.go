@@ -2,6 +2,7 @@ package publish
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -69,15 +70,94 @@ func TestAwaitChecksPassesWhenAllRequiredSucceed(t *testing.T) {
 	}
 }
 
-// A skipped job satisfies branch protection. The `sources` job is skipped on
-// candidate refs by design, so if it were ever made required, a skip must count.
-func TestAwaitChecksTreatsSkippedAsSatisfied(t *testing.T) {
-	fetch := func() (map[string]checkState, error) {
-		return map[string]checkState{"sources": {done: true, successful: true}}, nil
+// Conclusion mapping, against real API payloads rather than hand-built states.
+//
+// An earlier version of this test constructed checkState{successful: true}
+// directly and claimed to prove that a skip satisfies protection. It proved
+// nothing: it never touched the code that maps a conclusion to a state. Review
+// called it theatre, correctly.
+func TestMergeCheckRunsMapsConclusions(t *testing.T) {
+	body := []byte(`{"check_runs":[
+	  {"name":"success-run","status":"completed","conclusion":"success","started_at":"2026-09-13T10:00:00Z"},
+	  {"name":"skipped-run","status":"completed","conclusion":"skipped","started_at":"2026-09-13T10:00:00Z"},
+	  {"name":"neutral-run","status":"completed","conclusion":"neutral","started_at":"2026-09-13T10:00:00Z"},
+	  {"name":"failed-run","status":"completed","conclusion":"failure","started_at":"2026-09-13T10:00:00Z"},
+	  {"name":"cancelled-run","status":"completed","conclusion":"cancelled","started_at":"2026-09-13T10:00:00Z"},
+	  {"name":"running","status":"in_progress","conclusion":null,"started_at":"2026-09-13T10:00:00Z"}
+	]}`)
+	states := map[string]checkState{}
+	n, err := mergeCheckRuns(states, map[string]int64{}, body)
+	if err != nil {
+		t.Fatalf("merge: %v", err)
 	}
-	if err := awaitChecks(fetch, "abcdef123456", []string{"sources"},
-		time.Minute, time.Minute, time.Millisecond, "c"); err != nil {
-		t.Fatalf("skipped should satisfy, got %v", err)
+	if n != 6 {
+		t.Errorf("counted %d runs, want 6", n)
+	}
+	want := map[string]struct{ done, successful bool }{
+		"success-run":   {true, true},
+		"skipped-run":   {true, true}, // a skip satisfies branch protection
+		"neutral-run":   {true, true},
+		"failed-run":    {true, false},
+		"cancelled-run": {true, false},
+		"running":       {false, false},
+	}
+	for name, w := range want {
+		got, ok := states[name]
+		if !ok {
+			t.Errorf("%s: missing", name)
+			continue
+		}
+		if got.done != w.done || got.successful != w.successful {
+			t.Errorf("%s: done=%v successful=%v, want done=%v successful=%v",
+				name, got.done, got.successful, w.done, w.successful)
+		}
+	}
+}
+
+// A re-run produces a second check-run with the same name. The newest attempt
+// must win regardless of the order the API lists them in -- otherwise a stale
+// conclusion can override the current one, in either direction.
+func TestMergeCheckRunsPrefersNewestAttempt(t *testing.T) {
+	// Stale failure listed AFTER the fresh success: last-wins would take it.
+	body := []byte(`{"check_runs":[
+	  {"name":"structural","status":"completed","conclusion":"success","started_at":"2026-09-13T12:00:00Z"},
+	  {"name":"structural","status":"completed","conclusion":"failure","started_at":"2026-09-13T09:00:00Z"}
+	]}`)
+	states := map[string]checkState{}
+	if _, err := mergeCheckRuns(states, map[string]int64{}, body); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if !states["structural"].successful {
+		t.Error("an older failed attempt overrode the newer success")
+	}
+
+	// And the reverse: a fresh failure must not be masked by an older success.
+	body = []byte(`{"check_runs":[
+	  {"name":"structural","status":"completed","conclusion":"success","started_at":"2026-09-13T09:00:00Z"},
+	  {"name":"structural","status":"completed","conclusion":"failure","started_at":"2026-09-13T12:00:00Z"}
+	]}`)
+	states = map[string]checkState{}
+	if _, err := mergeCheckRuns(states, map[string]int64{}, body); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if states["structural"].successful {
+		t.Error("an older success masked the newer failure -- the gate would open wrongly")
+	}
+}
+
+// A legacy commit status fills in a context no check-run claimed, but must not
+// overwrite one that a check-run already reported.
+func TestMergeLegacyStatusesDoesNotOverrideCheckRuns(t *testing.T) {
+	states := map[string]checkState{"structural": {done: false}}
+	mergeLegacyStatuses(states, []byte(`{"statuses":[
+	  {"context":"structural","state":"success","target_url":"u1"},
+	  {"context":"legacy-only","state":"success","target_url":"u2"}
+	]}`))
+	if states["structural"].done {
+		t.Error("a stale legacy status satisfied a check-run that was still pending")
+	}
+	if !states["legacy-only"].successful {
+		t.Error("a legacy-only context was not picked up")
 	}
 }
 
@@ -187,5 +267,61 @@ func TestSyncPeerMarketplaces_ReportsAFailedPush(t *testing.T) {
 	}
 	if got != "0.5.2" {
 		t.Errorf("peer manifest at %s, want 0.5.2 written despite the push failure", got)
+	}
+}
+
+// Review's most serious finding. UpdateMarketplaceVersion writes the manifest
+// BEFORE the push is attempted, and the loop skips any clone whose manifest
+// already reads the target version. So after one failed push the clone looked
+// "in sync" forever and its local commit was never retried -- while the code
+// claimed in an error message that the next publish would retry it.
+//
+// A second sync must still attempt the push.
+func TestSyncPeerMarketplaces_RetriesAClonePreviouslyLeftUnpushed(t *testing.T) {
+	isolateHome(t)
+	src := setupMarketplace(t, pluginEntry{Name: "interbrowse", Version: "0.5.2"})
+	peer := setupMarketplace(t, pluginEntry{Name: "interbrowse", Version: "0.5.1"})
+
+	// A git repo with an upstream that cannot be pushed to: clone from a bare
+	// repo, then delete the bare repo so the remote is configured but broken.
+	bare := t.TempDir() + "/origin.git"
+	mustGit(t, "", "init", "--bare", "-q", bare)
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.email", "t@example.invalid"},
+		{"config", "user.name", "t"}, {"remote", "add", "origin", bare},
+		{"add", "-A"}, {"commit", "-qm", "seed"},
+		{"push", "-q", "-u", "origin", "HEAD:refs/heads/main"},
+	} {
+		mustGit(t, peer, args...)
+	}
+	if err := os.RemoveAll(bare); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+
+	// First sync: manifest updated, commit made, push fails.
+	if err := SyncPeerMarketplaces(src, "interbrowse", "0.5.2"); err == nil {
+		t.Fatal("first sync: expected the push failure to be reported")
+	}
+	if !hasUnpushedCommits(peer) {
+		t.Fatal("first sync should have left a local commit to retry")
+	}
+
+	// Second sync: the manifest already reads 0.5.2, so the old code skipped
+	// here and the commit was stranded. It must retry -- and report again.
+	if err := SyncPeerMarketplaces(src, "interbrowse", "0.5.2"); err == nil {
+		t.Error("second sync silently skipped a clone with an unpushed commit")
+	}
+}
+
+func mustGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := args
+	if dir != "" {
+		full = append([]string{"-C", dir}, args...)
+	}
+	if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %s: %v", args, out, err)
 	}
 }
