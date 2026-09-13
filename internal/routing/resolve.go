@@ -59,12 +59,129 @@ type ResolveOpts struct {
 //
 // Then applies safety floor clamping.
 func (r *Resolver) ResolveModel(opts ResolveOpts) string {
+	result, _ := r.resolveStaticModel(opts)
+	return r.finalizeModel(opts, result)
+}
+
+// ResolveModelDetailed optionally consumes a pre-read calibration artifact.
+// A nil artifact is exactly equivalent to ResolveModel.
+func (r *Resolver) ResolveModelDetailed(opts ResolveOpts, artifact *CalibrationArtifact) ModelResolution {
+	if artifact == nil {
+		return ModelResolution{Model: r.ResolveModel(opts)}
+	}
+
+	staticModel, overridden := r.resolveStaticModel(opts)
+	metadata := artifact.metadataCopy()
+	mode, source, validMode := r.calibrationMode()
+	metadata.Mode, metadata.ModeSource = mode, source
+	recommended, eligible := artifact.recommendation(opts, &metadata)
+	if artifact.metadata.SchemaVersion != nil && *artifact.metadata.SchemaVersion == 1 {
+		metadata.Exclusions = append(metadata.Exclusions, CalibrationExclusion{Scope: "artifact", Reason: "schema_1_not_authoritative"})
+	}
+	selected := staticModel
+
+	switch {
+	case !validMode:
+		metadata.Disposition = "static"
+		metadata.FallbackReason = stringPointer("invalid_calibration_mode")
+		metadata.Exclusions = append(metadata.Exclusions, CalibrationExclusion{Scope: "mode", Reason: "unsupported_mode"})
+	case !artifact.valid:
+		metadata.Disposition = "static"
+	case !eligible:
+		metadata.Disposition = "static"
+	case overridden:
+		metadata.Disposition = "static"
+		metadata.FallbackReason = stringPointer("static_agent_override")
+		metadata.Exclusions = append(metadata.Exclusions, CalibrationExclusion{Scope: "agent", Reason: "static_agent_override"})
+	case mode == "off":
+		metadata.Disposition = "static"
+		metadata.FallbackReason = stringPointer("calibration_mode_off")
+	case mode == "shadow":
+		metadata.Disposition = "shadow"
+		metadata.FallbackReason = stringPointer("shadow_mode")
+	case artifact.metadata.SchemaVersion != nil && *artifact.metadata.SchemaVersion == 1:
+		metadata.Disposition = "static"
+		metadata.FallbackReason = stringPointer("schema_1_diagnostic_only")
+	case mode == "enforce":
+		metadata.Disposition = "applied"
+		selected = recommended
+	}
+
+	beforeFloor := selected
+	model := r.finalizeModel(opts, selected)
+	if metadata.Disposition == "applied" && model != beforeFloor {
+		metadata.FallbackReason = stringPointer("safety_floor_applied")
+		metadata.Exclusions = append(metadata.Exclusions, CalibrationExclusion{Scope: "model", Reason: "safety_floor_applied"})
+	}
+	return ModelResolution{Model: model, Calibration: &metadata}
+}
+
+// ResolveBatchDetailed resolves all agents against one immutable artifact read.
+func (r *Resolver) ResolveBatchDetailed(agents []string, phase string, artifact *CalibrationArtifact) BatchModelResolution {
+	result := BatchModelResolution{
+		Models:      make(map[string]string, len(agents)),
+		Calibration: make(map[string]CalibrationMetadata, len(agents)),
+	}
+	for _, agent := range agents {
+		resolved := r.ResolveModelDetailed(ResolveOpts{
+			Phase:    phase,
+			Category: inferCategory(agent),
+			Agent:    inferAgentID(agent),
+		}, artifact)
+		result.Models[agent] = resolved.Model
+		if resolved.Calibration != nil {
+			result.Calibration[agent] = *resolved.Calibration
+		}
+	}
+	return result
+}
+
+// DiagnoseRoleCalibration describes why a B3 agent artifact cannot alter a
+// governed role decision. It never selects a profile or experimental arm.
+func (r *Resolver) DiagnoseRoleCalibration(artifact *CalibrationArtifact) *CalibrationMetadata {
+	if artifact == nil {
+		return nil
+	}
+	metadata := artifact.metadataCopy()
+	mode, source, validMode := r.calibrationMode()
+	metadata.Mode, metadata.ModeSource = mode, source
+	metadata.Disposition = "static"
+	metadata.RecommendedModel = nil
+	metadata.SelectedScope = nil
+	metadata.SelectedArm = nil
+	metadata.Exclusions = append(metadata.Exclusions, CalibrationExclusion{Scope: "role", Reason: "unsupported_artifact_kind"})
+	if !validMode {
+		metadata.FallbackReason = stringPointer("invalid_calibration_mode")
+		metadata.Exclusions = append(metadata.Exclusions, CalibrationExclusion{Scope: "mode", Reason: "unsupported_mode"})
+	} else if artifact.valid {
+		metadata.FallbackReason = stringPointer("unsupported_artifact_kind_for_role")
+	}
+	return &metadata
+}
+
+func (r *Resolver) calibrationMode() (string, string, bool) {
+	if mode, ok := os.LookupEnv("INTERSPECT_ROUTING_MODE"); ok {
+		return mode, "environment", mode == "off" || mode == "shadow" || mode == "enforce"
+	}
+	mode := r.cfg.Calibration.Mode
+	if mode == "" || r.cfg.Calibration.defaulted {
+		if mode == "" {
+			mode = "off"
+		}
+		return mode, "default", mode == "off" || mode == "shadow" || mode == "enforce"
+	}
+	return mode, "policy", mode == "off" || mode == "shadow" || mode == "enforce"
+}
+
+func (r *Resolver) resolveStaticModel(opts ResolveOpts) (string, bool) {
 	result := ""
+	overridden := false
 
 	// 1. Per-agent override
 	if opts.Agent != "" {
 		if v, ok := r.cfg.Subagents.Overrides[opts.Agent]; ok && v != "inherit" {
 			result = v
+			overridden = true
 		}
 	}
 
@@ -102,7 +219,10 @@ func (r *Resolver) ResolveModel(opts ResolveOpts) string {
 	if result == "" || result == "inherit" {
 		result = "sonnet"
 	}
+	return result, overridden
+}
 
+func (r *Resolver) finalizeModel(opts ResolveOpts, result string) string {
 	// Fable-window fallback: fable resolves only while the window is open;
 	// otherwise degrade to opus (fail-closed, never below today's tier).
 	if result == "fable" && !fableWindowOpen() {

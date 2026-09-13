@@ -57,6 +57,8 @@ complexity:
     complex:
       subagent_model: opus
       dispatch_tier: deep
+calibration:
+  mode: enforce
 `
 	routingPath := filepath.Join(dir, "routing.yaml")
 	if err := os.WriteFile(routingPath, []byte(routingYAML), 0644); err != nil {
@@ -145,6 +147,9 @@ roles:
 	if cfg.Complexity.Mode != "shadow" {
 		t.Errorf("complexity.mode = %q, want shadow", cfg.Complexity.Mode)
 	}
+	if cfg.Calibration.Mode != "enforce" {
+		t.Errorf("calibration.mode = %q, want enforce", cfg.Calibration.Mode)
+	}
 
 	// Roles/safety floors
 	floors := cfg.SafetyFloors()
@@ -209,6 +214,9 @@ subagents:
 	}
 	if cfg.Complexity.Mode != "off" {
 		t.Errorf("complexity.mode = %q, want off (default)", cfg.Complexity.Mode)
+	}
+	if cfg.Calibration.Mode != "off" {
+		t.Errorf("calibration.mode = %q, want off (default)", cfg.Calibration.Mode)
 	}
 }
 

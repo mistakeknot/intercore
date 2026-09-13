@@ -11,13 +11,20 @@ import (
 
 // Config is the unified routing configuration.
 type Config struct {
-	PolicySource string           `yaml:"-"`
-	PolicyHash   string           `yaml:"-"`
-	Reasoning    ReasoningPolicy  `yaml:"reasoning"`
-	Subagents    SubagentConfig   `yaml:"subagents"`
-	Dispatch     DispatchConfig   `yaml:"dispatch"`
-	Complexity   ComplexityConfig `yaml:"complexity"`
-	Roles        RolesConfig      `yaml:"-"` // loaded from separate file
+	PolicySource string            `yaml:"-"`
+	PolicyHash   string            `yaml:"-"`
+	Reasoning    ReasoningPolicy   `yaml:"reasoning"`
+	Subagents    SubagentConfig    `yaml:"subagents"`
+	Dispatch     DispatchConfig    `yaml:"dispatch"`
+	Complexity   ComplexityConfig  `yaml:"complexity"`
+	Calibration  CalibrationConfig `yaml:"calibration"`
+	Roles        RolesConfig       `yaml:"-"` // loaded from separate file
+}
+
+// CalibrationConfig controls consumption of diagnostic B3 agent calibration.
+type CalibrationConfig struct {
+	Mode      string `yaml:"mode"` // off, shadow, enforce
+	defaulted bool
 }
 
 // SubagentConfig holds Claude Code subagent routing rules.
@@ -136,6 +143,10 @@ func LoadConfig(routingPath, rolesPath string) (*Config, error) {
 	}
 	if cfg.Complexity.Mode == "" {
 		cfg.Complexity.Mode = "off"
+	}
+	if cfg.Calibration.Mode == "" {
+		cfg.Calibration.Mode = "off"
+		cfg.Calibration.defaulted = true
 	}
 
 	// Load agent-roles.yaml if path provided

@@ -44,13 +44,14 @@ type DecisionContext struct {
 }
 type ReasoningDecision struct {
 	ResolvedDispatch
-	PolicySource          string          `json:"policy_source"`
-	PolicyHash            string          `json:"policy_hash"`
-	PolicyProfile         string          `json:"policy_profile"`
-	ClassificationReasons []string        `json:"classification_reasons"`
-	ReviewRequirement     string          `json:"review_requirement"`
-	FrontierRequired      bool            `json:"frontier_required"`
-	Context               DecisionContext `json:"decision_context"`
+	Calibration           *CalibrationMetadata `json:"calibration,omitempty"`
+	PolicySource          string               `json:"policy_source"`
+	PolicyHash            string               `json:"policy_hash"`
+	PolicyProfile         string               `json:"policy_profile"`
+	ClassificationReasons []string             `json:"classification_reasons"`
+	ReviewRequirement     string               `json:"review_requirement"`
+	FrontierRequired      bool                 `json:"frontier_required"`
+	Context               DecisionContext      `json:"decision_context"`
 }
 
 // ResolvePolicyPath uses an explicitly selected installation before legacy CWD

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -10,6 +11,32 @@ import (
 
 	"github.com/mistakeknot/intercore/internal/routing"
 )
+
+func captureRouteStdout(t *testing.T, fn func() int) (int, []byte) {
+	t.Helper()
+	readEnd, writeEnd, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdout := os.Stdout
+	os.Stdout = writeEnd
+	code := fn()
+	_ = writeEnd.Close()
+	os.Stdout = oldStdout
+	out, err := io.ReadAll(readEnd)
+	_ = readEnd.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return code, out
+}
+
+func stringValue(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
+}
 
 func TestRouteDispatchRoleJSON(t *testing.T) {
 	dir := t.TempDir()
@@ -77,6 +104,9 @@ dispatch:
 	if code != 0 {
 		t.Fatalf("cmdRouteDispatch code = %d, want 0; output=%s", code, out)
 	}
+	if bytes.Contains(out, []byte(`"calibration"`)) {
+		t.Fatalf("omitted calibration changed role JSON: %s", out)
+	}
 
 	var got routing.ResolvedDispatch
 	if err := json.Unmarshal(out, &got); err != nil {
@@ -113,5 +143,133 @@ dispatch:
 	}
 	if got.Profile.Model != "gpt-5.6-sol" || got.ProducerModel != "claude-fable-5-1" || len(got.Excluded) != 1 {
 		t.Fatalf("CLI did not enforce canonical separation: %#v", got)
+	}
+}
+
+func TestRouteModelCalibrationJSONAndOmittedCompatibility(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "routing.yaml")
+	calibration := filepath.Join(dir, "calibration.json")
+	if err := os.WriteFile(policy, []byte("subagents:\n  defaults:\n    model: sonnet\ncalibration:\n  mode: enforce\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(calibration, []byte(`{"schema_version":2,"agents":{"worker":{"recommended_model":"haiku","confidence":0.9,"evidence_sessions":3,"propagation_eligible":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { flagJSON = false })
+	flagJSON = true
+
+	code, out := captureRouteStdout(t, func() int {
+		return cmdRouteModel(context.Background(), []string{"--policy=" + policy, "--agent=worker"})
+	})
+	if code != 0 || bytes.Contains(out, []byte(`"calibration"`)) {
+		t.Fatalf("omitted artifact changed JSON: code=%d out=%s", code, out)
+	}
+	var legacy map[string]string
+	if err := json.Unmarshal(out, &legacy); err != nil || legacy["model"] != "sonnet" {
+		t.Fatalf("legacy JSON = %s, %v", out, err)
+	}
+
+	code, out = captureRouteStdout(t, func() int {
+		return cmdRouteModel(context.Background(), []string{"--policy=" + policy, "--agent=worker", "--calibration=" + calibration})
+	})
+	if code != 0 {
+		t.Fatalf("calibrated route code=%d out=%s", code, out)
+	}
+	var got struct {
+		Model       string                      `json:"model"`
+		Calibration routing.CalibrationMetadata `json:"calibration"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "haiku" || got.Calibration.Disposition != "applied" || got.Calibration.SHA256 == nil || got.Calibration.SchemaVersion == nil {
+		t.Fatalf("calibrated JSON = %#v", got)
+	}
+}
+
+func TestRouteBatchCalibrationPreservesTextAndNestsJSONMetadata(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "routing.yaml")
+	calibration := filepath.Join(dir, "calibration.json")
+	if err := os.WriteFile(policy, []byte("subagents:\n  defaults:\n    model: sonnet\ncalibration:\n  mode: enforce\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(calibration, []byte(`{"schema_version":3,"skills":{"kept":true},"agents":{"one":{"recommended_model":"haiku","confidence":0.9,"evidence_sessions":3,"propagation_eligible":true},"two":{"recommended_model":"opus","confidence":0.9,"evidence_sessions":3,"propagation_eligible":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { flagJSON = false })
+
+	flagJSON = false
+	code, out := captureRouteStdout(t, func() int {
+		return cmdRouteBatch(context.Background(), []string{"--policy=" + policy, "--calibration=" + calibration, "one", "two"})
+	})
+	if code != 0 || string(out) != "one\thaiku\ntwo\topus\n" {
+		t.Fatalf("batch text changed: code=%d out=%q", code, out)
+	}
+
+	flagJSON = true
+	code, out = captureRouteStdout(t, func() int {
+		return cmdRouteBatch(context.Background(), []string{"--policy=" + policy, "one", "two"})
+	})
+	var legacy map[string]string
+	if err := json.Unmarshal(out, &legacy); err != nil || code != 0 || legacy["one"] != "sonnet" || bytes.Contains(out, []byte(`"models"`)) {
+		t.Fatalf("omitted calibration changed batch JSON: code=%d out=%s err=%v", code, out, err)
+	}
+
+	code, out = captureRouteStdout(t, func() int {
+		return cmdRouteBatch(context.Background(), []string{"--policy=" + policy, "--calibration=" + calibration, "one", "two"})
+	})
+	var got struct {
+		Models      map[string]string                      `json:"models"`
+		Calibration map[string]routing.CalibrationMetadata `json:"calibration"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 || got.Models["one"] != "haiku" || got.Calibration["two"].Disposition != "applied" {
+		t.Fatalf("batch JSON: code=%d got=%#v", code, got)
+	}
+}
+
+func TestRouteRoleCalibrationIsDiagnosticOnly(t *testing.T) {
+	dir := t.TempDir()
+	policy := filepath.Join(dir, "routing.yaml")
+	contextPath := filepath.Join(dir, "context.json")
+	calibration := filepath.Join(dir, "calibration.json")
+	config := `
+reasoning:
+  frontier_models: [gpt-6-astra]
+  frontier_reasons: [foundational-invariants]
+  dual_review_reasons: [foundational-invariants]
+dispatch:
+  roles: {frontier-planning: astra}
+  tiers:
+    astra: {role: frontier-planning, backend: codex, model: gpt-6-astra, reasoning_effort: xhigh, service_tier: standard}
+calibration: {mode: enforce}
+`
+	for path, body := range map[string]string{
+		policy:      config,
+		contextPath: `{"reasons":["foundational-invariants"],"rationale":"shared invariant"}`,
+		calibration: `{"schema_version":2,"agents":{"planning":{"recommended_model":"haiku","confidence":0.9,"evidence_sessions":3,"propagation_eligible":true}}}`,
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { flagJSON = false })
+	flagJSON = true
+	code, out := captureRouteStdout(t, func() int {
+		return cmdRouteDispatch(context.Background(), []string{"--policy=" + policy, "--role=planning", "--context-file=" + contextPath, "--calibration=" + calibration})
+	})
+	if code != 0 {
+		t.Fatalf("role code=%d out=%s", code, out)
+	}
+	var got routing.ReasoningDecision
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Profile.Model != "gpt-6-astra" || got.Calibration == nil || got.Calibration.Disposition != "static" || got.Calibration.SelectedArm != nil || stringValue(got.Calibration.FallbackReason) != "unsupported_artifact_kind_for_role" {
+		t.Fatalf("role calibration escaped diagnostics: %#v", got)
 	}
 }

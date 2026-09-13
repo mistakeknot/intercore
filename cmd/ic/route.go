@@ -25,10 +25,10 @@ func cmdRoute(ctx context.Context, args []string) int {
 Usage: ic route <subcommand> [args]
 
 Subcommands:
-  model   --phase=<p> --category=<c> --agent=<a>   Resolve a single model
-  batch   --phase=<p> <agent1> <agent2> ...         Resolve models for multiple agents
+  model   --phase=<p> --category=<c> --agent=<a> [--calibration=<path>]   Resolve a single model
+  batch   --phase=<p> [--calibration=<path>] <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
-  dispatch --role=<name> [--policy=<path>] [--context-file=<json>] [--policy-profile=<name>] [--producer-identity=<id>] --json  Resolve independent role profiles
+  dispatch --role=<name> [--policy=<path>] [--context-file=<json>] [--policy-profile=<name>] [--producer-identity=<id>] [--calibration=<path>] --json  Resolve independent role profiles
   identity --model=<id>                            Canonical model identity for review separation
   dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
   table   [--phase=<p>]                             Show full routing table
@@ -148,18 +148,27 @@ func cmdRouteModel(ctx context.Context, args []string) int {
 	}
 
 	r := routing.NewResolver(cfg)
-	model := r.ResolveModel(routing.ResolveOpts{
+	opts := routing.ResolveOpts{
 		Phase:    phase,
 		Category: category,
 		Agent:    agent,
-	})
+	}
+	var calibration *routing.CalibrationArtifact
+	if f.Has("calibration") {
+		calibration = routing.ReadCalibration(f.String("calibration", ""))
+	}
+	resolved := r.ResolveModelDetailed(opts, calibration)
+	model := resolved.Model
 
 	if flagJSON {
-		out := map[string]string{
+		out := map[string]any{
 			"model":    model,
 			"phase":    phase,
 			"category": category,
 			"agent":    agent,
+		}
+		if resolved.Calibration != nil {
+			out["calibration"] = resolved.Calibration
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -187,15 +196,23 @@ func cmdRouteBatch(ctx context.Context, args []string) int {
 	}
 
 	r := routing.NewResolver(cfg)
-	result := r.ResolveBatch(agents, phase)
+	var calibration *routing.CalibrationArtifact
+	if f.Has("calibration") {
+		calibration = routing.ReadCalibration(f.String("calibration", ""))
+	}
+	result := r.ResolveBatchDetailed(agents, phase, calibration)
 
 	if flagJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(result)
+		if calibration == nil {
+			enc.Encode(result.Models)
+		} else {
+			enc.Encode(result)
+		}
 	} else {
 		for _, agent := range agents {
-			fmt.Printf("%s\t%s\n", agent, result[agent])
+			fmt.Printf("%s\t%s\n", agent, result.Models[agent])
 		}
 	}
 	return 0
@@ -222,10 +239,15 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 3
 		}
-		resolved, err := routing.NewResolver(cfg).ResolveDecision(role, f.String("producer-identity", ""), f.String("policy-profile", ""), decisionContext)
+		resolver := routing.NewResolver(cfg)
+		resolved, err := resolver.ResolveDecision(role, f.String("producer-identity", ""), f.String("policy-profile", ""), decisionContext)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
+		}
+		if f.Has("calibration") {
+			artifact := routing.ReadCalibration(f.String("calibration", ""))
+			resolved.Calibration = resolver.DiagnoseRoleCalibration(artifact)
 		}
 		if flagJSON {
 			enc := json.NewEncoder(os.Stdout)

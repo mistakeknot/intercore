@@ -243,8 +243,8 @@ Commands:
   config set <key> <value>      Set a kernel config value
   config get <key>              Get a kernel config value
   config list [--verbose]       List kernel config values
-  route model --phase=<p> --category=<c> --agent=<a>  Resolve a single model
-  route batch --phase=<p> <agents...>  Resolve models for multiple agents
+  route model --phase=<p> --category=<c> --agent=<a> [--calibration=<path>]  Resolve a single model
+  route batch --phase=<p> [--calibration=<path>] <agents...>  Resolve models for multiple agents
   route dispatch --tier=<name>  Resolve dispatch tier to model
   route table [--phase=<p>]     Show full routing table
   route record --agent=<a> --model=<m> --rule=<r>  Record a routing decision
