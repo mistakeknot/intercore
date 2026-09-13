@@ -416,10 +416,39 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 			}
 			continue
 		}
-		// Best-effort publish of the sync commit, same posture as before.
-		GitAdd(clone, filepath.Join(".claude-plugin", "marketplace.json"))
-		GitCommit(clone, fmt.Sprintf("chore: sync %s to v%s", pluginName, version))
-		GitPush(clone)
+		// A clone that is not a git working copy has nothing to publish; writing
+		// the manifest above WAS the whole job. Absence of a repository is not a
+		// failed publish, so it is not reported as one.
+		if !isGitRepo(clone) {
+			continue
+		}
+
+		// The three calls below used to be bare, results discarded, described as
+		// "best-effort". Under a branch that requires a status check the push
+		// fails every time, and discarding that leaves the clone committed but
+		// unpushed -- ahead of origin, drifting further behind on every publish,
+		// with nothing said. That is the state ~/projects/interagency-marketplace
+		// was found in: 1 ahead, 147 behind (mk-1e9o).
+		//
+		// Still non-fatal to the publish that already landed on the primary
+		// marketplace: firstErr is returned, not thrown. But it is now said.
+		if err := GitAdd(clone, filepath.Join(".claude-plugin", "marketplace.json")); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("stage %s: %w", clone, err)
+			}
+			continue
+		}
+		if err := GitCommit(clone, fmt.Sprintf("chore: sync %s to v%s", pluginName, version)); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("commit %s: %w", clone, err)
+			}
+			continue
+		}
+		if err := GitPushGated(clone); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("push %s (commit is staged locally and will retry next publish): %w", clone, err)
+			}
+		}
 	}
 	return firstErr
 }

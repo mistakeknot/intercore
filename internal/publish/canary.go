@@ -336,7 +336,7 @@ func RollbackPlugin(from, pluginName string, out func(string, ...interface{})) e
 			out("  warning: marketplace commit: %v\n", err)
 		} else if err := GitPullRebase(marketRoot); err != nil {
 			out("  warning: marketplace pull: %v\n", err)
-		} else if err := GitPush(marketRoot); err != nil {
+		} else if err := GitPushGated(marketRoot); err != nil {
 			out("  warning: marketplace push: %v\n", err)
 		}
 	}
