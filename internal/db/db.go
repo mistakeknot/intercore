@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,7 +47,34 @@ func Open(path string, busyTimeout time.Duration) (*DB, error) {
 		busyTimeout = 5 * time.Second
 	}
 
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d", path, busyTimeout.Milliseconds())
+	// The path is percent-encoded into the URI rather than interpolated raw.
+	//
+	// A `file:` DSN is parsed as a URI, so an unescaped '#' in the path starts
+	// the URI FRAGMENT and everything after it -- the rest of the path, the
+	// filename, and every _pragma -- is discarded. SQLite then opens whatever
+	// the truncated prefix names, silently, and reports no error.
+	//
+	// That is not hypothetical. `go test` names the subtest of an empty string
+	// "#00" and puts that in t.TempDir(), so TestSpawn_ForwardsRequestedBackend
+	// asked for
+	//     $TMPDIR/TestSpawn_ForwardsRequestedBackend#004034479485/001/test.db
+	// and opened
+	//     $TMPDIR/TestSpawn_ForwardsRequestedBackend
+	// -- one shared file in the temp ROOT, reused by every run of that test on
+	// the machine. It accumulated 41 tables and reached user_version 40 under a
+	// binary that supported it, and from then on every run against a 39-binary
+	// failed with ErrSchemaVersionTooNew. The test was never touching its own
+	// database; it was reading a stale one it had poisoned days earlier.
+	//
+	// The same truncation applies to any real database path containing '#' or
+	// '?', where it would mean a user silently operating on the wrong database.
+	// EscapedPath, not url.URL.String(): String() inserts "//" after the
+	// scheme, which turns a RELATIVE path into a URI authority -- `ic init` in a
+	// project dir opens "intercore.db" and would become file://intercore.db,
+	// rejected as "invalid uri authority". This keeps the DSN shape and escapes
+	// only the path.
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d",
+		(&url.URL{Path: path}).EscapedPath(), busyTimeout.Milliseconds())
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
