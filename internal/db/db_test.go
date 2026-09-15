@@ -500,6 +500,45 @@ func TestSchemaVersionTooNew(t *testing.T) {
 	}
 }
 
+// Release N must open a database that release N+1 has already migrated, and
+// must not migrate it, so hosts can install the two releases in either order.
+func TestOpenAcceptsNextSchemaWithoutMigrating(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "test.db")
+	next := currentSchemaVersion + 1
+
+	d, err := Open(path, 100*time.Millisecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.db.Exec("PRAGMA user_version = " + strconv.Itoa(next)); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+
+	d, err = Open(path, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("Open at schema %d: %v", next, err)
+	}
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate at schema %d: %v", next, err)
+	}
+	if v, err := d.SchemaVersion(); err != nil || v != next {
+		t.Fatalf("schema version after Migrate = %d (%v), want %d left untouched", v, err, next)
+	}
+	if _, err := d.db.Exec("PRAGMA user_version = " + strconv.Itoa(next+1)); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+
+	if _, err := Open(path, 100*time.Millisecond); err != ErrSchemaVersionTooNew {
+		t.Fatalf("Open at schema %d: err = %v, want ErrSchemaVersionTooNew", next+1, err)
+	}
+}
+
 func TestMigrate_V5ToV6(t *testing.T) {
 	d, _ := tempDB(t)
 	ctx := context.Background()
