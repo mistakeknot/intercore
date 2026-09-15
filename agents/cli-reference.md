@@ -43,7 +43,7 @@ ic dispatch spawn [flags]                  Spawn an agent dispatch (prints ID)
 ic dispatch status <id>                    Show dispatch details
 ic dispatch list [--active] [--scope=<s>]  List dispatches
 ic dispatch poll <id>                      Check liveness, update stats
-ic dispatch wait <id> [--timeout=<dur>]    Block until terminal or timeout
+ic dispatch wait <id> [--timeout=<dur>]    Poll until terminal; at --timeout, kill the worker
 ic dispatch kill <id>                      SIGTERM then SIGKILL a dispatch
 ic dispatch reconcile <id>                 Append later Flere terminal proof; preserve the original attempt
 ic dispatch tokens <id> --set --in=N --out=N [--cache=N]   Update token counts
@@ -349,6 +349,7 @@ mode retain the existing rollback behavior.
 ## Global Flags
 
 - `--db=<path>` -- Database path (default: `.clavain/intercore.db`, auto-discovered)
-- `--timeout=<dur>` -- SQLite busy timeout (default: 100ms)
+- `--busy-timeout=<dur>` -- SQLite busy timeout (default: 5s)
+- `--timeout=<dur>` -- Deadline for `dispatch spawn`, `dispatch wait` and `lock acquire`, wherever it appears on the command line; for every other command it is still accepted as the busy timeout, and `--busy-timeout` wins if both are given
 - `--verbose` -- Verbose output
 - `--json` -- JSON output (must appear before subcommand)

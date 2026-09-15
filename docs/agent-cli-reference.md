@@ -127,7 +127,8 @@ Registered contract types cover: coordination, dispatch, phase/run, runtrack, sc
 ## Global Flags
 
 - `--db=<path>` -- Database path (default: `.clavain/intercore.db`, auto-discovered)
-- `--timeout=<dur>` -- SQLite busy timeout (default: 5s)
+- `--busy-timeout=<dur>` -- SQLite busy timeout (default: 5s)
+- `--timeout=<dur>` -- Deadline for `dispatch spawn`, `dispatch wait` and `lock acquire`, wherever it appears on the command line; for every other command it is still accepted as the busy timeout, and `--busy-timeout` wins if both are given
 - `--verbose` -- Verbose output (slog info level)
 - `--vv` -- Debug-level verbose output
 - `--json` -- JSON output (must appear before subcommand)
