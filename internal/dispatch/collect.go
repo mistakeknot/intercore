@@ -118,7 +118,16 @@ func Collect(ctx context.Context, store *Store, id string) error {
 		status = StatusFailed
 	}
 
-	return collectedIfTerminal(ctx, store, id, store.UpdateStatus(ctx, id, status, fields))
+	// An unsupervised dispatch has no report to verify (contract I3). The exit
+	// code here is inferred from the verdict, so the record leaves it unset.
+	_, err = store.Terminalize(ctx, id, Terminal{
+		Status:   status,
+		Source:   TerminalSourceCollect,
+		Evidence: EvidenceNotApplicable,
+		Reason:   "collected after the worker exited",
+		Fields:   fields,
+	})
+	return collectedIfTerminal(ctx, store, id, err)
 }
 
 // collectedIfTerminal treats losing a concurrent collection as collected: when
@@ -203,6 +212,13 @@ func Kill(ctx context.Context, store *Store, id string) error {
 }
 
 func interruptDispatch(ctx context.Context, store *Store, d *Dispatch, status, reason string) error {
+	// Signalling a supervised worker behind its supervisor's back would leave the
+	// supervisor recording an outcome nobody asked it for.
+	if supervised, err := isSupervised(ctx, store.db, d.ID); err != nil {
+		return err
+	} else if supervised {
+		return ErrSupervised
+	}
 	if d.PID != nil {
 		if !isProcessAlive(*d.PID) {
 			return Collect(ctx, store, d.ID)
@@ -221,22 +237,37 @@ func interruptDispatch(ctx context.Context, store *Store, d *Dispatch, status, r
 		if err != nil {
 			// Missing legacy proof, failed inspection, or lost membership is not permission
 			// to signal a live process. Preserve the unknown outcome and no-retry gate.
-			if updateErr := store.UpdateStatus(ctx, d.ID, StatusFailed, UpdateFields{
-				"completed_at":      time.Now().Unix(),
-				"error_message":     "process ownership unverified: " + err.Error(),
-				"quarantine_reason": WorkerOutcomeIndeterminate,
-			}); updateErr != nil {
-				return updateErr
+			if _, writeErr := store.Terminalize(ctx, d.ID, Terminal{
+				Status:       StatusFailed,
+				Source:       TerminalSourceKill,
+				Evidence:     EvidenceNotApplicable,
+				Reason:       reason,
+				FailureClass: WorkerOutcomeIndeterminate,
+				Fields: UpdateFields{
+					"completed_at":      time.Now().Unix(),
+					"error_message":     "process ownership unverified: " + err.Error(),
+					"quarantine_reason": WorkerOutcomeIndeterminate,
+				},
+			}); writeErr != nil {
+				return writeErr
 			}
 			return &SpawnRejection{Reason: "process_identity_unverified"}
 		}
 	}
-	fields := UpdateFields{"completed_at": time.Now().Unix(), "error_message": reason}
-	if d.AgentType == "flere" {
-		status = StatusFailed
-		fields["quarantine_reason"] = WorkerOutcomeIndeterminate
+	outcome := Terminal{
+		Status:   status,
+		Source:   TerminalSourceKill,
+		Evidence: EvidenceNotApplicable,
+		Reason:   reason,
+		Fields:   UpdateFields{"completed_at": time.Now().Unix(), "error_message": reason},
 	}
-	return store.UpdateStatus(ctx, d.ID, status, fields)
+	if d.AgentType == "flere" {
+		outcome.Status = StatusFailed
+		outcome.FailureClass = WorkerOutcomeIndeterminate
+		outcome.Fields["quarantine_reason"] = WorkerOutcomeIndeterminate
+	}
+	_, err := store.Terminalize(ctx, d.ID, outcome)
+	return err
 }
 
 // --- internal helpers ---

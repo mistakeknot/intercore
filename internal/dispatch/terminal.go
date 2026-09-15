@@ -48,10 +48,34 @@ const (
 	UsageUnknown    = "unknown"
 )
 
+// ErrSupervised reports that a dispatch has a supervisor, the only writer of its
+// outcome while it lives (contract I7). Collect, spawn, kill and run-rollback
+// writers refuse it; the supervisor, reconciliation after the supervisor is
+// proven dead, and spool import record it.
+var ErrSupervised = errors.New("dispatch is supervised: only its supervisor records the outcome")
+
 var (
 	errTerminalRecordExists = errors.New("terminal record already exists")
 	errTerminalCASMissed    = errors.New("dispatch became terminal during the write")
 )
+
+func supervisedWriter(source string) bool {
+	switch source {
+	case TerminalSourceSupervisor, TerminalSourceReconcile, TerminalSourceSpool:
+		return true
+	}
+	return false
+}
+
+// isSupervised reports whether dispatch id has a supervision record.
+func isSupervised(ctx context.Context, q querier, id string) (bool, error) {
+	var supervised bool
+	err := q.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM dispatch_supervision WHERE dispatch_id = ?)", id).Scan(&supervised)
+	if err != nil {
+		return false, fmt.Errorf("read supervision: %w", err)
+	}
+	return supervised, nil
+}
 
 // querier is what the terminal writer needs from *sql.Conn, *sql.Tx or *sql.DB.
 type querier interface {
@@ -216,6 +240,15 @@ func terminalizeTx(ctx context.Context, q querier, id string, t Terminal, trace 
 			return nil, prev, err
 		}
 		return existing, prev, ErrAlreadyTerminal
+	}
+	if !supervisedWriter(t.Source) {
+		supervised, err := isSupervised(ctx, q, id)
+		if err != nil {
+			return nil, prev, fmt.Errorf("terminalize: %w", err)
+		}
+		if supervised {
+			return nil, prev, ErrSupervised
+		}
 	}
 	runID := scopeID.String
 	if v, ok := t.Fields["sandbox_effective"].(string); ok {

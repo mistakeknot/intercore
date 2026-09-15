@@ -242,6 +242,8 @@ var allowedUpdateCols = map[string]bool{
 // When an event recorder is set, it fires AFTER the transition commits —
 // post-commit, fire-and-forget. A crash between commit and recorder loses
 // the event; the dispatches row remains the source of truth.
+// Record outcomes with Terminalize: a terminal status written here bypasses the
+// terminal writer, so the outbox trigger records it with unrecorded evidence.
 func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields UpdateFields) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
@@ -523,65 +525,82 @@ func (s *Store) CountUncleanVerdicts(ctx context.Context, scopeID string) (int, 
 // CancelByRun marks all non-terminal dispatches as cancelled for a run.
 // Dispatches are scoped to runs via scope_id = run_id.
 // Returns the number of dispatches cancelled.
+// Every cancellation commits with its terminal record in one immediate
+// transaction, so a failure on any row cancels none. A supervised dispatch is
+// not cancelled here: its supervisor is the only writer of its outcome, so it
+// gets a run_rollback intent instead.
 // When an event recorder is set, one dispatch_transition event fires per
 // cancelled dispatch — post-commit, fire-and-forget (same semantics as
 // UpdateStatus). Cancellation is the most irreversible dispatch transition;
 // it must not be the only unreachable one.
 func (s *Store) CancelByRun(ctx context.Context, runID string) (int64, error) {
 	now := time.Now().Unix()
+	trace := traceFromEnv()
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("cancel dispatches for rollback: begin: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Capture candidates inside the transaction so each cancellation can be
-	// witnessed by an event with its true previous status.
 	type transition struct{ id, prev string }
-	var transitions []transition
-	rows, err := tx.QueryContext(ctx, `
-		SELECT id, status FROM dispatches
-		WHERE scope_id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'timeout')`,
-		runID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("cancel dispatches for rollback: read: %w", err)
-	}
-	for rows.Next() {
-		var tr transition
-		if err := rows.Scan(&tr.id, &tr.prev); err != nil {
-			rows.Close()
-			return 0, fmt.Errorf("cancel dispatches for rollback: scan: %w", err)
+	var cancelled []transition
+	err := withImmediateTx(ctx, s.db, "cancel dispatches for rollback", func(conn *sql.Conn) error {
+		type candidate struct {
+			id, prev   string
+			supervised bool
 		}
-		transitions = append(transitions, tr)
-	}
-	rows.Close()
+		var candidates []candidate
+		rows, err := conn.QueryContext(ctx, `
+			SELECT id, status, EXISTS (SELECT 1 FROM dispatch_supervision WHERE dispatch_id = dispatches.id)
+			FROM dispatches
+			WHERE scope_id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'timeout')`,
+			runID,
+		)
+		if err != nil {
+			return fmt.Errorf("cancel dispatches for rollback: read: %w", err)
+		}
+		for rows.Next() {
+			var c candidate
+			if err := rows.Scan(&c.id, &c.prev, &c.supervised); err != nil {
+				rows.Close()
+				return fmt.Errorf("cancel dispatches for rollback: scan: %w", err)
+			}
+			candidates = append(candidates, c)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("cancel dispatches for rollback: read: %w", err)
+		}
 
-	result, err := tx.ExecContext(ctx, `
-		UPDATE dispatches SET status = ?, completed_at = ?
-		WHERE scope_id = ? AND status NOT IN ('completed', 'failed', 'cancelled', 'timeout')`,
-		StatusCancelled, now, runID,
-	)
+		for _, c := range candidates {
+			if c.supervised {
+				if _, err := conn.ExecContext(ctx, `
+					INSERT INTO dispatch_intents (dispatch_id, kind, reason, requested_by, created_at)
+					VALUES (?, 'run_rollback', ?, 'cancel_by_run', ?)`,
+					c.id, "run "+runID+" rolled back", now); err != nil {
+					return fmt.Errorf("cancel dispatches for rollback: intent for %s: %w", c.id, err)
+				}
+				continue
+			}
+			if _, _, err := terminalizeTx(ctx, conn, c.id, Terminal{
+				Status:   StatusCancelled,
+				Source:   TerminalSourceCancelByRun,
+				Evidence: EvidenceNotApplicable,
+				Reason:   "run " + runID + " rolled back",
+				Fields:   UpdateFields{"completed_at": now},
+			}, trace); err != nil {
+				return fmt.Errorf("cancel dispatches for rollback: %s: %w", c.id, err)
+			}
+			cancelled = append(cancelled, transition{c.id, c.prev})
+		}
+		return nil
+	})
 	if err != nil {
-		return 0, fmt.Errorf("cancel dispatches for rollback: %w", err)
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("cancel dispatches for rollback: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("cancel dispatches for rollback: commit: %w", err)
+		return 0, err
 	}
 
 	// Fire recorder after commit (fire-and-forget) — never blocks the cancel.
 	if s.eventRecorder != nil {
-		for _, tr := range transitions {
+		for _, tr := range cancelled {
 			s.eventRecorder(tr.id, runID, tr.prev, StatusCancelled)
 		}
 	}
-	return n, nil
+	return int64(len(cancelled)), nil
 }
 
 // --- helpers ---
