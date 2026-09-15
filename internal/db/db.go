@@ -46,7 +46,10 @@ func Open(path string, busyTimeout time.Duration) (*DB, error) {
 		busyTimeout = 5 * time.Second
 	}
 
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d", path, busyTimeout.Milliseconds())
+	// foreign_keys is per connection. In the DSN it also reaches a connection the
+	// pool opens after discarding a bad one; the explicit PRAGMAs below only reach
+	// the first.
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d&_pragma=foreign_keys%%3D1", path, busyTimeout.Milliseconds())
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
