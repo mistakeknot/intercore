@@ -86,7 +86,10 @@ func TestReviewV2ConfigSetterConstrainsSpawn(t *testing.T) {
 func isolateRoutingPolicyDiscovery(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{"CLAVAIN_ROUTING_POLICY", "CLAVAIN_ROOT", "CLAUDE_PLUGIN_ROOT"} {
+		// t.Setenv records the original value for cleanup; Unsetenv then makes the
+		// variable absent, not empty, for any source that reads it with LookupEnv.
 		t.Setenv(key, "")
+		_ = os.Unsetenv(key)
 	}
 	t.Setenv("HOME", t.TempDir())
 }
