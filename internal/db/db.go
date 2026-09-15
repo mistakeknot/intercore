@@ -21,7 +21,7 @@ var schemaDDL string
 
 const (
 	currentSchemaVersion = 39
-	maxSchemaVersion     = 39
+	maxSchemaVersion     = 40
 )
 
 var (

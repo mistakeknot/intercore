@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math/big"
@@ -242,16 +243,33 @@ var allowedUpdateCols = map[string]bool{
 // post-commit, fire-and-forget. A crash between commit and recorder loses
 // the event; the dispatches row remains the source of truth.
 func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields UpdateFields) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
+		return fmt.Errorf("dispatch update: acquire connection: %w", err)
+	}
+	defer conn.Close()
+	// Take the write lock before reading the previous status. A deferred
+	// transaction that reads and then writes fails with SQLITE_BUSY, without
+	// consulting the busy timeout, when another connection commits in between.
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 		return fmt.Errorf("dispatch update: begin: %w", err)
 	}
-	defer tx.Rollback()
+	committed := false
+	defer func() {
+		if !committed {
+			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if _, err := conn.ExecContext(cleanup, "ROLLBACK"); err != nil {
+				_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			}
+		}
+	}()
 
 	// Capture previous status before the UPDATE
 	var prevStatus string
 	var scopeID sql.NullString
-	err = tx.QueryRowContext(ctx,
+	err = conn.QueryRowContext(ctx,
 		"SELECT status, scope_id FROM dispatches WHERE id = ?", id).Scan(&prevStatus, &scopeID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -279,7 +297,7 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 	args = append(args, id, prevStatus)
 
 	query := "UPDATE dispatches SET " + joinStrings(sets, ", ") + " WHERE id = ? AND status = ?"
-	result, err := tx.ExecContext(ctx, query, args...)
+	result, err := conn.ExecContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("dispatch update: %w", err)
 	}
@@ -290,7 +308,7 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 	if n == 0 {
 		// Distinguish not-found from concurrent status change
 		var currentStatus string
-		rerr := tx.QueryRowContext(ctx,
+		rerr := conn.QueryRowContext(ctx,
 			"SELECT status FROM dispatches WHERE id = ?", id).Scan(&currentStatus)
 		if rerr != nil {
 			return ErrNotFound
@@ -298,9 +316,13 @@ func (s *Store) UpdateStatus(ctx context.Context, id, status string, fields Upda
 		return ErrStaleStatus
 	}
 
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("dispatch update: commit: %w", err)
 	}
+	committed = true
+	// The store runs on a single pooled connection and the recorder writes
+	// through the same pool, so release this one before the recorder runs.
+	conn.Close()
 
 	// Fire event recorder outside transaction (fire-and-forget)
 	if s.eventRecorder != nil && status != prevStatus {
