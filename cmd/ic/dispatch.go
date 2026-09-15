@@ -78,7 +78,7 @@ func cmdDispatch(ctx context.Context, args []string) int {
 			return 2
 		}
 		defer d.Close()
-		receipt, err := dispatch.New(d.SqlDB(), nil).ReconcileWorker(ctx, args[1])
+		receipt, err := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB())).ReconcileWorker(ctx, args[1])
 		if err != nil {
 			slog.Error("dispatch reconcile", "error", err)
 			return 1
