@@ -84,7 +84,7 @@ func Collect(ctx context.Context, store *Store, id string) error {
 		return nil // already collected
 	}
 	if d.AgentType == "flere" {
-		return collectWorker(ctx, store, d)
+		return collectedIfTerminal(ctx, store, id, collectWorker(ctx, store, d))
 	}
 
 	fields := UpdateFields{
@@ -118,7 +118,21 @@ func Collect(ctx context.Context, store *Store, id string) error {
 		status = StatusFailed
 	}
 
-	return store.UpdateStatus(ctx, id, status, fields)
+	return collectedIfTerminal(ctx, store, id, store.UpdateStatus(ctx, id, status, fields))
+}
+
+// collectedIfTerminal treats losing a concurrent collection as collected: when
+// the update was rejected because another collector already terminalized the
+// dispatch, that recorded outcome stands and there is nothing left to collect.
+func collectedIfTerminal(ctx context.Context, store *Store, id string, err error) error {
+	if !errors.Is(err, ErrStaleStatus) {
+		return err
+	}
+	latest, getErr := store.Get(ctx, id)
+	if getErr != nil || !latest.IsTerminal() {
+		return err
+	}
+	return nil
 }
 
 // Wait polls until the dispatch reaches a terminal state or timeout.
