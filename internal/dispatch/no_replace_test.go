@@ -9,16 +9,22 @@ import (
 	"testing"
 )
 
-// A REPLACE deletes and reinserts the row. That overrides the conflict clauses
-// inside the terminal triggers and skips the update-only guards (contract §4,
-// probe T4), so every write to these tables must be a plain UPDATE or INSERT.
-var replaceWrite = regexp.MustCompile(`(?i)\bOR\s+REPLACE\s+(INTO\s+)?dispatch(es|_terminals)\b|\bREPLACE\s+INTO\s+dispatch(es|_terminals)\b`)
+// A REPLACE deletes and reinserts the row. On dispatches and dispatch_terminals
+// that overrides the conflict clauses inside the terminal triggers and skips the
+// update-only guards (contract §4, probe T4); on the supervision, intent,
+// consumption and delivery tables it silently overwrites a recorded claim or
+// audit row. Every write to these tables must be a plain UPDATE or INSERT.
+const dispatchTables = `dispatch(es|_terminals|_supervision|_intents|_consumptions|_terminal_deliveries)\b`
+
+var replaceWrite = regexp.MustCompile(`(?i)\bOR\s+REPLACE\s+(INTO\s+)?` + dispatchTables + `|\bREPLACE\s+INTO\s+` + dispatchTables)
 
 func TestNoReplaceOnDispatches(t *testing.T) {
 	for _, stmt := range []string{
 		"REPLACE INTO dispatches (id) VALUES (?)",
 		"INSERT OR REPLACE INTO dispatch_terminals VALUES (?)",
 		"update or replace dispatches set status = ?",
+		"INSERT OR REPLACE INTO dispatch_consumptions (consumer) VALUES (?)",
+		"REPLACE INTO dispatch_terminal_deliveries (consumer) VALUES (?)",
 	} {
 		if !replaceWrite.MatchString(stmt) {
 			t.Fatalf("pattern misses %q", stmt)
