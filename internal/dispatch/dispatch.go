@@ -444,6 +444,13 @@ func (s *Store) Prune(ctx context.Context, olderThan time.Duration) (int64, erro
 	if _, err := tx.ExecContext(ctx, `DELETE FROM state WHERE key='dispatch.process' AND NOT EXISTS (SELECT 1 FROM dispatches WHERE dispatches.id=state.scope_id)`); err != nil {
 		return 0, fmt.Errorf("dispatch prune identities: %w", err)
 	}
+	// Terminal records go only after their dispatch row (the delete guard on
+	// dispatch_terminals), so these run after the dispatch delete above.
+	for _, table := range []string{"dispatch_terminals", "dispatch_supervision", "dispatch_intents", "dispatch_consumptions", "dispatch_terminal_deliveries"} {
+		if _, err := tx.ExecContext(ctx, "DELETE FROM "+table+" WHERE NOT EXISTS (SELECT 1 FROM dispatches WHERE dispatches.id = "+table+".dispatch_id)"); err != nil {
+			return 0, fmt.Errorf("dispatch prune %s: %w", table, err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, fmt.Errorf("dispatch prune commit: %w", err)
 	}

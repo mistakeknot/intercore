@@ -500,12 +500,13 @@ func TestSchemaVersionTooNew(t *testing.T) {
 	}
 }
 
-// Release N must open a database that release N+1 has already migrated, and
-// must not migrate it, so hosts can install the two releases in either order.
-func TestOpenAcceptsNextSchemaWithoutMigrating(t *testing.T) {
+// A release opens a database already migrated to maxSchemaVersion and leaves it
+// unmigrated, so hosts can install the two releases of a schema ship in either
+// order; anything newer is refused.
+func TestOpenAcceptsMaxSchemaWithoutMigrating(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "test.db")
-	next := currentSchemaVersion + 1
+	next := maxSchemaVersion
 
 	d, err := Open(path, 100*time.Millisecond)
 	if err != nil {

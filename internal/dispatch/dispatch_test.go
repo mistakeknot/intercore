@@ -123,8 +123,8 @@ func TestUpdateStatus(t *testing.T) {
 
 	// Transition running → completed with results
 	err = store.UpdateStatus(ctx, id, StatusCompleted, UpdateFields{
-		"exit_code":      0,
-		"completed_at":   time.Now().Unix(),
+		"exit_code":       0,
+		"completed_at":    time.Now().Unix(),
 		"verdict_status":  "pass",
 		"verdict_summary": "All checks passed",
 		"turns":           5,
@@ -321,6 +321,45 @@ func TestPruneSkipsActive(t *testing.T) {
 	count, _ := store.Prune(ctx, 1*time.Hour)
 	if count != 0 {
 		t.Errorf("Prune should not delete active dispatches, deleted %d", count)
+	}
+}
+
+// Prune takes a dispatch's terminal record and supervision, intent, consumption
+// and delivery rows with it, removing the dispatch row first as the terminal
+// record delete guard requires.
+func TestPruneRemovesTerminalRecordsWithDispatch(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	id, _ := store.Create(ctx, &Dispatch{AgentType: "codex", ProjectDir: "/tmp/a"})
+	if err := store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{"exit_code": 1}); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"INSERT INTO dispatch_supervision (dispatch_id, db_path, prompt_sha256, created_at) VALUES (?, '/tmp/a/intercore.db', 'abc', 1)",
+		"INSERT INTO dispatch_intents (dispatch_id, kind, created_at) VALUES (?, 'cancel', 1)",
+		"INSERT INTO dispatch_consumptions (consumer, dispatch_id, created_at) VALUES ('c', ?, 1)",
+		"INSERT INTO dispatch_terminal_deliveries (consumer, dispatch_id, outcome, created_at) VALUES ('c', ?, 'delivered', 1)",
+	} {
+		if _, err := store.db.ExecContext(ctx, stmt, id); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE dispatches SET created_at = ? WHERE id = ?", time.Now().Unix()-7200, id); err != nil {
+		t.Fatal(err)
+	}
+
+	if count, err := store.Prune(ctx, time.Hour); err != nil || count != 1 {
+		t.Fatalf("Prune = %d, %v; want 1, nil", count, err)
+	}
+	for _, table := range []string{"dispatch_terminals", "dispatch_supervision", "dispatch_intents", "dispatch_consumptions", "dispatch_terminal_deliveries"} {
+		var n int
+		if err := store.db.QueryRowContext(ctx, "SELECT count(*) FROM "+table+" WHERE dispatch_id = ?", id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Errorf("%s rows for pruned dispatch = %d, want 0", table, n)
+		}
 	}
 }
 

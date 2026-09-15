@@ -96,6 +96,7 @@ Events are emitted as JSON objects, one per line:
 
 **Dispatch events** (`source: "dispatch"`):
 - `status_change` — Dispatch status changed (e.g., `spawned` → `running` → `completed`)
+- `terminal` — Dispatch reached `completed`, `failed`, `timeout` or `cancelled` (schema 40). Written once per dispatch, in the same transaction as its terminal record in `dispatch_terminals`, so a reactor that wants a single completion signal should key on this type.
 
 **Budget events** (`source: "phase"`, `type` varies):
 - `budget.warning` — Token usage crossed warning threshold
