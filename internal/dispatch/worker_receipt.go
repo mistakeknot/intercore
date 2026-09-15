@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -188,28 +189,56 @@ func readWorkerReceipt(d *Dispatch) (*WorkerReceipt, error) {
 func collectWorker(ctx context.Context, store *Store, d *Dispatch) error {
 	fields := UpdateFields{"completed_at": time.Now().Unix(), "exit_code": -1}
 	receipt, err := readWorkerReceipt(d)
-	status := StatusFailed
+	// readWorkerReceipt binds the receipt to this attempt, so a receipt it
+	// accepts is verified evidence whatever outcome it reports.
+	outcome := Terminal{
+		Status:   StatusFailed,
+		Source:   TerminalSourceCollect,
+		Evidence: EvidenceVerified,
+		Reason:   "collected worker receipt",
+		Fields:   fields,
+	}
+	if err == nil {
+		outcome.ProducerBackend = d.AgentType
+		outcome.ProducerModel = receipt.Provider + "/" + receipt.Model
+	}
 	if err == nil && receipt.Usage != nil {
 		fields["input_tokens"] = receipt.Usage.Input + receipt.Usage.CacheRead + receipt.Usage.CacheWrite
 		fields["output_tokens"] = receipt.Usage.Output
 		fields["cache_hits"] = receipt.Usage.CacheRead
+		outcome.UsageStatus = UsageComplete
+		outcome.InputTokens = int64Ptr(int64(receipt.Usage.Input))
+		outcome.OutputTokens = int64Ptr(int64(receipt.Usage.Output))
+		outcome.CacheReadTokens = int64Ptr(int64(receipt.Usage.CacheRead))
+		outcome.CacheWriteTokens = int64Ptr(int64(receipt.Usage.CacheWrite))
 	}
 	if err != nil {
 		fields["error_message"] = err.Error()
 		fields["quarantine_reason"] = WorkerOutcomeIndeterminate
+		outcome.FailureClass = WorkerOutcomeIndeterminate
+		outcome.Evidence = EvidenceMalformed
+		if d.OutputFile == nil || errors.Is(err, fs.ErrNotExist) {
+			outcome.Evidence = EvidenceMissing
+		}
 	} else if receipt.Outcome != "success" {
 		fields["error_message"] = receipt.ErrorMessage
 		fields["quarantine_reason"] = receipt.FailureClass
+		outcome.FailureClass = receipt.FailureClass
 	} else {
-		status = StatusCompleted
+		outcome.Status = StatusCompleted
 		fields["exit_code"] = 0
 		fields["input_tokens"] = receipt.Usage.Input + receipt.Usage.CacheRead + receipt.Usage.CacheWrite
 		fields["output_tokens"] = receipt.Usage.Output
 		fields["cache_hits"] = receipt.Usage.CacheRead
 		fields["sandbox_effective"] = string(receipt.SandboxEffective)
+		exit := 0
+		outcome.ExitCode = &exit
 	}
-	return store.UpdateStatus(ctx, d.ID, status, fields)
+	_, err = store.Terminalize(ctx, d.ID, outcome)
+	return err
 }
+
+func int64Ptr(v int64) *int64 { return &v }
 
 // ReconcileWorker appends later proof without rewriting a terminal attempt or
 // reopening it for automatic replay. Consumers can inspect the reconciliation.

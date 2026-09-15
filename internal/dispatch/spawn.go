@@ -135,15 +135,13 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	// Build and start the command
 	if opts.Decision != nil {
 		if err := recordReasoningDecision(ctx, store, id, opts.ProjectDir, opts.Decision); err != nil {
-			_ = store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{"error_message": err.Error()})
+			_, _ = store.Terminalize(ctx, id, spawnFailed(err.Error()))
 			return nil, err
 		}
 	}
 	cmd, err := buildCmd(opts, outputFile)
 	if err != nil {
-		store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{
-			"error_message": fmt.Sprintf("build command: %v", err),
-		})
+		_, _ = store.Terminalize(ctx, id, spawnFailed(fmt.Sprintf("build command: %v", err)))
 		return nil, fmt.Errorf("spawn: %w", err)
 	}
 
@@ -156,9 +154,7 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	cmd.Env = append(os.Environ(), "IC_RUN_ID="+runID, "IC_DISPATCH_ID="+id,
 		"CLAVAIN_DISPATCH_ID="+id, "IC_DISPATCH_ATTEMPT="+fmt.Sprint(d.RetryCount), "IC_PROMPT_HASH="+promptHash)
 	if err := cmd.Start(); err != nil {
-		store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{
-			"error_message": fmt.Sprintf("start: %v", err),
-		})
+		_, _ = store.Terminalize(ctx, id, spawnFailed(fmt.Sprintf("start: %v", err)))
 		return nil, fmt.Errorf("spawn: start process: %w", err)
 	}
 
@@ -169,13 +165,26 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 		// PID cannot have been recycled. Never leave an ungovernable live attempt.
 		killProcess(pid)
 		_ = cmd.Wait()
-		_ = store.UpdateStatus(context.Background(), id, StatusFailed, UpdateFields{
-			"error_message":     "record process identity: " + err.Error(),
-			"quarantine_reason": WorkerOutcomeIndeterminate,
-		})
+		outcome := spawnFailed("record process identity: " + err.Error())
+		outcome.FailureClass = WorkerOutcomeIndeterminate
+		outcome.Fields["quarantine_reason"] = WorkerOutcomeIndeterminate
+		_, _ = store.Terminalize(context.Background(), id, outcome)
 		return nil, fmt.Errorf("spawn: process identity: %w", err)
 	}
 	return &SpawnResult{ID: id, Cmd: cmd, PID: pid, process: identity}, nil
+}
+
+// spawnFailed is the outcome of an admitted attempt that failed before its
+// worker could run.
+func spawnFailed(message string) Terminal {
+	return Terminal{
+		Status:       StatusFailed,
+		Source:       TerminalSourceSpawn,
+		Evidence:     EvidenceNotApplicable,
+		Reason:       message,
+		FailureClass: "spawn_failed",
+		Fields:       UpdateFields{"error_message": message},
+	}
 }
 
 func validateReasoningDecision(d *routing.ReasoningDecision) error {
