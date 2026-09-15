@@ -79,7 +79,52 @@ func TestReviewV2ConfigSetterConstrainsSpawn(t *testing.T) {
 	}
 }
 
+// isolateRoutingPolicyDiscovery removes every source routing.ResolvePolicyPath
+// consults other than an explicit --policy, so a test cannot pass on a machine
+// that happens to have a Clavain installation. setupCommandMetadataDB already
+// moves into a temp directory, which rules out the working-directory walk.
+func isolateRoutingPolicyDiscovery(t *testing.T) {
+	t.Helper()
+	for _, key := range []string{"CLAVAIN_ROUTING_POLICY", "CLAVAIN_ROOT", "CLAUDE_PLUGIN_ROOT"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("HOME", t.TempDir())
+}
+
+// Escalation resolves a routing policy before it creates any retry, so with no
+// policy available the command must stop without mutating dispatch state.
+func TestReviewV2EscalationWithoutRoutingPolicyFailsClosed(t *testing.T) {
+	isolateRoutingPolicyDiscovery(t)
+	setupCommandMetadataDB(t)
+	db, err := openDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SqlDB().Exec(`INSERT INTO dispatches(id,project_dir,agent_type,status) VALUES ('attempt','.','codex','failed')`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+
+	if code := cmdDispatch(context.Background(), []string{"retry", "attempt", "--escalate"}); code != 2 {
+		t.Fatalf("exit=%d, want 2 when no routing policy is available", code)
+	}
+
+	db, err = openDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var dispatches int
+	if err := db.SqlDB().QueryRow(`SELECT count(*) FROM dispatches`).Scan(&dispatches); err != nil {
+		t.Fatal(err)
+	}
+	if dispatches != 1 {
+		t.Fatalf("dispatches=%d, want 1: no retry may be created without a routing policy", dispatches)
+	}
+}
+
 func TestReviewV2MutationRejectionsAreStructured(t *testing.T) {
+	isolateRoutingPolicyDiscovery(t)
 	for _, tc := range []struct {
 		name, setup, reason string
 		args                []string
@@ -103,8 +148,18 @@ func TestReviewV2MutationRejectionsAreStructured(t *testing.T) {
 				t.Fatal(err)
 			}
 			db.Close()
+			args := tc.args
+			for _, arg := range tc.args {
+				if arg == "--escalate" {
+					policy := filepath.Join(t.TempDir(), "routing.yaml")
+					if err := os.WriteFile(policy, []byte("subagents:\n  defaults:\n    model: sonnet\n"), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					args = append(append([]string{}, tc.args...), "--policy="+policy)
+				}
+			}
 			out := captureDispatchOutput(t, func() int {
-				code := cmdDispatch(context.Background(), tc.args)
+				code := cmdDispatch(context.Background(), args)
 				if code != 1 {
 					t.Errorf("exit=%d, want 1", code)
 				}
