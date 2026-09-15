@@ -16,8 +16,10 @@
 |------|---------|
 | 0 | Success |
 | 1 | Gate failure / expected rejection |
-| 2 | Usage error |
-| 3+ | Internal error |
+| 2 | Internal error |
+| 3 | Usage error |
+
+A few commands define their own exit codes and document them in their usage text; for example `ic receipt verify` uses 0 valid, 1 not found, 2 bad signature, 3 bad schema, 4 unknown key. Those command-specific codes are stable on the same terms.
 
 ## Event Schema (stable from v1)
 
