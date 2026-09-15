@@ -13,8 +13,13 @@ import (
 
 func setupTestStore(t *testing.T) *Store {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.db")
+	return setupTestStoreAt(t, filepath.Join(t.TempDir(), "test.db"))
+}
+
+// setupTestStoreAt opens a store on path with its own single-connection handle,
+// as a separate ic process would.
+func setupTestStoreAt(t *testing.T, path string) *Store {
+	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=journal_mode%3DWAL&_pragma=busy_timeout%3D5000")
 	if err != nil {
 		t.Fatal(err)

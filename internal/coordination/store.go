@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"math/big"
 	"time"
+
+	"github.com/mistakeknot/intercore/internal/db"
 )
 
 const idChars = "abcdefghijklmnopqrstuvwxyz0123456789"
@@ -71,10 +73,12 @@ func (s *Store) Reserve(ctx context.Context, lock Lock) (*ReserveResult, error) 
 		lock.ExpiresAt = &exp
 	}
 
-	// BEGIN IMMEDIATE via LevelSerializable — modernc.org/sqlite maps this correctly.
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	// Not BeginTx: modernc ignores the isolation level and begins deferred, and a
+	// deferred transaction that reads then writes fails outright when another
+	// process commits in between.
+	tx, err := db.BeginImmediate(ctx, s.db)
 	if err != nil {
-		return nil, fmt.Errorf("begin immediate: %w", err)
+		return nil, err
 	}
 	defer tx.Rollback()
 
@@ -270,9 +274,9 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]Lock, error) {
 
 // Transfer atomically reassigns all active locks from one owner to another.
 func (s *Store) Transfer(ctx context.Context, fromOwner, toOwner, scope string, force bool) (int64, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	tx, err := db.BeginImmediate(ctx, s.db)
 	if err != nil {
-		return 0, fmt.Errorf("begin immediate: %w", err)
+		return 0, err
 	}
 	defer tx.Rollback()
 
