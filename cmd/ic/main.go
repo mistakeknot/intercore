@@ -29,51 +29,98 @@ var (
 	flagVV      bool // double-verbose for debug level
 )
 
-func main() {
-	// Parse all args manually to support global flags before or after subcommand.
-	// Go's flag package stops at the first non-flag arg, so "ic init --db=x" misses --db.
-	var subcommand string
-	var subArgs []string
+// globalArgs holds the global flags accepted anywhere on the command line, plus
+// the subcommand and its remaining arguments.
+type globalArgs struct {
+	subcommand  string
+	subArgs     []string
+	db          string
+	busyTimeout time.Duration
+	verbose     bool
+	vv          bool
+	json        bool
+}
 
-	for i := 1; i < len(os.Args); i++ {
-		arg := os.Args[i]
+const defaultBusyTimeout = 5 * time.Second
+
+// commandsWithOwnTimeout lists the subcommands whose --timeout is their own
+// deadline. For every other command --timeout still sets the SQLite busy timeout.
+var commandsWithOwnTimeout = map[string]map[string]bool{
+	"dispatch": {"spawn": true, "wait": true},
+	"lock":     {"acquire": true},
+}
+
+// parseGlobalArgs accepts global flags before or after the subcommand. Go's flag
+// package stops at the first non-flag argument, so "ic init --db=x" would miss --db.
+func parseGlobalArgs(args []string) (globalArgs, error) {
+	var g globalArgs
+	var timeouts []string
+	busyTimeoutSet := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch {
 		case strings.HasPrefix(arg, "--db="):
-			flagDB = strings.TrimPrefix(arg, "--db=")
-		case arg == "--db" && i+1 < len(os.Args):
+			g.db = strings.TrimPrefix(arg, "--db=")
+		case arg == "--db" && i+1 < len(args):
 			i++
-			flagDB = os.Args[i]
-		case strings.HasPrefix(arg, "--timeout="):
-			val := strings.TrimPrefix(arg, "--timeout=")
+			g.db = args[i]
+		case strings.HasPrefix(arg, "--busy-timeout="):
+			val := strings.TrimPrefix(arg, "--busy-timeout=")
 			d, err := time.ParseDuration(val)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "ic: invalid timeout: %s\n", val)
-				os.Exit(3)
+				return g, fmt.Errorf("invalid busy timeout: %s", val)
 			}
-			flagTimeout = d
+			g.busyTimeout = d
+			busyTimeoutSet = true
+		case strings.HasPrefix(arg, "--timeout="):
+			timeouts = append(timeouts, arg)
 		case arg == "--verbose":
-			flagVerbose = true
+			g.verbose = true
 		case arg == "-vv":
-			flagVerbose = true
-			flagVV = true
+			g.verbose = true
+			g.vv = true
 		case arg == "--json":
-			flagJSON = true
+			g.json = true
 		default:
-			if subcommand == "" {
-				subcommand = arg
+			if g.subcommand == "" {
+				g.subcommand = arg
 			} else {
-				subArgs = append(subArgs, arg)
+				g.subArgs = append(g.subArgs, arg)
 			}
 		}
 	}
+	if len(g.subArgs) > 0 && commandsWithOwnTimeout[g.subcommand][g.subArgs[0]] {
+		g.subArgs = append(g.subArgs, timeouts...)
+	} else {
+		for _, arg := range timeouts {
+			val := strings.TrimPrefix(arg, "--timeout=")
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				return g, fmt.Errorf("invalid timeout: %s", val)
+			}
+			if !busyTimeoutSet {
+				g.busyTimeout = d
+			}
+		}
+	}
+	if g.busyTimeout == 0 {
+		g.busyTimeout = defaultBusyTimeout
+	}
+	return g, nil
+}
+
+func main() {
+	g, parseErr := parseGlobalArgs(os.Args[1:])
+	if parseErr != nil {
+		fmt.Fprintf(os.Stderr, "ic: %v\n", parseErr)
+		os.Exit(3)
+	}
+	flagDB, flagTimeout, flagVerbose, flagVV, flagJSON = g.db, g.busyTimeout, g.verbose, g.vv, g.json
+	subcommand, subArgs := g.subcommand, g.subArgs
 
 	if subcommand == "" {
 		printUsage()
 		os.Exit(0)
-	}
-
-	if flagTimeout == 0 {
-		flagTimeout = 100 * time.Millisecond
 	}
 
 	// Initialize structured logging
@@ -274,7 +321,9 @@ Commands:
 
 Flags:
   --db=<path>       Database path (default: .clavain/intercore.db)
-  --timeout=<dur>   SQLite busy timeout (default: 100ms)
+  --busy-timeout=<dur>  SQLite busy timeout (default: 5s)
+  --timeout=<dur>   Deadline for dispatch spawn, dispatch wait and lock acquire;
+                    for other commands, the busy timeout (--busy-timeout wins)
   --verbose         Verbose output
   --json            JSON output`)
 }
