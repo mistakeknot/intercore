@@ -45,33 +45,29 @@ func (s *Store) recordProcessIdentity(ctx context.Context, id string, pid int) (
 	if err != nil {
 		return identity, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return identity, err
-	}
-	defer tx.Rollback()
-	// The first SQL statement is a write. It acquires SQLite's writer slot before
-	// any read, avoiding a deferred read-to-write upgrade racing other admissions.
-	_, err = tx.ExecContext(ctx, `INSERT INTO state(key,scope_id,payload,updated_at) VALUES ('dispatch.process',?,?,unixepoch())`, id, string(payload))
-	if err != nil {
-		return identity, err
-	}
+	// An immediate transaction on a held connection rather than *sql.Tx. When the
+	// caller cancels mid-transaction, database/sql rolls a Tx back underneath it
+	// and Commit reports ErrTxDone instead of the cancellation; here every
+	// statement reports the context's own error.
 	var scope sql.NullString
-	result, err := tx.ExecContext(ctx, `UPDATE dispatches SET status='running',pid=?,started_at=unixepoch() WHERE id=? AND status='spawned'`, pid, id)
+	err = withImmediateTx(ctx, s.db, "record process identity", func(conn *sql.Conn) error {
+		if _, err := conn.ExecContext(ctx, `INSERT INTO state(key,scope_id,payload,updated_at) VALUES ('dispatch.process',?,?,unixepoch())`, id, string(payload)); err != nil {
+			return err
+		}
+		result, err := conn.ExecContext(ctx, `UPDATE dispatches SET status='running',pid=?,started_at=unixepoch() WHERE id=? AND status='spawned'`, pid, id)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if n != 1 {
+			return ErrStaleStatus
+		}
+		return conn.QueryRowContext(ctx, `SELECT scope_id FROM dispatches WHERE id=?`, id).Scan(&scope)
+	})
 	if err != nil {
-		return identity, err
-	}
-	n, err := result.RowsAffected()
-	if err != nil {
-		return identity, err
-	}
-	if n != 1 {
-		return identity, ErrStaleStatus
-	}
-	if err := tx.QueryRowContext(ctx, `SELECT scope_id FROM dispatches WHERE id=?`, id).Scan(&scope); err != nil {
-		return identity, err
-	}
-	if err := tx.Commit(); err != nil {
 		return identity, err
 	}
 	if s.eventRecorder != nil {

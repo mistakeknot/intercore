@@ -376,8 +376,14 @@ func readTerminal(ctx context.Context, q querier, id string) (*TerminalRecord, e
 
 // withImmediateTx runs fn in a BEGIN IMMEDIATE transaction on a held
 // connection and commits when fn returns nil. The connection is back in the
-// pool when withImmediateTx returns.
-func withImmediateTx(ctx context.Context, db *sql.DB, op string, fn func(*sql.Conn) error) error {
+// pool when withImmediateTx returns. When ctx is done, the error it returns
+// wraps ctx.Err() whichever statement the cancellation reached.
+func withImmediateTx(ctx context.Context, db *sql.DB, op string, fn func(*sql.Conn) error) (err error) {
+	defer func() {
+		if cause := ctx.Err(); err != nil && cause != nil && !errors.Is(err, cause) {
+			err = fmt.Errorf("%w: %w", cause, err)
+		}
+	}()
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("%s: acquire connection: %w", op, err)
