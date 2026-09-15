@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/mistakeknot/intercore/internal/routing"
 	"os"
@@ -169,6 +170,11 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 		outcome.FailureClass = WorkerOutcomeIndeterminate
 		outcome.Fields["quarantine_reason"] = WorkerOutcomeIndeterminate
 		_, _ = store.Terminalize(context.Background(), id, outcome)
+		// A cancelled caller sees its cancellation, not whichever database error
+		// the cancellation happened to surface as.
+		if cause := ctx.Err(); cause != nil && !errors.Is(err, cause) {
+			err = fmt.Errorf("%w: %w", cause, err)
+		}
 		return nil, fmt.Errorf("spawn: process identity: %w", err)
 	}
 	return &SpawnResult{ID: id, Cmd: cmd, PID: pid, process: identity}, nil
