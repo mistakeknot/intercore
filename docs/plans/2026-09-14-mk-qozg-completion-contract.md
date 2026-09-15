@@ -3,7 +3,7 @@ artifact_type: contract
 beads: [mk-qozg, Sylveste-i385]
 goal: d1ad6d9b
 date: 2026-09-14
-revision: 3
+revision: 3.1
 status: frozen
 base: intercore 5c34dd3, Clavain 4d52755
 history: revisions 1 and 2, the reviews, probes and review ledger are kept in the private goal record, not in this repository
@@ -11,7 +11,7 @@ history: revisions 1 and 2, the reviews, probes and review ledger are kept in th
 
 # Completion-driven dispatch handoffs — kernel contract
 
-Revision 3 is revision 2 with mk's rulings D1–D11 folded in. It is frozen: changes need a new ruling recorded in the goal charter and a revision bump.
+Revision 3 is revision 2 with mk's rulings D1–D11 folded in; revision 3.1 applies mk's erratum on the terminal-record delete guard. It is frozen: changes need a new ruling recorded in the goal charter and a revision bump.
 
 ## 0. Provenance
 
@@ -114,10 +114,10 @@ CREATE TABLE dispatch_terminal_deliveries (
 Triggers:
 - **Safety net** — `AFTER UPDATE OF status ON dispatches`, non-terminal → terminal, no terminal row: insert a terminal `dispatch_events` row and a `dispatch_terminals` row with `INSERT … SELECT … WHERE NOT EXISTS`, every NOT NULL column filled in SQL (`attempt = NEW.retry_count`, `from_status = OLD.status`, `created_at = unixepoch()` — a documented exception to the Go-timestamp rule), `terminal_source='trigger'`, `evidence_status='unrecorded'`.
 - **Supervision guard** — `BEFORE UPDATE OF status ON dispatches`, non-terminal → terminal, row has `dispatch_supervision`, no terminal row: `RAISE(ABORT)`. `terminalize` inserts its row first and passes; legacy Collect, old binaries and raw SQL fail loudly.
-- **Immutability** — `BEFORE UPDATE ON dispatch_terminals`: abort. `BEFORE DELETE ON dispatch_terminals`: abort unless `temp.prune_authorized` names the dispatch.
+- **Immutability** — `BEFORE UPDATE ON dispatch_terminals`: abort. `BEFORE DELETE ON dispatch_terminals`: abort while a `dispatches` row with that id still exists, so a terminal record can only be removed after its dispatch (erratum 3.1; a persistent trigger cannot reference the temp schema).
 - **No REPLACE** — every status write on `dispatches` is a plain `UPDATE`; a test fails on any `OR REPLACE`/`REPLACE INTO dispatches` (an outer REPLACE overrides trigger conflict clauses and bypasses update-only immutability; probe T4).
 
-Two-release ship (D10): release N raises `maxSchemaVersion` to 40 and references no new table; release N+1 migrates and enables `--supervise`, which refuses below schema 40. Prune removes new rows, supervision state and spool files for pruned dispatches in one transaction under `temp.prune_authorized`.
+Two-release ship (D10): release N raises `maxSchemaVersion` to 40 and references no new table; release N+1 migrates and enables `--supervise`, which refuses below schema 40. Prune removes new rows, supervision state and spool files for pruned dispatches in one transaction, deleting each dispatch row before its terminal record.
 
 ## 5. Mechanisms
 
@@ -269,7 +269,7 @@ A **coordinator polling call** is any observation of delegated work's state made
 
 - **K0** (`Sylveste-i385.9`): ErrStaleStatus re-read; `COMPATIBILITY.md` exit codes; wait/await documentation. Test: two collectors of one dead dispatch both get the terminal row.
 - **K1** (`.10`): `--busy-timeout`, `--timeout=` routing, 5 s default. `TestBusyTimeoutDefaultAndRouting`.
-- **K2** (`.11`): release N max=40; schema 040, `terminalizeTx` at all terminal sites, triggers. `TestTerminalizeOrderSurvivesImmutabilityTrigger`, `TestSupervisedDispatchNeverVerdictInferred`, `TestNoReplaceOnDispatches`, `TestTerminalRowDeleteNeedsPruneAuthorization`, `TestTriggerRowCarriesEventAndColumns`, `TestTerminalizeTxNoNestedStoreCalls`, `TestCancelByRunAtomic`, `TestForeignKeysSurviveReconnect`, `TestCoordinationBeginsImmediate`.
+- **K2** (`.11`): release N max=40; schema 040, `terminalizeTx` at all terminal sites, triggers. `TestTerminalizeOrderSurvivesImmutabilityTrigger`, `TestSupervisedDispatchNeverVerdictInferred`, `TestNoReplaceOnDispatches`, `TestTerminalRowDeleteNeedsDispatchGone`, `TestTriggerRowCarriesEventAndColumns`, `TestTerminalizeTxNoNestedStoreCalls`, `TestCancelByRunAtomic`, `TestForeignKeysSurviveReconnect`, `TestCoordinationBeginsImmediate`.
 - **K3** (`.12`): `await` (legacy mode), `ack`, `--consumes`, `supersede`. `TestAwaitRefusesUnrecordedCompleted`, `TestConsumptionNullRunStageUnique`, `TestAckClaimBeforeEffect`, `TestConsumesReplayBothKeys`, supersede refusal and late-attempt tests.
 - **K4** (`.13`, riskiest): supervisor, process-exit wake, intents, reconcile, spool. `TestSpawnLostBeforeHandshake`, `TestSupervisorSweepsDoubleForkedGrandchild`, `TestSupervisorKilledWorkerAliveExit7`, `TestKillWaitsForSupervisorWrite`, `TestForgedSpoolNeverCompletes`, `TestNoInheritedDescriptorsInWorker`, `TestSupervisorSurvivesForcedGC`, `TestAwaitPidReuseGuard`, `TestAwaitDeadlineTouchesNothing`, `TestIntentPrecedenceOrderDecides`, `TestObserveLockHeldAcrossObservation`; macOS and zklw Linux.
 - **K5** (`.14`): report verifier, kernel route lookup and tree observation, `--require-report`. One fixture per binding failure; `TestTerminalUsageFlushedBeforeExit`.
@@ -295,3 +295,4 @@ A **coordinator polling call** is any observation of delegated work's state made
 | Cards | Intercore and Clavain product cards confirmed |
 | CI | Ask the owning session of `mk-u59j` before any takeover; coding proceeds |
 | Carried | Astra/Sol exhausted → Fable reviewer; Codex-exhaustion fallback tracked in `mk-9yyt`; `--supervise` default flip at post-soak checkpoint |
+| 3.1 | Terminal records are deletable only after their dispatch row is gone (dispatch-row delete guard), replacing `temp.prune_authorized`, which SQLite cannot reference from a persistent trigger |
