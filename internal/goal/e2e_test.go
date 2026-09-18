@@ -26,7 +26,9 @@ func TestGoalLifecycleE2E(t *testing.T) {
 	gs := goal.New(d.SqlDB())
 	ps := phase.New(d.SqlDB())
 
-	cond := "`go test ./...` exits 0, or stop after 20 turns"
+	// Canonical form (docs/guide-goal-shape.md in Clavain): the form rules warn
+	// on a bare condition, and this lifecycle should model the recommended shape.
+	cond := "OUTCOME: the suite is green. DONE WHEN: `go test ./...` exits 0, or stop after 20 turns"
 	if probs := goal.LintCondition(cond); len(probs) != 0 {
 		t.Fatalf("condition should lint clean: %v", probs)
 	}
