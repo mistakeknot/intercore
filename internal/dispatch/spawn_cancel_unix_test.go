@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -15,6 +17,91 @@ import (
 
 	"github.com/mistakeknot/intercore/internal/db"
 )
+
+func TestSpawnGeneratedCancellationRecovery(t *testing.T) {
+	for _, boundary := range []string{"before-admission", "after-identity", "after-exit"} {
+		for _, order := range recoveryOrders("kill", "collect") {
+			t.Run(boundary+"/"+strings.Join(order, "-"), func(t *testing.T) {
+				ctx := context.Background()
+				store, path := cancelTestStore(t)
+				other := runningDispatch(t, store)
+				before, err := store.Get(ctx, other)
+				if err != nil {
+					t.Fatal(err)
+				}
+				opts := admissionOptions(t)
+				// A real owned process, not a fake liveness or termination checker.
+				if err := os.WriteFile(opts.DispatchSH, []byte("#!/bin/sh\nexec sleep 60\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				spawnCtx, cancel := context.WithCancel(ctx)
+				defer cancel()
+				if boundary == "before-admission" {
+					cancel()
+				}
+				result, err := Spawn(spawnCtx, store, opts)
+				if boundary == "before-admission" {
+					if !errors.Is(err, context.Canceled) || result != nil {
+						t.Fatalf("cancelled spawn = %+v, %v", result, err)
+					}
+				} else {
+					if err != nil {
+						t.Fatal(err)
+					}
+					var reap sync.Once
+					stop := func() { reap.Do(func() { _ = syscall.Kill(-result.PID, syscall.SIGKILL); _ = result.Cmd.Wait() }) }
+					t.Cleanup(stop)
+					cancel()
+					if boundary == "after-exit" {
+						stop()
+					}
+					// Losing the caller does not authorize a cancelled cleanup to
+					// discard its slot, or to touch the other attempt's slot.
+					if err := Kill(spawnCtx, store, result.ID); !errors.Is(err, context.Canceled) {
+						t.Fatalf("cancelled cleanup: %v", err)
+					}
+					d, err := store.Get(ctx, result.ID)
+					if err != nil || d.Status != StatusRunning {
+						t.Fatalf("cancelled cleanup changed attempt: %+v, %v", d, err)
+					}
+					if boundary == "after-identity" {
+						if err := Kill(ctx, store, result.ID); err != nil {
+							t.Fatal(err)
+						}
+						stop()
+					}
+					// Recover through a separate DB handle as a restarted caller.
+					reopened, err := db.Open(path, time.Second)
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer reopened.Close()
+					recovery := New(reopened.SqlDB(), nil)
+					for _, action := range append(append([]string{}, order...), order...) {
+						if action == "kill" {
+							err = Kill(ctx, recovery, result.ID)
+						} else {
+							err = Collect(ctx, recovery, result.ID)
+						}
+						if err != nil {
+							t.Fatal(err)
+						}
+						assertOneTerminal(t, recovery, result.ID)
+					}
+					if err := syscall.Kill(result.PID, 0); !errors.Is(err, syscall.ESRCH) {
+						t.Fatalf("worker still exists after reap: %v", err)
+					}
+				}
+				after, err := store.Get(ctx, other)
+				if err != nil || !reflect.DeepEqual(before, after) {
+					t.Fatal("cancellation released another attempt")
+				}
+				_, err = store.admit(ctx, &Dispatch{AgentType: "codex", ProjectDir: t.TempDir()}, SpawnOptions{Policy: &SpawnPolicy{MaxActiveGlobal: 1}})
+				requireRejection(t, err, "concurrency_limit_global")
+			})
+		}
+	}
+}
 
 func cancelTestStore(t *testing.T) (*Store, string) {
 	t.Helper()

@@ -2,8 +2,13 @@ package dispatch
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -12,6 +17,165 @@ import (
 
 	"github.com/mistakeknot/intercore/internal/db"
 )
+
+// recoveryOrders enumerates every order; subtest names are the replay seed.
+func recoveryOrders(items ...string) [][]string {
+	if len(items) == 0 {
+		return [][]string{{}}
+	}
+	var result [][]string
+	for i, item := range items {
+		rest := append(append([]string{}, items[:i]...), items[i+1:]...)
+		for _, tail := range recoveryOrders(rest...) {
+			result = append(result, append([]string{item}, tail...))
+		}
+	}
+	return result
+}
+
+// Only the fault location is substituted: every SQL statement still executes
+// against the real migrated database through the production terminal writer.
+type crashTerminalQuerier struct {
+	*sql.Conn
+	boundary string
+}
+
+func (q crashTerminalQuerier) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	result, err := q.Conn.ExecContext(ctx, query, args...)
+	if err == nil && strings.Contains(query, q.boundary) {
+		os.Exit(86)
+	}
+	return result, err
+}
+
+func recoveryTerminal(kind string) Terminal {
+	status := map[string]string{"result": StatusCompleted, "cancel": StatusCancelled, "lost": StatusFailed}[kind]
+	source := map[string]string{"result": TerminalSourceCollect, "cancel": TerminalSourceKill, "lost": TerminalSourceReconcile}[kind]
+	input := map[string]int64{"result": 17, "cancel": 23, "lost": 31}[kind]
+	return Terminal{Status: status, Source: source, Evidence: EvidenceVerified,
+		UsageStatus: UsageComplete, InputTokens: int64Ptr(input), OutputTokens: int64Ptr(5),
+		CacheReadTokens: int64Ptr(3), Fields: UpdateFields{"input_tokens": input + 3, "output_tokens": 5}}
+}
+
+func TestTerminalRecoveryCrashHelper(t *testing.T) {
+	path := os.Getenv("IC_RECOVERY_CRASH_DB")
+	if path == "" {
+		return
+	}
+	d, err := db.Open(path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, boundary := os.Getenv("IC_RECOVERY_DISPATCH"), os.Getenv("IC_RECOVERY_BOUNDARY")
+	err = withImmediateTx(context.Background(), d.SqlDB(), "fault replay", func(conn *sql.Conn) error {
+		_, _, err := terminalizeTx(context.Background(), crashTerminalQuerier{conn, boundary}, id,
+			recoveryTerminal(os.Getenv("IC_RECOVERY_OUTCOME")), traceContext{})
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boundary == "after-commit" {
+		os.Exit(86)
+	}
+	t.Fatal("crash boundary was not reached")
+}
+
+func TestTerminalGeneratedCrashRecovery(t *testing.T) {
+	for _, order := range recoveryOrders("result", "cancel", "lost") {
+		for _, boundary := range []string{"INSERT INTO dispatch_events", "INSERT INTO dispatch_terminals", "UPDATE dispatches SET", "after-commit"} {
+			t.Run(strings.Join(order, "-")+"/"+boundary, func(t *testing.T) {
+				ctx := context.Background()
+				path := filepath.Join(t.TempDir(), "recovery.db")
+				d, err := db.Open(path, time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := d.Migrate(ctx); err != nil {
+					t.Fatal(err)
+				}
+				store := New(d.SqlDB(), nil)
+				id, other := runningDispatch(t, store), runningDispatch(t, store)
+				otherBefore, err := store.Get(ctx, other)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := d.Close(); err != nil {
+					t.Fatal(err)
+				}
+				childCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestTerminalRecoveryCrashHelper$")
+				cmd.Env = append(os.Environ(), "IC_RECOVERY_CRASH_DB="+path, "IC_RECOVERY_DISPATCH="+id,
+					"IC_RECOVERY_BOUNDARY="+boundary, "IC_RECOVERY_OUTCOME="+order[0])
+				out, err := cmd.CombinedOutput()
+				var exit *exec.ExitError
+				if !errors.As(err, &exit) || exit.ExitCode() != 86 {
+					t.Fatalf("fault child: %v\n%s", err, out)
+				}
+				d, err = db.Open(path, time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { d.Close() })
+				store = New(d.SqlDB(), nil)
+				committed := boundary == "after-commit"
+				wantCount := 0
+				if committed {
+					wantCount = 1
+				}
+				for _, table := range []string{"dispatch_terminals", "dispatch_events"} {
+					query := fmt.Sprintf("SELECT count(*) FROM %s WHERE dispatch_id = ?", table)
+					if table == "dispatch_events" {
+						query += " AND event_type = 'terminal'"
+					}
+					if n := terminalRowCount(t, store, query, id); n != wantCount {
+						t.Fatalf("%s after crash = %d, want %d", table, n, wantCount)
+					}
+				}
+				winner := order[1]
+				if committed {
+					winner = order[0]
+				}
+				var authoritative *TerminalRecord
+				// Late results, cancellation, and duplicate delivery after restart.
+				for i, kind := range []string{order[1], order[2], order[0], order[1]} {
+					rec, err := store.Terminalize(ctx, id, recoveryTerminal(kind))
+					if i == 0 && !committed {
+						if err != nil {
+							t.Fatal(err)
+						}
+					} else if !errors.Is(err, ErrAlreadyTerminal) {
+						t.Fatalf("replay %s: %v", kind, err)
+					}
+					if rec == nil || rec.Status != recoveryTerminal(winner).Status || rec.Source != recoveryTerminal(winner).Source {
+						t.Fatalf("wrong authority: %+v", rec)
+					}
+					if authoritative != nil && !reflect.DeepEqual(rec, authoritative) {
+						t.Fatal("late writer changed terminal evidence")
+					}
+					authoritative = rec
+					assertOneTerminal(t, store, id)
+				}
+				wantInput := map[string]int64{"result": 17, "cancel": 23, "lost": 31}[winner]
+				if authoritative.InputTokens == nil || *authoritative.InputTokens != wantInput || authoritative.OutputTokens == nil || *authoritative.OutputTokens != 5 || authoritative.CacheReadTokens == nil || *authoritative.CacheReadTokens != 3 {
+					t.Fatalf("usage lost: %+v", authoritative)
+				}
+				got, err := store.Get(ctx, id)
+				if err != nil || got.Status != authoritative.Status || int64(got.InputTokens) != wantInput+3 || got.OutputTokens != 5 {
+					t.Fatalf("dispatch disagrees: %+v, %v", got, err)
+				}
+				otherAfter, err := store.Get(ctx, other)
+				if err != nil || !reflect.DeepEqual(otherBefore, otherAfter) {
+					t.Fatalf("another attempt changed: %+v, %v", otherAfter, err)
+				}
+				// Its active slot still blocks admission, even after duplicate cleanup.
+				_, err = store.admit(ctx, &Dispatch{AgentType: "codex", ProjectDir: t.TempDir()}, SpawnOptions{Policy: &SpawnPolicy{MaxActiveGlobal: 1}})
+				requireRejection(t, err, "concurrency_limit_global")
+			})
+		}
+	}
+}
 
 func runningDispatch(t *testing.T, store *Store) string {
 	t.Helper()

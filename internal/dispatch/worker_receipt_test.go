@@ -8,9 +8,111 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+// Receipt publication races with cancellation and collection. Missing or torn
+// receipt writes must stay indeterminate; later proof is appended, never used
+// to rewrite the authoritative attempt or silently start a replacement.
+func TestWorkerGeneratedReceiptRecovery(t *testing.T) {
+	for _, order := range recoveryOrders("publish", "collect", "cancel") {
+		for _, boundary := range []string{"missing", "torn", "foreign-attempt"} {
+			t.Run(strings.Join(order, "-")+"/"+boundary, func(t *testing.T) {
+				ctx := context.Background()
+				store := testStore(t)
+				id, output, receipt := workerReceiptFixture(t, store)
+				other, _, foreign := workerReceiptFixture(t, store)
+				otherBefore, err := store.Get(ctx, other)
+				if err != nil {
+					t.Fatal(err)
+				}
+				switch boundary {
+				case "torn":
+					if err := os.WriteFile(output+".receipt.json", []byte(`{"schema":"flere.dispatch-result.v1",`), 0600); err != nil {
+						t.Fatal(err)
+					}
+				case "foreign-attempt":
+					saveWorkerReceipt(t, output, foreign)
+				}
+				published := false
+				var first *TerminalRecord
+				wantInput, wantOutput := 0, 0
+				for _, action := range append(append([]string{}, order...), "collect", "cancel") {
+					switch action {
+					case "publish":
+						saveWorkerReceipt(t, output, receipt)
+						published = true
+					case "collect":
+						if err := Collect(ctx, store, id); err != nil {
+							t.Fatal(err)
+						}
+					case "cancel":
+						if err := Kill(ctx, store, id); err != nil {
+							t.Fatal(err)
+						}
+					}
+					rec, err := readTerminal(ctx, store.db, id)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if rec == nil {
+						continue
+					}
+					if first == nil {
+						wantStatus, wantSource := StatusFailed, TerminalSourceKill
+						if action == "collect" {
+							wantSource = TerminalSourceCollect
+							if published {
+								wantStatus, wantInput, wantOutput = StatusCompleted, 13, 2
+							}
+						}
+						if rec.Status != wantStatus || rec.Source != wantSource {
+							t.Fatalf("first terminal = %+v", rec)
+						}
+						first = rec
+					} else if !reflect.DeepEqual(first, rec) {
+						t.Fatal("receipt/cancel replay rewrote terminal")
+					}
+					assertOneTerminal(t, store, id)
+				}
+				verified, err := store.ReconcileWorker(ctx, id)
+				if err != nil || verified == nil || verified.Usage == nil || *verified.Usage != (WorkerUsage{Input: 10, Output: 2, CacheRead: 3}) {
+					t.Fatalf("late usage proof lost: %+v, %v", verified, err)
+				}
+				var raw string
+				if err := store.db.QueryRowContext(ctx, "SELECT envelope_json FROM dispatch_events WHERE dispatch_id=? AND event_type='worker_reconciliation'", id).Scan(&raw); err != nil {
+					t.Fatal(err)
+				}
+				var evidence WorkerReceipt
+				if err := json.Unmarshal([]byte(raw), &evidence); err != nil {
+					t.Fatal(err)
+				}
+				if evidence.DispatchID != id || evidence.Usage == nil || *evidence.Usage != *verified.Usage {
+					t.Fatalf("persisted reconciliation lost binding/usage: %s", raw)
+				}
+				d, err := store.Get(ctx, id)
+				if err != nil || d.InputTokens != wantInput || d.OutputTokens != wantOutput || ShouldRetry(d, DefaultRetryPolicy()) {
+					t.Fatalf("accounting or retry changed: %+v, %v", d, err)
+				}
+				if wantInput == 0 && (d.QuarantineReason == nil || *d.QuarantineReason != WorkerOutcomeIndeterminate) {
+					t.Fatalf("uncertain acceptance was not quarantined: %+v", d)
+				}
+				after, err := readTerminal(ctx, store.db, id)
+				if err != nil || !reflect.DeepEqual(first, after) {
+					t.Fatal("reconciliation changed terminal")
+				}
+				otherAfter, err := store.Get(ctx, other)
+				if err != nil || !reflect.DeepEqual(otherBefore, otherAfter) {
+					t.Fatal("recovery changed another attempt")
+				}
+				_, err = store.admit(ctx, &Dispatch{AgentType: "codex", ProjectDir: t.TempDir()}, SpawnOptions{Policy: &SpawnPolicy{MaxActiveGlobal: 1}})
+				requireRejection(t, err, "concurrency_limit_global")
+			})
+		}
+	}
+}
 
 func TestFlereVerdictCannotEstablishCompletion(t *testing.T) {
 	store := testStore(t)
