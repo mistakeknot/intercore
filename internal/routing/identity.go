@@ -116,6 +116,9 @@ func (r *Resolver) ResolveDispatchRoleForProducer(role, producer string) (Resolv
 	if len(eligible) == 0 {
 		return ResolvedDispatch{}, fmt.Errorf("role %q has no model distinct from producer %q", role, producer)
 	}
+	if producer != "" && slices.Contains(r.cfg.Dispatch.CrossLabFirst, role) {
+		eligible, resolved.CrossLabReorder = r.crossLabFirst(eligible, resolved.ProducerModel)
+	}
 	resolved.ProfileRef, resolved.Profile = eligible[0].ProfileRef, eligible[0].Profile
 	resolved.FallbackChain = eligible[1:]
 	if review {
