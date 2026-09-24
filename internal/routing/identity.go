@@ -153,14 +153,14 @@ func modelLab(identity string) string {
 // otherwise preserved, and a nil reorder means the order did not change.
 func (r *Resolver) crossLabFirst(eligible []DispatchCandidate, producerModel string) ([]DispatchCandidate, *CandidateReorder) {
 	producerLab := modelLab(producerModel)
+	if producerLab == "" {
+		return eligible, nil
+	}
 	frontierLabs := map[string]bool{}
 	for _, m := range r.cfg.Reasoning.FrontierModels {
 		if id, err := r.CanonicalModelIdentity(m); err == nil && modelLab(id) != "" {
 			frontierLabs[modelLab(id)] = true
 		}
-	}
-	if producerLab == "" {
-		return eligible, nil
 	}
 	var first, rest []DispatchCandidate
 	for _, c := range eligible {

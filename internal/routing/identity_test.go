@@ -73,10 +73,10 @@ func crossLabConfig() *Config {
 			Roles:         map[string]string{"validation": "opus", "plan-review": "opus"},
 			CrossLabFirst: []string{"validation"},
 			Tiers: map[string]DispatchProfile{
-				"opus":   {Backend: "claude", Model: "opus", Fallbacks: []string{"sonnet", "sol", "kimi"}},
-				"sonnet": {Backend: "claude", Model: "claude-sonnet-5"},
-				"sol":    {Backend: "codex", Model: "gpt-5.6-sol"},
-				"kimi":   {Backend: "kimi", Model: "kimi-code/k3"},
+				"opus":   {Backend: "claude", Model: "opus", ReasoningEffort: "high", Fallbacks: []string{"sonnet", "sol", "kimi"}},
+				"sonnet": {Backend: "claude", Model: "claude-sonnet-5", ReasoningEffort: "high"},
+				"sol":    {Backend: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high"},
+				"kimi":   {Backend: "kimi", Model: "kimi-code/k3", ReasoningEffort: "high"},
 			},
 		},
 	}
@@ -131,5 +131,27 @@ func TestCrossLabFirstAppliesOnlyToListedRoles(t *testing.T) {
 	}
 	if refsOf(got)[0] != "opus" || got.CrossLabReorder != nil {
 		t.Fatalf("unlisted role reordered: %v", refsOf(got))
+	}
+}
+
+func TestCrossLabFirstFallsBackToOpusWhenCodexIsOut(t *testing.T) {
+	c := DecisionContext{AvailableModels: []string{"claude-opus-5", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
+	got, err := NewResolver(crossLabConfig()).ResolveDecision("validation", "claude-fable-5-1", "", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Profile.Model != "claude-opus-5" {
+		t.Fatalf("selected %q, want Opus", got.Profile.Model)
+	}
+	// Sol was excluded as unavailable, so no reorder remains over the kept seats.
+	if got.CrossLabReorder != nil {
+		t.Fatalf("receipt names an excluded seat: %#v", got.CrossLabReorder)
+	}
+	got, err = NewResolver(crossLabConfig()).ResolveDecision("validation", "claude-opus-5", "", DecisionContext{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"sol", "sonnet", "kimi"}; !slices.Equal(refsOf(got.ResolvedDispatch), want) || got.CrossLabReorder.To[0] != "sol" {
+		t.Fatalf("opus producer order %v", refsOf(got.ResolvedDispatch))
 	}
 }
