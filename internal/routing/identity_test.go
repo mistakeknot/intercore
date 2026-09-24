@@ -1,6 +1,9 @@
 package routing
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func identityConfig() *Config {
 	return &Config{Dispatch: DispatchConfig{
@@ -59,5 +62,74 @@ func TestValidatorFailsClosedWithoutKnownProducerOrDistinctModel(t *testing.T) {
 	cfg.Dispatch.ModelAliases["fable"] = "fable"
 	if _, err := NewResolver(cfg).ResolveDispatchRoleForProducer("validation", "gpt-6-astra"); err == nil {
 		t.Fatal("accepted cyclic alias")
+	}
+}
+
+func crossLabConfig() *Config {
+	return &Config{
+		Reasoning: ReasoningPolicy{FrontierModels: []string{"gpt-6-astra", "claude-fable-5-1", "claude-opus-5"}},
+		Dispatch: DispatchConfig{
+			ModelAliases:  map[string]string{"opus": "claude-opus-5"},
+			Roles:         map[string]string{"validation": "opus", "plan-review": "opus"},
+			CrossLabFirst: []string{"validation"},
+			Tiers: map[string]DispatchProfile{
+				"opus":   {Backend: "claude", Model: "opus", Fallbacks: []string{"sonnet", "sol", "kimi"}},
+				"sonnet": {Backend: "claude", Model: "claude-sonnet-5"},
+				"sol":    {Backend: "codex", Model: "gpt-5.6-sol"},
+				"kimi":   {Backend: "kimi", Model: "kimi-code/k3"},
+			},
+		},
+	}
+}
+
+func refsOf(got ResolvedDispatch) []string {
+	out := []string{got.ProfileRef}
+	for _, c := range got.FallbackChain {
+		out = append(out, c.ProfileRef)
+	}
+	return out
+}
+
+func TestCrossLabFirstPrefersAnotherFrontierLabForClaudeWork(t *testing.T) {
+	got, err := NewResolver(crossLabConfig()).ResolveDispatchRoleForProducer("validation", "claude-fable-5-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Opus before Sonnet is kept; Kimi is not a frontier lab and keeps its place.
+	if want := []string{"sol", "opus", "sonnet", "kimi"}; !slices.Equal(refsOf(got), want) {
+		t.Fatalf("order %v, want %v", refsOf(got), want)
+	}
+	if got.CrossLabReorder == nil || !slices.Equal(got.CrossLabReorder.From, []string{"opus", "sonnet", "sol", "kimi"}) {
+		t.Fatalf("reorder not recorded: %#v", got.CrossLabReorder)
+	}
+}
+
+func TestCrossLabFirstKeepsPolicyOrderForOtherLabWork(t *testing.T) {
+	got, err := NewResolver(crossLabConfig()).ResolveDispatchRoleForProducer("validation", "gpt-6-astra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"opus", "sonnet", "sol", "kimi"}; !slices.Equal(refsOf(got), want) || got.CrossLabReorder != nil {
+		t.Fatalf("order %v reorder %#v", refsOf(got), got.CrossLabReorder)
+	}
+}
+
+func TestCrossLabFirstStillExcludesTheProducer(t *testing.T) {
+	got, err := NewResolver(crossLabConfig()).ResolveDispatchRoleForProducer("validation", "gpt-5.6-sol")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"opus", "sonnet", "kimi"}; !slices.Equal(refsOf(got), want) {
+		t.Fatalf("order %v, want %v", refsOf(got), want)
+	}
+}
+
+func TestCrossLabFirstAppliesOnlyToListedRoles(t *testing.T) {
+	got, err := NewResolver(crossLabConfig()).ResolveDispatchRoleForProducer("plan-review", "claude-fable-5-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refsOf(got)[0] != "opus" || got.CrossLabReorder != nil {
+		t.Fatalf("unlisted role reordered: %v", refsOf(got))
 	}
 }

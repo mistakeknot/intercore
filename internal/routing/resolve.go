@@ -25,6 +25,7 @@ type ResolvedDispatch struct {
 	ProfileRef            string                      `json:"profile_ref"`
 	Profile               DispatchProfile             `json:"profile"`
 	FallbackChain         []DispatchCandidate         `json:"fallback_chain"`
+	CrossLabReorder       *CandidateReorder           `json:"cross_lab_reorder,omitempty"`
 }
 
 // Resolver performs model resolution using loaded config.

@@ -127,3 +127,60 @@ func (r *Resolver) ResolveDispatchRoleForProducer(role, producer string) (Resolv
 	}
 	return resolved, nil
 }
+
+// CandidateReorder records a policy reordering of eligible profiles by reference.
+type CandidateReorder struct {
+	From []string `json:"from"`
+	To   []string `json:"to"`
+}
+
+// modelLab names the lab behind a canonical model identity, or "" if unknown.
+func modelLab(identity string) string {
+	switch {
+	case strings.HasPrefix(identity, "gpt-"):
+		return "openai"
+	case strings.HasPrefix(identity, "claude-"):
+		return "anthropic"
+	case strings.HasPrefix(identity, "kimi"):
+		return "moonshot"
+	}
+	return ""
+}
+
+// crossLabFirst stably moves candidates from a frontier lab other than the
+// producer's ahead of the rest, so a review role reaches another lab before a
+// same-lab seat. Non-frontier labs keep their policy position. Policy order is
+// otherwise preserved, and a nil reorder means the order did not change.
+func (r *Resolver) crossLabFirst(eligible []DispatchCandidate, producerModel string) ([]DispatchCandidate, *CandidateReorder) {
+	producerLab := modelLab(producerModel)
+	frontierLabs := map[string]bool{}
+	for _, m := range r.cfg.Reasoning.FrontierModels {
+		if id, err := r.CanonicalModelIdentity(m); err == nil && modelLab(id) != "" {
+			frontierLabs[modelLab(id)] = true
+		}
+	}
+	if producerLab == "" {
+		return eligible, nil
+	}
+	var first, rest []DispatchCandidate
+	for _, c := range eligible {
+		lab := modelLab(c.Profile.ModelIdentity)
+		if lab != producerLab && frontierLabs[lab] {
+			first = append(first, c)
+		} else {
+			rest = append(rest, c)
+		}
+	}
+	ordered := append(first, rest...)
+	refs := func(cs []DispatchCandidate) []string {
+		out := make([]string, len(cs))
+		for i, c := range cs {
+			out[i] = c.ProfileRef
+		}
+		return out
+	}
+	if slices.Equal(refs(eligible), refs(ordered)) {
+		return eligible, nil
+	}
+	return ordered, &CandidateReorder{From: refs(eligible), To: refs(ordered)}
+}

@@ -52,6 +52,9 @@ type DispatchConfig struct {
 	Roles        map[string]string          `yaml:"roles"`
 	Tiers        map[string]DispatchProfile `yaml:"tiers"`
 	Fallback     map[string]string          `yaml:"fallback"` // legacy missing-tier aliases
+	// CrossLabFirst lists review roles whose eligible seats from another
+	// frontier lab than the producer's are tried before same-lab seats.
+	CrossLabFirst []string `yaml:"cross_lab_first"`
 }
 
 // DispatchProfile is a complete, executable routing choice. Fallbacks contain

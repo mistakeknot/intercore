@@ -228,6 +228,21 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 	}
 	d.ProfileRef, d.Profile = eligible[0].ProfileRef, eligible[0].Profile
 	d.FallbackChain = eligible[1:]
+	if d.CrossLabReorder != nil {
+		// Report the reorder over the seats that remain, so the receipt names the seat selected.
+		kept := map[string]bool{}
+		for _, c := range eligible {
+			kept[c.ProfileRef] = true
+		}
+		keep := func(refs []string) []string {
+			return slices.DeleteFunc(slices.Clone(refs), func(ref string) bool { return !kept[ref] })
+		}
+		reorder := CandidateReorder{From: keep(d.CrossLabReorder.From), To: keep(d.CrossLabReorder.To)}
+		d.CrossLabReorder = nil
+		if !slices.Equal(reorder.From, reorder.To) {
+			d.CrossLabReorder = &reorder
+		}
+	}
 	if d.ProfileRef != resolved.ProfileRef && d.FallbackReason == "" {
 		d.FallbackReason = "reasoning_contract"
 	}
