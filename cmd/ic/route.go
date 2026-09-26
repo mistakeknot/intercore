@@ -414,6 +414,28 @@ func printRouteTable(r *routing.Resolver, cfg *routing.Config, phase string) {
 	}
 }
 
+// isPermutation reports whether b is a reordering of a: same elements, same
+// multiplicities, in any order. Used to fail closed on a --cross-lab-reorder
+// value whose to/from lists don't actually describe a reordering.
+func isPermutation(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	count := make(map[string]int, len(a))
+	for _, x := range a {
+		count[x]++
+	}
+	for _, x := range b {
+		count[x]--
+	}
+	for _, v := range count {
+		if v != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func cmdRouteRecord(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	var opts routing.RecordDecisionOpts
