@@ -241,6 +241,9 @@ func TestRouteRecordRejectsInvalidCrossLabReorderJSON(t *testing.T) {
 		`{"from":["a","b"],"to":["a"]}`,       // not a permutation: different length
 		`{"from":["a","b"],"to":["a","c"]}`,   // not a permutation: different elements
 		`{"from":["a"],"to":["a"],"frm":[1]}`, // unknown field
+		`{"from":["a"],"to":["a"]}}`,          // trailing "}": dec.More() doesn't see this
+		`{"from":["a"],"to":["a"]}]`,          // trailing "]": dec.More() doesn't see this
+		`{"from":["a"],"to":["a"]} {"from":["a"],"to":["a"]}`, // trailing second value
 	} {
 		raw := raw
 		t.Run(raw, func(t *testing.T) {
