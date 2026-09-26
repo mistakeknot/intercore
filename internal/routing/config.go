@@ -182,6 +182,11 @@ func (c *Config) validateFrontierModels() error {
 			return fmt.Errorf("reasoning.frontier_models entry %q: %w", m, err)
 		}
 		if modelLab(id) == "" {
+			// Defensive: given the current prefix lists, CanonicalModelIdentity
+			// only ever returns gpt-/claude-/kimi(-|/) identities, all of which
+			// modelLab already recognizes, so this branch is unreachable today.
+			// Kept so the two lists diverging in the future fails loudly here
+			// instead of silently reopening the crossLabFirst gap this guards.
 			return fmt.Errorf("reasoning.frontier_models entry %q resolves to %q, which is not a recognized lab family (gpt-/claude-/kimi-)", m, id)
 		}
 	}
