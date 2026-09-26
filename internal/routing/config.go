@@ -164,7 +164,28 @@ func LoadConfig(routingPath, rolesPath string) (*Config, error) {
 		// Non-fatal: safety floors are a progressive enhancement
 	}
 
+	if err := cfg.validateFrontierModels(); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
+}
+
+// validateFrontierModels fails config load loudly, naming the bad entry,
+// instead of letting crossLabFirst silently drop an unresolvable
+// reasoning.frontier_models entry from the frontier-lab set it builds.
+func (c *Config) validateFrontierModels() error {
+	r := NewResolver(c)
+	for _, m := range c.Reasoning.FrontierModels {
+		id, err := r.CanonicalModelIdentity(m)
+		if err != nil {
+			return fmt.Errorf("reasoning.frontier_models entry %q: %w", m, err)
+		}
+		if modelLab(id) == "" {
+			return fmt.Errorf("reasoning.frontier_models entry %q resolves to %q, which is not a recognized lab family (gpt-/claude-/kimi-)", m, id)
+		}
+	}
+	return nil
 }
 
 // SafetyFloors extracts agent → min_model mapping from roles config.
