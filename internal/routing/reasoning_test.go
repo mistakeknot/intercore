@@ -164,6 +164,78 @@ func TestReasoningContractRecomputesReasonWhenItExcludesTheReorderedPrimary(t *t
 	}
 }
 
+// crossLabConfigOpusFallsBackToSolFirst mirrors crossLabConfig but lists Sol
+// ahead of Sonnet in Opus's fallbacks, so a cross-lab reorder that only
+// promotes Sol (Case B) or Sol and Kimi (Case C) leaves Opus itself excluded
+// deeper in the chain rather than moved. This isolates "the policy primary
+// (Opus) got excluded by the contract" from "the reorder's primary got
+// excluded by the contract", which TestReasoningContractRecomputesReasonWhenItExcludesTheReorderedPrimary
+// already covers.
+func crossLabConfigOpusFallsBackToSolFirst() *Config {
+	return &Config{
+		Reasoning: ReasoningPolicy{FrontierModels: []string{"gpt-6-astra", "claude-fable-5-1", "claude-opus-5"}},
+		Dispatch: DispatchConfig{
+			ModelAliases:  map[string]string{"opus": "claude-opus-5"},
+			Roles:         map[string]string{"validation": "opus"},
+			CrossLabFirst: []string{"validation"},
+			Tiers: map[string]DispatchProfile{
+				"opus":   {Backend: "claude", Model: "opus", ReasoningEffort: "high", Fallbacks: []string{"sol", "sonnet", "kimi"}},
+				"sonnet": {Backend: "claude", Model: "claude-sonnet-5", ReasoningEffort: "high"},
+				"sol":    {Backend: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high"},
+				"kimi":   {Backend: "kimi", Model: "kimi-code/k3", ReasoningEffort: "high"},
+			},
+		},
+	}
+}
+
+func TestReasoningContractRestoresReasonWhenTrimmedReorderCollapsesToNil(t *testing.T) {
+	// Case B (R2-1): Opus is unavailable. The reorder already promoted Sol
+	// ahead of Opus, so Sol was primary before and after the contract filter —
+	// the reorder itself never moves. But Opus, the un-reordered policy
+	// primary, was still excluded by the contract, so this must still read
+	// "reasoning_contract", not "" (comparing only against the post-reorder
+	// primary would wrongly clear it).
+	c := DecisionContext{AvailableModels: []string{"gpt-5.6-sol", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
+	got, err := NewResolver(crossLabConfigOpusFallsBackToSolFirst()).ResolveDecision("validation", "claude-fable-5-1", "", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Profile.Model != "gpt-5.6-sol" {
+		t.Fatalf("selected %q, want gpt-5.6-sol", got.Profile.Model)
+	}
+	if got.CrossLabReorder != nil {
+		t.Fatalf("trimmed reorder should collapse to nil (Sol unmoved by exclusion): %#v", got.CrossLabReorder)
+	}
+	if got.FallbackReason != "reasoning_contract" {
+		t.Fatalf("FallbackReason = %q, want reasoning_contract", got.FallbackReason)
+	}
+}
+
+func TestReasoningContractStaysReasoningContractWhenTrimmedReorderKeepsSamePrimary(t *testing.T) {
+	// Case C (R2-1): same as Case B, but Kimi's lab is also a frontier lab, so
+	// the reorder additionally promotes Kimi ahead of Sonnet. The trimmed
+	// reorder survives (From[0]==To[0]=="sol", but the rest of the order still
+	// differs), which used to make the reset think "cross_lab_reorder" was
+	// still valid. It must resolve to "reasoning_contract": Opus, the
+	// un-reordered policy primary, was excluded by the contract.
+	cfg := crossLabConfigOpusFallsBackToSolFirst()
+	cfg.Reasoning.FrontierModels = append(cfg.Reasoning.FrontierModels, "kimi-code/k3")
+	c := DecisionContext{AvailableModels: []string{"gpt-5.6-sol", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
+	got, err := NewResolver(cfg).ResolveDecision("validation", "claude-fable-5-1", "", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Profile.Model != "gpt-5.6-sol" {
+		t.Fatalf("selected %q, want gpt-5.6-sol", got.Profile.Model)
+	}
+	if got.CrossLabReorder == nil || got.CrossLabReorder.From[0] != got.CrossLabReorder.To[0] {
+		t.Fatalf("expected a surviving reorder with an unmoved primary: %#v", got.CrossLabReorder)
+	}
+	if got.FallbackReason != "reasoning_contract" {
+		t.Fatalf("FallbackReason = %q, want reasoning_contract", got.FallbackReason)
+	}
+}
+
 func TestAlternateProfileIsScopedAndCannotDemoteFrontier(t *testing.T) {
 	cfg := reasoningConfig(t)
 	cfg.Reasoning.Profiles = map[string]PolicyProfile{"pilot": {Scope: "campaign", Roles: map[string]string{"frontier-planning": "sol"}}}
