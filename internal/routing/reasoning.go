@@ -243,6 +243,14 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 			d.CrossLabReorder = &reorder
 		}
 	}
+	// The contract filter above can exclude the very seat the reorder promoted
+	// to primary (e.g. it became unavailable). When that happens the trimmed
+	// reorder no longer names the current primary, so "cross_lab_reorder" would
+	// misreport why this profile was chosen; drop it and let the fallback
+	// check below attribute the change to the contract instead.
+	if d.FallbackReason == "cross_lab_reorder" && (d.CrossLabReorder == nil || d.CrossLabReorder.To[0] != d.ProfileRef) {
+		d.FallbackReason = ""
+	}
 	if d.ProfileRef != resolved.ProfileRef && d.FallbackReason == "" {
 		d.FallbackReason = "reasoning_contract"
 	}
