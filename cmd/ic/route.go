@@ -444,8 +444,14 @@ func cmdRouteRecord(ctx context.Context, args []string) int {
 	}
 	if raw := f.String("cross-lab-reorder", ""); raw != "" {
 		var reorder routing.CandidateReorder
-		if err := json.Unmarshal([]byte(raw), &reorder); err != nil {
+		dec := json.NewDecoder(strings.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&reorder); err != nil || dec.More() {
 			slog.Error("route record: invalid --cross-lab-reorder", "error", err)
+			return 3
+		}
+		if len(reorder.From) == 0 || len(reorder.To) == 0 || !isPermutation(reorder.From, reorder.To) {
+			slog.Error("route record: --cross-lab-reorder requires non-empty from/to that are permutations of each other")
 			return 3
 		}
 		contextFields.CrossLabReorder = &reorder
