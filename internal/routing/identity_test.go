@@ -102,6 +102,28 @@ func TestCrossLabFirstPrefersAnotherFrontierLabForClaudeWork(t *testing.T) {
 	if got.CrossLabReorder == nil || !slices.Equal(got.CrossLabReorder.From, []string{"opus", "sonnet", "sol", "kimi"}) {
 		t.Fatalf("reorder not recorded: %#v", got.CrossLabReorder)
 	}
+	if got.FallbackReason != "cross_lab_reorder" {
+		t.Fatalf("reorder changed the primary but FallbackReason = %q", got.FallbackReason)
+	}
+}
+
+func TestCrossLabFirstReasonYieldsToProducerConflict(t *testing.T) {
+	// Opus is the producer here, so it is excluded outright (producer_model_conflict)
+	// before the reorder ever runs. The reorder still promotes Sol ahead of
+	// Sonnet, but the more important producer-conflict reason must survive.
+	got, err := NewResolver(crossLabConfig()).ResolveDispatchRoleForProducer("validation", "claude-opus-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"sol", "sonnet", "kimi"}; !slices.Equal(refsOf(got), want) {
+		t.Fatalf("order %v, want %v", refsOf(got), want)
+	}
+	if got.CrossLabReorder == nil {
+		t.Fatalf("expected a recorded reorder")
+	}
+	if got.FallbackReason != "producer_model_conflict" {
+		t.Fatalf("producer conflict reason was clobbered: %q", got.FallbackReason)
+	}
 }
 
 func TestCrossLabFirstKeepsPolicyOrderForOtherLabWork(t *testing.T) {
