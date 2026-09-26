@@ -196,6 +196,65 @@ subagents:
 	}
 }
 
+func TestLoadConfigRejectsUnresolvableFrontierModel(t *testing.T) {
+	dir := t.TempDir()
+	routingYAML := `
+reasoning:
+  frontier_models: [gpt-6-astra, some-mystery-model]
+`
+	routingPath := filepath.Join(dir, "routing.yaml")
+	if err := os.WriteFile(routingPath, []byte(routingYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(routingPath, "")
+	if err == nil {
+		t.Fatal("expected error for unresolvable frontier_models entry")
+	}
+	if !strings.Contains(err.Error(), "some-mystery-model") {
+		t.Errorf("error %q does not name the bad entry", err.Error())
+	}
+}
+
+func TestLoadConfigRejectsFrontierModelWithUnknownLab(t *testing.T) {
+	dir := t.TempDir()
+	routingYAML := `
+dispatch:
+  model_aliases:
+    house-model: house-brand-7
+reasoning:
+  frontier_models: [house-model]
+`
+	routingPath := filepath.Join(dir, "routing.yaml")
+	if err := os.WriteFile(routingPath, []byte(routingYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadConfig(routingPath, "")
+	if err == nil {
+		t.Fatal("expected error for frontier_models entry resolving to an unrecognized lab")
+	}
+	if !strings.Contains(err.Error(), "house-model") {
+		t.Errorf("error %q does not name the bad entry", err.Error())
+	}
+}
+
+func TestLoadConfigAcceptsResolvableFrontierModels(t *testing.T) {
+	dir := t.TempDir()
+	routingYAML := `
+reasoning:
+  frontier_models: [gpt-6-astra, claude-opus-5-5]
+`
+	routingPath := filepath.Join(dir, "routing.yaml")
+	if err := os.WriteFile(routingPath, []byte(routingYAML), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadConfig(routingPath, ""); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+}
+
 func TestLoadConfigDefaultComplexityMode(t *testing.T) {
 	dir := t.TempDir()
 	routingYAML := `
