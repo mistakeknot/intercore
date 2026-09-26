@@ -67,7 +67,7 @@ dispatch:
     deep-sol:
       role: deep-execution
       backend: codex
-      model: gpt-5.6-sol
+      model: gpt-6-sol
       reasoning_effort: xhigh
       service_tier: standard
 `
@@ -118,7 +118,7 @@ dispatch:
 	if got.Profile.Model != "gpt-6-astra" || got.Profile.ReasoningEffort != "high" {
 		t.Errorf("profile = %#v, want Astra/high", got.Profile)
 	}
-	if len(got.FallbackChain) != 1 || got.FallbackChain[0].Profile.Model != "gpt-5.6-sol" {
+	if len(got.FallbackChain) != 1 || got.FallbackChain[0].Profile.Model != "gpt-6-sol" {
 		t.Errorf("fallback chain = %#v, want one Sol fallback", got.FallbackChain)
 	}
 	readEnd, writeEnd, err = os.Pipe()
@@ -141,7 +141,7 @@ dispatch:
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.Profile.Model != "gpt-5.6-sol" || got.ProducerModel != "claude-fable-5-1" || len(got.Excluded) != 1 {
+	if got.Profile.Model != "gpt-6-sol" || got.ProducerModel != "claude-fable-5-1" || len(got.Excluded) != 1 {
 		t.Fatalf("CLI did not enforce canonical separation: %#v", got)
 	}
 }

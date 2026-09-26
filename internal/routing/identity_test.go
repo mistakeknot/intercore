@@ -7,11 +7,11 @@ import (
 
 func identityConfig() *Config {
 	return &Config{Dispatch: DispatchConfig{
-		ModelAliases: map[string]string{"fable": "claude-fable-5-1", "gpt-5.6": "gpt-5.6-sol"},
+		ModelAliases: map[string]string{"fable": "claude-fable-5-1", "gpt-6": "gpt-6-sol"},
 		Roles:        map[string]string{"validation": "fable"},
 		Tiers: map[string]DispatchProfile{
 			"fable": {Backend: "claude", Model: "fable", Fallbacks: []string{"sol", "astra"}},
-			"sol":   {Backend: "codex", Model: "gpt-5.6-sol"},
+			"sol":   {Backend: "codex", Model: "gpt-6-sol"},
 			"astra": {Backend: "codex", Model: "gpt-6-astra"},
 		},
 	}}
@@ -25,7 +25,7 @@ func TestValidatorExcludesCanonicalProducerAndPreservesEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got.Profile.Model != "gpt-5.6-sol" || got.ProducerModel != "claude-fable-5-1" {
+			if got.Profile.Model != "gpt-6-sol" || got.ProducerModel != "claude-fable-5-1" {
 				t.Fatalf("wrong separation: %#v", got)
 			}
 			if len(got.Excluded) != 1 || got.Excluded[0].Reason != "producer_model_conflict" || got.Excluded[0].Profile.Model != "claude-fable-5-1" {
@@ -39,7 +39,7 @@ func TestValidatorExcludesCanonicalProducerAndPreservesEvidence(t *testing.T) {
 }
 
 func TestValidatorFiltersMatchingFallbacksAndPinsAliases(t *testing.T) {
-	got, err := NewResolver(identityConfig()).ResolveDispatchRoleForProducer("validation", "openai:gpt-5.6-20260901")
+	got, err := NewResolver(identityConfig()).ResolveDispatchRoleForProducer("validation", "openai:gpt-6-20260901")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func crossLabConfig() *Config {
 			Tiers: map[string]DispatchProfile{
 				"opus":   {Backend: "claude", Model: "opus", ReasoningEffort: "high", Fallbacks: []string{"sonnet", "sol", "kimi"}},
 				"sonnet": {Backend: "claude", Model: "claude-sonnet-5", ReasoningEffort: "high"},
-				"sol":    {Backend: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high"},
+				"sol":    {Backend: "codex", Model: "gpt-6-sol", ReasoningEffort: "high"},
 				"kimi":   {Backend: "kimi", Model: "kimi-code/k3", ReasoningEffort: "high"},
 			},
 		},
@@ -140,7 +140,7 @@ func TestCrossLabFirstKeepsPolicyOrderForOtherLabWork(t *testing.T) {
 }
 
 func TestCrossLabFirstStillExcludesTheProducer(t *testing.T) {
-	got, err := NewResolver(crossLabConfig()).ResolveDispatchRoleForProducer("validation", "gpt-5.6-sol")
+	got, err := NewResolver(crossLabConfig()).ResolveDispatchRoleForProducer("validation", "gpt-6-sol")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestCrossLabFirstReorderCanLeaveThePrimaryUnchanged(t *testing.T) {
 	// stay untouched.
 	cfg.Reasoning.FrontierModels = append(cfg.Reasoning.FrontierModels, "kimi-code/k3")
 	cfg.Dispatch.Roles["validation"] = "sol"
-	cfg.Dispatch.Tiers["sol"] = DispatchProfile{Backend: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high", Fallbacks: []string{"opus", "sonnet", "kimi"}}
+	cfg.Dispatch.Tiers["sol"] = DispatchProfile{Backend: "codex", Model: "gpt-6-sol", ReasoningEffort: "high", Fallbacks: []string{"opus", "sonnet", "kimi"}}
 
 	got, err := NewResolver(cfg).ResolveDispatchRoleForProducer("validation", "claude-fable-5-1")
 	if err != nil {

@@ -34,7 +34,7 @@ func TestOperationalFailuresDoNotConsumeStrikes(t *testing.T) {
 func TestGovernedEscalationPreservesBackendAndEffort(t *testing.T) {
 	store, st := testStores(t)
 	ctx := context.Background()
-	m := "gpt-5.6-sol"
+	m := "gpt-6-sol"
 	id, _ := store.Create(ctx, &Dispatch{AgentType: "codex", ProjectDir: t.TempDir(), Model: &m})
 	store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{"exit_code": 1})
 	cfg := &routing.Config{PolicyHash: "fixture", Reasoning: routing.ReasoningPolicy{Strikes: 2, FrontierModels: []string{"claude-fable-5-1"}, FrontierReasons: []string{"capability-failure"}}, Dispatch: routing.DispatchConfig{Roles: map[string]string{"escalation": "frontier"}, Tiers: map[string]routing.DispatchProfile{"frontier": {Backend: "claude", Model: "claude-fable-5-1", ReasoningEffort: "high", ServiceTier: "standard"}}}}
@@ -63,7 +63,7 @@ func TestGovernedEscalationPreservesBackendAndEffort(t *testing.T) {
 func TestBlockedEscalationKeepsSingleStrikeReceipt(t *testing.T) {
 	store, st := testStores(t)
 	ctx := context.Background()
-	m := "gpt-5.6-sol"
+	m := "gpt-6-sol"
 	id, _ := store.Create(ctx, &Dispatch{AgentType: "codex", ProjectDir: t.TempDir(), Model: &m})
 	store.UpdateStatus(ctx, id, StatusFailed, UpdateFields{"exit_code": 1})
 	p := EscalationPolicyFromConfig(&routing.Config{Reasoning: routing.ReasoningPolicy{Strikes: 2, FrontierReasons: []string{"capability-failure"}}})
@@ -107,7 +107,7 @@ func TestGovernedSpawnRejectsUnverifiableContractBeforeAdmission(t *testing.T) {
 	store, _ := testStores(t)
 	d := &routing.ReasoningDecision{PolicySource: "/missing/routing.yaml", PolicyHash: "fake"}
 	d.RequestedRole = "planning"
-	d.Profile = routing.DispatchProfile{Backend: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high"}
+	d.Profile = routing.DispatchProfile{Backend: "codex", Model: "gpt-6-sol", ReasoningEffort: "high"}
 	_, err := Spawn(context.Background(), store, SpawnOptions{ProjectDir: t.TempDir(), PromptFile: "missing", Decision: d})
 	if err == nil || !strings.Contains(err.Error(), "reasoning contract") {
 		t.Fatalf("did not reject contract before other work: %v", err)

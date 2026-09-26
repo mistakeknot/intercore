@@ -37,7 +37,7 @@ func TestGovernedDecisionAdmitsDirectAndScheduled(t *testing.T) {
 dispatch:
   roles: {planning: sol, plan-review: fable}
   tiers:
-    sol: {model: gpt-5.6-sol, backend: codex, reasoning_effort: high, fallbacks: []}
+    sol: {model: gpt-6-sol, backend: codex, reasoning_effort: high, fallbacks: []}
     fable: {model: claude-fable-5-1, backend: claude, reasoning_effort: high, fallbacks: [astra]}
     astra: {model: gpt-6-astra, backend: codex, reasoning_effort: xhigh}
 `), 0600); err != nil {

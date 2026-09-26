@@ -37,7 +37,7 @@ dispatch:
   model_aliases: {fable: claude-fable-5-1}
   roles: {planning: sol, frontier-planning: astra, plan-review: fable, escalation: astra, routine-execution: sol, deep-execution: astra}
   tiers:
-    sol: {model: gpt-5.6-sol, backend: codex, reasoning_effort: high}
+    sol: {model: gpt-6-sol, backend: codex, reasoning_effort: high}
     astra: {model: gpt-6-astra, backend: codex, reasoning_effort: xhigh, fallbacks: [fable, sol]}
     fable: {model: fable, backend: claude, reasoning_effort: high, fallbacks: [astra, sol]}
 `), 0600)
@@ -68,7 +68,7 @@ func TestReasoningContract(t *testing.T) {
 	if err != nil || review.Profile.Model != "gpt-6-astra" || len(review.FallbackChain) != 0 {
 		t.Fatalf("independence: %+v, %v", review, err)
 	}
-	c.AvailableModels = []string{"gpt-5.6-sol"}
+	c.AvailableModels = []string{"gpt-6-sol"}
 	if _, err := r.ResolveDecision("planning", "", "", c); err == nil {
 		t.Fatal("silently downgraded without frontier access")
 	}
@@ -77,7 +77,7 @@ func TestReasoningContract(t *testing.T) {
 func TestReasoningJudgmentAndHandoff(t *testing.T) {
 	r := NewResolver(reasoningConfig(t))
 	got, err := r.ResolveDecision("planning", "", "", DecisionContext{Domain: "games"})
-	if err != nil || got.Profile.Model != "gpt-5.6-sol" {
+	if err != nil || got.Profile.Model != "gpt-6-sol" {
 		t.Fatalf("domain automatically elevated: %+v %v", got, err)
 	}
 	if _, err := r.ResolveDecision("planning", "", "", DecisionContext{Reasons: []string{"games"}, Rationale: "domain"}); err == nil {
@@ -90,7 +90,7 @@ func TestReasoningJudgmentAndHandoff(t *testing.T) {
 	}
 	c.Handoff = &ReasoningHandoff{Decisions: "frozen", Constraints: "bounded", Verification: "experiment acceptance", Escalation: "premise changes"}
 	got, err = r.ResolveDecision("routine-execution", "", "", c)
-	if err != nil || got.Profile.Model != "gpt-5.6-sol" {
+	if err != nil || got.Profile.Model != "gpt-6-sol" {
 		t.Fatalf("handoff rejected: %+v %v", got, err)
 	}
 	c.InvestigationActive = true
@@ -181,7 +181,7 @@ func crossLabConfigOpusFallsBackToSolFirst() *Config {
 			Tiers: map[string]DispatchProfile{
 				"opus":   {Backend: "claude", Model: "opus", ReasoningEffort: "high", Fallbacks: []string{"sol", "sonnet", "kimi"}},
 				"sonnet": {Backend: "claude", Model: "claude-sonnet-5", ReasoningEffort: "high"},
-				"sol":    {Backend: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high"},
+				"sol":    {Backend: "codex", Model: "gpt-6-sol", ReasoningEffort: "high"},
 				"kimi":   {Backend: "kimi", Model: "kimi-code/k3", ReasoningEffort: "high"},
 			},
 		},
@@ -195,13 +195,13 @@ func TestReasoningContractRestoresReasonWhenTrimmedReorderCollapsesToNil(t *test
 	// primary, was still excluded by the contract, so this must still read
 	// "reasoning_contract", not "" (comparing only against the post-reorder
 	// primary would wrongly clear it).
-	c := DecisionContext{AvailableModels: []string{"gpt-5.6-sol", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
+	c := DecisionContext{AvailableModels: []string{"gpt-6-sol", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
 	got, err := NewResolver(crossLabConfigOpusFallsBackToSolFirst()).ResolveDecision("validation", "claude-fable-5-1", "", c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Profile.Model != "gpt-5.6-sol" {
-		t.Fatalf("selected %q, want gpt-5.6-sol", got.Profile.Model)
+	if got.Profile.Model != "gpt-6-sol" {
+		t.Fatalf("selected %q, want gpt-6-sol", got.Profile.Model)
 	}
 	if got.CrossLabReorder != nil {
 		t.Fatalf("trimmed reorder should collapse to nil (Sol unmoved by exclusion): %#v", got.CrossLabReorder)
@@ -220,13 +220,13 @@ func TestReasoningContractStaysReasoningContractWhenTrimmedReorderKeepsSamePrima
 	// un-reordered policy primary, was excluded by the contract.
 	cfg := crossLabConfigOpusFallsBackToSolFirst()
 	cfg.Reasoning.FrontierModels = append(cfg.Reasoning.FrontierModels, "kimi-code/k3")
-	c := DecisionContext{AvailableModels: []string{"gpt-5.6-sol", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
+	c := DecisionContext{AvailableModels: []string{"gpt-6-sol", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
 	got, err := NewResolver(cfg).ResolveDecision("validation", "claude-fable-5-1", "", c)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Profile.Model != "gpt-5.6-sol" {
-		t.Fatalf("selected %q, want gpt-5.6-sol", got.Profile.Model)
+	if got.Profile.Model != "gpt-6-sol" {
+		t.Fatalf("selected %q, want gpt-6-sol", got.Profile.Model)
 	}
 	if got.CrossLabReorder == nil || got.CrossLabReorder.From[0] != got.CrossLabReorder.To[0] {
 		t.Fatalf("expected a surviving reorder with an unmoved primary: %#v", got.CrossLabReorder)
