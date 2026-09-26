@@ -243,15 +243,31 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 			d.CrossLabReorder = &reorder
 		}
 	}
+	// policyPrimary is the seat the policy would have picked before any
+	// cross-lab reorder ran, i.e. the pre-reorder identity.go primary. Both
+	// reasons below are decided against it, not against resolved.ProfileRef
+	// (already post-reorder) or the trimmed To[0] (which is always d.ProfileRef
+	// by construction, so comparing against it can never fire).
+	policyPrimary := resolved.ProfileRef
+	if resolved.CrossLabReorder != nil {
+		policyPrimary = resolved.CrossLabReorder.From[0]
+	}
 	// The contract filter above can exclude the very seat the reorder promoted
 	// to primary (e.g. it became unavailable). When that happens the trimmed
-	// reorder no longer names the current primary, so "cross_lab_reorder" would
-	// misreport why this profile was chosen; drop it and let the fallback
-	// check below attribute the change to the contract instead.
-	if d.FallbackReason == "cross_lab_reorder" && (d.CrossLabReorder == nil || d.CrossLabReorder.To[0] != d.ProfileRef) {
+	// reorder's From[0]==To[0] (the reorder no longer changes anything over the
+	// seats that remain), so "cross_lab_reorder" would misreport why this
+	// profile was chosen; drop it and let the check below attribute the change
+	// to the contract instead.
+	if d.FallbackReason == "cross_lab_reorder" {
 		d.FallbackReason = ""
+		if d.CrossLabReorder != nil && d.CrossLabReorder.From[0] != d.CrossLabReorder.To[0] {
+			d.FallbackReason = "cross_lab_reorder"
+		}
 	}
-	if d.ProfileRef != resolved.ProfileRef && d.FallbackReason == "" {
+	// A seat the reorder promoted (resolved.ProfileRef) being excluded by the
+	// contract is itself a reasoning-contract fallback, even when the final
+	// pick happens to equal the un-reordered policy primary.
+	if d.FallbackReason == "" && (d.ProfileRef != policyPrimary || d.ProfileRef != resolved.ProfileRef) {
 		d.FallbackReason = "reasoning_contract"
 	}
 	return d, nil
