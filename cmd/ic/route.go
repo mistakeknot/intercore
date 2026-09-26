@@ -442,6 +442,14 @@ func cmdRouteRecord(ctx context.Context, args []string) int {
 		ValidatorRelationship: f.String("validator-relationship", ""),
 		FallbackReason:        f.String("fallback-reason", ""),
 	}
+	if raw := f.String("cross-lab-reorder", ""); raw != "" {
+		var reorder routing.CandidateReorder
+		if err := json.Unmarshal([]byte(raw), &reorder); err != nil {
+			slog.Error("route record: invalid --cross-lab-reorder", "error", err)
+			return 3
+		}
+		contextFields.CrossLabReorder = &reorder
+	}
 	if opts.ContextJSON != "" || contextFields != (routing.DecisionContextFields{}) {
 		merged, err := routing.BuildDecisionContext(opts.ContextJSON, contextFields)
 		if err != nil {
