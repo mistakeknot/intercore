@@ -118,7 +118,17 @@ func (r *Resolver) ResolveDispatchRoleForProducer(role, producer string) (Resolv
 		return ResolvedDispatch{}, fmt.Errorf("role %q has no model distinct from producer %q", role, producer)
 	}
 	if producer != "" && slices.Contains(r.cfg.Dispatch.CrossLabFirst, role) {
+		primaryBeforeReorder := eligible[0].ProfileRef
 		eligible, resolved.CrossLabReorder = r.crossLabFirst(eligible, resolved.ProducerModel)
+		// A reorder can promote a different eligible candidate to primary. Record
+		// that as the fallback reason, but never clobber a reason already set
+		// above by the producer-conflict exclusion: that reason explains why the
+		// originally-first candidate was dropped at all, which is more important
+		// than the policy reordering that picked among what remained. When the
+		// reorder does not move the primary, FallbackReason is left untouched.
+		if eligible[0].ProfileRef != primaryBeforeReorder && resolved.FallbackReason == "" {
+			resolved.FallbackReason = "cross_lab_reorder"
+		}
 	}
 	resolved.ProfileRef, resolved.Profile = eligible[0].ProfileRef, eligible[0].Profile
 	resolved.FallbackChain = eligible[1:]
