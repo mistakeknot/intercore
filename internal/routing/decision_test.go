@@ -39,6 +39,49 @@ func TestBuildDecisionContextMergesRoleAuditFields(t *testing.T) {
 	}
 }
 
+func TestBuildDecisionContextMergesCrossLabReorder(t *testing.T) {
+	raw, err := BuildDecisionContext("", DecisionContextFields{
+		Role: "validation",
+		CrossLabReorder: &CandidateReorder{
+			From: []string{"opus", "sonnet", "sol", "kimi"},
+			To:   []string{"sol", "opus", "sonnet", "kimi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildDecisionContext: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	reorder, ok := got["cross_lab_reorder"].(map[string]any)
+	if !ok {
+		t.Fatalf("cross_lab_reorder missing or wrong shape: %#v", got["cross_lab_reorder"])
+	}
+	from, _ := reorder["from"].([]any)
+	to, _ := reorder["to"].([]any)
+	if len(from) != 4 || from[0] != "opus" {
+		t.Errorf("from = %#v", reorder["from"])
+	}
+	if len(to) != 4 || to[0] != "sol" {
+		t.Errorf("to = %#v", reorder["to"])
+	}
+}
+
+func TestBuildDecisionContextOmitsCrossLabReorderWhenNil(t *testing.T) {
+	raw, err := BuildDecisionContext("", DecisionContextFields{Role: "validation"})
+	if err != nil {
+		t.Fatalf("BuildDecisionContext: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+	if _, ok := got["cross_lab_reorder"]; ok {
+		t.Fatalf("cross_lab_reorder should be absent: %#v", got)
+	}
+}
+
 func TestBuildDecisionContextRejectsNonObjectJSON(t *testing.T) {
 	if _, err := BuildDecisionContext(`null`, DecisionContextFields{Role: "validation"}); err == nil {
 		t.Fatal("BuildDecisionContext accepted null JSON")
