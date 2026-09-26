@@ -232,6 +232,18 @@ func TestRouteBatchCalibrationPreservesTextAndNestsJSONMetadata(t *testing.T) {
 	}
 }
 
+func TestRouteRecordRejectsInvalidCrossLabReorderJSON(t *testing.T) {
+	code, _ := captureRouteStdout(t, func() int {
+		return cmdRouteRecord(context.Background(), []string{
+			"--agent=fd-safety", "--model=opus", "--rule=override",
+			"--cross-lab-reorder={not valid json",
+		})
+	})
+	if code != 3 {
+		t.Fatalf("expected exit 3 for invalid --cross-lab-reorder, got %d", code)
+	}
+}
+
 func TestRouteRoleCalibrationIsDiagnosticOnly(t *testing.T) {
 	dir := t.TempDir()
 	policy := filepath.Join(dir, "routing.yaml")
