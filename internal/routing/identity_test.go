@@ -180,3 +180,42 @@ func TestCrossLabFirstFallsBackToOpusWhenCodexIsOut(t *testing.T) {
 		t.Fatalf("opus producer order %v", refsOf(got.ResolvedDispatch))
 	}
 }
+
+func TestCrossLabFirstReorderCanLeaveThePrimaryUnchanged(t *testing.T) {
+	cfg := crossLabConfig()
+	// Give Sol frontier-lab company from a third lab (Moonshot/Kimi), and put
+	// Sol first in policy order. The reorder still promotes Kimi ahead of the
+	// same-lab Claude seats (a real order change, recorded below), but since
+	// Sol was already first, the primary never moves and FallbackReason must
+	// stay untouched.
+	cfg.Reasoning.FrontierModels = append(cfg.Reasoning.FrontierModels, "kimi-code/k3")
+	cfg.Dispatch.Roles["validation"] = "sol"
+	cfg.Dispatch.Tiers["sol"] = DispatchProfile{Backend: "codex", Model: "gpt-5.6-sol", ReasoningEffort: "high", Fallbacks: []string{"opus", "sonnet", "kimi"}}
+
+	got, err := NewResolver(cfg).ResolveDispatchRoleForProducer("validation", "claude-fable-5-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"sol", "kimi", "opus", "sonnet"}; !slices.Equal(refsOf(got), want) {
+		t.Fatalf("order %v, want %v", refsOf(got), want)
+	}
+	if got.CrossLabReorder == nil || !slices.Equal(got.CrossLabReorder.From, []string{"sol", "opus", "sonnet", "kimi"}) {
+		t.Fatalf("reorder not recorded: %#v", got.CrossLabReorder)
+	}
+	if got.FallbackReason != "" {
+		t.Fatalf("primary (sol) did not move; FallbackReason should stay empty, got %q", got.FallbackReason)
+	}
+}
+
+// TestModelLabRecognizesEveryCanonicalIdentityPrefix guards the invariant
+// validateFrontierModels' modelLab(id)=="" branch depends on: today every
+// identity CanonicalModelIdentity can return is also one modelLab recognizes,
+// making that branch defensive-only. If either prefix list changes without
+// the other, this fails instead of silently reopening the gap.
+func TestModelLabRecognizesEveryCanonicalIdentityPrefix(t *testing.T) {
+	for _, id := range []string{"gpt-6-astra", "claude-opus-5-5", "kimi-code/k3", "kimi/k3"} {
+		if modelLab(id) == "" {
+			t.Errorf("modelLab(%q) = \"\", want a recognized lab", id)
+		}
+	}
+}
