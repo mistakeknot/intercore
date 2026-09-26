@@ -17,6 +17,9 @@ type DecisionContextFields struct {
 	ProducerIdentity      string
 	ValidatorRelationship string
 	FallbackReason        string
+	// CrossLabReorder persists the cross-lab-first reordering, if any, so the
+	// audit trail records which candidates moved and why the primary changed.
+	CrossLabReorder *CandidateReorder
 }
 
 // BuildDecisionContext merges role-aware audit fields into an optional JSON
