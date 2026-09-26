@@ -233,14 +233,65 @@ func TestRouteBatchCalibrationPreservesTextAndNestsJSONMetadata(t *testing.T) {
 }
 
 func TestRouteRecordRejectsInvalidCrossLabReorderJSON(t *testing.T) {
+	for _, raw := range []string{
+		`{not valid json`,
+		`null`,
+		`{}`,
+		`{"from":[],"to":[]}`,
+		`{"from":["a","b"],"to":["a"]}`,       // not a permutation: different length
+		`{"from":["a","b"],"to":["a","c"]}`,   // not a permutation: different elements
+		`{"from":["a"],"to":["a"],"frm":[1]}`, // unknown field
+	} {
+		raw := raw
+		t.Run(raw, func(t *testing.T) {
+			code, _ := captureRouteStdout(t, func() int {
+				return cmdRouteRecord(context.Background(), []string{
+					"--agent=fd-safety", "--model=opus", "--rule=override",
+					"--cross-lab-reorder=" + raw,
+				})
+			})
+			if code != 3 {
+				t.Fatalf("expected exit 3 for --cross-lab-reorder=%s, got %d", raw, code)
+			}
+		})
+	}
+}
+
+func TestRouteRecordPersistsAndReadsBackCrossLabReorder(t *testing.T) {
+	setupCommandMetadataDB(t)
 	code, _ := captureRouteStdout(t, func() int {
 		return cmdRouteRecord(context.Background(), []string{
-			"--agent=fd-safety", "--model=opus", "--rule=override",
-			"--cross-lab-reorder={not valid json",
+			"--agent=fd-safety", "--model=claude-opus-5", "--rule=cross_lab_first",
+			`--cross-lab-reorder={"from":["opus","sonnet","sol","kimi"],"to":["sol","opus","sonnet","kimi"]}`,
 		})
 	})
-	if code != 3 {
-		t.Fatalf("expected exit 3 for invalid --cross-lab-reorder, got %d", code)
+	if code != 0 {
+		t.Fatalf("cmdRouteRecord rc = %d", code)
+	}
+
+	d, err := openDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	decisions, err := routing.NewDecisionStore(d.SqlDB()).List(context.Background(), routing.ListDecisionOpts{Agent: "fd-safety"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 1 || decisions[0].ContextJSON == nil {
+		t.Fatalf("decisions = %#v", decisions)
+	}
+	var context struct {
+		CrossLabReorder routing.CandidateReorder `json:"cross_lab_reorder"`
+	}
+	if err := json.Unmarshal([]byte(*decisions[0].ContextJSON), &context); err != nil {
+		t.Fatalf("unmarshal context_json: %v", err)
+	}
+	if want := []string{"sol", "opus", "sonnet", "kimi"}; len(context.CrossLabReorder.To) != len(want) || context.CrossLabReorder.To[0] != want[0] {
+		t.Fatalf("cross_lab_reorder.to = %#v, want %#v", context.CrossLabReorder.To, want)
+	}
+	if len(context.CrossLabReorder.From) != 4 || context.CrossLabReorder.From[0] != "opus" {
+		t.Fatalf("cross_lab_reorder.from = %#v", context.CrossLabReorder.From)
 	}
 }
 
