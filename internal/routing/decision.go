@@ -45,6 +45,9 @@ func BuildDecisionContext(raw string, fields DecisionContextFields) (string, err
 			contextMap[key] = value
 		}
 	}
+	if fields.CrossLabReorder != nil {
+		contextMap["cross_lab_reorder"] = fields.CrossLabReorder
+	}
 	encoded, err := json.Marshal(contextMap)
 	if err != nil {
 		return "", fmt.Errorf("encode routing decision context: %w", err)
