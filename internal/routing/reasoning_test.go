@@ -142,6 +142,28 @@ func TestPolicyPathPreservesSymlinkParentTraversal(t *testing.T) {
 	}
 }
 
+func TestReasoningContractRecomputesReasonWhenItExcludesTheReorderedPrimary(t *testing.T) {
+	// The cross-lab reorder promotes Sol (a non-Claude frontier lab) ahead of
+	// Opus for a Claude producer. But the reasoning contract's availability
+	// filter then drops Sol, reverting the primary to Opus — the same pick the
+	// unreordered policy would have made. "cross_lab_reorder" no longer
+	// explains that pick; it must be recomputed to "reasoning_contract".
+	c := DecisionContext{AvailableModels: []string{"claude-opus-5", "claude-sonnet-5", "kimi-code/k3", "claude-fable-5-1"}}
+	got, err := NewResolver(crossLabConfig()).ResolveDecision("validation", "claude-fable-5-1", "", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Profile.Model != "claude-opus-5" {
+		t.Fatalf("selected %q, want claude-opus-5", got.Profile.Model)
+	}
+	if got.CrossLabReorder != nil {
+		t.Fatalf("the promoted seat was excluded; no reorder should remain: %#v", got.CrossLabReorder)
+	}
+	if got.FallbackReason != "reasoning_contract" {
+		t.Fatalf("FallbackReason = %q, want reasoning_contract", got.FallbackReason)
+	}
+}
+
 func TestAlternateProfileIsScopedAndCannotDemoteFrontier(t *testing.T) {
 	cfg := reasoningConfig(t)
 	cfg.Reasoning.Profiles = map[string]PolicyProfile{"pilot": {Scope: "campaign", Roles: map[string]string{"frontier-planning": "sol"}}}
