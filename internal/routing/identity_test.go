@@ -134,6 +134,9 @@ func TestCrossLabFirstKeepsPolicyOrderForOtherLabWork(t *testing.T) {
 	if want := []string{"opus", "sonnet", "sol", "kimi"}; !slices.Equal(refsOf(got), want) || got.CrossLabReorder != nil {
 		t.Fatalf("order %v reorder %#v", refsOf(got), got.CrossLabReorder)
 	}
+	if got.FallbackReason != "" {
+		t.Fatalf("no reorder happened, FallbackReason should stay untouched: %q", got.FallbackReason)
+	}
 }
 
 func TestCrossLabFirstStillExcludesTheProducer(t *testing.T) {
