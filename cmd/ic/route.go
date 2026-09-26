@@ -475,9 +475,15 @@ func cmdRouteRecord(ctx context.Context, args []string) int {
 		// dec.More() only reports another element within the current array or
 		// object; it does not see trailing bytes after a complete top-level
 		// value (e.g. a stray "}" or a second JSON value). Reading one more
-		// token and requiring io.EOF catches both.
-		if _, err := dec.Token(); err != io.EOF {
-			slog.Error("route record: invalid --cross-lab-reorder", "error", fmt.Errorf("trailing data after JSON value: %v", err))
+		// token and requiring io.EOF catches both: a malformed trailing byte
+		// surfaces its own decode error, and a well-formed extra value simply
+		// succeeds in reading a token, so report that case explicitly instead
+		// of stringifying a nil error.
+		if tok, err := dec.Token(); err != io.EOF {
+			if err == nil {
+				err = fmt.Errorf("unexpected additional value starting with %v", tok)
+			}
+			slog.Error("route record: invalid --cross-lab-reorder", "error", fmt.Errorf("trailing data after JSON value: %w", err))
 			return 3
 		}
 		if len(reorder.From) == 0 || len(reorder.To) == 0 || !isPermutation(reorder.From, reorder.To) {
