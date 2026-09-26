@@ -217,7 +217,13 @@ reasoning:
 	}
 }
 
-func TestLoadConfigRejectsFrontierModelWithUnknownLab(t *testing.T) {
+func TestLoadConfigRejectsFrontierModelAliasedToUnresolvableIdentity(t *testing.T) {
+	// This exercises the same CanonicalModelIdentity failure as
+	// TestLoadConfigRejectsUnresolvableFrontierModel, but through a configured
+	// alias rather than a bare literal, so an unresolvable entry is still
+	// caught after alias expansion. It does not reach validateFrontierModels'
+	// modelLab(id)=="" branch — see TestModelLabRecognizesEveryCanonicalIdentityPrefix
+	// in identity_test.go for that invariant.
 	dir := t.TempDir()
 	routingYAML := `
 dispatch:
@@ -233,7 +239,7 @@ reasoning:
 
 	_, err := LoadConfig(routingPath, "")
 	if err == nil {
-		t.Fatal("expected error for frontier_models entry resolving to an unrecognized lab")
+		t.Fatal("expected error for frontier_models entry resolving to an unrecognized identity")
 	}
 	if !strings.Contains(err.Error(), "house-model") {
 		t.Errorf("error %q does not name the bad entry", err.Error())
