@@ -19,8 +19,12 @@ type EffortFloorApplication struct {
 	To         string   `json:"to"`
 }
 
-// EffortOverrideApplication identifies the resolved primary before ordinary
-// eligibility filtering. FinalEffort is nil when effort resolution failed.
+// EffortOverrideApplication records the override's target: the resolved primary
+// (candidate 0 of the expanded chain) before eligibility filtering. Applied,
+// Changed, and FinalEffort describe that target even if it is later excluded
+// for an unrelated reason. Callers must check d.EffortOverride.ProfileRef ==
+// d.ProfileRef to know whether it affected the dispatched candidate.
+// FinalEffort is nil when effort resolution failed.
 type EffortOverrideApplication struct {
 	ProfileRef  string  `json:"profile_ref"`
 	Requested   string  `json:"requested"`
