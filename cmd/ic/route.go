@@ -28,7 +28,7 @@ Subcommands:
   model   --phase=<p> --category=<c> --agent=<a> [--calibration=<path>]   Resolve a single model
   batch   --phase=<p> [--calibration=<path>] <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
-  dispatch --role=<name> [--policy=<path>] [--context-file=<json>] [--policy-profile=<name>] [--producer-identity=<id>] [--calibration=<path>] --json  Resolve independent role profiles
+  dispatch --role=<name> [--policy=<path>] [--context-file=<json>] [--effort-override=<level>] [--policy-profile=<name>] [--producer-identity=<id>] [--calibration=<path>] --json  Resolve independent role profiles
   identity --model=<id>                            Canonical model identity for review separation
   dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
   table   [--phase=<p>]                             Show full routing table
@@ -227,6 +227,10 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 	if tier == "" && subagentType == "" && len(f.Positionals) > 0 {
 		tier = f.Positionals[0]
 	}
+	if f.Has("effort-override") && (role == "" || f.String("effort-override", "") == "") {
+		fmt.Fprintln(os.Stderr, "--effort-override requires --role and a nonempty value (low, medium, high, xhigh)")
+		return 3
+	}
 
 	if role != "" {
 		cfg, err := loadSelectedRoutingConfig(f.String("policy", ""))
@@ -238,6 +242,10 @@ func cmdRouteDispatch(ctx context.Context, args []string) int {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 3
+		}
+		if f.Has("effort-override") {
+			effort := f.String("effort-override", "")
+			decisionContext.EffortOverride = &effort
 		}
 		resolver := routing.NewResolver(cfg)
 		resolved, err := resolver.ResolveDecision(role, f.String("producer-identity", ""), f.String("policy-profile", ""), decisionContext)

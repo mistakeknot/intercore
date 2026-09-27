@@ -3,9 +3,47 @@ package routing
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestLoadConfigEffortFloors(t *testing.T) {
+	for _, mapping := range []string{"", "  effort_floors: {}\n", "  effort_floors: {foundational-invariants: high, difficult-verification: high, capability-failure: high}\n"} {
+		p := filepath.Join(t.TempDir(), "routing.yaml")
+		if err := os.WriteFile(p, []byte("reasoning:\n  frontier_reasons: [foundational-invariants, difficult-verification, capability-failure]\ndispatch:\n"+mapping), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := LoadConfig(p, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(mapping, "foundational") {
+			want := map[string]string{"foundational-invariants": "high", "difficult-verification": "high", "capability-failure": "high"}
+			if !reflect.DeepEqual(cfg.Dispatch.EffortFloors, want) {
+				t.Fatalf("floors = %v", cfg.Dispatch.EffortFloors)
+			}
+		} else if len(cfg.Dispatch.EffortFloors) != 0 {
+			t.Fatalf("implicit floors: %v", cfg.Dispatch.EffortFloors)
+		}
+	}
+}
+
+func TestLoadConfigRejectsInvalidEffortFloors(t *testing.T) {
+	for _, entry := range []string{"foundational-invariant: high", "foundational-invariants: extreme", "foundational-invariants: ''"} {
+		t.Run(entry, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "routing.yaml")
+			if err := os.WriteFile(p, []byte("reasoning:\n  frontier_reasons: [foundational-invariants]\ndispatch:\n  effort_floors: {"+entry+"}\n"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadConfig(p, "")
+			key := strings.Split(entry, ":")[0]
+			if err == nil || !strings.Contains(err.Error(), "dispatch.effort_floors") || !strings.Contains(err.Error(), key) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
 
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()

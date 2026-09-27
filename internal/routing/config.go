@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -48,6 +49,7 @@ type PhaseConfig struct {
 
 // DispatchConfig holds Codex CLI dispatch tier routing.
 type DispatchConfig struct {
+	EffortFloors map[string]string          `yaml:"effort_floors"`
 	ModelAliases map[string]string          `yaml:"model_aliases"`
 	Roles        map[string]string          `yaml:"roles"`
 	Tiers        map[string]DispatchProfile `yaml:"tiers"`
@@ -167,8 +169,23 @@ func LoadConfig(routingPath, rolesPath string) (*Config, error) {
 	if err := cfg.validateFrontierModels(); err != nil {
 		return nil, err
 	}
+	if err := cfg.validateEffortFloors(); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+func (c *Config) validateEffortFloors() error {
+	for reason, effort := range c.Dispatch.EffortFloors {
+		if !slices.Contains(c.Reasoning.FrontierReasons, reason) {
+			return fmt.Errorf("dispatch.effort_floors entry %q: unknown classification reason", reason)
+		}
+		if !slices.Contains(effortLevels, effort) {
+			return fmt.Errorf("dispatch.effort_floors entry %q: unknown effort %q", reason, effort)
+		}
+	}
+	return nil
 }
 
 // validateFrontierModels fails config load loudly, naming the bad entry,

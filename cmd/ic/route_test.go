@@ -7,10 +7,144 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/mistakeknot/intercore/internal/routing"
 )
+
+func effortRoutePolicy(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "routing.yaml")
+	policy := `reasoning:
+  frontier_models: [gpt-6-astra, claude-opus-5]
+  frontier_reasons: [foundational-invariants]
+dispatch:
+  effort_floors: {foundational-invariants: high}
+  roles: {planning: astra, frontier-planning: astra}
+  tiers:
+    astra: {backend: codex, model: gpt-6-astra, reasoning_effort: high, fallbacks: [opus]}
+    opus: {backend: claude, model: claude-opus-5, reasoning_effort: medium}
+`
+	if err := os.WriteFile(path, []byte(policy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldJSON := flagJSON
+	flagJSON = true
+	t.Cleanup(func() { flagJSON = oldJSON })
+	return path
+}
+
+func effortRouteContext(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "context.json")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestRouteDispatchEffortOverrideJSON(t *testing.T) {
+	policy := effortRoutePolicy(t)
+	contextPath := effortRouteContext(t, `{"reasons":["foundational-invariants"],"rationale":"specified floor"}`)
+	for _, value := range []string{"medium", "high"} {
+		t.Run(value, func(t *testing.T) {
+			code, out := captureRouteStdout(t, func() int {
+				return cmdRouteDispatch(context.Background(), []string{"--policy=" + policy, "--role=planning", "--context-file=" + contextPath, "--effort-override=" + value})
+			})
+			if code != 0 {
+				t.Fatalf("code=%d, output=%s", code, out)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatal(err)
+			}
+			want := map[string]any{"profile_ref": "astra", "requested": value, "applied": true, "changed": value != "high", "from": "high", "to": value, "final_effort": "high"}
+			if !reflect.DeepEqual(got["effort_override"], want) {
+				t.Fatalf("override = %#v, want %#v", got["effort_override"], want)
+			}
+			var decision routing.ReasoningDecision
+			if err := json.Unmarshal(out, &decision); err != nil {
+				t.Fatal(err)
+			}
+			if decision.Profile.ReasoningEffort != "high" || decision.FallbackChain[0].Profile.ReasoningEffort != "high" || decision.Context.EffortOverride == nil || *decision.Context.EffortOverride != value {
+				t.Fatalf("decision = %s", out)
+			}
+			wantFloors := []routing.EffortFloorApplication{{ProfileRef: "opus", Reasons: []string{"foundational-invariants"}, From: "medium", To: "high"}}
+			if value == "medium" {
+				wantFloors = append([]routing.EffortFloorApplication{{ProfileRef: "astra", Reasons: []string{"foundational-invariants"}, From: "medium", To: "high"}}, wantFloors...)
+			}
+			if !reflect.DeepEqual(decision.EffortFloorsApplied, wantFloors) {
+				t.Fatalf("floors = %+v", decision.EffortFloorsApplied)
+			}
+		})
+	}
+}
+
+func TestRouteDispatchEffortOverrideContextPrecedence(t *testing.T) {
+	policy := effortRoutePolicy(t)
+	for _, tc := range []struct{ name, context, flag, want string }{
+		{"context-only", `{"effort_override":"medium"}`, "", "medium"},
+		{"cli-wins", `{"effort_override":"medium"}`, "xhigh", "xhigh"},
+		{"cli-replaces-invalid", `{"effort_override":"invalid"}`, "low", "low"},
+		{"null", `{"effort_override":null}`, "", "high"},
+		{"omitted", `{}`, "", "high"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			args := []string{"--policy=" + policy, "--role=planning", "--context-file=" + effortRouteContext(t, tc.context)}
+			if tc.flag != "" {
+				args = append(args, "--effort-override="+tc.flag)
+			}
+			code, out := captureRouteStdout(t, func() int { return cmdRouteDispatch(context.Background(), args) })
+			if code != 0 {
+				t.Fatalf("code=%d, output=%s", code, out)
+			}
+			var got routing.ReasoningDecision
+			if err := json.Unmarshal(out, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Profile.ReasoningEffort != tc.want || got.FallbackChain[0].Profile.ReasoningEffort != "medium" {
+				t.Fatalf("decision = %s", out)
+			}
+			if tc.name == "null" || tc.name == "omitted" {
+				if bytes.Contains(out, []byte(`"effort_override"`)) {
+					t.Fatalf("absent override serialized: %s", out)
+				}
+			} else if got.EffortOverride == nil || got.EffortOverride.Requested != tc.want {
+				t.Fatalf("receipt = %s", out)
+			}
+		})
+	}
+}
+
+func TestRouteDispatchEffortOverrideRejectsInvalidUsage(t *testing.T) {
+	policy := effortRoutePolicy(t)
+	for _, tc := range []struct {
+		name string
+		args []string
+		code int
+	}{
+		{"bare", []string{"--role=planning", "--effort-override"}, 3},
+		{"empty", []string{"--role=planning", "--effort-override="}, 3},
+		{"unknown", []string{"--role=planning", "--effort-override=extreme"}, 1},
+		{"no-role", []string{"--effort-override=high"}, 3},
+		{"tier", []string{"--tier=astra", "--effort-override=high"}, 3},
+		{"type", []string{"--type=review", "--effort-override=high"}, 3},
+		{"positional-tier", []string{"astra", "--effort-override=high"}, 3},
+		{"empty-context", []string{"--role=planning", "--context-file=" + effortRouteContext(t, `{"effort_override":""}`)}, 1},
+		{"strict-context", []string{"--role=planning", "--context-file=" + effortRouteContext(t, `{"effort_overrid":"high"}`)}, 3},
+		{"all-excluded", []string{"--role=planning", "--effort-override=high", "--context-file=" + effortRouteContext(t, `{"available_models":[]}`)}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			code, out := captureRouteStdout(t, func() int {
+				return cmdRouteDispatch(context.Background(), append([]string{"--policy=" + policy}, tc.args...))
+			})
+			if code != tc.code || len(out) != 0 {
+				t.Fatalf("code=%d, want %d; output=%s", code, tc.code, out)
+			}
+		})
+	}
+}
 
 func captureRouteStdout(t *testing.T, fn func() int) (int, []byte) {
 	t.Helper()

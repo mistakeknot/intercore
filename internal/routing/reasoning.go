@@ -33,6 +33,7 @@ func (h *ReasoningHandoff) Ready() bool {
 }
 
 type DecisionContext struct {
+	EffortOverride      *string           `json:"effort_override,omitempty"`
 	Reasons             []string          `json:"reasons"`
 	Rationale           string            `json:"rationale"`
 	Domain              string            `json:"domain,omitempty"`
@@ -44,14 +45,16 @@ type DecisionContext struct {
 }
 type ReasoningDecision struct {
 	ResolvedDispatch
-	Calibration           *CalibrationMetadata `json:"calibration,omitempty"`
-	PolicySource          string               `json:"policy_source"`
-	PolicyHash            string               `json:"policy_hash"`
-	PolicyProfile         string               `json:"policy_profile"`
-	ClassificationReasons []string             `json:"classification_reasons"`
-	ReviewRequirement     string               `json:"review_requirement"`
-	FrontierRequired      bool                 `json:"frontier_required"`
-	Context               DecisionContext      `json:"decision_context"`
+	EffortFloorsApplied   []EffortFloorApplication   `json:"effort_floors_applied,omitempty"`
+	EffortOverride        *EffortOverrideApplication `json:"effort_override,omitempty"`
+	Calibration           *CalibrationMetadata       `json:"calibration,omitempty"`
+	PolicySource          string                     `json:"policy_source"`
+	PolicyHash            string                     `json:"policy_hash"`
+	PolicyProfile         string                     `json:"policy_profile"`
+	ClassificationReasons []string                   `json:"classification_reasons"`
+	ReviewRequirement     string                     `json:"review_requirement"`
+	FrontierRequired      bool                       `json:"frontier_required"`
+	Context               DecisionContext            `json:"decision_context"`
 }
 
 // ResolvePolicyPath uses an explicitly selected installation before legacy CWD
@@ -130,6 +133,12 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 	if d.ClassificationReasons == nil {
 		d.ClassificationReasons = []string{}
 	}
+	if err := r.cfg.validateEffortFloors(); err != nil {
+		return d, err
+	}
+	if c.EffortOverride != nil && !slices.Contains(effortLevels, *c.EffortOverride) {
+		return d, fmt.Errorf("invalid effort_override %q", *c.EffortOverride)
+	}
 	policy := r.cfg.Reasoning
 	if len(c.Reasons) > 0 && strings.TrimSpace(c.Rationale) == "" {
 		return d, fmt.Errorf("classification requires rationale")
@@ -206,7 +215,7 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 		frontier[id] = true
 	}
 	eligible := []DispatchCandidate{}
-	for _, candidate := range candidates {
+	for i, candidate := range candidates {
 		reason := ""
 		if d.FrontierRequired && !frontier[candidate.Profile.ModelIdentity] {
 			reason = "frontier_required"
@@ -214,16 +223,54 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 		if reason == "" && c.AvailableModels != nil && !available[candidate.Profile.ModelIdentity] {
 			reason = "model_unavailable"
 		}
+		var override *EffortOverrideApplication
+		if i == 0 && c.EffortOverride != nil {
+			override = &EffortOverrideApplication{
+				ProfileRef: candidate.ProfileRef, Requested: *c.EffortOverride,
+				From: candidate.Profile.ReasoningEffort, To: candidate.Profile.ReasoningEffort,
+			}
+			d.EffortOverride = override
+		}
+		if candidate.Profile.Backend == "" || candidate.Profile.Model == "" || candidate.Profile.ReasoningEffort == "" {
+			if reason != "" {
+				d.Excluded = append(d.Excluded, ExcludedDispatchCandidate{candidate, reason})
+				continue
+			}
+			return d, fmt.Errorf("incomplete profile %q", candidate.ProfileRef)
+		}
+		if override != nil {
+			order, known := effortOrder(candidate.Profile)
+			if !known || !slices.Contains(order, override.Requested) {
+				reason = "unsupported_adapter"
+			} else {
+				candidate.Profile.ReasoningEffort = override.Requested
+				override.Applied = true
+				override.Changed = override.From != override.Requested
+				override.To = override.Requested
+			}
+		}
+		before := candidate.Profile.ReasoningEffort
+		profile, raisedBy, effortErr := applyEffortFloor(candidate.Profile, c.Reasons, cfg.Dispatch.EffortFloors)
+		if effortErr != nil {
+			reason = "unsupported_adapter"
+		} else {
+			candidate.Profile = profile
+			if len(raisedBy) > 0 {
+				d.EffortFloorsApplied = append(d.EffortFloorsApplied, EffortFloorApplication{candidate.ProfileRef, raisedBy, before, profile.ReasoningEffort})
+			}
+		}
+		if override != nil && override.Applied && effortErr == nil {
+			final := candidate.Profile.ReasoningEffort
+			override.FinalEffort = &final
+		}
 		if reason != "" {
 			d.Excluded = append(d.Excluded, ExcludedDispatchCandidate{candidate, reason})
 			continue
 		}
-		if candidate.Profile.Backend == "" || candidate.Profile.Model == "" || candidate.Profile.ReasoningEffort == "" {
-			return d, fmt.Errorf("incomplete profile %q", candidate.ProfileRef)
-		}
 		eligible = append(eligible, candidate)
 	}
 	if len(eligible) == 0 {
+		d.ProfileRef, d.Profile, d.FallbackChain = "", DispatchProfile{}, nil
 		return d, fmt.Errorf("role %q: no eligible model satisfies reasoning contract", role)
 	}
 	d.ProfileRef, d.Profile = eligible[0].ProfileRef, eligible[0].Profile
