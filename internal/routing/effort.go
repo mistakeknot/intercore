@@ -37,6 +37,7 @@ type EffortOverrideApplication struct {
 
 var backendEffortOrders = map[string][]string{
 	"codex/gpt-6-*":          {"low", "medium", "high", "xhigh"},
+	"codex/gpt-6.1-*":        {"low", "medium", "high", "xhigh"},
 	"claude/claude-opus-*":   {"medium", "high"},
 	"claude/claude-sonnet-*": {"medium", "high"},
 	"kimi/kimi-code/k3":      {"high"},
@@ -47,6 +48,11 @@ func effortOrder(profile DispatchProfile) ([]string, bool) {
 	switch {
 	case profile.Backend == "codex" && strings.HasPrefix(profile.ModelIdentity, "gpt-6-"):
 		key = "codex/gpt-6-*"
+	case profile.Backend == "codex" && strings.HasPrefix(profile.ModelIdentity, "gpt-6.1-"):
+		// mk-51s7: "gpt-6." does not match the "gpt-6-" prefix above, so
+		// without this case every effort floor on a GPT-6.1 seat is excluded as
+		// unsupported_adapter. Same low..xhigh ladder as GPT-6 (codex model catalog).
+		key = "codex/gpt-6.1-*"
 	case profile.Backend == "claude" && strings.HasPrefix(profile.ModelIdentity, "claude-opus-"):
 		key = "claude/claude-opus-*"
 	case profile.Backend == "claude" && strings.HasPrefix(profile.ModelIdentity, "claude-sonnet-"):

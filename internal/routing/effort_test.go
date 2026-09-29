@@ -12,6 +12,7 @@ func TestEffortOrderBackendCapabilities(t *testing.T) {
 	}{
 		{"codex", "gpt-6-astra", []string{"low", "medium", "high", "xhigh"}},
 		{"codex", "gpt-6-sol", []string{"low", "medium", "high", "xhigh"}},
+		{"codex", "gpt-6.1-sol", []string{"low", "medium", "high", "xhigh"}},
 		{"claude", "claude-opus-5", []string{"medium", "high"}},
 		{"claude", "claude-sonnet-5", []string{"medium", "high"}},
 		{"kimi", "kimi-code/k3", []string{"high"}},
