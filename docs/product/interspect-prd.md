@@ -4,10 +4,6 @@
 **Date:** 2026-02-15
 **Status:** Pre-implementation
 **Owner:** Clavain hub
-**Design doc:** `hub/clavain/docs/plans/2026-02-15-interspect-design.md`
-**Reviews:** `docs/research/fd-*-review-interspect.md` (7 agents)
-**Oracle review:** `docs/research/oracle-interspect-review.md`
-**Research:** `docs/research/research-self-improving-ai-systems.md`
 
 > **Current-state note (2026-03-05).** This PRD is still directionally valid, but the measurement substrate is less settled than the surrounding prose implies. `ic events tail` is not yet the full measurement read model, `review_events` lose fidelity when projected into the generic bus, `interspect_events` still live on a typed side path, session->bead->run attribution is still being hardened, and the north-star landed-change denominator is not yet canonical. Treat raw fact preservation and attribution integrity as prerequisites for autonomy-grade learning. See `docs/research/interspect-event-validity-and-outcome-attribution.md`.
 
@@ -197,10 +193,4 @@ Until the landed-change denominator and attribution chain are canonicalized, tre
 
 ## 9. Cross-References
 
-- **Design:** `hub/clavain/docs/plans/2026-02-15-interspect-design.md`
-- **Reviews:** `docs/research/fd-*-review-interspect.md`
-- **Oracle review:** `docs/research/oracle-interspect-review.md`
-- **Research:** `docs/research/research-self-improving-ai-systems.md`
 - **Roadmap:** `docs/product/interspect-roadmap.md`
-- **Feasibility:** `docs/research/research-implementation-feasibility.md`
-- **Measurement validity / attribution:** `docs/research/interspect-event-validity-and-outcome-attribution.md`

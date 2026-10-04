@@ -38,4 +38,4 @@ decisions: []
 
 intercore is the kernel the rest of the agency writes its state into: runs, phases, gates, dispatches, events and token budgets, recorded durably so the layers above can stop and resume without losing their place.
 
-Drafted by an agent from in-repo citations while working bead mk-qozg and confirmed by mk on 2026-09-14. `cuj` and `success` are declined because nothing in the repo supports them yet.
+Drafted by an agent from in-repo citations while working a tracked item and confirmed by mk on 2026-09-14. `cuj` and `success` are declined because nothing in the repo supports them yet.

@@ -107,7 +107,7 @@ func checkPluginMarketplaceDrift(result *DoctorResult, mktVersions map[string]st
 			role := CurrentPublishRole()
 
 			// A local checkout that TRAILS the marketplace is the normal steady
-			// state on a machine that does not publish (mk-ldnb). Reporting 21
+			// state on a machine that does not publish. Reporting 21
 			// of those as errors trains everyone to ignore doctor output.
 			if !localIsNewer && role == RoleVerifier {
 				result.Findings = append(result.Findings, Finding{
@@ -169,7 +169,7 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 		instVer := entries[0].Version
 		if instVer != mktVer {
 			// Severity depends on DIRECTION, and the asymmetry is the whole
-			// point (mk-fkfr).
+			// point.
 			//
 			// installed BEHIND marketplace is the normal, expected steady state
 			// between a publish and the next Claude Code restart -- Claude Code

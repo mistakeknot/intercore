@@ -3,7 +3,7 @@
 **Version:** 1.8
 **Date:** 2026-02-22
 **Status:** Draft
-**See also:** [Architecture diagram](../../../../docs/architecture.md) | [Compatibility contract](../../COMPATIBILITY.md)
+**See also:** [Compatibility contract](../../COMPATIBILITY.md)
 
 ---
 

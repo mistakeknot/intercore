@@ -1,7 +1,6 @@
 // Package goal implements the first-class Goal entity: a durable unit of
 // intent that contains runs, carries a machine-evaluable completion
 // condition, and closes through a fenced, per-step terminal sequence.
-// Design: docs/brainstorms/2026-07-18-goal-native-cycle-brainstorm.md KD 1/3/8.
 package goal
 
 import (

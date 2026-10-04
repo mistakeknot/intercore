@@ -4,7 +4,6 @@
 **Date:** 2026-02-15
 **PRD:** `docs/product/interspect-prd.md`
 **Roadmap:** `docs/product/interspect-roadmap.md`
-**Oracle review:** `docs/research/oracle-interspect-review.md`
 
 ---
 

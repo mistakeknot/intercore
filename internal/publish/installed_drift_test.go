@@ -31,7 +31,7 @@ func writeInstalled(t *testing.T, home string, versions map[string]string) {
 	}
 }
 
-// TestCheckInstalledDrift_SeverityDependsOnDirection pins the mk-fkfr decision.
+// TestCheckInstalledDrift_SeverityDependsOnDirection pins the drift-severity decision.
 //
 // A trailing install is the normal state between a publish and the next Claude
 // Code restart and self-heals, so it must not be an error -- seven such findings

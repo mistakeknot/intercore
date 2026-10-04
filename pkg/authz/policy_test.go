@@ -79,7 +79,7 @@ func TestRecord_InsertsRowWithPolicyHash(t *testing.T) {
 	err := Record(db, RecordArgs{
 		ID:          "authz-1",
 		OpType:      "bead-close",
-		Target:      "sylveste-qdqr",
+		Target:      "bd-qdqr",
 		AgentID:     "codex",
 		Mode:        "auto",
 		PolicyMatch: "bead-close#0",

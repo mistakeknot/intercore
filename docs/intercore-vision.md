@@ -1,1 +1,1 @@
-prds/2026-02-19-intercore-vision-roadmap.md
+product/intercore-vision.md

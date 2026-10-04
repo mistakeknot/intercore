@@ -1,5 +1,4 @@
--- v40: dispatch terminal records (mk-qozg; contract
--- docs/plans/2026-09-14-mk-qozg-completion-contract.md §4).
+-- v40: dispatch terminal records (contract: dispatch completion contract §4)
 -- One immutable terminal record per dispatch, written in the same transaction
 -- as the status change and its terminal event. Supervision state, cancel
 -- intents, consumption acknowledgements and delivery audit rows serve the

@@ -3,8 +3,6 @@
 **Version:** 2.0 (post-Oracle review)
 **Date:** 2026-02-15
 **PRD:** `docs/product/interspect-prd.md`
-**Design:** `hub/clavain/docs/plans/2026-02-15-interspect-design.md`
-**Oracle review:** `docs/research/oracle-interspect-review.md`
 
 ---
 
@@ -30,23 +28,23 @@ Reporting            Canary Alerting        Shadow Testing
 
 ### Week 1-2: Foundation
 
-| Task | Bead | Description |
-|------|------|-------------|
-| SQLite schema + init | iv-o4x7 | Create `.clavain/interspect/interspect.db` with evidence, sessions, canary, modifications tables. WAL mode. Init script idempotent. |
-| Evidence collection hook | iv-ev9d | PostToolUse hook for `/resolve` dismissals. Writes to SQLite via `sqlite3` CLI. |
-| Session lifecycle hooks | iv-c38n | Extend session-start.sh to write session start event. Add session-end event to Stop hook. Non-blocking (not in critical path). |
-| `/interspect:correction` command | iv-i2fr | Explicit signal command: `<agent> <description>`. Writes `agent_wrong` event to evidence. Sole mechanism for human override signals. |
+| Task | Description |
+|------|-------------|
+| SQLite schema + init | Create `.clavain/interspect/interspect.db` with evidence, sessions, canary, modifications tables. WAL mode. Init script idempotent. |
+| Evidence collection hook | PostToolUse hook for `/resolve` dismissals. Writes to SQLite via `sqlite3` CLI. |
+| Session lifecycle hooks | Extend session-start.sh to write session start event. Add session-end event to Stop hook. Non-blocking (not in critical path). |
+| `/interspect:correction` command | Explicit signal command: `<agent> <description>`. Writes `agent_wrong` event to evidence. Sole mechanism for human override signals. |
 
 ### Week 3-4: Reporting
 
-| Task | Bead | Description |
-|------|------|-------------|
-| `/interspect` command | iv-t7f3 | Pattern detection: query evidence store, group by agent + event type, compute frequencies. Show suggested tunings with counting-rule thresholds. |
-| `/interspect:status` command | iv-qeu0 | Show modification history, canary state, metrics vs baseline for a component. |
-| `/interspect:evidence` command | iv-jcjz | Human-readable evidence summary for an agent. Query + format. |
-| `/interspect:health` command | iv-lb0f | Signal status dashboard: which collection points are active, evidence counts, staleness. |
-| Session-start summary | iv-m6cd | Inject "Interspect: N overlays active, M canaries monitoring" via SessionStart hook. Non-blocking. |
-| Evidence sanitization | iv-sw17 | Strip control chars, truncate to 500 chars, reject injection patterns, tag with hook_id for provenance. |
+| Task | Description |
+|------|-------------|
+| `/interspect` command | Pattern detection: query evidence store, group by agent + event type, compute frequencies. Show suggested tunings with counting-rule thresholds. |
+| `/interspect:status` command | Show modification history, canary state, metrics vs baseline for a component. |
+| `/interspect:evidence` command | Human-readable evidence summary for an agent. Query + format. |
+| `/interspect:health` command | Signal status dashboard: which collection points are active, evidence counts, staleness. |
+| Session-start summary | Inject "Interspect: N overlays active, M canaries monitoring" via SessionStart hook. Non-blocking. |
+| Evidence sanitization | Strip control chars, truncate to 500 chars, reject injection patterns, tag with hook_id for provenance. |
 
 ### Phase 1 Deliverables
 - Working evidence store collecting real data
@@ -63,25 +61,25 @@ Reporting            Canary Alerting        Shadow Testing
 
 ### Week 5-6: Overlay System
 
-| Task | Bead | Description |
-|------|------|-------------|
-| Counting-rule confidence gate | iv-2nt4 | Simple threshold: >=3 sessions AND >=2 projects AND >=N events of same typed pattern. No weighted formula — calibrate from real data later. |
-| Protected paths manifest | iv-i03k | Create `.clavain/interspect/protected-paths.json` with allow-list and protected list. Mechanical enforcement. |
-| Git pre-commit hook | iv-nrnh | Reject `[interspect]` commits touching protected paths. |
-| Overlay system (Type 1) | iv-vrc4 | Feature-flag prompt overlays: `.clavain/interspect/overlays/<agent>/<overlay-id>.md`. Runtime concatenation: base prompt + active overlays. Rollback = disable overlay. 500-token budget per overlay. |
-| Routing overrides (Type 2) | iv-nkak | Per-project `routing-overrides.json` for agent exclusions. Enable/disable artifacts, not prompt edits. |
-| Git operation serialization | iv-jkce | `flock` wrapper for all git add/commit operations. Concurrent session safety. |
-| Secret detection | iv-fbrx | Grep for credential patterns in evidence before insertion. Redact matches. |
+| Task | Description |
+|------|-------------|
+| Counting-rule confidence gate | Simple threshold: >=3 sessions AND >=2 projects AND >=N events of same typed pattern. No weighted formula — calibrate from real data later. |
+| Protected paths manifest | Create `.clavain/interspect/protected-paths.json` with allow-list and protected list. Mechanical enforcement. |
+| Git pre-commit hook | Reject `[interspect]` commits touching protected paths. |
+| Overlay system (Type 1) | Feature-flag prompt overlays: `.clavain/interspect/overlays/<agent>/<overlay-id>.md`. Runtime concatenation: base prompt + active overlays. Rollback = disable overlay. 500-token budget per overlay. |
+| Routing overrides (Type 2) | Per-project `routing-overrides.json` for agent exclusions. Enable/disable artifacts, not prompt edits. |
+| Git operation serialization | `flock` wrapper for all git add/commit operations. Concurrent session safety. |
+| Secret detection | Grep for credential patterns in evidence before insertion. Redact matches. |
 
 ### Week 7-8: Canary + UX
 
-| Task | Bead | Description |
-|------|------|-------------|
-| Canary monitoring (detect + alert) | iv-cylo | SQLite canary records. 20-use/14-day windows. Three metrics: override rate, FP rate, finding density. Rolling baseline. **Alert on degradation, do not auto-revert.** |
-| `/interspect:revert` command | iv-ukct | One-command revert of overlay/routing change + blacklist pattern. Manual trigger only. |
-| Structured commit message format | iv-88yg | `[interspect]` commits with type, target, evidence summary, confidence. Parseable for audit. |
-| Statusline integration | iv-sisi | Interline: `[inspect:canary(fd-safety)]` showing active canary count and any degradation alerts. |
-| Global rate limiter | iv-003t | Max 5 modifications per 10 sessions. System-wide circuit breaker. |
+| Task | Description |
+|------|-------------|
+| Canary monitoring (detect + alert) | SQLite canary records. 20-use/14-day windows. Three metrics: override rate, FP rate, finding density. Rolling baseline. **Alert on degradation, do not auto-revert.** |
+| `/interspect:revert` command | One-command revert of overlay/routing change + blacklist pattern. Manual trigger only. |
+| Structured commit message format | `[interspect]` commits with type, target, evidence summary, confidence. Parseable for audit. |
+| Statusline integration | Interline: `[inspect:canary(fd-safety)]` showing active canary count and any degradation alerts. |
+| Global rate limiter | Max 5 modifications per 10 sessions. System-wide circuit breaker. |
 
 ### Phase 2 Deliverables
 - Overlay system (Type 1) and routing overrides (Type 2) in propose mode
@@ -100,23 +98,23 @@ Reporting            Canary Alerting        Shadow Testing
 
 ### Week 9-11: Autonomy + Evals
 
-| Task | Bead | Description |
-|------|------|-------------|
-| Autonomous mode flag | iv-5su3 | `/interspect:enable-autonomy` and `:disable-autonomy`. Flag in protected manifest. Low/medium-risk overlays auto-apply with canary. |
-| Eval corpus construction | iv-izth | Build eval suite from production reviews — real failure modes, not synthetic tests. **Hard prerequisite for Type 3.** No eval corpus = no prompt tuning. |
-| Counterfactual shadow evaluation | iv-435u | Run candidate overlay/routing in shadow path on real invocations. Log "would-have-changed" deltas. Changes must win in shadow eval before auto-applying. |
-| Prompt tuning (Type 3) in propose mode | iv-t1m4 | Overlay-based: `.clavain/interspect/overlays/<agent>/` (not direct `.md` edits). Galiana recall cross-check required. Eval corpus required. Rare agents = propose-only permanently. |
+| Task | Description |
+|------|-------------|
+| Autonomous mode flag | `/interspect:enable-autonomy` and `:disable-autonomy`. Flag in protected manifest. Low/medium-risk overlays auto-apply with canary. |
+| Eval corpus construction | Build eval suite from production reviews — real failure modes, not synthetic tests. **Hard prerequisite for Type 3.** No eval corpus = no prompt tuning. |
+| Counterfactual shadow evaluation | Run candidate overlay/routing in shadow path on real invocations. Log "would-have-changed" deltas. Changes must win in shadow eval before auto-applying. |
+| Prompt tuning (Type 3) in propose mode | Overlay-based: `.clavain/interspect/overlays/<agent>/` (not direct `.md` edits). Galiana recall cross-check required. Eval corpus required. Rare agents = propose-only permanently. |
 
 ### Week 12-14: Safety Hardening + Meta-Learning
 
-| Task | Bead | Description |
-|------|------|-------------|
-| Privilege separation | iv-drgo | Split into unprivileged proposer (writes to staging dir only) + privileged applier (allowlisted patch format). Proposer cannot write to repo. |
-| Meta-learning loop | iv-rafa | Modification outcomes as evidence. Root-cause taxonomy. Successful modifications lower future risk; reverted ones raise it. |
-| Circuit breaker | iv-0fi2 | 3 reverts in 30 days disables target. Files beads issue. `/interspect:unblock` to re-enable. |
-| Conflict detection | iv-bj0w | Same target modified-then-reverted by different evidence patterns -> escalate to human. |
-| `/interspect:reset` command | iv-g0to | Revert all active overlays, archive evidence. Nuclear option with confirmation. |
-| `/interspect:disable` command | iv-c2b4 | Pause all interspect activity. Hooks check disable flag and no-op. |
+| Task | Description |
+|------|-------------|
+| Privilege separation | Split into unprivileged proposer (writes to staging dir only) + privileged applier (allowlisted patch format). Proposer cannot write to repo. |
+| Meta-learning loop | Modification outcomes as evidence. Root-cause taxonomy. Successful modifications lower future risk; reverted ones raise it. |
+| Circuit breaker | 3 reverts in 30 days disables target. Files beads issue. `/interspect:unblock` to re-enable. |
+| Conflict detection | Same target modified-then-reverted by different evidence patterns -> escalate to human. |
+| `/interspect:reset` command | Revert all active overlays, archive evidence. Nuclear option with confirmation. |
+| `/interspect:disable` command | Pause all interspect activity. Hooks check disable flag and no-op. |
 
 ### Phase 3 Deliverables
 - Autonomous mode for Types 1-2 (overlays + routing) with counterfactual shadow evaluation
@@ -146,16 +144,16 @@ Reporting            Canary Alerting        Shadow Testing
 
 These must be addressed in the design doc before implementation begins:
 
-| # | Issue | Action | Bead |
-|---|-------|--------|------|
-| 1 | AskUserQuestion response capture infeasible | Update design SS3.1.4: remove claim, confirm `/interspect:correction` as sole override signal | iv-3jir |
-| 2 | Tier 1 session-scoped mods cut (Oracle rec) | Remove Tier 1 from design. Log patterns but don't auto-adjust mid-session | iv-qhdc |
-| 3 | Sidecar injection -> overlay system | Replace sidecar mechanism with overlay file system: `.clavain/interspect/overlays/<agent>/` with runtime concatenation | iv-84m3 |
-| 4 | Success metrics absent | Add SS5.5 with the 5 metrics from PRD SS6 | iv-2hm5 |
-| 5 | Flux-drive integration contract | Update interflux to document overlay consumption and routing-overrides.json | iv-0dha |
-| 6 | Git operation serialization missing | Add flock wrapper for git operations | iv-u80a |
-| 7 | Add privilege separation design | New subsection: proposer/applier split with allowlisted patch format | iv-3pje |
-| 8 | Confidence function -> counting rules | Replace weighted formula with simple thresholds (>=3 sessions, >=2 projects, >=N events) | *(covered by iv-2nt4 update)* |
+| # | Issue | Action |
+|---|-------|--------|
+| 1 | AskUserQuestion response capture infeasible | Update design SS3.1.4: remove claim, confirm `/interspect:correction` as sole override signal |
+| 2 | Tier 1 session-scoped mods cut (Oracle rec) | Remove Tier 1 from design. Log patterns but don't auto-adjust mid-session |
+| 3 | Sidecar injection -> overlay system | Replace sidecar mechanism with overlay file system: `.clavain/interspect/overlays/<agent>/` with runtime concatenation |
+| 4 | Success metrics absent | Add SS5.5 with the 5 metrics from PRD SS6 |
+| 5 | Flux-drive integration contract | Update interflux to document overlay consumption and routing-overrides.json |
+| 6 | Git operation serialization missing | Add flock wrapper for git operations |
+| 7 | Add privilege separation design | New subsection: proposer/applier split with allowlisted patch format |
+| 8 | Confidence function -> counting rules | Replace weighted formula with simple thresholds (>=3 sessions, >=2 projects, >=N events) |
 
 ---
 
@@ -163,11 +161,11 @@ These must be addressed in the design doc before implementation begins:
 
 | Change | Rationale | Impact |
 |--------|-----------|--------|
-| **Drop Tier 1** (session-scoped mods) | Complexity for marginal gain; double-counting risk; "why did behavior change mid-session?" confusion | Cut iv-kgtw bead; simplify design |
+| **Drop Tier 1** (session-scoped mods) | Complexity for marginal gain; double-counting risk; "why did behavior change mid-session?" confusion | Cut the Tier 1 work item; simplify design |
 | **Overlay system** replaces direct prompt editing | Instant rollback (disable overlay), A/B testable, upstream-mergeable, no long-lived prompt forks | Restructure Type 1 and Type 3 implementation |
-| **Counting rules** replace weighted confidence | Easier to reason about, debug, and explain; weighted formula is arbitrary until calibrated | Simplify iv-2nt4 |
-| **Canary: detect+alert** not auto-revert | 80% of safety value with 20% of complexity; avoids revert-chain edge cases and "why did it change back?" | Simplify iv-cylo, cut canary verdict engine complexity |
-| **Eval corpus as hard prerequisite** for Type 3 | Synthetic tests give false confidence; no eval = no prompt tuning | iv-izth becomes eval corpus construction; gates iv-t1m4 |
+| **Counting rules** replace weighted confidence | Easier to reason about, debug, and explain; weighted formula is arbitrary until calibrated | Simplify the counting-rule gate |
+| **Canary: detect+alert** not auto-revert | 80% of safety value with 20% of complexity; avoids revert-chain edge cases and "why did it change back?" | Simplify the canary task, cut canary verdict engine complexity |
+| **Eval corpus as hard prerequisite** for Type 3 | Synthetic tests give false confidence; no eval = no prompt tuning | Eval corpus construction becomes a task; it gates prompt tuning |
 | **Privilege separation** added | Proposer can't write to repo; applier enforces allowlist. Addresses "unenforceable meta-rules" critique | New bead for Phase 3 |
 | **Counterfactual shadow evaluation** added | Shadow-traffic before real changes; builds paired comparison dataset; no autonomy risk | New bead for Phase 3 |
 

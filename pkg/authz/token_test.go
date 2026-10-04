@@ -22,9 +22,9 @@ func TestCanonicalTokenPayload_Example1(t *testing.T) {
 	tok := Token{
 		ID:         "01J0GZ7W93K5PKQ42V7TCMWC2B",
 		OpType:     "bead-close",
-		Target:     "sylveste-qdqr.28",
+		Target:     "bd-qdqr.28",
 		AgentID:    "claude-opus-4-7",
-		BeadID:     "sylveste-qdqr.28",
+		BeadID:     "bd-qdqr.28",
 		ExpiresAt:  1776742800,
 		IssuedBy:   "user",
 		Depth:      0,
@@ -37,9 +37,9 @@ func TestCanonicalTokenPayload_Example1(t *testing.T) {
 	}
 	want := "01J0GZ7W93K5PKQ42V7TCMWC2B\n" +
 		"bead-close\n" +
-		"sylveste-qdqr.28\n" +
+		"bd-qdqr.28\n" +
 		"claude-opus-4-7\n" +
-		"sylveste-qdqr.28\n" +
+		"bd-qdqr.28\n" +
 		"\n" + // delegate_to NULL
 		"1776742800\n" +
 		"user\n" +
@@ -57,9 +57,9 @@ func TestCanonicalTokenPayload_Example2(t *testing.T) {
 	tok := Token{
 		ID:          "01J0GZ8X4M7Q3N8S6XW9Y2Z5CF",
 		OpType:      "bead-close",
-		Target:      "sylveste-qdqr.28",
+		Target:      "bd-qdqr.28",
 		AgentID:     "codex",
-		BeadID:      "sylveste-qdqr.28",
+		BeadID:      "bd-qdqr.28",
 		DelegateTo:  "codex",
 		ExpiresAt:   1776742800,
 		IssuedBy:    "claude-opus-4-7",
@@ -75,9 +75,9 @@ func TestCanonicalTokenPayload_Example2(t *testing.T) {
 	}
 	want := "01J0GZ8X4M7Q3N8S6XW9Y2Z5CF\n" +
 		"bead-close\n" +
-		"sylveste-qdqr.28\n" +
+		"bd-qdqr.28\n" +
 		"codex\n" +
-		"sylveste-qdqr.28\n" +
+		"bd-qdqr.28\n" +
 		"codex\n" +
 		"1776742800\n" +
 		"claude-opus-4-7\n" +
@@ -97,7 +97,7 @@ func TestCanonicalTokenPayload_Example3(t *testing.T) {
 		OpType:     "ic-publish-patch",
 		Target:     "clavain",
 		AgentID:    "claude-opus-4-7",
-		BeadID:     "sylveste-qdqr.28",
+		BeadID:     "bd-qdqr.28",
 		ExpiresAt:  1776742800,
 		IssuedBy:   "user",
 		Depth:      0,
@@ -112,7 +112,7 @@ func TestCanonicalTokenPayload_Example3(t *testing.T) {
 		"ic-publish-patch\n" +
 		"clavain\n" +
 		"claude-opus-4-7\n" +
-		"sylveste-qdqr.28\n" +
+		"bd-qdqr.28\n" +
 		"\n" +
 		"1776742800\n" +
 		"user\n" +
@@ -1053,9 +1053,9 @@ func sampleToken() Token {
 	return Token{
 		ID:          "01J0GZ8X4M7Q3N8S6XW9Y2Z5CF",
 		OpType:      "bead-close",
-		Target:      "sylveste-qdqr.28",
+		Target:      "bd-qdqr.28",
 		AgentID:     "codex",
-		BeadID:      "sylveste-qdqr.28",
+		BeadID:      "bd-qdqr.28",
 		DelegateTo:  "codex",
 		ExpiresAt:   1776742800,
 		IssuedBy:    "claude-opus-4-7",
