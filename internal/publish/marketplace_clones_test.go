@@ -92,7 +92,7 @@ func TestSyncPeerMarketplaces_PropagatesFromEitherDirection(t *testing.T) {
 		t.Fatalf("read monorepo: %v", err)
 	}
 	if got != "0.5.2" {
-		t.Errorf("monorepo clone still at %s, want 0.5.2 -- the mk-963o regression", got)
+		t.Errorf("monorepo clone still at %s, want 0.5.2 -- multi-clone regression", got)
 	}
 }
 

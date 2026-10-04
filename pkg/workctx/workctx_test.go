@@ -27,7 +27,7 @@ func TestIsZero(t *testing.T) {
 
 func TestJSONRoundTrip(t *testing.T) {
 	original := WorkContext{
-		BeadID:    "Demarch-og7m",
+		BeadID:    "bd-og7m",
 		RunID:     "run-456",
 		SessionID: "sess-789",
 	}

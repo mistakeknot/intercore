@@ -35,7 +35,7 @@ func setupCommandMetadataDB(t *testing.T) {
 func TestCmdRunCreateAndSetMetadata(t *testing.T) {
 	setupCommandMetadataDB(t)
 	ctx := context.Background()
-	metadata := `{"z":1,"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`
+	metadata := `{"z":1,"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`
 	if rc := cmdRunCreate(ctx, []string{"--goal=test", "--project=.", "--metadata=" + metadata}); rc != 0 {
 		t.Fatalf("cmdRunCreate rc = %d", rc)
 	}
@@ -69,7 +69,7 @@ func TestCmdRunCreateAndSetMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"close_gate":{"bead_id":"sylveste-6h7x","requirements":["runtime-evidence/v1"]},"other":{"value":1},"z":1}`
+	want := `{"close_gate":{"bead_id":"bd-6h7x","requirements":["runtime-evidence/v1"]},"other":{"value":1},"z":1}`
 	if run.Metadata == nil || *run.Metadata != want {
 		t.Fatalf("metadata = %v, want %s", run.Metadata, want)
 	}
@@ -78,7 +78,7 @@ func TestCmdRunCreateAndSetMetadata(t *testing.T) {
 func TestCmdRunSetRejectsSealedMetadataWithoutPartialSettings(t *testing.T) {
 	setupCommandMetadataDB(t)
 	ctx := context.Background()
-	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`
+	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`
 	if rc := cmdRunCreate(ctx, []string{"--goal=test", "--project=.", "--metadata=" + metadata}); rc != 0 {
 		t.Fatalf("cmdRunCreate rc = %d", rc)
 	}

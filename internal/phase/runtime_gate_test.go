@@ -62,7 +62,7 @@ func setupRuntimeGateFixture(t *testing.T, perRunRules map[string][]SpecGateRule
 	metadataBytes, err := json.Marshal(map[string]any{
 		"close_gate": map[string]any{
 			"requirements":         []string{"runtime-evidence/v1"},
-			"bead_id":              "sylveste-6h7x",
+			"bead_id":              "bd-6h7x",
 			"runtime_expectations": expect,
 			"config_digest":        runtimeDigest([]byte("config")),
 		},
@@ -116,7 +116,7 @@ func (f *runtimeGateFixture) addReceipt(t *testing.T, mutate func(*runtimeproof.
 	receipt := runtimeproof.Receipt{
 		SchemaVersion: runtimeproof.SchemaVersion,
 		Subject: runtimeproof.Subject{
-			BeadID: "sylveste-6h7x", RunID: f.runID, ProjectRoot: f.root,
+			BeadID: "bd-6h7x", RunID: f.runID, ProjectRoot: f.root,
 			GitHead: strings.Repeat("a", 40), Host: "test-host", CreatedAt: created.Format(time.RFC3339Nano),
 		},
 		Artifact: runtimeproof.Artifact{
@@ -226,7 +226,7 @@ func TestRuntimeGateMalformedCloseMetadataCannotFailOpen(t *testing.T) {
 	for _, priority := range []int{0, 4} {
 		t.Run(fmt.Sprintf("priority-%d", priority), func(t *testing.T) {
 			fixture := setupRuntimeGateFixture(t, nil)
-			malformed := `{"close_gate":{"requirements":"runtime-evidence/v1","bead_id":"sylveste-6h7x"}}`
+			malformed := `{"close_gate":{"requirements":"runtime-evidence/v1","bead_id":"bd-6h7x"}}`
 			if _, err := fixture.store.db.ExecContext(fixture.ctx, `UPDATE runs SET metadata = ? WHERE id = ?`, malformed, fixture.runID); err != nil {
 				t.Fatal(err)
 			}

@@ -16,7 +16,7 @@ func TestCmdGateOverrideCannotBypassRuntimeTerminalGate(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := phase.New(d.SqlDB())
-	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`
+	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`
 	runID, err := store.Create(ctx, &phase.Run{
 		ProjectDir: "/tmp", Goal: "override", Complexity: 3, AutoAdvance: true,
 		Phases: []string{phase.PhaseReflect, phase.PhaseDone}, Metadata: &metadata,

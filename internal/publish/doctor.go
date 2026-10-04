@@ -176,7 +176,7 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 			// installs from the marketplace at startup, so this self-heals with
 			// no human action. Reporting it as an error made `doctor` exit
 			// non-zero on a perfectly healthy machine (7 such findings stood
-			// open on zklw), and a check that cries wolf on normal operation
+			// open on one machine), and a check that cries wolf on normal operation
 			// gets ignored, which is just a slower way of not running it.
 			//
 			// installed AHEAD of marketplace cannot happen through any normal
