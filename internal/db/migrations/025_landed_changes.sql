@@ -1,6 +1,6 @@
 -- v25: canonical landed-change entity
 -- Replaces three competing "landed change" definitions with a single
--- durable, attributable outcome record. See iv-fo0rx.
+-- durable, attributable outcome record.
 CREATE TABLE IF NOT EXISTS landed_changes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     commit_sha      TEXT NOT NULL,

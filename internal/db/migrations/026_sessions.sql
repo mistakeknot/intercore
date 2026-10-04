@@ -1,4 +1,4 @@
--- v26: durable session attribution ledger (iv-30zy3)
+-- v26: durable session attribution ledger
 -- Replaces temp-file attribution (/tmp/interstat-*) with kernel-backed
 -- session lifecycle and attribution event tracking.
 

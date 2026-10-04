@@ -34,7 +34,7 @@ package publish
 // validating workflow does not trigger on the candidate refs, nothing will ever
 // check the candidate, main will never accept it, and the publish hangs until
 // it times out. That is not hypothetical -- it is what happened on the first
-// attempt (mk-0y69). waitForChecks detects it by name and says so, rather than
+// attempt. waitForChecks detects it by name and says so, rather than
 // reporting a bare timeout.
 
 import (

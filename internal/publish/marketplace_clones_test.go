@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Tests for the multi-clone marketplace handling (mk-963o).
+// Tests for the multi-clone marketplace handling.
 //
 // The bug these lock down: `ic publish` resolves the marketplace by walking up
 // from cwd, so a plugin inside the Sylveste tree updates core/marketplace while

@@ -726,7 +726,7 @@ func TestGate_Source_Calibrated(t *testing.T) {
 	}
 }
 
-// --- verdict_clean ship gate tests (sylveste-0ly7) ---
+// --- verdict_clean ship gate tests ---
 
 func TestGate_VerdictClean_Pass(t *testing.T) {
 	store, rtStore, sqlDB, ctx := setupMachineTest(t)

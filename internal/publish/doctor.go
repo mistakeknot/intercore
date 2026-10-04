@@ -222,8 +222,8 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 // checkCCMarketplaceSync compares every known marketplace clone against every
 // other and reports version disagreements as ERRORS.
 //
-// The previous implementation had a blind spot that hid a real divergence
-// (mk-963o). It began:
+// The previous implementation had a blind spot that hid a real divergence.
+// It began:
 //
 //	if absMarket == absCCPath { return }   // "same directory"
 //

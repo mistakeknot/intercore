@@ -70,7 +70,7 @@ func MarketplacesRoot() string {
 // MarketplaceVersions returns the version each marketplace's marketplace.json
 // currently points at, keyed "<plugin>@<marketplace>". These are the versions
 // `claude` will (re)install, so the prune paths treat them as protected
-// regardless of installed_plugins.json state (Sylveste-0lt).
+// regardless of installed_plugins.json state.
 func MarketplaceVersions() map[string]string {
 	return marketplaceVersionsIn(MarketplacesRoot())
 }
@@ -309,7 +309,7 @@ func CCMarketplacePath() string {
 // about, as absolute paths, deduplicated, each verified to contain a readable
 // marketplace.json. marketRoot is always included when it qualifies.
 //
-// Why this exists (mk-963o): `ic publish` resolves the marketplace by walking up
+// Why this exists: `ic publish` resolves the marketplace by walking up
 // from cwd, so a plugin inside the Sylveste tree updates core/marketplace while a
 // plugin outside it (interbrowse lives at ~/projects/interbrowse) updates the
 // Claude Code checkout instead. Syncing only "monorepo -> CC" left the monorepo
@@ -395,7 +395,7 @@ func MarketplaceCloneDivergence(marketRoot string) (map[string]map[string]string
 // SyncPeerMarketplaces propagates a published version to every known clone other
 // than the one just written. This is the symmetric replacement for
 // SyncCCMarketplace: it works regardless of which clone the publish resolved to,
-// which is the whole point (mk-963o).
+// which is the whole point.
 func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 	absMarket, err := filepath.Abs(marketRoot)
 	if err != nil {
@@ -416,7 +416,7 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 			// writes the file before the push is attempted, so a clone whose push
 			// failed last time looks "in sync" here forever and its local commit
 			// is never retried. That is precisely how a clone reaches 1 ahead and
-			// 147 behind without a word (mk-1e9o).
+			// 147 behind without a word.
 			// A plain-directory marketplace has no commits to push and no
 			// upstream to query; only a git peer can be stranded.
 			if isGitRepo(clone) {
@@ -496,7 +496,7 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 		// fails every time, and discarding that leaves the clone committed but
 		// unpushed -- ahead of origin, drifting further behind on every publish,
 		// with nothing said. That is the state ~/projects/interagency-marketplace
-		// was found in: 1 ahead, 147 behind (mk-1e9o).
+		// was found in: 1 ahead, 147 behind.
 		//
 		// Still non-fatal to the publish that already landed on the primary
 		// marketplace: firstErr is returned, not thrown. But it is now said.
@@ -645,7 +645,7 @@ func UpdateMarketplaceAndPublish(marketRoot, pluginName, version string) error {
 //
 // Deprecated: use SyncPeerMarketplaces. This is one-directional and returns
 // early when marketRoot IS the CC checkout, which is exactly the case that
-// leaves the monorepo clone stale (mk-963o). Retained so existing call sites
+// leaves the monorepo clone stale. Retained so existing call sites
 // keep compiling; it now delegates.
 func SyncCCMarketplace(marketRoot, pluginName, version string) error {
 	return SyncPeerMarketplaces(marketRoot, pluginName, version)

@@ -361,7 +361,7 @@ func TestCleanOrphansIn_GraceWindow(t *testing.T) {
 }
 
 func TestPruneCandidates_MissingInstalledRecordSkipsPlugin(t *testing.T) {
-	// The Sylveste-0lt incident shape: installed_plugins.json mid-rewrite by
+	// The earlier incident shape: installed_plugins.json mid-rewrite by
 	// `claude plugin marketplace update` → no record for the plugin. The old
 	// code treated that as "nothing protected" and deleted every version.
 	entries := map[string][]CacheEntry{
@@ -464,7 +464,7 @@ func TestMarketplaceVersionsIn(t *testing.T) {
 }
 
 func TestPruneCandidates_MarketplaceGuardProtectsPointedVersion(t *testing.T) {
-	// Second Sylveste-0lt layer: even with installed_plugins.json unreadable
+	// Second guard layer: even with installed_plugins.json unreadable
 	// (empty installed map), the version marketplace.json points at is merged
 	// into protect by the exported prunes and never becomes a candidate.
 	entries := map[string][]CacheEntry{

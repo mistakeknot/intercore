@@ -277,7 +277,7 @@ func TestStore_FindActionUsesExactAgentParentAndContentHash(t *testing.T) {
 	}
 }
 
-// TestBulkVerifyPerf covers acceptance criterion #5 of sylveste-ewy3.5.3:
+// TestBulkVerifyPerf covers acceptance criterion #5 of the receipt verify work:
 // bulk verification of 1K receipts completes well under 100ms. It exercises
 // the exact path `ic receipt verify --since` uses — Store.List followed by a
 // Verify per row — so a regression in either shows up here.

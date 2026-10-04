@@ -142,6 +142,6 @@ var (
 	// — a missing dependency, an unresolvable module replacement, a script that
 	// exited 0 without asserting anything. It is NOT a claim about the artifacts.
 	// Collapsing it into ErrStaleReleaseArtifacts told operators "stale" on
-	// machines that had simply never been able to look (mk-cg3z).
+	// machines that had simply never been able to look.
 	ErrReleaseVerifierUnavailable = errors.New("release verifier could not run")
 )

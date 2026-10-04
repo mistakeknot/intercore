@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// ReleaseCanary is one post-publish health record (sylveste-ao0q). A publish
+// ReleaseCanary is one post-publish health record. A publish
 // registers a pending canary; the session-start check (Clavain
 // release-canary-check.sh) marks it passed when the plugin actually resolved
 // in a live session, or failed with a loud alert carrying the ready-to-run

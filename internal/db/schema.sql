@@ -460,7 +460,7 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_status ON scheduler_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_session ON scheduler_jobs(session_name);
 
--- v25: canonical landed-change entity (iv-fo0rx)
+-- v25: canonical landed-change entity
 CREATE TABLE IF NOT EXISTS landed_changes (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     commit_sha      TEXT NOT NULL,
@@ -502,7 +502,7 @@ CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_created
 CREATE INDEX IF NOT EXISTS idx_replay_inputs_run_kind
     ON run_replay_inputs(run_id, kind, created_at, id);
 
--- v26: durable session attribution ledger (iv-30zy3)
+-- v26: durable session attribution ledger
 CREATE TABLE IF NOT EXISTS sessions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id      TEXT NOT NULL,
@@ -692,7 +692,7 @@ INSERT OR IGNORE INTO authorizations (
     1
 );
 
--- v36: authorization legacy-anchor seal (sylveste-mn13).
+-- v36: authorization legacy-anchor seal.
 -- There is intentionally no DDL or DML for this migration. PRAGMA
 -- user_version=36 marks ledgers whose callers must require the external signed
 -- legacy manifest. Migration must not create or bless a project-specific

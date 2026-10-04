@@ -31,7 +31,7 @@ var demonstrable = regexp.MustCompile(`(?i)` +
 
 var turnBound = regexp.MustCompile(`(?i)stop after \d+ turns`)
 
-// ── Shape rules (Sylveste-7t3n) ─────────────────────────────────────────────
+// ── Shape rules ─────────────────────────────────────────────
 //
 // The rules above ask "can the evaluator judge this?". These ask "did the
 // right person write it, and is it a goal rather than a plan?".

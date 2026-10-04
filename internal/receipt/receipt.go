@@ -9,9 +9,9 @@
 //
 // See docs/canon/signed-receipts-v1.md for the full schema, canonicalization
 // rules, key handling, verification semantics, and trust model. This package
-// implements acceptance criterion #1 of bead sylveste-ewy3.5 (canon spec
+// implements acceptance criterion #1 of the receipt spec work (canon spec
 // landing) and is the substrate for the Dolt table, verify CLI, and routing
-// calibration follow-ups (sylveste-ewy3.5.2 / .3 / .4).
+// calibration follow-ups.
 package receipt
 
 const (

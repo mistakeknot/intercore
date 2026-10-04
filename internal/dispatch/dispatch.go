@@ -505,7 +505,7 @@ func (s *Store) HasVerdict(ctx context.Context, scopeID string) (bool, error) {
 
 // CountUncleanVerdicts returns the number of dispatches in scope whose
 // verdict_status indicates a non-clean outcome (fail/error). The verdict_clean
-// ship gate blocks when this is > 0 (sylveste-0ly7). 'warn' and 'pass' are
+// ship gate blocks when this is > 0. 'warn' and 'pass' are
 // treated as clean (they infer exit code 0 in collect.go:inferExitCode).
 func (s *Store) CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error) {
 	if scopeID == "" {

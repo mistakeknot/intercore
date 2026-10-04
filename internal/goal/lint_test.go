@@ -39,7 +39,7 @@ func TestLintCondition(t *testing.T) {
 	}
 }
 
-// TestShapeRules pins the shape axis (Sylveste-7t3n). The cases are the real
+// TestShapeRules pins the shape axis. The cases are the real
 // texts that motivated the rules: five agent-drafted /goal blocks the user
 // pasted verbatim and later called "weird", against the rewrite that fixed
 // them. The rewrite MUST lint clean or the rules are punishing the good form.

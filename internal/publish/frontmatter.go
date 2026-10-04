@@ -15,8 +15,7 @@ import (
 // Motivation: clavain 0.6.245 shipped commands/repro-first-debugging.md with
 // an unquoted colon in the description ("investigation: reproduce..."). YAML
 // parsed it as a mapping, the harness silently dropped the entire plugin
-// from skill_listing, and 68 entries vanished from a "−1KB trim" PR. See
-// sylveste-ulp8 for the full incident report.
+// from skill_listing, and 68 entries vanished from a "−1KB trim" PR.
 //
 // The check is deliberately strict: any unparseable frontmatter aborts the
 // publish, even if the file contains other valid YAML. The skill_listing

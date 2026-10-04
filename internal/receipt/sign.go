@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Sentinel errors from Sign and Verify. The verify CLI (sylveste-ewy3.5.3)
+// Sentinel errors from Sign and Verify. The verify CLI
 // maps these to canon §Verification semantics exit codes via errors.Is.
 var (
 	// ErrSchemaUnsupported corresponds to canon exit code 3: receipt found,
