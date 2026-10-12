@@ -49,11 +49,14 @@ type PhaseConfig struct {
 
 // DispatchConfig holds Codex CLI dispatch tier routing.
 type DispatchConfig struct {
-	EffortFloors map[string]string          `yaml:"effort_floors"`
-	ModelAliases map[string]string          `yaml:"model_aliases"`
-	Roles        map[string]string          `yaml:"roles"`
-	Tiers        map[string]DispatchProfile `yaml:"tiers"`
-	Fallback     map[string]string          `yaml:"fallback"` // legacy missing-tier aliases
+	EffortFloors map[string]string `yaml:"effort_floors"`
+	// EffortFloorExemptions maps a requested role to floor reasons that do not
+	// raise its candidates' effort. The reasons still classify the decision.
+	EffortFloorExemptions map[string][]string        `yaml:"effort_floor_exemptions"`
+	ModelAliases          map[string]string          `yaml:"model_aliases"`
+	Roles                 map[string]string          `yaml:"roles"`
+	Tiers                 map[string]DispatchProfile `yaml:"tiers"`
+	Fallback              map[string]string          `yaml:"fallback"` // legacy missing-tier aliases
 	// CrossLabFirst lists review roles whose eligible seats from another
 	// frontier lab than the producer's are tried before same-lab seats.
 	CrossLabFirst []string `yaml:"cross_lab_first"`
@@ -183,6 +186,16 @@ func (c *Config) validateEffortFloors() error {
 		}
 		if !slices.Contains(effortLevels, effort) {
 			return fmt.Errorf("dispatch.effort_floors entry %q: unknown effort %q", reason, effort)
+		}
+	}
+	for role, reasons := range c.Dispatch.EffortFloorExemptions {
+		if _, ok := c.Dispatch.Roles[role]; !ok {
+			return fmt.Errorf("dispatch.effort_floor_exemptions entry %q: unknown role", role)
+		}
+		for _, reason := range reasons {
+			if _, ok := c.Dispatch.EffortFloors[reason]; !ok {
+				return fmt.Errorf("dispatch.effort_floor_exemptions entry %q: %q is not an effort floor", role, reason)
+			}
 		}
 	}
 	return nil

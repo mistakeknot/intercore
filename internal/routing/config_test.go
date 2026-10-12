@@ -45,6 +45,28 @@ func TestLoadConfigRejectsInvalidEffortFloors(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsInvalidEffortFloorExemptions(t *testing.T) {
+	for _, tc := range []struct{ entry, want string }{
+		{"review: [difficult-verification]", "unknown role"},
+		{"cross-lab-review: [broad-consequences]", "is not an effort floor"},
+	} {
+		t.Run(tc.entry, func(t *testing.T) {
+			p := filepath.Join(t.TempDir(), "routing.yaml")
+			body := "reasoning:\n  frontier_reasons: [difficult-verification, broad-consequences]\ndispatch:\n" +
+				"  effort_floors: {difficult-verification: high}\n  roles: {cross-lab-review: sol}\n" +
+				"  tiers: {sol: {role: cross-lab-review, backend: codex, model: gpt-6-sol, reasoning_effort: medium}}\n" +
+				"  effort_floor_exemptions: {" + tc.entry + "}\n"
+			if err := os.WriteFile(p, []byte(body), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadConfig(p, "")
+			if err == nil || !strings.Contains(err.Error(), "dispatch.effort_floor_exemptions") || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
 
