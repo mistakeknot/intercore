@@ -784,3 +784,60 @@ func TestReasoningEffortFloorExemptionsSkipOnlyExemptRoleAndReason(t *testing.T)
 		t.Fatalf("other role decision = %+v", d)
 	}
 }
+
+func TestReasoningEffortFloorExemptionsKeyOnRequestedRoleAcrossChain(t *testing.T) {
+	cfg := effortConfig()
+	// Every tier declares the same candidate role, so only the requested role
+	// can tell the two requests apart.
+	for ref, p := range cfg.Dispatch.Tiers {
+		p.Role = "validation"
+		cfg.Dispatch.Tiers[ref] = p
+	}
+	cfg.Dispatch.Roles["cross-lab-review"] = "astra"
+	cfg.Dispatch.CrossLabFirst = []string{"validation", "cross-lab-review"}
+	cfg.Dispatch.EffortFloorExemptions = map[string][]string{"cross-lab-review": {"difficult-verification"}}
+	ctx := effortContext("difficult-verification")
+
+	exempt, err := NewResolver(cfg).ResolveDecision("cross-lab-review", "gpt-6-sol", "", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	floored, err := NewResolver(cfg).ResolveDecision("validation", "gpt-6-sol", "", ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exempt.CrossLabReorder == nil || floored.CrossLabReorder == nil {
+		t.Fatalf("expected cross-lab reorder: exempt=%+v floored=%+v", exempt.CrossLabReorder, floored.CrossLabReorder)
+	}
+	// kimi is configured high, so only the medium candidates show the floor.
+	for _, c := range append([]DispatchCandidate{{ProfileRef: exempt.ProfileRef, Profile: exempt.Profile}}, exempt.FallbackChain...) {
+		if c.ProfileRef != "kimi" && c.Profile.ReasoningEffort != "medium" {
+			t.Fatalf("exempt candidate %s raised to %s", c.ProfileRef, c.Profile.ReasoningEffort)
+		}
+	}
+	for _, c := range append([]DispatchCandidate{{ProfileRef: floored.ProfileRef, Profile: floored.Profile}}, floored.FallbackChain...) {
+		if c.Profile.ReasoningEffort != "high" {
+			t.Fatalf("floored candidate %s left at %s", c.ProfileRef, c.Profile.ReasoningEffort)
+		}
+	}
+	if len(exempt.EffortFloorsApplied) != 0 || len(floored.EffortFloorsApplied) == 0 {
+		t.Fatalf("floor receipts: exempt=%+v floored=%+v", exempt.EffortFloorsApplied, floored.EffortFloorsApplied)
+	}
+
+	for _, tc := range []struct {
+		d    ReasoningDecision
+		want bool
+	}{{exempt, true}, {floored, false}} {
+		raw, err := json.Marshal(tc.d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := fields["effort_floors_exempted"]; ok != tc.want {
+			t.Fatalf("effort_floors_exempted present=%v, want %v: %s", ok, tc.want, raw)
+		}
+	}
+}
