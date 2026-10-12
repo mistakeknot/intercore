@@ -751,3 +751,36 @@ func TestAlternateProfileIsScopedAndCannotDemoteFrontier(t *testing.T) {
 		t.Fatal("pilot demoted required frontier")
 	}
 }
+
+func TestReasoningEffortFloorExemptionsSkipOnlyExemptRoleAndReason(t *testing.T) {
+	cfg := effortConfig()
+	cfg.Dispatch.Roles["cross-lab-review"] = "sol"
+	cfg.Dispatch.EffortFloorExemptions = map[string][]string{"cross-lab-review": {"difficult-verification"}}
+
+	d, err := NewResolver(cfg).ResolveDecision("cross-lab-review", "claude-opus-5", "", effortContext("difficult-verification"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Profile.ReasoningEffort != "medium" || len(d.EffortFloorsApplied) != 0 ||
+		!slices.Equal(d.EffortFloorsExempted, []string{"difficult-verification"}) ||
+		!slices.Equal(d.ClassificationReasons, []string{"difficult-verification"}) {
+		t.Fatalf("exempt decision = %+v", d)
+	}
+
+	d, err = NewResolver(cfg).ResolveDecision("cross-lab-review", "claude-opus-5", "", effortContext("difficult-verification", "capability-failure"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Profile.ReasoningEffort != "high" || !slices.Equal(d.EffortFloorsExempted, []string{"difficult-verification"}) {
+		t.Fatalf("other floor decision = %+v", d)
+	}
+	requireFloorEntries(t, d, EffortFloorApplication{"sol", []string{"capability-failure"}, "medium", "high"})
+
+	d, err = NewResolver(cfg).ResolveDecision("validation", "claude-opus-5", "", effortContext("difficult-verification"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Profile.ReasoningEffort != "high" || len(d.EffortFloorsExempted) != 0 {
+		t.Fatalf("other role decision = %+v", d)
+	}
+}

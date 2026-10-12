@@ -46,6 +46,7 @@ type DecisionContext struct {
 type ReasoningDecision struct {
 	ResolvedDispatch
 	EffortFloorsApplied   []EffortFloorApplication   `json:"effort_floors_applied,omitempty"`
+	EffortFloorsExempted  []string                   `json:"effort_floors_exempted,omitempty"`
 	EffortOverride        *EffortOverrideApplication `json:"effort_override,omitempty"`
 	Calibration           *CalibrationMetadata       `json:"calibration,omitempty"`
 	PolicySource          string                     `json:"policy_source"`
@@ -214,6 +215,14 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 		}
 		frontier[id] = true
 	}
+	floorReasons := []string{}
+	for _, reason := range c.Reasons {
+		if slices.Contains(cfg.Dispatch.EffortFloorExemptions[role], reason) {
+			d.EffortFloorsExempted = append(d.EffortFloorsExempted, reason)
+			continue
+		}
+		floorReasons = append(floorReasons, reason)
+	}
 	eligible := []DispatchCandidate{}
 	for i, candidate := range candidates {
 		reason := ""
@@ -250,7 +259,7 @@ func (r *Resolver) ResolveDecision(role, producer, policyProfile string, c Decis
 			}
 		}
 		before := candidate.Profile.ReasoningEffort
-		profile, raisedBy, effortErr := applyEffortFloor(candidate.Profile, c.Reasons, cfg.Dispatch.EffortFloors)
+		profile, raisedBy, effortErr := applyEffortFloor(candidate.Profile, floorReasons, cfg.Dispatch.EffortFloors)
 		if effortErr != nil {
 			reason = "unsupported_adapter"
 		} else {
