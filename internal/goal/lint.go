@@ -118,7 +118,7 @@ func shapeProblems(text string) []Problem {
 // is left to the other rules.
 
 // sectionEnd matches the start of the next labelled section of a goal.
-var sectionEnd = regexp.MustCompile(`(?m)\b(WHO'S WAITING|GATE\s*\d*|DONE WHEN|OUT|OUTCOME)\b[^\n:]*:`)
+var sectionEnd = regexp.MustCompile(`(?m)\b(WHO'S WAITING|PREMISE|GATE\s*\d*|DONE WHEN|OUT|OUTCOME)\b[^\n:]*:`)
 
 // section returns the text of the labelled section, from the label's colon to
 // the next section label (or the end), and whether the label was present.
