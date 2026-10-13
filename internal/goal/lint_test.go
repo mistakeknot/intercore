@@ -132,3 +132,98 @@ func TestVentriloquismPrecision(t *testing.T) {
 		}
 	}
 }
+
+// TestFormRules pins the canonical-form and landing-only warnings (mk-hxgi).
+// The motivating text is the #1 candidate a Next-goal block recommended on
+// 2026-09-01: a merge, which is the user's call and not a successor goal, in
+// a shape with no OUTCOME: and no DONE WHEN:. Both rules are warnings, so
+// their precision is what keeps them from being learned as noise: a goal that
+// merges two lists, or that names the merge as a GATE for the user, must not
+// trip them.
+func TestFormRules(t *testing.T) {
+	landingGoal := "Merge PR #26 so the intercore goal-close protocol lands and is merged, " +
+		"then run the publish wave from zklw, or stop after 5 turns."
+
+	canonicalGoal := "Repair the Next-goal audit chain. OUTCOME: every emitted block is " +
+		"detected and its receipts are checked for freshness and coverage. GATE: the " +
+		"canonical-form rule stays a warning until measured. DONE WHEN: `bats tests/shell` " +
+		"exits 0 and the hook flags a stale receipt, or stop after 40 turns."
+
+	kinds := func(probs []Problem) (form, landing, merge bool, errs int) {
+		for _, p := range probs {
+			switch {
+			case strings.HasPrefix(p.Message, "canonical form:"):
+				form = true
+			case strings.HasPrefix(p.Message, "landing-first:"):
+				landing = true
+			case strings.HasPrefix(p.Message, "merge is not the agent's:"):
+				merge = true
+			}
+			if p.Severity == "error" {
+				errs++
+			}
+		}
+		return
+	}
+
+	t.Run("the 2026-09-01 #1 candidate yields all three warnings and no error", func(t *testing.T) {
+		probs := LintCondition(landingGoal)
+		form, landing, merge, errs := kinds(probs)
+		if !form || !landing || !merge {
+			t.Errorf("wanted form=%v landing=%v merge=%v all true: %v", form, landing, merge, probs)
+		}
+		if errs != 0 {
+			t.Errorf("these are warnings, got %d error(s): %v", errs, probs)
+		}
+	})
+
+	t.Run("a canonical goal yields none of the three", func(t *testing.T) {
+		form, landing, merge, _ := kinds(LintCondition(canonicalGoal))
+		if form || landing || merge {
+			t.Errorf("false positive on the canonical form: %v", LintCondition(canonicalGoal))
+		}
+	})
+
+	t.Run("a technical merge is not a landing action", func(t *testing.T) {
+		text := "Merge the ranked lists into one shortlist. OUTCOME: one ordered list. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		_, landing, merge, _ := kinds(LintCondition(text))
+		if landing || merge {
+			t.Errorf("verb without a landing object must not warn: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("the test fixture's own 'Ship it.' is a landing action", func(t *testing.T) {
+		text := "Ship it. OUTCOME: the thing is live. DONE WHEN: deployed, or stop after 5 turns."
+		_, landing, _, _ := kinds(LintCondition(text))
+		if !landing {
+			t.Errorf("'Ship it.' must warn landing-first: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a merge named as the user's GATE is not the agent's merge", func(t *testing.T) {
+		text := "Run the close protocol in production. OUTCOME: goals close through ic. " +
+			"GATE: mk merges PR #26. DONE WHEN: `ic goal close finish` exits 0, or stop after 10 turns."
+		_, landing, merge, _ := kinds(LintCondition(text))
+		if landing || merge {
+			t.Errorf("a GATE naming who merges is the recommended form: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("missing only DONE WHEN still warns and names it", func(t *testing.T) {
+		text := "OUTCOME: the API answers. `curl` returns HTTP 200, or stop after 5 turns."
+		var msg string
+		for _, p := range LintCondition(text) {
+			if strings.HasPrefix(p.Message, "canonical form:") {
+				msg = p.Message
+			}
+		}
+		if !strings.Contains(msg, "DONE WHEN:") || strings.Contains(msg, "OUTCOME:") == false {
+			// the message must name what is missing without claiming OUTCOME: is
+			t.Logf("message: %q", msg)
+		}
+		if msg == "" || !strings.Contains(msg, "DONE WHEN:") {
+			t.Errorf("wanted a canonical-form warning naming DONE WHEN:, got %q", msg)
+		}
+	})
+}
