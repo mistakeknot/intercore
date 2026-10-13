@@ -134,6 +134,7 @@ var externalJudge = regexp.MustCompile(`(?i)` +
 	pre + `(pass|passes|passed|passing|fails|tested)` + post + `|` +
 	`\b(run|ran|executed|re-?run)\s+fresh\b|` +
 	`\b(HTTP|http)\s*[2-5]\d\d\b|` +
+	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(cross-lab|independent|external|outside|second|another|different)\b|` +
 	`\bmerged\b|\b(approved|signed off)\b|\breproduc(ed|es)\b|\b(demonstrated|observed|live(-session)?)\s+refusals?\b|\brefus(es|ed)\b|` +
 	`\b(no|zero|0)\s+(\w+\s+)?failures?\b|` +
 	judgeNoun + near + `(` + result + `)|` +
@@ -157,16 +158,18 @@ var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|i
 // header matches the start of any goal-shape section. Case-sensitive: the
 // headers are upper-case by convention, so "gate" in prose is not one, and a
 // GATE header needs its number ("GATE 1", "GATE n"), so "the GATE API" is not
-// one either. Both apostrophes are accepted in WHO'S WAITING.
-const header = `\bWHO[\x{2019}']S WAITING:|\bPREMISE:|\bGATE\s+(\d+|n)\b|\bDONE WHEN:|\bOUT:`
+// one either. Both apostrophes are accepted in WHO'S WAITING, and a label may
+// carry a parenthetical before its colon ("PREMISE (C3 and above):").
+const label = `(?:\s*\([^)\n]*\))?:`
+const header = `\bWHO[\x{2019}']S WAITING` + label + `|\bPREMISE` + label + `|\bGATE\s+(\d+|n)\b|\bDONE WHEN` + label + `|\bOUT` + label
 
 // outcomeSection captures an OUTCOME: block up to the next header.
-var outcomeSection = regexp.MustCompile(`(?s)\bOUTCOME:(.*?)(` + header + `|\z)`)
+var outcomeSection = regexp.MustCompile(`(?s)\bOUTCOME` + label + `(.*?)(` + header + `|\z)`)
 
-// doneSection captures a DONE WHEN: block up to the next header. When a goal
-// has one, only it is searched for an external judge, so a judge named in
-// OUTCOME prose or excluded under OUT does not clear the warning.
-var doneSection = regexp.MustCompile(`(?s)\bDONE WHEN:(.*?)(` + header + `|\z)`)
+// doneSection captures a DONE WHEN: block up to the next header. Only it is
+// searched for an external judge, so a judge named in OUTCOME prose or
+// excluded under OUT does not clear the warning.
+var doneSection = regexp.MustCompile(`(?s)\bDONE WHEN` + label + `(.*?)(` + header + `|\z)`)
 
 // bar matches a measurable target: a number, a comparison, or a universal.
 // A number has to start a token, so the digit in "OAuth2" is not a bar.
@@ -177,23 +180,18 @@ var bar = regexp.MustCompile(`(?i)` +
 	`\b(every|all|each|none|never|no longer|identical)\b`)
 
 // judgeProblems returns the judge and bar findings for a goal/condition text.
+// Each rule reads one section of the goal form and skips a text that omits it.
 // A text with no demonstrable predicate already errors, so the self-graded
 // warning only speaks when the predicates exist and none of them is external.
 func judgeProblems(text string) []Problem {
 	var probs []Problem
-	judged := text
-	if m := doneSection.FindStringSubmatch(text); m != nil {
-		judged = m[1]
-	}
-	judged = negated.ReplaceAllString(judged, " ")
-	judged = passRate.ReplaceAllString(judged, " pass_rate ")
-	judged = passReport.ReplaceAllString(judged, " report ")
-	if demonstrable.MatchString(text) && !externalJudge.MatchString(judged) {
+	if m := doneSection.FindStringSubmatch(text); m != nil && demonstrable.MatchString(text) &&
+		!externalJudge.MatchString(judgeable(m[1])) {
 		probs = append(probs, Problem{Severity: "warning", Message: "self-graded: " +
-			"every predicate is an artifact the producer creates (committed, pushed, " +
-			"bead closed, file exists), so nothing outside the producer checks the " +
-			"result. Add a command whose verdict the evaluator reads, a test run, or " +
-			"an independent review"})
+			"DONE WHEN names only artifacts the producer creates (committed, pushed, " +
+			"bead closed, file exists) and no command verdict, test run or independent " +
+			"review, so nothing outside the producer checks the result. Add a check " +
+			"the producer cannot pass by asserting it"})
 	}
 	if m := outcomeSection.FindStringSubmatch(text); m != nil && !bar.MatchString(m[1]) {
 		probs = append(probs, Problem{Severity: "warning", Message: "no bar: " +
@@ -202,6 +200,14 @@ func judgeProblems(text string) []Problem {
 			"the outcome must reach"})
 	}
 	return probs
+}
+
+// judgeable removes negated results and rewrites "pass" used as a noun
+// modifier, so neither reads as a verdict.
+func judgeable(done string) string {
+	done = negated.ReplaceAllString(done, " ")
+	done = passRate.ReplaceAllString(done, " pass_rate ")
+	return passReport.ReplaceAllString(done, " report ")
 }
 
 // shapeProblems returns the shape findings for a goal/condition text.

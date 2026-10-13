@@ -156,13 +156,13 @@ func TestJudgeRules(t *testing.T) {
 			text string
 			want bool
 		}{
-			{"only producer artifacts", "the report file exists, committed and pushed, bead mk-1 closed, or stop after 5 turns", true},
-			{"tests pass", "tests pass and bead mk-1 closed, or stop after 5 turns", false},
-			{"command exit code", "`ic goal lint-condition --file=x` exits 0 and committed, or stop after 5 turns", false},
-			{"independent review", "committed, and a cross-lab review passed, or stop after 5 turns", false},
-			{"merged by someone else", "PR merged, or stop after 5 turns", false},
-			{"http status", "`curl` returns HTTP 200 and deployed, or stop after 5 turns", false},
-			{"no predicate at all", "the feature feels polished", false},
+			{"only producer artifacts", "DONE WHEN: the report file exists, committed and pushed, bead mk-1 closed, or stop after 5 turns", true},
+			{"tests pass", "DONE WHEN: tests pass and bead mk-1 closed, or stop after 5 turns", false},
+			{"command exit code", "DONE WHEN: `ic goal lint-condition --file=x` exits 0 and committed, or stop after 5 turns", false},
+			{"independent review", "DONE WHEN: committed, and a cross-lab review passed, or stop after 5 turns", false},
+			{"merged by someone else", "DONE WHEN: PR merged, or stop after 5 turns", false},
+			{"http status", "DONE WHEN: `curl` returns HTTP 200 and deployed, or stop after 5 turns", false},
+			{"no predicate at all", "DONE WHEN: the feature feels polished", false},
 			{"judge word only in outcome prose", "OUTCOME: the external API docs are clearer for every reader. DONE WHEN: report file exists, committed and pushed, or stop after 5 turns", true},
 			{"judge excluded under OUT", "OUTCOME: every page renders. DONE WHEN: committed and pushed, or stop after 5 turns. OUT: independent review", true},
 			{"review with no verdict", "DONE WHEN: report reviewed, committed and pushed, or stop after 5 turns", true},
@@ -215,6 +215,15 @@ func TestJudgeRules(t *testing.T) {
 			{"no test failures", "DONE WHEN: `go test ./...` shows no test failures, or stop after 5 turns", false},
 			{"live refusal journaled", "DONE WHEN: the live-session refusal-then-pass journaled with profiles, or stop after 5 turns", false},
 			{"failing test then passing", "DONE WHEN: a failing test is committed and then the test suite passes, or stop after 5 turns", false},
+			{"no DONE WHEN section", "the report file exists, committed and pushed, bead mk-1 closed, or stop after 5 turns", false},
+			{"reviewed by a cross-lab reviewer", "DONE WHEN: the plan is reviewed by a cross-lab reviewer, or stop after 10 turns", false},
+			{"reviewed by the producer", "DONE WHEN: the plan is reviewed, committed and pushed, or stop after 10 turns", true},
+			{"not reviewed by an independent reviewer", "DONE WHEN: plan committed, not reviewed by an independent reviewer, or stop after 10 turns", true},
+			{"labelled DONE WHEN", "OUTCOME: every page renders. DONE WHEN (judged by the evaluator): report file exists, committed and pushed, or stop after 5 turns", true},
+			{"producer-only judge", "Docs \u2014 better docs. OUTCOME: the docs are better. WHO'S WAITING: nobody. DONE WHEN: the report is written and reviewed, or stop after 10 turns.", true},
+			{"command judge", "Docs \u2014 fewer broken links. OUTCOME: 12 broken links today, 0 after. DONE WHEN: `make linkcheck` exits 0, or stop after 10 turns.", false},
+			{"sections absent", "all Go tests exit 0 and bead mk-1 closed, or stop after 20 turns", false},
+			{"labelled PREMISE before a command judge", "X \u2014 y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.", false},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -243,6 +252,15 @@ func TestJudgeRules(t *testing.T) {
 			{"curly apostrophe header ends the outcome", "OUTCOME: onboarding is better. WHO\u2019S WAITING: all customers. DONE WHEN: tests pass, or stop after 5 turns", true},
 			{"digit inside an identifier", "OUTCOME: improve OAuth2 onboarding. DONE WHEN: tests pass, or stop after 5 turns", true},
 			{"no OUTCOME header", "tests pass, or stop after 5 turns", false},
+			{"producer-only judge and vague outcome", "Docs \u2014 better docs. OUTCOME: the docs are better. WHO'S WAITING: nobody. DONE WHEN: the report is written and reviewed, or stop after 10 turns.", true},
+			{"counts before and after", "Docs \u2014 fewer broken links. OUTCOME: 12 broken links today, 0 after. DONE WHEN: `make linkcheck` exits 0, or stop after 10 turns.", false},
+			{"at least a count", "Plan \u2014 a reviewed plan. OUTCOME: at least 3 risks named. DONE WHEN: the plan is reviewed by a cross-lab reviewer, or stop after 10 turns.", false},
+			{"faster than a number", "Perf \u2014 faster start. OUTCOME: startup is faster than 2s. DONE WHEN: `go test ./...` exits 0.", false},
+			{"sections absent", "all Go tests exit 0 and bead mk-1 closed, or stop after 20 turns", false},
+			{"bar only in a labelled premise", "X \u2014 y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.", true},
+			{"ABOUT is not the OUT header", "X \u2014 y. OUTCOME: we learn ABOUT cost and cut it by 20%. DONE WHEN: `go test` exits 0.", false},
+			{"labelled OUTCOME", "OUTCOME (the change): the importer is better. DONE WHEN: tests pass, or stop after 5 turns", true},
+			{"bar only under a labelled OUT", "OUTCOME: the importer is better. DONE WHEN: tests pass, or stop after 5 turns. OUT (scope): imports under 3 seconds", true},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
