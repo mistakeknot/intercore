@@ -136,6 +136,7 @@ var externalJudge = regexp.MustCompile(`(?i)` +
 	`\b(HTTP|http)\s*[2-5]\d\d\b|` +
 	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(cross-lab|independent|external|outside|second|another|different)(\s+[\w-]+)?\s+` +
 	`(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?)\b|` +
+	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(humans?|people|persons?)\b|` +
 	`\bmerged\b|\b(approved|signed off)\b|\breproduc(ed|es)\b|\b(demonstrated|observed|live(-session)?)\s+refusals?\b|\brefus(es|ed)\b|` +
 	`\b(no|zero|0)\s+(\w+\s+)?failures?\b|` +
 	judgeNoun + near + `(` + result + `)|` +
@@ -155,19 +156,21 @@ var negated = regexp.MustCompile(`(?i)\b(not|never|without|no|\w+n['\x{2019}]t)\
 // line keeps its verdict when the next line starts "Report".
 var passRate = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(rates?|ratios?|counts?)\b`)
 
-// passNoun is "pass" after a determiner ("another pass of myself", "a final
-// pass"), which names an attempt, not a verdict.
-var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass\b`)
+// passNoun is "pass" after a determiner and before what it goes over
+// ("another pass of myself", "a final pass over the docs"), which names an
+// attempt, not a verdict. "a pass from CI" keeps its verdict.
+var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass[ \t]+(of|over|through|across|on)\b`)
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
 // headers are upper-case by convention, so "gate" in prose is not one, and a
 // GATE header needs its number ("GATE 1", "GATE n"), so "the GATE API" is not
 // one either. Both apostrophes are accepted in WHO'S WAITING, and a label may
-// carry a parenthetical before its colon ("PREMISE (C3 and above):"), except
-// OUT, so "SQL OUT (parameter):" in prose does not end a section.
+// carry a parenthetical before its colon ("PREMISE (C3 and above):"). OUT
+// with a parenthetical is a header only at the start of the text, a line or a
+// sentence, so "SQL OUT (parameter):" in prose does not end a section.
 const label = `(?:\s*\([^)\n]*\))?:`
-const header = `\bWHO[\x{2019}']S WAITING` + label + `|\bPREMISE` + label + `|\bGATE\s+(\d+|n)\b|\bDONE WHEN` + label + `|\bOUT:`
+const header = `\bWHO[\x{2019}']S WAITING` + label + `|\bPREMISE` + label + `|\bGATE\s+(\d+|n)\b|\bDONE WHEN` + label + `|\bOUT:|(?:\A|[\n.!?;])\s*OUT\s*\([^)\n]*\):`
 
 // outcomeSection captures an OUTCOME: block up to the next header.
 var outcomeSection = regexp.MustCompile(`(?s)\bOUTCOME` + label + `(.*?)(` + header + `|\z)`)

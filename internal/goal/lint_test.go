@@ -232,6 +232,11 @@ func TestJudgeRules(t *testing.T) {
 			{"reviewed by another pass of the producer", "DONE WHEN: report reviewed by another pass of myself and committed, or stop after 5 turns", true},
 			{"a final pass is an attempt", "DONE WHEN: a final pass over the docs, committed and pushed, or stop after 5 turns", true},
 			{"verified by a second reviewer", "DONE WHEN: report committed and verified by a second reviewer, or stop after 5 turns", false},
+			{"a pass from CI", "DONE WHEN: the suite gets a pass from CI, committed, or stop after 5 turns", false},
+			{"reviewed by a human", "DONE WHEN: report committed and reviewed by a human, or stop after 5 turns", false},
+			{"not reviewed by a human", "DONE WHEN: report committed, not reviewed by a human, or stop after 5 turns", true},
+			{"labelled OUT on its own line", "DONE WHEN: report committed.\nOUT (scope): independent review passed", true},
+			{"labelled OUT after a sentence", "OUTCOME: every page renders. DONE WHEN: committed and pushed, or stop after 5 turns. OUT (scope): independent review passed", true},
 			{"labelled PREMISE before a command judge", "X \u2014 y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.", false},
 		}
 		for _, tc := range cases {
@@ -269,6 +274,7 @@ func TestJudgeRules(t *testing.T) {
 			{"bar only in a labelled premise", "X \u2014 y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.", true},
 			{"ABOUT is not the OUT header", "X \u2014 y. OUTCOME: we learn ABOUT cost and cut it by 20%. DONE WHEN: `go test` exits 0.", false},
 			{"labelled OUTCOME", "OUTCOME (the change): the importer is better. DONE WHEN: tests pass, or stop after 5 turns", true},
+			{"labelled OUT on its own line", "OUTCOME: docs are clearer.\nOUT (scope): all translations.\nDONE WHEN: tests pass", true},
 			{"OUT with a parenthetical in prose", "OUTCOME: explain SQL OUT (parameter): every procedure has documented output. DONE WHEN: tests pass, or stop after 5 turns", false},
 		}
 		for _, tc := range cases {
