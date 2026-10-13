@@ -163,6 +163,12 @@ var passRate = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(rates?|ratios?|counts
 // final pass"), which names an attempt. passGiven is rewritten first.
 var passGiven = regexp.MustCompile(`(?i)\b(gets?|got|gotten|receives?|received|earns?|earned|returns?|returned|gives?|gave|given)[ \t]+(\w+[ \t]+){0,2}(a|an|the)[ \t]+pass\b|\b(a|an|the)[ \t]+pass[ \t]+from\b`)
 var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|more|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass\b`)
+
+// selfRun is an outside qualifier on a word for an attempt ("checked by a
+// different run of the same agent", "reviewed by an independent pass of my
+// own"). The qualifier describes the attempt, not a judge, so it is rewritten
+// before the qualifier can count as one.
+var selfRun = regexp.MustCompile(`(?i)\bby[ \t]+(an?[ \t]+|the[ \t]+)?(cross-lab|independent|external|outside|different)[ \t]+(pass(es)?|runs?|attempts?|iterations?|rounds?|tries|try|drafts?)\b`)
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
@@ -214,10 +220,12 @@ func judgeProblems(text string) []Problem {
 	return probs
 }
 
-// judgeable removes negated results and rewrites "pass" used as a noun or a
-// noun modifier, so neither reads as a verdict.
+// judgeable removes negated results, rewrites an outside qualifier on an
+// attempt, and rewrites "pass" used as a noun or a noun modifier, so none of
+// them reads as a verdict.
 func judgeable(done string) string {
 	done = negated.ReplaceAllString(done, " ")
+	done = selfRun.ReplaceAllString(done, " by attempt ")
 	done = passRate.ReplaceAllString(done, " pass_rate ")
 	done = passGiven.ReplaceAllString(done, " passed ")
 	done = passNoun.ReplaceAllString(done, " attempt ")
