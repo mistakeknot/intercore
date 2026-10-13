@@ -3,7 +3,6 @@ package goal
 import (
 	"fmt"
 	"regexp"
-	"strings"
 )
 
 // Problem is one lint finding on a /goal completion-condition string.
@@ -121,7 +120,7 @@ const result = pre + `(pass|passes|passed|passing|green|fail|fails|failed|failin
 	`|\b(run|runs|ran)\s+(in|on|against|fresh|clean|green)\b` +
 	`|\breturns?\s+(\d|zero|non-?zero|ok|true|false|clean|empty|nothing)\b`
 const comparison = `\b(under|within|below|above|at most|at least)\s+\d|\b(against|faster|slower)\b`
-const judgeNoun = `\b(tests?|suites?|checks?|review(s|ed|er|ers)?|judge|audit|verdicts?|canar(y|ies)|m(e|\x{e9})lange|flux-(drive|review)|pytest|bats|vitest|tsc)\b`
+const judgeNoun = `\b(tests?|suites?|checks?|ci|builds?|pipelines?|review(s|ed|er|ers)?|judge|audit|verdicts?|canar(y|ies)|m(e|\x{e9})lange|flux-(drive|review)|pytest|bats|vitest|tsc)\b`
 const measureNoun = `\b(measur\w*|meter|benchmark\w*|profil(ed|ing)|pass_rate)\b`
 
 // outsideReview is a review whose reviewer is not the producer, with an
@@ -172,23 +171,35 @@ var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|more|the|this|that|ea
 // independent final pass", "checked by a different run of the same agent").
 // The qualifier describes the attempt, not a judge, so it is rewritten before
 // the qualifier can count as one. A run, invocation, execution or session is
-// an attempt only when it is the producer's own ("of the same agent", "by this
-// agent"), so "verified by an independent run of the regression tests" keeps
-// its judge.
+// an attempt only when it is the producer's own ("of my own", "by the same
+// agent", "of this session"), so "verified by an independent run of our
+// regression tests" keeps its judge.
 var selfRun = regexp.MustCompile(`(?i)\bby[ \t]+(an?[ \t]+|the[ \t]+)?(cross-lab|independent|external|outside|different)[ \t]+([\w-]+[ \t]+)?` +
 	`((pass(es)?|attempts?|iterations?|rounds?|tries|try|drafts?)\b|` +
-	`(runs?|invocations?|executions?|sessions?)[ \t]+(of|by|from)[ \t]+(my|our|its|their|the[ \t]+same|the[ \t]+producer|` +
-	`this[ \t]+(agent|model|session|seat|producer|thread)|myself|itself|me|us)\b)`)
+	`(runs?|invocations?|executions?|sessions?)[ \t]+(of|by|from)[ \t]+(myself|itself|me|us|the[ \t]+producer|` +
+	`((my|our|its|their)[ \t]+own|(my|our|its|their|this|the[ \t]+same)[ \t]+` + agentNoun + `)\b))`)
 
-// selfJudge is a judge that is the producer ("my self-review", "my own
+const agentNoun = `(agent|model|session|seat|producer|thread|author)s?`
+
+// selfNoun is a judge that is the producer ("my self-review", "my own
 // review", "our review", "the producer's review"). "Its review" needs "own",
-// since "the patch and its review" is the patch's reviewer. A clause that names one has
-// no outside verdict, so clauseBreak splits DONE WHEN and the clause is blanked
-// before the search; the clauses beside it are kept.
-var selfJudge = regexp.MustCompile(`(?i)\bself-(review|check|assess|grad|approv)\w*|` +
+// since "the patch and its review" is the patch's reviewer.
+const selfNoun = `(\b((my|our|its|their|the)[ \t]+)?self-(review|check|assess|grad|approv)\w*|` +
 	`\b((my|our)[ \t]+(own[ \t]+)?|(its|their)[ \t]+own[ \t]+|(the[ \t]+)?producer[\x{2019}']s[ \t]+(own[ \t]+)?)` +
-	`(reviews?|judg(e)?ments?|assessments?|read-?throughs?|pass(es)?|verdicts?|approvals?|sign-?offs?)\b`)
-var clauseBreak = regexp.MustCompile(`(?i)[,;\n]|\band\b`)
+	selfJudgeNoun + `\b)`
+
+const selfJudgeNoun = `(reviews?|judg(e)?ments?|assessments?|read-?throughs?|pass(es)?|verdicts?|approvals?|sign-?offs?)`
+
+// selfVerdict is a verdict a producer judge gives: as its subject ("my
+// self-review reports a pass", "my self-review and sign-off are approved")
+// or its source ("a pass from my own review", "approved in my self-review").
+// A passive verdict followed by "by" names another judge ("my self-review is
+// approved by an independent reviewer") and is kept, unless the judge is the
+// producer ("approved by me", "by the same agent").
+var selfVerdict = regexp.MustCompile(`(?i)` + selfNoun + `(([ \t]*,|[ \t]+(and|or))[ \t]+(own[ \t]+)?` + selfJudgeNoun + `)*[ \t]+` +
+	`((is|are|was|were|has|have|had)[ \t]+(been[ \t]+)?)?` +
+	`((reports?|reported|returns?|returned|gives?|gave)[ \t]+(it[ \t]+)?(a|an)[ \t]+pass|pass(es|ed)?|approves?|approved|accepted|signs?[ \t]+off|signed[ \t]+off|green|clean)\b(?P<by>[ \t]+by\b([ \t]+(?P<self>me|myself|us|ourselves|itself|themselves|(the[ \t]+)?producer|(this|the[ \t]+same)[ \t]+` + agentNoun + `)\b)?)?|` +
+	`\b(pass|passed|approved|accepted|signed[ \t]+off)[ \t]+(from|by|in|on)[ \t]+` + selfNoun)
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
@@ -240,27 +251,22 @@ func judgeProblems(text string) []Problem {
 	return probs
 }
 
-// dropSelfJudged blanks each clause of done that names a producer judge.
-func dropSelfJudged(done string) string {
-	var b strings.Builder
-	start := 0
-	for _, loc := range append(clauseBreak.FindAllStringIndex(done, -1), []int{len(done), len(done)}) {
-		if clause := done[start:loc[0]]; selfJudge.MatchString(clause) {
-			b.WriteString(" ")
-		} else {
-			b.WriteString(clause)
+// dropSelfVerdicts removes each selfVerdict unless "by" names another judge.
+func dropSelfVerdicts(done string) string {
+	by, self := selfVerdict.SubexpIndex("by"), selfVerdict.SubexpIndex("self")
+	return selfVerdict.ReplaceAllStringFunc(done, func(m string) string {
+		if sub := selfVerdict.FindStringSubmatch(m); sub[by] != "" && sub[self] == "" {
+			return m
 		}
-		b.WriteString(done[loc[0]:loc[1]])
-		start = loc[1]
-	}
-	return b.String()
+		return " self_verdict "
+	})
 }
 
-// judgeable drops clauses a producer judges, removes negated results, rewrites an outside qualifier on an
+// judgeable drops verdicts a producer judge gives, removes negated results, rewrites an outside qualifier on an
 // attempt, and rewrites "pass" used as a noun or a noun modifier, so none of
 // them reads as a verdict.
 func judgeable(done string) string {
-	done = dropSelfJudged(done)
+	done = dropSelfVerdicts(done)
 	done = negated.ReplaceAllString(done, " ")
 	done = selfRun.ReplaceAllString(done, " by attempt ")
 	done = passRate.ReplaceAllString(done, " pass_rate ")
