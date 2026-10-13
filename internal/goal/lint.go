@@ -3,6 +3,7 @@ package goal
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Problem is one lint finding on a /goal completion-condition string.
@@ -129,15 +130,20 @@ const measureNoun = `\b(measur\w*|meter|benchmark\w*|profil(ed|ing)|pass_rate)\b
 // checklist filed" is still an artifact.
 const outsideReview = `\b(cross-lab|independent|external|outside|m(e|\x{e9})lange|flux-(drive|review))\s+(review|run)\s+((has|have|was|were|is|been)\s+)*(filed|produced|completed|returned|found|passed|approved)\b`
 
+// outsideBy names a judge other than the producer after "by": a cross-lab,
+// independent, external, outside or different one, a second or another
+// reviewer noun, a human, or CI or a test suite.
+const outsideBy = `by\s+(an?\s+|the\s+)?((cross-lab|independent|external|outside|different)\b|` +
+	`(second|another)(\s+[\w-]+)?\s+` +
+	`(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?|engineers?|maintainers?)\b|` +
+	`(humans?|people|persons?|ci|pipelines?|tests?|test\s+suites?|suites?|linters?)\b)`
+
 var externalJudge = regexp.MustCompile(`(?i)` +
 	`exit\w*\s+(code\s+)?(\d|non-?zero)|` +
 	pre + `(pass|passes|passed|passing|fails|tested)` + post + `|` +
 	`\b(run|ran|executed|re-?run)\s+fresh\b|` +
 	`\b(HTTP|http)\s*[2-5]\d\d\b|` +
-	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(cross-lab|independent|external|outside|different)\b|` +
-	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(second|another)(\s+[\w-]+)?\s+` +
-	`(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?|engineers?|maintainers?)\b|` +
-	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(humans?|people|persons?)\b|` +
+	`\b(reviewed|checked|judged|verified)\s+` + outsideBy + `|` +
 	`\bmerged\b|\b(approved|signed off)\b|\breproduc(ed|es)\b|\b(demonstrated|observed|live(-session)?)\s+refusals?\b|\brefus(es|ed)\b|` +
 	`\b(no|zero|0)\s+(\w+\s+)?failures?\b|` +
 	judgeNoun + near + `(` + result + `)|` +
@@ -190,16 +196,32 @@ const selfNoun = `(\b((my|our|its|their|the)[ \t]+)?self-(review|check|assess|gr
 
 const selfJudgeNoun = `(reviews?|judg(e)?ments?|assessments?|read-?throughs?|pass(es)?|verdicts?|approvals?|sign-?offs?)`
 
-// selfVerdict is a verdict a producer judge gives: as its subject ("my
-// self-review reports a pass", "my self-review and sign-off are approved")
-// or its source ("a pass from my own review", "approved in my self-review").
-// A passive verdict followed by "by" names another judge ("my self-review is
-// approved by an independent reviewer") and is kept, unless the judge is the
-// producer ("approved by me", "by the same agent").
-var selfVerdict = regexp.MustCompile(`(?i)` + selfNoun + `(([ \t]*,|[ \t]+(and|or))[ \t]+(own[ \t]+)?` + selfJudgeNoun + `)*[ \t]+` +
-	`((is|are|was|were|has|have|had)[ \t]+(been[ \t]+)?)?` +
-	`((reports?|reported|returns?|returned|gives?|gave)[ \t]+(it[ \t]+)?(a|an)[ \t]+pass|pass(es|ed)?|approves?|approved|accepted|signs?[ \t]+off|signed[ \t]+off|green|clean)\b(?P<by>[ \t]+by\b([ \t]+(?P<self>me|myself|us|ourselves|itself|themselves|(the[ \t]+)?producer|(this|the[ \t]+same)[ \t]+` + agentNoun + `)\b)?)?|` +
-	`\b(pass|passed|approved|accepted|signed[ \t]+off)[ \t]+(from|by|in|on)[ \t]+` + selfNoun)
+// selfSubject is a producer judge, with an optional parenthetical or short
+// "of" phrase, followed by its predicate ("my self-review came back clean",
+// "my self-review of the docs passed", "my self-review and sign-off are
+// approved"). selfSource is
+// a verdict a producer judge gives as its source ("a pass from my own
+// review", "approved in my self-review", "passed my own review").
+// commandJudge is a judge the producer cannot be: a test, check, build or exit
+// code. A producer judge after "of" or another preposition is not the
+// subject ("a cross-lab review of my self-review passed"), and a source
+// verdict after an outside agent is that agent's ("an independent reviewer
+// passed my self-review").
+var selfSubject = regexp.MustCompile(`(?i)` + selfNoun + `(([ \t]*,|[ \t]+(and|or))[ \t]+(own[ \t]+)?` + selfJudgeNoun + `)*` +
+	`([ \t]*\([^)\n]*\)|[ \t]+(of|on|for|about|over)([ \t]+[\w./-]+){1,3}?)?[ \t]+` +
+	`((is|are|was|were|has|have|had|will|would|does|do|did)[ \t]+((been|be|not)[ \t]+)*[\w-]+|` +
+	`(came|comes|got|gets|gave|gives|found|finds|ran|runs|shows?|reports?|returns?|pass(es)?|approves?|accepts?|signs?|green|clean|lgtm|succeeds|\w+ed)\b)`)
+var selfSource = regexp.MustCompile(`(?i)\b(pass|passed)[ \t]+((from|by|in|on)[ \t]+)?` + selfNoun + `|\b(approved|accepted|signed[ \t]+off)[ \t]+(from|by|in|on)[ \t]+` + selfNoun)
+var commandJudge = regexp.MustCompile(`(?i)\b(tests?|suites?|checks?|ci|builds?|pipelines?|canar(y|ies)|pytest|bats|vitest|tsc)\b|exit\w*\s+(code\s+)?(\d|non-?zero)|\b(HTTP|http)\s*[2-5]\d\d\b`)
+var outsideJudge = regexp.MustCompile(`(?i)\b` + outsideBy)
+var outsideAgent = regexp.MustCompile(`(?i)\b(cross-lab|independent|external|outside|different|second|another|humans?)\b`)
+var objectOf = regexp.MustCompile(`(?i)\b(of|on|about|for|to|in|from|with|into|than)[ \t]+$`)
+
+// selfBreak ends a clause. "And" or "or" before another verdict word
+// continues it ("was checked and approved").
+var selfBreak = regexp.MustCompile(`(?i)[,;\n]|\.(\s|$)|\b(and|or)\b`)
+var selfContinue = regexp.MustCompile(`(?i)^[ \t]+(then[ \t]+)?(approv|pass|accept|sign|green|clean|lgtm|succeed|merged|verified|checked)`)
+
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
@@ -251,24 +273,66 @@ func judgeProblems(text string) []Problem {
 	return probs
 }
 
-// dropSelfVerdicts removes each selfVerdict unless "by" names another judge.
-func dropSelfVerdicts(done string) string {
-	by, self := selfVerdict.SubexpIndex("by"), selfVerdict.SubexpIndex("self")
-	return selfVerdict.ReplaceAllStringFunc(done, func(m string) string {
-		if sub := selfVerdict.FindStringSubmatch(m); sub[by] != "" && sub[self] == "" {
-			return m
+// dropSelfJudged blanks a producer judge's predicate to the end of its
+// clause, unless the predicate names an outside judge ("is approved by an
+// independent reviewer") or a command judge, and blanks a verdict whose
+// source is a producer judge, unless a command judge or an outside agent
+// comes before it in the clause ("tests passed in my own review").
+func dropSelfJudged(done string) string {
+	b := []byte(done)
+	for _, m := range selfSubject.FindAllStringIndex(done, -1) {
+		if objectOf.MatchString(done[clauseStart(done, m[0]):m[0]]) {
+			continue
 		}
-		return " self_verdict "
-	})
+		end := clauseEnd(done, m[1])
+		if !outsideJudge.MatchString(done[m[0]:end]) && !commandJudge.MatchString(done[m[0]:end]) {
+			blank(b, m[0], end)
+		}
+	}
+	for _, m := range selfSource.FindAllStringIndex(done, -1) {
+		if before := done[clauseStart(done, m[0]):m[0]]; !commandJudge.MatchString(before) && !outsideAgent.MatchString(before) {
+			blank(b, m[0], m[1])
+		}
+	}
+	return string(b)
 }
 
-// judgeable drops verdicts a producer judge gives, removes negated results, rewrites an outside qualifier on an
-// attempt, and rewrites "pass" used as a noun or a noun modifier, so none of
-// them reads as a verdict.
+func clauseEnd(s string, from int) int {
+	for {
+		loc := selfBreak.FindStringIndex(s[from:])
+		if loc == nil {
+			return len(s)
+		}
+		if w := strings.ToLower(s[from+loc[0] : from+loc[1]]); w != "and" && w != "or" || !selfContinue.MatchString(s[from+loc[1]:]) {
+			return from + loc[0]
+		}
+		from += loc[1]
+	}
+}
+
+func clauseStart(s string, to int) int {
+	start := 0
+	for _, loc := range selfBreak.FindAllStringIndex(s[:to], -1) {
+		start = loc[1]
+	}
+	return start
+}
+
+func blank(b []byte, from, to int) {
+	for i := from; i < to; i++ {
+		if b[i] != '\n' {
+			b[i] = ' '
+		}
+	}
+}
+
+// judgeable rewrites an outside qualifier on an attempt, drops verdicts a
+// producer judge gives, removes negated results, and rewrites "pass" used as
+// a noun or a noun modifier, so none of them reads as a verdict.
 func judgeable(done string) string {
-	done = dropSelfVerdicts(done)
-	done = negated.ReplaceAllString(done, " ")
 	done = selfRun.ReplaceAllString(done, " by attempt ")
+	done = dropSelfJudged(done)
+	done = negated.ReplaceAllString(done, " ")
 	done = passRate.ReplaceAllString(done, " pass_rate ")
 	done = passReport.ReplaceAllString(done, " report ")
 	done = passGiven.ReplaceAllString(done, " passed${f}")
