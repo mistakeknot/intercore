@@ -132,3 +132,64 @@ func TestVentriloquismPrecision(t *testing.T) {
 		}
 	}
 }
+
+func hasWarning(probs []Problem, prefix string) bool {
+	for _, p := range probs {
+		if p.Severity == "warning" && strings.HasPrefix(p.Message, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestOutsideJudgeRules pins the self-graded and no-bar warnings. Both are
+// warnings only: neither may ever turn a goal into a blocked mint.
+func TestOutsideJudgeRules(t *testing.T) {
+	cases := []struct {
+		name       string
+		text       string
+		selfGraded bool
+		noBar      bool
+	}{
+		{"producer-only judge, no bar",
+			"Docs — better docs. OUTCOME: the docs are better. WHO'S WAITING: nobody. " +
+				"DONE WHEN: the report is written and reviewed, or stop after 10 turns.",
+			true, true},
+		{"command judge and numeric bar",
+			"Docs — fewer broken links. OUTCOME: 12 broken links today, 0 after. " +
+				"DONE WHEN: `make linkcheck` exits 0, or stop after 10 turns.",
+			false, false},
+		{"reviewed by an independent reviewer is not self-graded",
+			"Plan — a reviewed plan. OUTCOME: at least 3 risks named. " +
+				"DONE WHEN: the plan is reviewed by a cross-lab reviewer, or stop after 10 turns.",
+			false, false},
+		{"comparison counts as a bar",
+			"Perf — faster start. OUTCOME: startup is faster than 2s. DONE WHEN: `go test ./...` exits 0.",
+			false, false},
+		{"sections absent: neither rule fires",
+			"all Go tests exit 0 and bead mk-1 closed, or stop after 20 turns",
+			false, false},
+		{"a digit in PREMISE does not supply the OUTCOME bar",
+			"X — y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.",
+			false, true},
+		{"the word ABOUT does not end a section",
+			"X — y. OUTCOME: we learn ABOUT cost and cut it by 20%. DONE WHEN: `go test` exits 0.",
+			false, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			probs := LintCondition(tc.text)
+			if got := hasWarning(probs, "self-graded"); got != tc.selfGraded {
+				t.Errorf("self-graded = %v, want %v (%v)", got, tc.selfGraded, probs)
+			}
+			if got := hasWarning(probs, "no bar"); got != tc.noBar {
+				t.Errorf("no bar = %v, want %v (%v)", got, tc.noBar, probs)
+			}
+			for _, p := range probs {
+				if (strings.HasPrefix(p.Message, "self-graded") || strings.HasPrefix(p.Message, "no bar")) && p.Severity != "warning" {
+					t.Errorf("%q must be a warning, got %s", p.Message, p.Severity)
+				}
+			}
+		})
+	}
+}
