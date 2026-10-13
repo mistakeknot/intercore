@@ -134,7 +134,8 @@ var externalJudge = regexp.MustCompile(`(?i)` +
 	pre + `(pass|passes|passed|passing|fails|tested)` + post + `|` +
 	`\b(run|ran|executed|re-?run)\s+fresh\b|` +
 	`\b(HTTP|http)\s*[2-5]\d\d\b|` +
-	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(cross-lab|independent|external|outside|second|another|different)\b|` +
+	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(cross-lab|independent|external|outside|second|another|different)(\s+[\w-]+)?\s+` +
+	`(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?)\b|` +
 	`\bmerged\b|\b(approved|signed off)\b|\breproduc(ed|es)\b|\b(demonstrated|observed|live(-session)?)\s+refusals?\b|\brefus(es|ed)\b|` +
 	`\b(no|zero|0)\s+(\w+\s+)?failures?\b|` +
 	judgeNoun + near + `(` + result + `)|` +
@@ -145,7 +146,7 @@ var externalJudge = regexp.MustCompile(`(?i)` +
 // not run in CI", "tests aren't run", "never had to pass", "opened, not
 // merged"). It is removed before the judge search, so a negated run is not a
 // run.
-var negated = regexp.MustCompile(`(?i)\b(not|never|without|no|\w+n['\x{2019}]t)\s+((yet|be|been|being|(have|has|had|need|needs|needed|required)\s+to)\s+)*(run|runs|ran|executed|pass\w*|tested|approved|merged|green|clean|reviewed)\b`)
+var negated = regexp.MustCompile(`(?i)\b(not|never|without|no|\w+n['\x{2019}]t)\s+((yet|be|been|being|(have|has|had|need|needs|needed|required)\s+to)\s+)*(run|runs|ran|executed|pass\w*|tested|approved|merged|green|clean|reviewed|checked|judged|verified)\b`)
 
 // passRate and passReport rewrite "pass" used as a noun modifier before the
 // judge search. A pass rate is a measurement, so it needs a comparison ("test
@@ -153,15 +154,20 @@ var negated = regexp.MustCompile(`(?i)\b(not|never|without|no|\w+n['\x{2019}]t)\
 // report", "pass summary"). Both stay on one line, so "tests pass" ending a
 // line keeps its verdict when the next line starts "Report".
 var passRate = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(rates?|ratios?|counts?)\b`)
+
+// passNoun is "pass" after a determiner ("another pass of myself", "a final
+// pass"), which names an attempt, not a verdict.
+var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass\b`)
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
 // headers are upper-case by convention, so "gate" in prose is not one, and a
 // GATE header needs its number ("GATE 1", "GATE n"), so "the GATE API" is not
 // one either. Both apostrophes are accepted in WHO'S WAITING, and a label may
-// carry a parenthetical before its colon ("PREMISE (C3 and above):").
+// carry a parenthetical before its colon ("PREMISE (C3 and above):"), except
+// OUT, so "SQL OUT (parameter):" in prose does not end a section.
 const label = `(?:\s*\([^)\n]*\))?:`
-const header = `\bWHO[\x{2019}']S WAITING` + label + `|\bPREMISE` + label + `|\bGATE\s+(\d+|n)\b|\bDONE WHEN` + label + `|\bOUT` + label
+const header = `\bWHO[\x{2019}']S WAITING` + label + `|\bPREMISE` + label + `|\bGATE\s+(\d+|n)\b|\bDONE WHEN` + label + `|\bOUT:`
 
 // outcomeSection captures an OUTCOME: block up to the next header.
 var outcomeSection = regexp.MustCompile(`(?s)\bOUTCOME` + label + `(.*?)(` + header + `|\z)`)
@@ -202,11 +208,12 @@ func judgeProblems(text string) []Problem {
 	return probs
 }
 
-// judgeable removes negated results and rewrites "pass" used as a noun
-// modifier, so neither reads as a verdict.
+// judgeable removes negated results and rewrites "pass" used as a noun or a
+// noun modifier, so neither reads as a verdict.
 func judgeable(done string) string {
 	done = negated.ReplaceAllString(done, " ")
 	done = passRate.ReplaceAllString(done, " pass_rate ")
+	done = passNoun.ReplaceAllString(done, " attempt ")
 	return passReport.ReplaceAllString(done, " report ")
 }
 

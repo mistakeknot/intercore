@@ -223,6 +223,15 @@ func TestJudgeRules(t *testing.T) {
 			{"producer-only judge", "Docs \u2014 better docs. OUTCOME: the docs are better. WHO'S WAITING: nobody. DONE WHEN: the report is written and reviewed, or stop after 10 turns.", true},
 			{"command judge", "Docs \u2014 fewer broken links. OUTCOME: 12 broken links today, 0 after. DONE WHEN: `make linkcheck` exits 0, or stop after 10 turns.", false},
 			{"sections absent", "all Go tests exit 0 and bead mk-1 closed, or stop after 20 turns", false},
+			{"reviewed by a cross-lab reviewer, full goal", "Plan \u2014 a reviewed plan. OUTCOME: at least 3 risks named. DONE WHEN: the plan is reviewed by a cross-lab reviewer, or stop after 10 turns.", false},
+			{"comparison bar with a command judge", "Perf \u2014 faster start. OUTCOME: startup is faster than 2s. DONE WHEN: `go test ./...` exits 0.", false},
+			{"ABOUT in the outcome with a command judge", "X \u2014 y. OUTCOME: we learn ABOUT cost and cut it by 20%. DONE WHEN: `go test` exits 0.", false},
+			{"not checked by an independent reviewer", "DONE WHEN: report committed, not checked by an independent reviewer, or stop after 5 turns", true},
+			{"not judged by an external reviewer", "DONE WHEN: report committed, not judged by an external reviewer, or stop after 5 turns", true},
+			{"never verified by a cross-lab reviewer", "DONE WHEN: report committed, never verified by a cross-lab reviewer, or stop after 5 turns", true},
+			{"reviewed by another pass of the producer", "DONE WHEN: report reviewed by another pass of myself and committed, or stop after 5 turns", true},
+			{"a final pass is an attempt", "DONE WHEN: a final pass over the docs, committed and pushed, or stop after 5 turns", true},
+			{"verified by a second reviewer", "DONE WHEN: report committed and verified by a second reviewer, or stop after 5 turns", false},
 			{"labelled PREMISE before a command judge", "X \u2014 y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.", false},
 		}
 		for _, tc := range cases {
@@ -260,7 +269,7 @@ func TestJudgeRules(t *testing.T) {
 			{"bar only in a labelled premise", "X \u2014 y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.", true},
 			{"ABOUT is not the OUT header", "X \u2014 y. OUTCOME: we learn ABOUT cost and cut it by 20%. DONE WHEN: `go test` exits 0.", false},
 			{"labelled OUTCOME", "OUTCOME (the change): the importer is better. DONE WHEN: tests pass, or stop after 5 turns", true},
-			{"bar only under a labelled OUT", "OUTCOME: the importer is better. DONE WHEN: tests pass, or stop after 5 turns. OUT (scope): imports under 3 seconds", true},
+			{"OUT with a parenthetical in prose", "OUTCOME: explain SQL OUT (parameter): every procedure has documented output. DONE WHEN: tests pass, or stop after 5 turns", false},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
