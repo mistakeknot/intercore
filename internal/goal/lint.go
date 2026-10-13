@@ -3,6 +3,7 @@ package goal
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 // Problem is one lint finding on a /goal completion-condition string.
@@ -159,23 +160,35 @@ var passRate = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(rates?|ratios?|counts
 
 // passGiven is a pass something else hands out ("gets a pass on CI", "the
 // suite reports a pass", "a pass from CI"), which is a verdict. The pass must
-// end the clause or take a preposition, so "returns a pass summary" stays an
+// end the clause or take a preposition or "and", so "returns a pass summary" stays an
 // artifact. "Give it a pass" is left out because the producer can give one.
 // passNoun is any other "pass" after a determiner ("another pass of myself",
 // "reviewed in a final pass"), which names an attempt. passGiven is rewritten
 // first.
-var passGiven = regexp.MustCompile(`(?i)\b(gets?|got|gotten|receives?|received|earns?|earned|returns?|returned|reports?|reported)[ \t]+(\w+[ \t]+){0,2}(a|an|the)[ \t]+pass(?P<f>[ \t]+(on|from|in|at|under|with|for)\b|[ \t]*([,;:)\n]|\.(\s|\z)|\z))|\b(a|an|the)[ \t]+pass[ \t]+from\b`)
+var passGiven = regexp.MustCompile(`(?i)\b(gets?|got|gotten|receives?|received|earns?|earned|returns?|returned|reports?|reported)[ \t]+(\w+[ \t]+){0,2}(a|an|the)[ \t]+pass(?P<f>[ \t]+(on|from|in|at|under|with|for|and)\b|[ \t]*([,;:)\n]|\.(\s|\z)|\z))|\b(a|an|the)[ \t]+pass[ \t]+from\b`)
 var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|more|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass\b`)
 
 // selfRun is an outside qualifier on a word for an attempt ("reviewed by an
 // independent final pass", "checked by a different run of the same agent").
 // The qualifier describes the attempt, not a judge, so it is rewritten before
 // the qualifier can count as one. A run, invocation, execution or session is
-// an attempt only when it is the producer's own, so "verified by an
-// independent run of the regression tests" keeps its judge.
+// an attempt only when it is the producer's own ("of the same agent", "by this
+// agent"), so "verified by an independent run of the regression tests" keeps
+// its judge.
 var selfRun = regexp.MustCompile(`(?i)\bby[ \t]+(an?[ \t]+|the[ \t]+)?(cross-lab|independent|external|outside|different)[ \t]+([\w-]+[ \t]+)?` +
 	`((pass(es)?|attempts?|iterations?|rounds?|tries|try|drafts?)\b|` +
-	`(runs?|invocations?|executions?|sessions?)[ \t]+of[ \t]+(my|our|its|their|the[ \t]+same|the[ \t]+producer|myself|itself|me|us)\b)`)
+	`(runs?|invocations?|executions?|sessions?)[ \t]+(of|by|from)[ \t]+(my|our|its|their|the[ \t]+same|the[ \t]+producer|` +
+	`this[ \t]+(agent|model|session|seat|producer|thread)|myself|itself|me|us)\b)`)
+
+// selfJudge is a judge that is the producer ("my self-review", "my own
+// review", "our review", "the producer's review"). "Its review" needs "own",
+// since "the patch and its review" is the patch's reviewer. A clause that names one has
+// no outside verdict, so clauseBreak splits DONE WHEN and the clause is blanked
+// before the search; the clauses beside it are kept.
+var selfJudge = regexp.MustCompile(`(?i)\bself-(review|check|assess|grad|approv)\w*|` +
+	`\b((my|our)[ \t]+(own[ \t]+)?|(its|their)[ \t]+own[ \t]+|(the[ \t]+)?producer[\x{2019}']s[ \t]+(own[ \t]+)?)` +
+	`(reviews?|judg(e)?ments?|assessments?|read-?throughs?|pass(es)?|verdicts?|approvals?|sign-?offs?)\b`)
+var clauseBreak = regexp.MustCompile(`(?i)[,;\n]|\band\b`)
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
@@ -227,10 +240,27 @@ func judgeProblems(text string) []Problem {
 	return probs
 }
 
-// judgeable removes negated results, rewrites an outside qualifier on an
+// dropSelfJudged blanks each clause of done that names a producer judge.
+func dropSelfJudged(done string) string {
+	var b strings.Builder
+	start := 0
+	for _, loc := range append(clauseBreak.FindAllStringIndex(done, -1), []int{len(done), len(done)}) {
+		if clause := done[start:loc[0]]; selfJudge.MatchString(clause) {
+			b.WriteString(" ")
+		} else {
+			b.WriteString(clause)
+		}
+		b.WriteString(done[loc[0]:loc[1]])
+		start = loc[1]
+	}
+	return b.String()
+}
+
+// judgeable drops clauses a producer judges, removes negated results, rewrites an outside qualifier on an
 // attempt, and rewrites "pass" used as a noun or a noun modifier, so none of
 // them reads as a verdict.
 func judgeable(done string) string {
+	done = dropSelfJudged(done)
 	done = negated.ReplaceAllString(done, " ")
 	done = selfRun.ReplaceAllString(done, " by attempt ")
 	done = passRate.ReplaceAllString(done, " pass_rate ")
