@@ -157,18 +157,25 @@ var negated = regexp.MustCompile(`(?i)\b(not|never|without|no|\w+n['\x{2019}]t)\
 // line keeps its verdict when the next line starts "Report".
 var passRate = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(rates?|ratios?|counts?)\b`)
 
-// passGiven is a pass something else hands out ("gets a pass on CI", "a pass
-// from CI", "CI gives the build a pass"), which is a verdict. passNoun is any
-// other "pass" after a determiner ("another pass of myself", "reviewed in a
-// final pass"), which names an attempt. passGiven is rewritten first.
-var passGiven = regexp.MustCompile(`(?i)\b(gets?|got|gotten|receives?|received|earns?|earned|returns?|returned|gives?|gave|given)[ \t]+(\w+[ \t]+){0,2}(a|an|the)[ \t]+pass\b|\b(a|an|the)[ \t]+pass[ \t]+from\b`)
+// passGiven is a pass something else hands out ("gets a pass on CI", "the
+// suite reports a pass", "a pass from CI"), which is a verdict. The pass must
+// end the clause or take a preposition, so "returns a pass summary" stays an
+// artifact. "Give it a pass" is left out because the producer can give one.
+// passNoun is any other "pass" after a determiner ("another pass of myself",
+// "reviewed in a final pass"), which names an attempt. passGiven is rewritten
+// first.
+var passGiven = regexp.MustCompile(`(?i)\b(gets?|got|gotten|receives?|received|earns?|earned|returns?|returned|reports?|reported)[ \t]+(\w+[ \t]+){0,2}(a|an|the)[ \t]+pass(?P<f>[ \t]+(on|from|in|at|under|with|for)\b|[ \t]*([,;:)\n]|\.(\s|\z)|\z))|\b(a|an|the)[ \t]+pass[ \t]+from\b`)
 var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|more|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass\b`)
 
-// selfRun is an outside qualifier on a word for an attempt ("checked by a
-// different run of the same agent", "reviewed by an independent pass of my
-// own"). The qualifier describes the attempt, not a judge, so it is rewritten
-// before the qualifier can count as one.
-var selfRun = regexp.MustCompile(`(?i)\bby[ \t]+(an?[ \t]+|the[ \t]+)?(cross-lab|independent|external|outside|different)[ \t]+(pass(es)?|runs?|attempts?|iterations?|rounds?|tries|try|drafts?)\b`)
+// selfRun is an outside qualifier on a word for an attempt ("reviewed by an
+// independent final pass", "checked by a different run of the same agent").
+// The qualifier describes the attempt, not a judge, so it is rewritten before
+// the qualifier can count as one. A run, invocation, execution or session is
+// an attempt only when it is the producer's own, so "verified by an
+// independent run of the regression tests" keeps its judge.
+var selfRun = regexp.MustCompile(`(?i)\bby[ \t]+(an?[ \t]+|the[ \t]+)?(cross-lab|independent|external|outside|different)[ \t]+([\w-]+[ \t]+)?` +
+	`((pass(es)?|attempts?|iterations?|rounds?|tries|try|drafts?)\b|` +
+	`(runs?|invocations?|executions?|sessions?)[ \t]+of[ \t]+(my|our|its|their|the[ \t]+same|the[ \t]+producer|myself|itself|me|us)\b)`)
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
@@ -227,9 +234,9 @@ func judgeable(done string) string {
 	done = negated.ReplaceAllString(done, " ")
 	done = selfRun.ReplaceAllString(done, " by attempt ")
 	done = passRate.ReplaceAllString(done, " pass_rate ")
-	done = passGiven.ReplaceAllString(done, " passed ")
-	done = passNoun.ReplaceAllString(done, " attempt ")
-	return passReport.ReplaceAllString(done, " report ")
+	done = passReport.ReplaceAllString(done, " report ")
+	done = passGiven.ReplaceAllString(done, " passed${f}")
+	return passNoun.ReplaceAllString(done, " attempt ")
 }
 
 // shapeProblems returns the shape findings for a goal/condition text.
