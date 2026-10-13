@@ -110,6 +110,66 @@ func shapeProblems(text string) []Problem {
 	return probs
 }
 
+// ── Outside-judge rules ─────────────────────────────────────────────────────
+//
+// A goal whose only judge is its producer cannot fail. These two rules look at
+// the OUTCOME and DONE WHEN sections of the goal form (guide-goal-shape.md)
+// and are warnings only: both are heuristics, and a goal that omits a section
+// is left to the other rules.
+
+// sectionEnd matches the start of the next labelled section of a goal.
+var sectionEnd = regexp.MustCompile(`(?m)\b(WHO'S WAITING|GATE\s*\d*|DONE WHEN|OUT|OUTCOME)\b[^\n:]*:`)
+
+// section returns the text of the labelled section, from the label's colon to
+// the next section label (or the end), and whether the label was present.
+func section(text, label string) (string, bool) {
+	start := regexp.MustCompile(`(?m)\b` + label + `\s*:`).FindStringIndex(text)
+	if start == nil {
+		return "", false
+	}
+	rest := text[start[1]:]
+	if end := sectionEnd.FindStringIndex(rest); end != nil {
+		rest = rest[:end[0]]
+	}
+	return rest, true
+}
+
+// producerOnly matches DONE WHEN wording that the producer alone can satisfy.
+var producerOnly = regexp.MustCompile(`(?i)\b(reviewed|looks?\s+good|report\s+(is\s+)?written|written|documented|drafted|self-review(ed)?|i\s+(am\s+)?satisfied|summari[sz]ed)\b`)
+
+// independentCheck matches a judge other than the producer: a command or exit
+// code, a test run, an HTTP status, or an independent reviewer. A merge or
+// deploy counts because another party performs it.
+var independentCheck = regexp.MustCompile(`(?i)` +
+	"`[^`]+`|" +
+	`exit(s)?\s+(code\s+)?0|` +
+	`tests?\s+(pass|green)|` +
+	`\b(HTTP|http)\s*2\d\d\b|` +
+	`cross-lab|independent(ly)?|external|second\s+reviewer|reviewer\s+other\s+than|` +
+	`merged|deployed|\bCI\b`)
+
+// bar matches a number or a comparison, the minimum for a measurable outcome.
+var bar = regexp.MustCompile(`(?i)\d|\b(at\s+least|at\s+most|more\s+than|fewer|less\s+than|faster|slower|under|over|exceeds?|zero|none|every|all)\b`)
+
+// outsideJudgeProblems returns the self-graded and no-bar warnings.
+func outsideJudgeProblems(text string) []Problem {
+	var probs []Problem
+	if done, ok := section(text, "DONE WHEN"); ok {
+		if m := producerOnly.FindString(done); m != "" && !independentCheck.MatchString(done) {
+			probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
+				"self-graded: DONE WHEN rests on %q and names no command, exit code, "+
+					"external tool or independent reviewer, so only the producer judges "+
+					"the result. Add a check the producer cannot pass by asserting it", m)})
+		}
+	}
+	if outcome, ok := section(text, "OUTCOME"); ok && !bar.MatchString(outcome) {
+		probs = append(probs, Problem{Severity: "warning", Message: "no bar: OUTCOME " +
+			"has no number or comparison, so nothing says how much is enough. State " +
+			"a measurable bar, even a stretch one"})
+	}
+	return probs
+}
+
 // LintCondition validates a condition string against the /goal built-in's
 // contract on two axes. JUDGEABILITY: length, non-emptiness, demonstrability,
 // and a bounded-runtime recommendation. SHAPE (see shapeProblems): whether the
@@ -134,5 +194,6 @@ func LintCondition(text string) []Problem {
 		probs = append(probs, Problem{Severity: "warning", Message: "no runtime bound — " +
 			"consider appending 'or stop after N turns'"})
 	}
-	return append(probs, shapeProblems(text)...)
+	probs = append(probs, shapeProblems(text)...)
+	return append(probs, outsideJudgeProblems(text)...)
 }
