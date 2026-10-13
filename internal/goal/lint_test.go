@@ -236,6 +236,14 @@ func TestJudgeRules(t *testing.T) {
 			{"reviewed by a human", "DONE WHEN: report committed and reviewed by a human, or stop after 5 turns", false},
 			{"not reviewed by a human", "DONE WHEN: report committed, not reviewed by a human, or stop after 5 turns", true},
 			{"labelled OUT on its own line", "DONE WHEN: report committed.\nOUT (scope): independent review passed", true},
+			{"reviewed in a final pass", "DONE WHEN: report reviewed in a final pass and committed, or stop after 5 turns", true},
+			{"a pass on CI", "DONE WHEN: the suite gets a pass on CI, committed, or stop after 5 turns", false},
+			{"reviewed by an independent engineer", "DONE WHEN: report committed and reviewed by an independent engineer, or stop after 5 turns", false},
+			{"reviewed by another engineer", "DONE WHEN: report committed and reviewed by another engineer, or stop after 5 turns", false},
+			{"one more pass is an attempt", "DONE WHEN: one more pass over the docs, committed, or stop after 5 turns", true},
+			{"CI gives the build a pass", "DONE WHEN: CI gives the build a pass, or stop after 5 turns", false},
+			{"green after a package path", "DONE WHEN: the final pass of go test ./... is green, or stop after 5 turns", false},
+			{"labelled OUT as a bullet", "DONE WHEN: report committed\n- OUT (scope): independent review passed", true},
 			{"labelled OUT after a sentence", "OUTCOME: every page renders. DONE WHEN: committed and pushed, or stop after 5 turns. OUT (scope): independent review passed", true},
 			{"labelled PREMISE before a command judge", "X \u2014 y. OUTCOME: docs are clearer. PREMISE (C3 and above): churn is 40% in week 1. DONE WHEN: `go test` exits 0.", false},
 		}
@@ -275,6 +283,7 @@ func TestJudgeRules(t *testing.T) {
 			{"ABOUT is not the OUT header", "X \u2014 y. OUTCOME: we learn ABOUT cost and cut it by 20%. DONE WHEN: `go test` exits 0.", false},
 			{"labelled OUTCOME", "OUTCOME (the change): the importer is better. DONE WHEN: tests pass, or stop after 5 turns", true},
 			{"labelled OUT on its own line", "OUTCOME: docs are clearer.\nOUT (scope): all translations.\nDONE WHEN: tests pass", true},
+			{"labelled OUT as a bullet", "OUTCOME: docs are clearer\n- OUT (scope): all translations\nDONE WHEN: tests pass", true},
 			{"OUT with a parenthetical in prose", "OUTCOME: explain SQL OUT (parameter): every procedure has documented output. DONE WHEN: tests pass, or stop after 5 turns", false},
 		}
 		for _, tc := range cases {

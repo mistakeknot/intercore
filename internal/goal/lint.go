@@ -106,9 +106,9 @@ var preRuled = regexp.MustCompile(`(?i)(canon|design|open)\s+(call|question|deci
 // exists) are not results, and neither are nouns ("test failure report",
 // "review approval checklist", "test runs log") or hyphenated modifiers
 // ("first-pass report"). A period inside a token such as "meter.py" does not
-// end the clause. Only DONE WHEN is searched, so words in OUTCOME or OUT that
+// end the clause, nor does a path such as "./...". Only DONE WHEN is searched, so words in OUTCOME or OUT that
 // name a judge without requiring one do not count either.
-const near = `([^.;,]|\.\S){0,40}?`
+const near = `([^.;,]|\.\.\.|\.\S){0,40}?`
 
 // RE2 has no lookaround, so these guards consume the neighbouring character to
 // keep a verdict word from counting inside a modifier ("first-pass",
@@ -134,8 +134,9 @@ var externalJudge = regexp.MustCompile(`(?i)` +
 	pre + `(pass|passes|passed|passing|fails|tested)` + post + `|` +
 	`\b(run|ran|executed|re-?run)\s+fresh\b|` +
 	`\b(HTTP|http)\s*[2-5]\d\d\b|` +
-	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(cross-lab|independent|external|outside|second|another|different)(\s+[\w-]+)?\s+` +
-	`(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?)\b|` +
+	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(cross-lab|independent|external|outside|different)\b|` +
+	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(second|another)(\s+[\w-]+)?\s+` +
+	`(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?|engineers?|maintainers?)\b|` +
 	`\b(reviewed|checked|judged|verified)\s+by\s+(an?\s+|the\s+)?(humans?|people|persons?)\b|` +
 	`\bmerged\b|\b(approved|signed off)\b|\breproduc(ed|es)\b|\b(demonstrated|observed|live(-session)?)\s+refusals?\b|\brefus(es|ed)\b|` +
 	`\b(no|zero|0)\s+(\w+\s+)?failures?\b|` +
@@ -156,10 +157,12 @@ var negated = regexp.MustCompile(`(?i)\b(not|never|without|no|\w+n['\x{2019}]t)\
 // line keeps its verdict when the next line starts "Report".
 var passRate = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(rates?|ratios?|counts?)\b`)
 
-// passNoun is "pass" after a determiner and before what it goes over
-// ("another pass of myself", "a final pass over the docs"), which names an
-// attempt, not a verdict. "a pass from CI" keeps its verdict.
-var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass[ \t]+(of|over|through|across|on)\b`)
+// passGiven is a pass something else hands out ("gets a pass on CI", "a pass
+// from CI", "CI gives the build a pass"), which is a verdict. passNoun is any
+// other "pass" after a determiner ("another pass of myself", "reviewed in a
+// final pass"), which names an attempt. passGiven is rewritten first.
+var passGiven = regexp.MustCompile(`(?i)\b(gets?|got|gotten|receives?|received|earns?|earned|returns?|returned|gives?|gave|given)[ \t]+(\w+[ \t]+){0,2}(a|an|the)[ \t]+pass\b|\b(a|an|the)[ \t]+pass[ \t]+from\b`)
+var passNoun = regexp.MustCompile(`(?i)\b(a|an|another|one|more|the|this|that|each|every|first|second|third|final|last|next)[ \t]+pass\b`)
 var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
 
 // header matches the start of any goal-shape section. Case-sensitive: the
@@ -167,10 +170,10 @@ var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|i
 // GATE header needs its number ("GATE 1", "GATE n"), so "the GATE API" is not
 // one either. Both apostrophes are accepted in WHO'S WAITING, and a label may
 // carry a parenthetical before its colon ("PREMISE (C3 and above):"). OUT
-// with a parenthetical is a header only at the start of the text, a line or a
-// sentence, so "SQL OUT (parameter):" in prose does not end a section.
+// with a parenthetical is a header only at the start of the text, a line, a
+// bullet or a sentence, so "SQL OUT (parameter):" in prose does not end a section.
 const label = `(?:\s*\([^)\n]*\))?:`
-const header = `\bWHO[\x{2019}']S WAITING` + label + `|\bPREMISE` + label + `|\bGATE\s+(\d+|n)\b|\bDONE WHEN` + label + `|\bOUT:|(?:\A|[\n.!?;])\s*OUT\s*\([^)\n]*\):`
+const header = `\bWHO[\x{2019}']S WAITING` + label + `|\bPREMISE` + label + `|\bGATE\s+(\d+|n)\b|\bDONE WHEN` + label + `|\bOUT:|(?:\A|[\n.!?;])\s*(?:[-*+]\s+|\d+[.)]\s+)?OUT\s*\([^)\n]*\):`
 
 // outcomeSection captures an OUTCOME: block up to the next header.
 var outcomeSection = regexp.MustCompile(`(?s)\bOUTCOME` + label + `(.*?)(` + header + `|\z)`)
@@ -216,6 +219,7 @@ func judgeProblems(text string) []Problem {
 func judgeable(done string) string {
 	done = negated.ReplaceAllString(done, " ")
 	done = passRate.ReplaceAllString(done, " pass_rate ")
+	done = passGiven.ReplaceAllString(done, " passed ")
 	done = passNoun.ReplaceAllString(done, " attempt ")
 	return passReport.ReplaceAllString(done, " report ")
 }
