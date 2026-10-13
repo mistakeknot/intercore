@@ -83,6 +83,127 @@ var planDetail = regexp.MustCompile(`(?i)` +
 // A gate the drafter has already decided is not a gate.
 var preRuled = regexp.MustCompile(`(?i)(canon|design|open)\s+(call|question|decision)`)
 
+// ── Judge and bar rules (mk-3mo0w) ──────────────────────────────────────────
+//
+// A goal whose only predicates are artifacts its producer creates (a commit,
+// a push, a closed bead, a file that exists) is graded by the producer: the
+// evaluator confirms the work was filed, never that it is right. And an
+// OUTCOME with no number, comparison, or universal gives the executor no bar
+// to clear, so "done" collapses to "did something". Both are heuristics,
+// hence warnings.
+
+// externalJudge matches a predicate decided by something other than the
+// producer: a command's exit code or verdict, a test run, an HTTP status, a
+// measurement against a reference, a merge someone else performs, or a review
+// with a result. A judge noun alone is a topic, not a judge ("test plan filed",
+// "benchmark report recorded", "go test instructions"): it needs a verdict or
+// execution word within the same clause. Only a measurement may be judged by
+// a comparison with a number or a reference ("benchmark under 3 seconds",
+// "meter against the sequential run"), and "under docs/bench" is a place, not a
+// comparison. "Clean" counts only as a state something reports ("came back
+// clean", "exits cleanly"), not as an adjective ("a clean push").
+// Words a producer satisfies by writing a file (filed, recorded, shows,
+// exists) are not results, and neither are nouns ("test failure report",
+// "review approval checklist", "test runs log") or hyphenated modifiers
+// ("first-pass report"). A period inside a token such as "meter.py" does not
+// end the clause. Only DONE WHEN is searched, so words in OUTCOME or OUT that
+// name a judge without requiring one do not count either.
+const near = `([^.;,]|\.\S){0,40}?`
+
+// RE2 has no lookaround, so these guards consume the neighbouring character to
+// keep a verdict word from counting inside a modifier ("first-pass",
+// "pass/fail").
+const pre = `(^|[^\w/-])`
+const post = `($|[^\w/-])`
+const result = pre + `(pass|passes|passed|passing|green|fail|fails|failed|failing|lgtm|approves|approved|ran|executed|succeeds|succeeded|successfully)` + post +
+	`|\b(back|is|are|was|were|runs?|ran|exits?|comes?|came|stays?)\s+clean(ly)?\b` +
+	`|\b(run|runs|ran)\s+(in|on|against|fresh|clean|green)\b` +
+	`|\breturns?\s+(\d|zero|non-?zero|ok|true|false|clean|empty|nothing)\b`
+const comparison = `\b(under|within|below|above|at most|at least)\s+\d|\b(against|faster|slower)\b`
+const judgeNoun = `\b(tests?|suites?|checks?|review(s|ed|er|ers)?|judge|audit|verdicts?|canar(y|ies)|m(e|\x{e9})lange|flux-(drive|review)|pytest|bats|vitest|tsc)\b`
+const measureNoun = `\b(measur\w*|meter|benchmark\w*|profil(ed|ing)|pass_rate)\b`
+
+// outsideReview is a review whose reviewer is not the producer, with an
+// outcome verb directly after it ("melange review filed", "Flux Mélange run has
+// produced"). Only auxiliaries may sit between, so "independent review
+// checklist filed" is still an artifact.
+const outsideReview = `\b(cross-lab|independent|external|outside|m(e|\x{e9})lange|flux-(drive|review))\s+(review|run)\s+((has|have|was|were|is|been)\s+)*(filed|produced|completed|returned|found|passed|approved)\b`
+
+var externalJudge = regexp.MustCompile(`(?i)` +
+	`exit\w*\s+(code\s+)?(\d|non-?zero)|` +
+	pre + `(pass|passes|passed|passing|fails|tested)` + post + `|` +
+	`\b(run|ran|executed|re-?run)\s+fresh\b|` +
+	`\b(HTTP|http)\s*[2-5]\d\d\b|` +
+	`\bmerged\b|\b(approved|signed off)\b|\breproduc(ed|es)\b|\b(demonstrated|observed|live(-session)?)\s+refusals?\b|\brefus(es|ed)\b|` +
+	`\b(no|zero|0)\s+(\w+\s+)?failures?\b|` +
+	judgeNoun + near + `(` + result + `)|` +
+	measureNoun + near + `(` + result + `|` + comparison + `)|` +
+	outsideReview)
+
+// negated matches a result the text says did not happen ("tests updated but
+// not run in CI", "tests aren't run", "never had to pass", "opened, not
+// merged"). It is removed before the judge search, so a negated run is not a
+// run.
+var negated = regexp.MustCompile(`(?i)\b(not|never|without|no|\w+n['\x{2019}]t)\s+((yet|be|been|being|(have|has|had|need|needs|needed|required)\s+to)\s+)*(run|runs|ran|executed|pass\w*|tested|approved|merged|green|clean|reviewed)\b`)
+
+// passRate and passReport rewrite "pass" used as a noun modifier before the
+// judge search. A pass rate is a measurement, so it needs a comparison ("test
+// pass rate at least 95%"); a pass report is an artifact ("test pass rate
+// report", "pass summary"). Both stay on one line, so "tests pass" ending a
+// line keeps its verdict when the next line starts "Report".
+var passRate = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(rates?|ratios?|counts?)\b`)
+var passReport = regexp.MustCompile(`(?i)\b(pass|fail)[ \t]+(reports?|summar(y|ies)|criteria|matri(x|ces)|logs?|lists?)\b`)
+
+// header matches the start of any goal-shape section. Case-sensitive: the
+// headers are upper-case by convention, so "gate" in prose is not one, and a
+// GATE header needs its number ("GATE 1", "GATE n"), so "the GATE API" is not
+// one either. Both apostrophes are accepted in WHO'S WAITING.
+const header = `\bWHO[\x{2019}']S WAITING:|\bPREMISE:|\bGATE\s+(\d+|n)\b|\bDONE WHEN:|\bOUT:`
+
+// outcomeSection captures an OUTCOME: block up to the next header.
+var outcomeSection = regexp.MustCompile(`(?s)\bOUTCOME:(.*?)(` + header + `|\z)`)
+
+// doneSection captures a DONE WHEN: block up to the next header. When a goal
+// has one, only it is searched for an external judge, so a judge named in
+// OUTCOME prose or excluded under OUT does not clear the warning.
+var doneSection = regexp.MustCompile(`(?s)\bDONE WHEN:(.*?)(` + header + `|\z)`)
+
+// bar matches a measurable target: a number, a comparison, or a universal.
+// A number has to start a token, so the digit in "OAuth2" is not a bar.
+var bar = regexp.MustCompile(`(?i)` +
+	`\b\d|%|` +
+	`\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|half|twice|double)\b|` +
+	`\b(fewer|more|less|faster|slower|higher|lower|under|within|at least|at most|no more than)\b|` +
+	`\b(every|all|each|none|never|no longer|identical)\b`)
+
+// judgeProblems returns the judge and bar findings for a goal/condition text.
+// A text with no demonstrable predicate already errors, so the self-graded
+// warning only speaks when the predicates exist and none of them is external.
+func judgeProblems(text string) []Problem {
+	var probs []Problem
+	judged := text
+	if m := doneSection.FindStringSubmatch(text); m != nil {
+		judged = m[1]
+	}
+	judged = negated.ReplaceAllString(judged, " ")
+	judged = passRate.ReplaceAllString(judged, " pass_rate ")
+	judged = passReport.ReplaceAllString(judged, " report ")
+	if demonstrable.MatchString(text) && !externalJudge.MatchString(judged) {
+		probs = append(probs, Problem{Severity: "warning", Message: "self-graded: " +
+			"every predicate is an artifact the producer creates (committed, pushed, " +
+			"bead closed, file exists), so nothing outside the producer checks the " +
+			"result. Add a command whose verdict the evaluator reads, a test run, or " +
+			"an independent review"})
+	}
+	if m := outcomeSection.FindStringSubmatch(text); m != nil && !bar.MatchString(m[1]) {
+		probs = append(probs, Problem{Severity: "warning", Message: "no bar: " +
+			"OUTCOME names no number, comparison, or universal (every, zero, " +
+			"identical), so the executor has no target to clear. State the bar " +
+			"the outcome must reach"})
+	}
+	return probs
+}
+
 // shapeProblems returns the shape findings for a goal/condition text.
 // Separated from LintCondition so a caller that only wants judgeability (a
 // bare condition extracted from a longer charter, say) can keep using the
@@ -111,10 +232,12 @@ func shapeProblems(text string) []Problem {
 }
 
 // LintCondition validates a condition string against the /goal built-in's
-// contract on two axes. JUDGEABILITY: length, non-emptiness, demonstrability,
+// contract on three axes. JUDGEABILITY: length, non-emptiness, demonstrability,
 // and a bounded-runtime recommendation. SHAPE (see shapeProblems): whether the
 // text is a goal rather than a plan, and whether the agent drafting it has put
-// the user's ruling in the user's mouth. Errors block minting (unless forced);
+// the user's ruling in the user's mouth. JUDGE (see judgeProblems): whether
+// anything other than the producer grades the result, and whether the OUTCOME
+// sets a bar. Errors block minting (unless forced);
 // warnings inform.
 func LintCondition(text string) []Problem {
 	var probs []Problem
@@ -134,5 +257,6 @@ func LintCondition(text string) []Problem {
 		probs = append(probs, Problem{Severity: "warning", Message: "no runtime bound — " +
 			"consider appending 'or stop after N turns'"})
 	}
-	return append(probs, shapeProblems(text)...)
+	probs = append(probs, shapeProblems(text)...)
+	return append(probs, judgeProblems(text)...)
 }

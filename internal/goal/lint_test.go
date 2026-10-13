@@ -132,3 +132,124 @@ func TestVentriloquismPrecision(t *testing.T) {
 		}
 	}
 }
+
+// TestJudgeRules pins the judge axis (mk-3mo0w). The self-graded case is the
+// shape of a real charter condition: every predicate is a log, doc section, or
+// file the producer writes, plus a clean push. Both rules are warnings, so they
+// must never add an error.
+func TestJudgeRules(t *testing.T) {
+	has := func(probs []Problem, prefix string) bool {
+		for _, p := range probs {
+			if strings.HasPrefix(p.Message, prefix) {
+				if p.Severity != "warning" {
+					t.Errorf("%q is %s, want warning", prefix, p.Severity)
+				}
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("self-graded", func(t *testing.T) {
+		cases := []struct {
+			name string
+			text string
+			want bool
+		}{
+			{"only producer artifacts", "the report file exists, committed and pushed, bead mk-1 closed, or stop after 5 turns", true},
+			{"tests pass", "tests pass and bead mk-1 closed, or stop after 5 turns", false},
+			{"command exit code", "`ic goal lint-condition --file=x` exits 0 and committed, or stop after 5 turns", false},
+			{"independent review", "committed, and a cross-lab review passed, or stop after 5 turns", false},
+			{"merged by someone else", "PR merged, or stop after 5 turns", false},
+			{"http status", "`curl` returns HTTP 200 and deployed, or stop after 5 turns", false},
+			{"no predicate at all", "the feature feels polished", false},
+			{"judge word only in outcome prose", "OUTCOME: the external API docs are clearer for every reader. DONE WHEN: report file exists, committed and pushed, or stop after 5 turns", true},
+			{"judge excluded under OUT", "OUTCOME: every page renders. DONE WHEN: committed and pushed, or stop after 5 turns. OUT: independent review", true},
+			{"review with no verdict", "DONE WHEN: report reviewed, committed and pushed, or stop after 5 turns", true},
+			{"review with a verdict", "DONE WHEN: committed, and the review came back clean, or stop after 5 turns", false},
+			{"judge inside DONE WHEN", "OUTCOME: every page renders. DONE WHEN: committed, and an independent review passed, or stop after 5 turns. OUT: styling", false},
+			{"tested commit", "DONE WHEN: bead mk-1 closed against a tested commit, or stop after 5 turns", false},
+			{"typecheck passing", "DONE WHEN: `npx tsc --noEmit` passing and pushed, or stop after 5 turns", false},
+			{"test output green", "DONE WHEN: go test output surfaced green, or stop after 5 turns", false},
+			{"melange review filed", "DONE WHEN: committed, and a melange review filed, or stop after 5 turns", false},
+			{"measured against a baseline", "DONE WHEN: the meter reports wall time against the sequential run, or stop after 5 turns", false},
+			{"demonstrated refusal", "DONE WHEN: the gate wired with one demonstrated refusal, or stop after 5 turns", false},
+			{"test plan is an artifact", "DONE WHEN: test plan file exists, committed and pushed, or stop after 5 turns", true},
+			{"benchmark report is an artifact", "DONE WHEN: benchmark report file exists, committed and pushed, or stop after 5 turns", true},
+			{"review checklist is an artifact", "DONE WHEN: independent review checklist file exists, committed and pushed, or stop after 5 turns", true},
+			{"canary config is an artifact", "DONE WHEN: canary config committed, or stop after 5 turns", true},
+			{"tests run", "DONE WHEN: the regression tests run in CI, or stop after 5 turns", false},
+			{"check named with a count", "DONE WHEN: a presence-check TSV covering all 561 titles exists, pushed, or stop after 5 turns", true},
+			{"script name inside the clause", "DONE WHEN: pattern-f-meter.py reports wall time against the sequential run, or stop after 5 turns", false},
+			{"test plan filed", "DONE WHEN: test plan filed and committed, or stop after 5 turns", true},
+			{"benchmark report recorded", "DONE WHEN: benchmark report recorded and pushed, or stop after 5 turns", true},
+			{"review checklist shows sections", "DONE WHEN: independent review checklist shows all sections and is committed, or stop after 5 turns", true},
+			{"test command documented", "DONE WHEN: go test instructions file exists and is committed, or stop after 5 turns", true},
+			{"green as an adjective", "DONE WHEN: a green logo file exists and is committed, or stop after 5 turns", true},
+			{"outside review run produced", "DONE WHEN: a Flux M\u00e9lange run has produced a heat ledger, committed, or stop after 5 turns", false},
+			{"tests updated but not run", "DONE WHEN: the script and its bats tests are updated on main, pushed, or stop after 5 turns", true},
+			{"test fixtures under a directory", "DONE WHEN: test fixtures under testdata/ committed, or stop after 5 turns", true},
+			{"benchmark under a bound", "DONE WHEN: the import benchmark finishes under 3 seconds, or stop after 5 turns", false},
+			{"failure report is an artifact", "DONE WHEN: test failure report file exists and is committed, or stop after 5 turns", true},
+			{"approval checklist is an artifact", "DONE WHEN: review approval checklist file exists and is pushed, or stop after 5 turns", true},
+			{"hyphenated pass is a modifier", "DONE WHEN: first-pass report file exists and is committed, or stop after 5 turns", true},
+			{"test runs log is an artifact", "DONE WHEN: the test runs log file exists and is committed, or stop after 5 turns", true},
+			{"tests explicitly not run", "DONE WHEN: bats tests updated but not run in CI, committed, or stop after 5 turns", true},
+			{"tests never had to pass", "DONE WHEN: bats tests updated and committed, never had to pass, or stop after 5 turns", true},
+			{"tests contracted not run", "DONE WHEN: tests aren't run in CI; report file exists and is committed, or stop after 5 turns", true},
+			{"tests curly contracted not run", "DONE WHEN: suite wasn\u2019t run in CI, report committed, or stop after 5 turns", true},
+			{"pass/fail report", "DONE WHEN: test pass/fail report file exists and is committed, or stop after 5 turns", true},
+			{"pass rate report", "DONE WHEN: test pass rate report file exists and is committed, or stop after 5 turns", true},
+			{"pass summary", "DONE WHEN: suite pass summary written and pushed, or stop after 5 turns", true},
+			{"pass rate with a bar", "DONE WHEN: test pass rate at least 95% on the full suite, committed, or stop after 5 turns", false},
+			{"tests pass then report", "DONE WHEN: go test ./... passes, report committed, or stop after 5 turns", false},
+			{"pass ends a line before report", "DONE WHEN: tests pass\n\nReport file exists and is committed, or stop after 5 turns", false},
+			{"not merged", "DONE WHEN: PR opened, not merged, or stop after 5 turns", true},
+			{"suite runs in CI and passes", "DONE WHEN: the suite runs in CI and passes, or stop after 5 turns", false},
+			{"check exits cleanly", "DONE WHEN: `make check` exits cleanly, or stop after 5 turns", false},
+			{"check returns zero", "DONE WHEN: the presence check returns 0 for all titles, or stop after 5 turns", false},
+			{"suites executed fresh", "DONE WHEN: all four suites (interphase bats, the test runner, interline structural, interflux structural) executed fresh, or stop after 30 turns", false},
+			{"benchmark results under a directory", "DONE WHEN: benchmark results under docs/bench committed, or stop after 5 turns", true},
+			{"refusal as a noun", "DONE WHEN: refusal policy doc file exists and is committed, or stop after 5 turns", true},
+			{"clean as an adjective", "DONE WHEN: new tests and a clean push to main, or stop after 5 turns", true},
+			{"no test failures", "DONE WHEN: `go test ./...` shows no test failures, or stop after 5 turns", false},
+			{"live refusal journaled", "DONE WHEN: the live-session refusal-then-pass journaled with profiles, or stop after 5 turns", false},
+			{"failing test then passing", "DONE WHEN: a failing test is committed and then the test suite passes, or stop after 5 turns", false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if got := has(LintCondition(tc.text), "self-graded"); got != tc.want {
+					t.Errorf("self-graded = %v, want %v: %v", got, tc.want, LintCondition(tc.text))
+				}
+			})
+		}
+	})
+
+	t.Run("no bar", func(t *testing.T) {
+		cases := []struct {
+			name string
+			text string
+			want bool
+		}{
+			{"vague outcome", "OUTCOME: the importer is better and cleaner. DONE WHEN: tests pass, or stop after 5 turns", true},
+			{"number", "OUTCOME: imports finish in 3 seconds. DONE WHEN: tests pass, or stop after 5 turns", false},
+			{"universal", "OUTCOME: every export round-trips. DONE WHEN: tests pass, or stop after 5 turns", false},
+			{"comparison", "OUTCOME: imports are faster than the old path. DONE WHEN: tests pass, or stop after 5 turns", false},
+			{"identical", "OUTCOME: output is identical to the reference. DONE WHEN: tests pass, or stop after 5 turns", false},
+			{"lower-case gate stays in outcome", "OUTCOME: the gate opens for every user. DONE WHEN: tests pass, or stop after 5 turns", false},
+			{"bar only after the outcome", "OUTCOME: the importer is better. GATE 1 — who decides: is 3 seconds enough? DONE WHEN: tests pass, or stop after 5 turns", true},
+			{"bar only in the premise", "OUTCOME: the importer is better. PREMISE: 3 of 5 slow imports are I/O bound; profile them. DONE WHEN: tests pass, or stop after 5 turns", true},
+			{"upper-case word that is not a header", "OUTCOME: the GATE API answers every request. DONE WHEN: tests pass, or stop after 5 turns", false},
+			{"curly apostrophe header ends the outcome", "OUTCOME: onboarding is better. WHO\u2019S WAITING: all customers. DONE WHEN: tests pass, or stop after 5 turns", true},
+			{"digit inside an identifier", "OUTCOME: improve OAuth2 onboarding. DONE WHEN: tests pass, or stop after 5 turns", true},
+			{"no OUTCOME header", "tests pass, or stop after 5 turns", false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if got := has(LintCondition(tc.text), "no bar"); got != tc.want {
+					t.Errorf("no bar = %v, want %v: %v", got, tc.want, LintCondition(tc.text))
+				}
+			})
+		}
+	})
+}
