@@ -134,9 +134,10 @@ const outsideReview = `\b(cross-lab|independent|external|outside|m(e|\x{e9})lang
 // independent, external, outside or different one, a second or another
 // reviewer noun, a human, or CI or a test suite.
 const outsideBy = `by\s+(an?\s+|the\s+)?((cross-lab|independent|external|outside|different)\b|` +
-	`(second|another)(\s+[\w-]+)?\s+` +
-	`(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?|engineers?|maintainers?)\b|` +
+	`(second|another)(\s+[\w-]+)?\s+` + reviewerNoun + `\b|` +
 	`(humans?|people|persons?|ci|pipelines?|tests?|test\s+suites?|suites?|linters?)\b)`
+
+const reviewerNoun = `(reviewers?|agents?|seats?|models?|part(y|ies)|humans?|teams?|people|persons?|auditors?|judges?|evaluators?|engineers?|maintainers?)`
 
 var externalJudge = regexp.MustCompile(`(?i)` +
 	`exit\w*\s+(code\s+)?(\d|non-?zero)|` +
@@ -214,7 +215,7 @@ var selfSubject = regexp.MustCompile(`(?i)` + selfNoun + `(([ \t]*,|[ \t]+(and|o
 var selfSource = regexp.MustCompile(`(?i)\b(pass|passed)[ \t]+((from|by|in|on)[ \t]+)?` + selfNoun + `|\b(approved|accepted|signed[ \t]+off)[ \t]+(from|by|in|on)[ \t]+` + selfNoun)
 var commandJudge = regexp.MustCompile(`(?i)\b(tests?|suites?|checks?|ci|builds?|pipelines?|canar(y|ies)|pytest|bats|vitest|tsc)\b|exit\w*\s+(code\s+)?(\d|non-?zero)|\b(HTTP|http)\s*[2-5]\d\d\b`)
 var outsideJudge = regexp.MustCompile(`(?i)\b` + outsideBy)
-var outsideAgent = regexp.MustCompile(`(?i)\b(cross-lab|independent|external|outside|different|second|another|humans?)\b`)
+var outsideAgent = regexp.MustCompile(`(?i)\b(cross-lab|independent|external|outside|different|second|another)(\s+[\w-]+)?\s+(` + reviewerNoun + `|reviews?)\b|\bhumans?\b`)
 var objectOf = regexp.MustCompile(`(?i)\b(of|on|about|for|to|in|from|with|into|than)[ \t]+$`)
 
 // selfBreak ends a clause. "And" or "or" before another verdict word
@@ -274,10 +275,16 @@ func judgeProblems(text string) []Problem {
 }
 
 // dropSelfJudged blanks a producer judge's predicate to the end of its
-// clause, unless the predicate names an outside judge ("is approved by an
-// independent reviewer") or a command judge, and blanks a verdict whose
-// source is a producer judge, unless a command judge or an outside agent
-// comes before it in the clause ("tests passed in my own review").
+// clause, unless the predicate names an outside judge after "by" ("is
+// approved by an independent reviewer"). When the rest of the clause gives
+// its own verdict from an outside agent or a command judge ("is attached
+// once an independent reviewer approved it", "once the tests pass"), only
+// the producer judge and its verb are blanked. A command named as the topic
+// ("my self-review of the build passed") is not a judge. A verdict whose
+// source is a producer judge is blanked unless a command judge or an outside
+// agent with a reviewer noun comes before it in the clause ("tests passed in
+// my own review", "an independent reviewer passed my self-review"), so "the
+// second draft passed my self-review" is still the producer's.
 func dropSelfJudged(done string) string {
 	b := []byte(done)
 	for _, m := range selfSubject.FindAllStringIndex(done, -1) {
@@ -285,9 +292,15 @@ func dropSelfJudged(done string) string {
 			continue
 		}
 		end := clauseEnd(done, m[1])
-		if !outsideJudge.MatchString(done[m[0]:end]) && !commandJudge.MatchString(done[m[0]:end]) {
-			blank(b, m[0], end)
+		if outsideJudge.MatchString(done[m[0]:end]) {
+			continue
 		}
+		if tail := done[m[1]:end]; !selfContinue.MatchString(strings.TrimPrefix(strings.TrimLeft(tail, " \t"), "and")) &&
+			(outsideAgent.MatchString(tail) || commandJudge.MatchString(tail)) && externalJudge.MatchString(tail) {
+			blank(b, m[0], m[1])
+			continue
+		}
+		blank(b, m[0], end)
 	}
 	for _, m := range selfSource.FindAllStringIndex(done, -1) {
 		if before := done[clauseStart(done, m[0]):m[0]]; !commandJudge.MatchString(before) && !outsideAgent.MatchString(before) {
