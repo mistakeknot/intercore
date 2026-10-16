@@ -1,0 +1,11 @@
+[
+  {
+    "agent_type": "claude",
+    "created_at": 1700000000,
+    "id": "AGENT_ID",
+    "name": "worker-1",
+    "run_id": "RUN_ID",
+    "status": "active",
+    "updated_at": 1700000000
+  }
+]

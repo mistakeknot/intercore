@@ -1,0 +1,26 @@
+[
+  {
+    "AmendedAt": null,
+    "BeadID": null,
+    "CharterPath": null,
+    "ClosedAt": null,
+    "ClosingRunID": null,
+    "Complexity": 3,
+    "CompoundedAt": null,
+    "ConditionText": "tests pass or stop after 5 turns",
+    "CreatedAt": 1700000000,
+    "FenceGen": 0,
+    "ID": "GOAL_ID",
+    "LastRunAdvancedAt": null,
+    "LeaseExpiresAt": null,
+    "LeaseOwner": null,
+    "ProjectDir": "/PROJECT",
+    "ReflectedAt": null,
+    "Status": "open",
+    "SuccessorProposedAt": null,
+    "SuccessorRef": null,
+    "Title": "golden goal",
+    "UpdatedAt": 1700000000,
+    "VerifiedAt": null
+  }
+]

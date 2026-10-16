@@ -1,0 +1,11 @@
+[
+  {
+    "action_type": "command",
+    "command": "/clavain:work",
+    "id": 1,
+    "mode": "interactive",
+    "phase": "executing",
+    "priority": 0,
+    "run_id": "RUN_ID"
+  }
+]

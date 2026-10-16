@@ -1,0 +1,166 @@
+[
+  {
+    "file": "cost-baseline.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "cost",
+      "baseline",
+      "--script=COST_SCRIPT"
+    ]
+  },
+  {
+    "file": "dispatch-list.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "dispatch",
+      "list"
+    ]
+  },
+  {
+    "file": "dispatch-status.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "dispatch",
+      "status",
+      "DISPATCH_ID"
+    ]
+  },
+  {
+    "file": "goal-list-empty.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "goal",
+      "list"
+    ]
+  },
+  {
+    "file": "goal-list.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "goal",
+      "list"
+    ]
+  },
+  {
+    "file": "lane-status.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "lane",
+      "status",
+      "golden-lane"
+    ]
+  },
+  {
+    "file": "route-model.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "route",
+      "model",
+      "--policy=POLICY",
+      "--phase=executing"
+    ]
+  },
+  {
+    "file": "run-action-list.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "action",
+      "list",
+      "RUN_ID"
+    ]
+  },
+  {
+    "file": "run-agent-list.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "agent",
+      "list",
+      "RUN_ID"
+    ]
+  },
+  {
+    "file": "run-artifact-list.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "artifact",
+      "list",
+      "RUN_ID"
+    ]
+  },
+  {
+    "file": "run-budget-unset.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "budget",
+      "BARE_RUN_ID"
+    ]
+  },
+  {
+    "file": "run-budget.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "budget",
+      "RUN_ID"
+    ]
+  },
+  {
+    "file": "run-create.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "create",
+      "--project=/PROJECT",
+      "--goal=golden goal",
+      "--scope-id=bead-1",
+      "--token-budget=100000"
+    ]
+  },
+  {
+    "file": "run-events.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "events",
+      "RUN_ID"
+    ]
+  },
+  {
+    "file": "run-phase.txt",
+    "format": "text",
+    "argv": [
+      "--json",
+      "run",
+      "phase",
+      "RUN_ID"
+    ]
+  },
+  {
+    "file": "run-status.json",
+    "format": "json",
+    "argv": [
+      "--json",
+      "run",
+      "status",
+      "RUN_ID"
+    ]
+  }
+]

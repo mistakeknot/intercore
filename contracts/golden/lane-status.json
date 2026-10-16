@@ -1,0 +1,16 @@
+{
+  "created_at": 1700000000,
+  "description": "golden lane",
+  "event_count": 2,
+  "id": "LANE_ID",
+  "intent": "",
+  "lane_type": "standing",
+  "member_count": 1,
+  "members": [
+    "bead-1"
+  ],
+  "metadata": "{}",
+  "name": "golden-lane",
+  "status": "active",
+  "updated_at": 1700000000
+}

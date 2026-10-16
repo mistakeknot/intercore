@@ -1,0 +1,15 @@
+{
+  "auto_advance": true,
+  "budget_warn_pct": 80,
+  "complexity": 3,
+  "created_at": 1700000000,
+  "force_full": false,
+  "goal": "golden goal",
+  "id": "RUN_ID",
+  "phase": "brainstorm-reviewed",
+  "project_dir": "/PROJECT",
+  "scope_id": "bead-1",
+  "status": "active",
+  "token_budget": 100000,
+  "updated_at": 1700000000
+}

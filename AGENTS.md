@@ -30,7 +30,7 @@ ic version                                 # CLI + schema versions
 cmd/ic/          CLI entry point + 21 subcommand files
 internal/        28 packages (see Modules section)
 pkg/             2 packages: contract/, redaction/
-contracts/       JSON Schema contract registry + codegen (cli/, events/, overrides/)
+contracts/       JSON Schema contract registry + codegen (cli/, events/, overrides/), golden/ CLI outputs
 config/          costs.yaml (model pricing)
 scripts/         validate-gitleaks-waivers.sh
 agents/          Topic guide markdown files
@@ -59,6 +59,11 @@ go test ./...                    # Unit tests (~687 test functions across 28 pac
 go test -race ./...              # Race detector
 bash test-integration.sh         # Full CLI integration test (1320-line bash suite)
 ```
+
+`contracts/golden/` holds the real output of each `ic` command another repository
+reads, checked by `TestJSONOutputGoldens`. If you change one of those outputs,
+regenerate with `go test ./cmd/ic -run TestJSONOutputGoldens -update-goldens`
+and review the diff; see [contracts/golden/README.md](contracts/golden/README.md).
 
 ## Decay Policy
 

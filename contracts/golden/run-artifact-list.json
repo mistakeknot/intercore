@@ -1,0 +1,11 @@
+[
+  {
+    "created_at": 1700000000,
+    "id": "ARTIFACT_ID",
+    "path": "docs/plan.md",
+    "phase": "brainstorm",
+    "run_id": "RUN_ID",
+    "status": "active",
+    "type": "plan"
+  }
+]
