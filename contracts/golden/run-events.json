@@ -1,0 +1,27 @@
+[
+  {
+    "created_at": 1700000000,
+    "envelope": {
+      "caller_identity": "phase.store",
+      "capability_scope": "run:RUN_ID",
+      "input_artifact_refs": [
+        "phase:brainstorm"
+      ],
+      "output_artifact_refs": [
+        "phase:brainstorm-reviewed"
+      ],
+      "parent_span_id": "phase-state:brainstorm",
+      "policy_version": "phase-machine/v1",
+      "span_id": "phase:advance:0",
+      "trace_id": "RUN_ID"
+    },
+    "event_type": "advance",
+    "from_phase": "brainstorm",
+    "gate_result": "pass",
+    "gate_tier": "hard",
+    "id": 1,
+    "reason": "{\"conditions\":[{\"check\":\"artifact_exists\",\"phase\":\"brainstorm\",\"result\":\"pass\",\"count\":1}]}",
+    "run_id": "RUN_ID",
+    "to_phase": "brainstorm-reviewed"
+  }
+]

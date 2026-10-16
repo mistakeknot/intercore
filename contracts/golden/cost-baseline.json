@@ -1,0 +1,19 @@
+{
+  "landed_changes": 1,
+  "period": {
+    "days": 30,
+    "end": "2000-01-01",
+    "start": "2000-01-01"
+  },
+  "source": "landed_changes",
+  "stats": {
+    "count": 1,
+    "input_total": 2000,
+    "mean": 3000,
+    "output_total": 1000,
+    "p50": 3000,
+    "p90": 3000,
+    "p95": 3000,
+    "total": 3000
+  }
+}

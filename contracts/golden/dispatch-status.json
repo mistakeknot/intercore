@@ -1,0 +1,20 @@
+{
+  "agent_type": "codex",
+  "commands": 0,
+  "completed_at": 1700000000,
+  "created_at": 1700000000,
+  "exit_code": 0,
+  "id": "DISPATCH_ID",
+  "in_tokens": 1200,
+  "messages": 0,
+  "model": "gpt-test",
+  "name": "reviewer",
+  "out_tokens": 340,
+  "project_dir": "/PROJECT",
+  "scope_id": "RUN_ID",
+  "started_at": 1700000000,
+  "status": "completed",
+  "turns": 3,
+  "verdict_status": "pass",
+  "verdict_summary": "ok"
+}
