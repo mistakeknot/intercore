@@ -32,11 +32,12 @@ are kept, so a timestamp is still a number.
 |---------------|------------|
 | `RUN_ID`, `BARE_RUN_ID`, `AGENT_ID`, `ARTIFACT_ID`, `GOAL_ID`, `LANE_ID`, `DISPATCH_ID` | the generated ID |
 | `/PROJECT` | the project directory |
-| `1700000000` | any `*_at` or `*At` timestamp (Unix seconds) |
+| `1700000000` | any nonzero `*_at` or `*At` timestamp; the test fails unless it is an integer count of Unix seconds (a fraction, a negative or a millisecond value is an error), and `0` is kept |
 | `2000-01-01` | any `YYYY-MM-DD` date |
 | `0` in `span_id` | a nanosecond clock value |
 | `POLICY`, `COST_SCRIPT` in `index.json` | fixture files the test writes |
 
+The test also fails if a JSON command prints anything after its one JSON value.
 JSON goldens are pretty-printed with sorted keys. ic itself may print compact
 JSON or another key order; neither is part of the contract. Text goldens are
 byte-for-byte.

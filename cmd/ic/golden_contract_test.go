@@ -16,11 +16,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -28,9 +30,12 @@ import (
 var updateGoldens = flag.Bool("update-goldens", false, "regenerate contracts/golden from real ic output")
 
 const (
-	goldenDir        = "../../contracts/golden"
-	goldenExecMain   = "IC_GOLDEN_EXEC_MAIN"
-	goldenTimestamp  = 1700000000
+	goldenDir       = "../../contracts/golden"
+	goldenExecMain  = "IC_GOLDEN_EXEC_MAIN"
+	goldenTimestamp = 1700000000
+	// A timestamp at or above goldenMaxSeconds is rejected: in seconds it is
+	// the year 2286, so it is almost certainly milliseconds.
+	goldenMaxSeconds = 10_000_000_000
 	goldenDate       = "2000-01-01"
 	goldenProjectDir = "/PROJECT"
 )
@@ -191,8 +196,8 @@ esac
 	if _, err := db.Exec(`INSERT INTO dispatches (id, agent_type, status, project_dir, name, model,
 		turns, input_tokens, output_tokens, exit_code, scope_id, created_at, started_at, completed_at,
 		verdict_status, verdict_summary)
-		VALUES (?, 'codex', 'completed', ?, 'reviewer', 'gpt-test', 3, 1200, 340, 0, ?, 1, 2, 3, 'pass', 'ok')`,
-		ids["DISPATCH_ID"], g.dir, run); err != nil {
+		VALUES (?, 'codex', 'completed', ?, 'reviewer', 'gpt-test', 3, 1200, 340, 0, ?, ?, ?, ?, 'pass', 'ok')`,
+		ids["DISPATCH_ID"], g.dir, run, goldenTimestamp+1, goldenTimestamp+2, goldenTimestamp+3); err != nil {
 		t.Fatal(err)
 	}
 	return ids
@@ -204,21 +209,32 @@ var (
 )
 
 // normalizeValue replaces wall-clock values so the goldens are stable.
-// Types are kept: a timestamp stays a number, a date stays a string.
-func normalizeValue(key string, v any) any {
+// Types are kept: a timestamp stays a number, a date stays a string. A
+// timestamp must be an integer count of Unix seconds; anything else (a
+// fraction, milliseconds, a negative value) is reported in bad rather than
+// normalized, so a change of unit cannot hide behind the placeholder.
+func normalizeValue(key string, v any, bad *[]string) any {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, child := range x {
-			x[k] = normalizeValue(k, child)
+			x[k] = normalizeValue(k, child, bad)
 		}
 		return x
 	case []any:
 		for i, child := range x {
-			x[i] = normalizeValue(key, child)
+			x[i] = normalizeValue(key, child, bad)
 		}
 		return x
 	case json.Number:
 		if strings.HasSuffix(key, "_at") || strings.HasSuffix(key, "At") {
+			n, err := strconv.ParseInt(x.String(), 10, 64)
+			if err != nil || n < 0 || n >= goldenMaxSeconds {
+				*bad = append(*bad, fmt.Sprintf("%s=%s is not Unix seconds", key, x))
+				return v
+			}
+			if n == 0 {
+				return v
+			}
 			return json.Number(fmt.Sprint(goldenTimestamp))
 		}
 	case string:
@@ -271,21 +287,59 @@ func normalizeGolden(t *testing.T, c goldenCase, out string, ids map[string]stri
 	if c.Format == "text" {
 		return []byte(out)
 	}
+	b, err := normalizeJSON(out)
+	if err != nil {
+		t.Fatalf("%s: %v\n%s", c.File, err, out)
+	}
+	return b
+}
+
+// normalizeJSON requires out to be exactly one JSON value and returns it
+// normalized and pretty-printed with sorted keys.
+func normalizeJSON(out string) ([]byte, error) {
 	dec := json.NewDecoder(strings.NewReader(out))
 	dec.UseNumber()
 	var v any
 	if err := dec.Decode(&v); err != nil {
-		t.Fatalf("%s: ic output is not JSON: %v\n%s", c.File, err, out)
+		return nil, fmt.Errorf("ic output is not JSON: %w", err)
 	}
-	if dec.More() {
-		t.Fatalf("%s: ic output has more than one JSON value:\n%s", c.File, out)
+	if err := dec.Decode(new(any)); err != io.EOF {
+		return nil, fmt.Errorf("ic output has trailing data after its JSON value: %v", err)
 	}
-	v = normalizeValue("", v)
+	var bad []string
+	v = normalizeValue("", v, &bad)
+	if len(bad) > 0 {
+		return nil, fmt.Errorf("%s", strings.Join(bad, "; "))
+	}
 	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(b, '\n'), nil
+}
+
+// TestNormalizeJSONRejects checks that normalization cannot hide malformed
+// output or a change of timestamp unit.
+func TestNormalizeJSONRejects(t *testing.T) {
+	for _, out := range []string{
+		`{"id":"x"}]`,
+		`{"id":"x"} {"id":"y"}`,
+		`{"created_at":1700000000123}`,
+		`{"created_at":1700000000.5}`,
+		`{"created_at":-1}`,
+		`[{"UpdatedAt":"1700000000"}, {"UpdatedAt":1e9}]`,
+	} {
+		if b, err := normalizeJSON(out); err == nil {
+			t.Errorf("normalizeJSON(%s) = %s, want an error", out, b)
+		}
+	}
+	got, err := normalizeJSON("{\"created_at\":1760000000,\"closed_at\":0}\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return append(b, '\n')
+	if want := "{\n  \"closed_at\": 0,\n  \"created_at\": 1700000000\n}\n"; string(got) != want {
+		t.Errorf("normalizeJSON = %q, want %q", got, want)
+	}
 }
 
 func TestJSONOutputGoldens(t *testing.T) {
