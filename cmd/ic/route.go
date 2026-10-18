@@ -205,15 +205,29 @@ func strictBoolFlag(f *cli.Flags, key string) (bool, error) {
 	if !f.Has(key) {
 		return false, nil
 	}
-	v := f.String(key, "")
+	p := f.StringPtr(key)
+	if p == nil {
+		return true, nil // bare --flag
+	}
+	v := *p
 	if v == "" {
-		return true, nil
+		return false, fmt.Errorf("--%s= has an empty value (use --%s, --%s=true or --%s=false)", key, key, key, key)
 	}
 	b, err := strconv.ParseBool(v)
 	if err != nil {
 		return false, fmt.Errorf("--%s=%q is not a boolean (use true or false)", key, v)
 	}
 	return b, nil
+}
+
+// knownDataLabelList renders the accepted labels, sorted, for error messages.
+func knownDataLabelList() string {
+	labels := make([]string, 0, len(routing.KnownDataLabels))
+	for l := range routing.KnownDataLabels {
+		labels = append(labels, l)
+	}
+	sort.Strings(labels)
+	return strings.Join(labels, ", ")
 }
 
 // harnessNote formats the optional harness for the rationale string.
@@ -256,6 +270,10 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 	}
 	if data != "" && !dataLabelRE.MatchString(data) {
 		fmt.Fprintf(os.Stderr, "ic route decide: --data %q is not a sensitivity label (lowercase letters, digits and hyphens)\n", data)
+		return exitMalformed
+	}
+	if data != "" && !routing.KnownDataLabels[data] {
+		fmt.Fprintf(os.Stderr, "ic route decide: --data %q is not a known sensitivity label (known: %s)\n", data, knownDataLabelList())
 		return exitMalformed
 	}
 	if registryPath == "" {

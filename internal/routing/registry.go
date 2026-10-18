@@ -2,7 +2,10 @@ package routing
 
 import (
 	"fmt"
+	"math"
 	"os"
+	"regexp"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -131,12 +134,32 @@ func LoadRegistry(path string) (*Registry, error) {
 	return &reg, nil
 }
 
+// deploymentKeyRE is the identity of a deployment: vendor/model@deployment,
+// each part non-empty.
+var deploymentKeyRE = regexp.MustCompile(`^[^/@\s]+/[^/@\s]+@[^/@\s]+$`)
+
 // Validate checks structural invariants the router relies on.
 func (r *Registry) Validate() error {
 	if r.Version < 1 {
 		return fmt.Errorf("registry version must be >= 1, got %d", r.Version)
 	}
+	if r.StalenessHorizon != "" {
+		if _, err := parseHorizon(r.StalenessHorizon); err != nil {
+			return fmt.Errorf("staleness_horizon: %w", err)
+		}
+	}
 	for key, dep := range r.Deployments {
+		if !deploymentKeyRE.MatchString(key) {
+			return fmt.Errorf("deployment key %q: want vendor/model@deployment with no empty part", key)
+		}
+		for cname, cv := range dep.Capabilities {
+			if cv.Provenance == "" {
+				continue
+			}
+			if _, ok := provenanceRank[cv.Provenance]; !ok {
+				return fmt.Errorf("deployment %q: capability %q: unknown provenance %q", key, cname, cv.Provenance)
+			}
+		}
 		if dep.TrustZone == "" {
 			return fmt.Errorf("deployment %q: trust_zone is required", key)
 		}
@@ -170,8 +193,8 @@ func (r *Registry) Validate() error {
 // vendor-live deployments use half the horizon (they age twice as fast).
 // A value with no VerifiedAt, or an unparseable one, is treated as unknown.
 func (r *Registry) StalenessAdjusted(dep Deployment, v CapabilityValue, now time.Time) Provenance {
-	if v.Provenance == ProvUnknown {
-		return ProvUnknown
+	if _, ok := provenanceRank[v.Provenance]; !ok || v.Provenance == ProvUnknown {
+		return ProvUnknown // unrecognised or missing provenance is never trusted
 	}
 	horizon, err := parseHorizon(r.StalenessHorizon)
 	if err != nil || v.VerifiedAt == "" {
@@ -197,11 +220,40 @@ func parseHorizon(s string) (time.Duration, error) {
 		return 0, fmt.Errorf("empty horizon")
 	}
 	if n := len(s); n > 1 && s[n-1] == 'd' {
-		var days int
-		if _, err := fmt.Sscanf(s[:n-1], "%d", &days); err != nil {
+		digits := s[:n-1]
+		for _, r := range digits {
+			if r < '0' || r > '9' {
+				return 0, fmt.Errorf("bad day horizon %q: want digits then d", s)
+			}
+		}
+		days, err := strconv.Atoi(digits)
+		if err != nil {
 			return 0, fmt.Errorf("bad day horizon %q: %w", s, err)
+		}
+		if days <= 0 || days > maxHorizonDays {
+			return 0, fmt.Errorf("bad day horizon %q: must be 1..%d days", s, maxHorizonDays)
 		}
 		return time.Duration(days) * 24 * time.Hour, nil
 	}
-	return time.ParseDuration(s)
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, err
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("bad horizon %q: must be positive", s)
+	}
+	return d, nil
+}
+
+// maxHorizonDays keeps days*24h inside time.Duration.
+const maxHorizonDays = int(math.MaxInt64 / int64(24*time.Hour))
+
+// KnownDataLabels are the data-sensitivity labels a task may carry. A label
+// outside this set could never match a constraint, so a misspelling of
+// client-confidential would silently drop the trust-zone rule; callers reject
+// anything not listed here.
+var KnownDataLabels = map[string]bool{
+	"public":              true,
+	"internal":            true,
+	"client-confidential": true,
 }
