@@ -262,6 +262,12 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "ic route decide: unexpected arguments %q (use --flag=value)\n", f.Positionals)
 		return exitMalformed
 	}
+	// An unrecognised flag (`--dtaa=client-confidential`) would otherwise be
+	// ignored and drop the trust-zone constraint, so it fails closed too.
+	if bad := f.Unknown("class", "role", "data", "harness", "registry"); len(bad) > 0 {
+		fmt.Fprintf(os.Stderr, "ic route decide: unknown flag(s) --%s (known: --class, --role, --data, --harness, --registry)\n", strings.Join(bad, ", --"))
+		return exitMalformed
+	}
 	for _, k := range []string{"class", "role", "data", "harness", "registry"} {
 		if f.Has(k) && f.String(k, "") == "" {
 			fmt.Fprintf(os.Stderr, "ic route decide: --%s needs a value (use --%s=<value>)\n", k, k)
