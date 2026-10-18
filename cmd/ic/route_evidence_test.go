@@ -46,6 +46,19 @@ func TestRouteRecordEvidenceCLI(t *testing.T) {
 	if rc := cmdRouteRecordEvidence(ctx, []string{"--kind=bogus"}); rc != exitMalformed {
 		t.Errorf("bad --kind rc = %d, want %d", rc, exitMalformed)
 	}
+	// Incomplete or contradictory events are malformed, not recorded.
+	for _, bad := range [][]string{
+		{"--kind=gate", "--executed"},
+		{"--kind=gate", "--gate=g"},
+		{"--kind=escalation", "--from=sonnet"},
+		{"--kind=escalation", "--from=sonnet", "--to=opus", "--exhausted"},
+		{"--kind=escalation", "--to=opus"},
+		{"--kind", "gate"},
+	} {
+		if rc := cmdRouteRecordEvidence(ctx, bad); rc != exitMalformed {
+			t.Errorf("%v rc = %d, want %d", bad, rc, exitMalformed)
+		}
+	}
 	// A valid escalation event records (rc 0).
 	esc := []string{
 		"--kind=escalation", "--chain=c1", "--from=sonnet", "--to=opus",

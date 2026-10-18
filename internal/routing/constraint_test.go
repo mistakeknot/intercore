@@ -131,3 +131,16 @@ func TestRegistry_ValidateRejectsUnknownTrustZone(t *testing.T) {
 		t.Errorf("want unknown trust_zone error, got %v", err)
 	}
 }
+
+func TestRegistry_ValidateRejectsUnknownStability(t *testing.T) {
+	bad := &Registry{
+		Version: 1,
+		Deployments: map[string]Deployment{
+			"x/y@z": {TrustZone: ZoneLocal, VersionStability: "vendor_live", Cost: Cost{Type: CostCapacity}},
+		},
+	}
+	err := bad.Validate()
+	if err == nil || !strings.Contains(err.Error(), "unknown version_stability") {
+		t.Errorf("want unknown version_stability error, got %v", err)
+	}
+}

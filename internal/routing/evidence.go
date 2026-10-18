@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 // This file makes escalation and gate outcomes OBSERVABLE IN EVIDENCE (the
@@ -46,7 +47,37 @@ type escalationContext struct {
 // observable evidence record. RuleMatched is "escalation" so these are
 // filterable; FloorFrom/FloorTo carry the model transition; the structured
 // event lives in ContextJSON. Returns the decision id.
+// Validate rejects incomplete or contradictory escalation events: a record with
+// no endpoints, or an exhausted chain that still names a destination, would
+// poison the observability the evidence exists to provide.
+func (ev EscalationEvidence) Validate() error {
+	if ev.FromModel == "" {
+		return fmt.Errorf("escalation evidence: from model is required")
+	}
+	if ev.Exhausted && ev.ToModel != "" {
+		return fmt.Errorf("escalation evidence: an exhausted chain cannot name a destination (to=%q)", ev.ToModel)
+	}
+	if !ev.Exhausted && ev.ToModel == "" {
+		return fmt.Errorf("escalation evidence: to model is required unless the chain is exhausted")
+	}
+	return nil
+}
+
+// Validate rejects a gate event with no identity.
+func (ev GateEvidence) Validate() error {
+	if ev.Gate == "" {
+		return fmt.Errorf("gate evidence: gate is required")
+	}
+	if ev.Model == "" {
+		return fmt.Errorf("gate evidence: model is required")
+	}
+	return nil
+}
+
 func (s *DecisionStore) RecordEscalation(ctx context.Context, ev EscalationEvidence) (int64, error) {
+	if err := ev.Validate(); err != nil {
+		return 0, err
+	}
 	event := "escalation"
 	selected := ev.ToModel
 	if ev.Exhausted {
@@ -104,6 +135,9 @@ type gateContext struct {
 // filterable; the executed/skipped event lives in ContextJSON. A gate_skipped
 // record is the audit trail proving a required gate did NOT run.
 func (s *DecisionStore) RecordGate(ctx context.Context, ev GateEvidence) (int64, error) {
+	if err := ev.Validate(); err != nil {
+		return 0, err
+	}
 	event := "gate_skipped"
 	if ev.Executed {
 		event = "gate_executed"

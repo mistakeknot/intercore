@@ -108,14 +108,10 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 		fmt.Fprintln(os.Stderr, "ic route record-evidence: --kind=escalation|gate is required")
 		return exitMalformed
 	}
-
-	d, err := openDB()
-	if err != nil {
-		slog.Error("route record-evidence", "error", err)
-		return 2
+	if len(f.Positionals) > 0 {
+		fmt.Fprintf(os.Stderr, "ic route record-evidence: unexpected arguments %q (use --flag=value)\n", f.Positionals)
+		return exitMalformed
 	}
-	defer d.Close()
-	store := routing.NewDecisionStore(d.SqlDB())
 
 	projectDir := f.String("project", "")
 	if projectDir == "" {
@@ -124,10 +120,12 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 		}
 	}
 
-	var id int64
+	var esc routing.EscalationEvidence
+	var gate routing.GateEvidence
+	var verr error
 	switch kind {
 	case "escalation":
-		id, err = store.RecordEscalation(ctx, routing.EscalationEvidence{
+		esc = routing.EscalationEvidence{
 			ChainKey:   f.String("chain", ""),
 			FromModel:  f.String("from", ""),
 			ToModel:    f.String("to", ""),
@@ -138,9 +136,10 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 			ProjectDir: projectDir,
 			RunID:      f.String("run", ""),
 			SessionID:  f.String("session", ""),
-		})
+		}
+		verr = esc.Validate()
 	case "gate":
-		id, err = store.RecordGate(ctx, routing.GateEvidence{
+		gate = routing.GateEvidence{
 			Gate:       f.String("gate", ""),
 			Model:      f.String("model", ""),
 			Executed:   f.Bool("executed"),
@@ -148,7 +147,27 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 			ProjectDir: projectDir,
 			RunID:      f.String("run", ""),
 			SessionID:  f.String("session", ""),
-		})
+		}
+		verr = gate.Validate()
+	}
+	if verr != nil {
+		fmt.Fprintf(os.Stderr, "ic route record-evidence: %v\n", verr)
+		return exitMalformed
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route record-evidence", "error", err)
+		return 2
+	}
+	defer d.Close()
+	store := routing.NewDecisionStore(d.SqlDB())
+
+	var id int64
+	if kind == "escalation" {
+		id, err = store.RecordEscalation(ctx, esc)
+	} else {
+		id, err = store.RecordGate(ctx, gate)
 	}
 	if err != nil {
 		slog.Error("route record-evidence", "error", err)
@@ -186,6 +205,20 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 	if class == "" || role == "" {
 		fmt.Fprintln(os.Stderr, "ic route decide: --class and --role are required")
 		return exitMalformed
+	}
+	// The sensitivity label gates trust-zone enforcement, so a malformed
+	// spelling must fail closed rather than silently drop the constraint:
+	// `--data client-confidential` (space form) parses as a bare flag plus a
+	// positional and would otherwise leave data empty.
+	if len(f.Positionals) > 0 {
+		fmt.Fprintf(os.Stderr, "ic route decide: unexpected arguments %q (use --flag=value)\n", f.Positionals)
+		return exitMalformed
+	}
+	for _, k := range []string{"class", "role", "data", "harness", "registry"} {
+		if f.Has(k) && f.String(k, "") == "" {
+			fmt.Fprintf(os.Stderr, "ic route decide: --%s needs a value (use --%s=<value>)\n", k, k)
+			return exitMalformed
+		}
 	}
 	if registryPath == "" {
 		registryPath = findConfigFile("registry.yaml")
@@ -261,7 +294,7 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 		"eligible":           eligible,
 		"registry_as_of":     reg.Version,
 		"verification_gates": []string{}, // populated when gates wire in
-		"rationale":          rationale, // one-liner (Q-3.3); full trace via `ic route explain`
+		"rationale":          rationale,  // one-liner (Q-3.3); full trace via `ic route explain`
 	}
 	if flagJSON {
 		enc := json.NewEncoder(os.Stdout)

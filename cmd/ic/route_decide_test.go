@@ -36,6 +36,18 @@ deployments:
       discernment: { value: 0.60, provenance: judgment, verified_at: 2026-07-13 }
 `
 
+const approvedRegistry = `
+version: 1
+staleness_horizon: 90d
+deployments:
+  anthropic/claude-fable-5@vendor-contract:
+    version_stability: vendor-live
+    trust_zone: approved-vendor
+    cost: { type: per-token, in: 10, out: 50 }
+    capabilities:
+      discernment: { value: 0.95, provenance: judgment, verified_at: 2026-07-13 }
+`
+
 const vendorOnlyRegistry = `
 version: 1
 staleness_horizon: 90d
@@ -55,6 +67,7 @@ deployments:
 func TestRouteDecideExitCodes(t *testing.T) {
 	mixed := writeRegistry(t, mixedRegistry)
 	vendorOnly := writeRegistry(t, vendorOnlyRegistry)
+	approved := writeRegistry(t, approvedRegistry)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -81,6 +94,21 @@ func TestRouteDecideExitCodes(t *testing.T) {
 			name: "missing --role → malformed",
 			args: []string{"--class=x", "--registry=" + mixed},
 			want: exitMalformed,
+		},
+		{
+			name: "space-form --data must fail closed, never drop the constraint",
+			args: []string{"--class=synthesis", "--role=researcher", "--data", "client-confidential", "--registry=" + vendorOnly},
+			want: exitMalformed,
+		},
+		{
+			name: "bare --data with no value → malformed",
+			args: []string{"--class=synthesis", "--role=researcher", "--data", "--registry=" + vendorOnly},
+			want: exitMalformed,
+		},
+		{
+			name: "client-confidential with an approved-vendor deployment → decision",
+			args: []string{"--class=synthesis", "--role=researcher", "--data=client-confidential", "--registry=" + approved},
+			want: exitDecision,
 		},
 		{
 			name: "missing registry file → malformed",

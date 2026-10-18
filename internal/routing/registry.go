@@ -156,6 +156,11 @@ func (r *Registry) Validate() error {
 		if dep.VersionStability == "" {
 			return fmt.Errorf("deployment %q: version_stability is required", key)
 		}
+		switch dep.VersionStability {
+		case StabilityPinned, StabilityVendorLive:
+		default:
+			return fmt.Errorf("deployment %q: unknown version_stability %q", key, dep.VersionStability)
+		}
 	}
 	return nil
 }
