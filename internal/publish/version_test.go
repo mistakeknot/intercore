@@ -137,3 +137,16 @@ func TestParseFormatRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+func TestParseVersionRejectsOverflow(t *testing.T) {
+	for _, v := range []string{
+		"99999999999999999999.0.0", "1.99999999999999999999.0", "1.0.99999999999999999999",
+	} {
+		if _, _, _, _, err := ParseVersion(v); err == nil {
+			t.Errorf("ParseVersion(%q): expected overflow error", v)
+		}
+	}
+	if _, err := precedence("99999999999999999998.0.0", "99999999999999999999.0.0"); err == nil {
+		t.Error("precedence must refuse oversized components, not compare saturated values")
+	}
+}

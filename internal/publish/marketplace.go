@@ -417,23 +417,77 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 			// failed last time looks "in sync" here forever and its local commit
 			// is never retried. That is precisely how a clone reaches 1 ahead and
 			// 147 behind without a word (mk-1e9o).
-			if hasUnpushedCommits(clone) {
-				if err := GitPushGated(clone); err != nil && firstErr == nil {
-					firstErr = fmt.Errorf("retry push %s: %w", clone, err)
+			// A plain-directory marketplace has no commits to push and no
+			// upstream to query; only a git peer can be stranded.
+			if isGitRepo(clone) {
+				if ahead, err := hasUnpushedCommits(clone); err != nil {
+					if firstErr == nil {
+						firstErr = err
+					}
+				} else if ahead {
+					if err := GitPushGated(clone); err != nil && firstErr == nil {
+						firstErr = fmt.Errorf("retry push %s: %w", clone, err)
+					}
 				}
 			}
 			continue
 		}
+		// Committing only means something in a git clone. A marketplace that is
+		// a plain directory is fully synced by the write below and must never be
+		// reported as a git failure.
+		isGit := isGitRepo(clone)
+
+		// Prefer fast-forwarding. By the time this runs the engine has ALREADY
+		// pushed the new version to origin, which leaves every peer clone
+		// exactly one commit behind -- so authoring a second commit here does
+		// not race the remote occasionally, it loses to it every single time.
+		// That guaranteed-rejected push is the divergence generator behind
+		// mk-pn74: when the peer is the Claude Code cache clone the subsequent
+		// re-clone hides the evidence, and when it is the monorepo clone the
+		// rejected commit simply stays, waiting to conflict on the next publish.
+		// Taking what origin already has cannot diverge.
+		if isGit && GitPullFFOnly(clone) == nil {
+			if now, err := ReadMarketplaceVersion(clone, pluginName); err == nil && now == version {
+				continue
+			}
+		}
+		// Whatever the peer now holds, never write an older version over a
+		// newer one: a stale publish target must not be pushed to a clone
+		// that fast-forwarded past it. An unreadable comparison is reported,
+		// not overwritten.
+		if now, err := ReadMarketplaceVersion(clone, pluginName); err == nil {
+			cmp, perr := precedence(now, version)
+			if perr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("compare versions in %s: %w", clone, perr)
+				}
+				continue
+			}
+			if cmp >= 0 {
+				// The peer is at or past the target. A local commit it is
+				// still holding is pushed, not silently left pending.
+				if isGit {
+					if ahead, err := hasUnpushedCommits(clone); err != nil {
+						if firstErr == nil {
+							firstErr = err
+						}
+					} else if ahead {
+						if err := GitPushGated(clone); err != nil && firstErr == nil {
+							firstErr = fmt.Errorf("retry push %s: %w", clone, err)
+						}
+					}
+				}
+				continue
+			}
+		}
+
 		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
 			if firstErr == nil {
 				firstErr = fmt.Errorf("update %s: %w", clone, err)
 			}
 			continue
 		}
-		// A clone that is not a git working copy has nothing to publish; writing
-		// the manifest above WAS the whole job. Absence of a repository is not a
-		// failed publish, so it is not reported as one.
-		if !isGitRepo(clone) {
+		if !isGit {
 			continue
 		}
 
@@ -465,6 +519,126 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 		}
 	}
 	return firstErr
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// cmpDigits orders two digit strings numerically without converting them, so
+// an identifier too large for an int still compares correctly.
+func cmpDigits(a, b string) int {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if len(a) != len(b) {
+		return cmpInt(len(a), len(b))
+	}
+	return strings.Compare(a, b)
+}
+
+// precedence compares two semver strings by semver precedence: numeric core,
+// then a release over any pre-release, then pre-release identifiers pairwise
+// (numeric identifiers numerically and below alphanumeric ones). Unlike
+// CompareVersions it refuses unparseable input instead of falling back to
+// string order, because the answer gates overwriting a published version.
+func precedence(a, b string) (int, error) {
+	am, an, ap, apre, err := ParseVersion(a)
+	if err != nil {
+		return 0, err
+	}
+	bm, bn, bp, bpre, err := ParseVersion(b)
+	if err != nil {
+		return 0, err
+	}
+	for _, d := range [][2]int{{am, bm}, {an, bn}, {ap, bp}} {
+		if d[0] != d[1] {
+			return cmpInt(d[0], d[1]), nil
+		}
+	}
+	switch {
+	case apre == bpre:
+		return 0, nil
+	case apre == "":
+		return 1, nil
+	case bpre == "":
+		return -1, nil
+	}
+	as, bs := strings.Split(apre, "."), strings.Split(bpre, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		switch {
+		case allDigits(as[i]) && allDigits(bs[i]):
+			if c := cmpDigits(as[i], bs[i]); c != 0 {
+				return c, nil
+			}
+		case allDigits(as[i]):
+			return -1, nil
+		case allDigits(bs[i]):
+			return 1, nil
+		case as[i] != bs[i]:
+			if as[i] < bs[i] {
+				return -1, nil
+			}
+			return 1, nil
+		}
+	}
+	return cmpInt(len(as), len(bs)), nil
+}
+
+// UpdateMarketplaceAndPublish brings marketRoot in step with its remote, then
+// writes the new version, commits it and pushes.
+//
+// The ORDER is the fix (mk-pn74). This sequence used to be write, commit, pull,
+// push -- and against a one-line version field that makes a conflict inevitable
+// whenever the clone is behind: the replayed commit edits `"version": X` while
+// the freshly pulled base already says `"version": Y`. Same line, every time.
+// Pulling first means the bump is computed from whatever the remote currently
+// says, so the rebase has nothing to disagree with.
+func UpdateMarketplaceAndPublish(marketRoot, pluginName, version string) error {
+	if err := GitPullRebase(marketRoot); err != nil {
+		return fmt.Errorf("pull --rebase (marketplace): %w", err)
+	}
+	// Re-read AFTER the pull. Pulling first is what makes "another machine
+	// already published this version" reachable, and in that case there is
+	// nothing to commit -- an empty commit would fail and turn a successful
+	// no-op into a hard error.
+	//
+	// Equal or newer on the remote means nothing to write. Newer matters: a
+	// stale publish must never downgrade a version another machine already
+	// released. A bump commit left unpushed by an earlier failed run is
+	// pushed here rather than stranded.
+	if have, err := ReadMarketplaceVersion(marketRoot, pluginName); err == nil {
+		cmp, perr := precedence(have, version)
+		if perr != nil {
+			return fmt.Errorf("refusing to overwrite marketplace version %q with %q: %w", have, version, perr)
+		}
+		if cmp >= 0 {
+			ahead, err := hasUnpushedCommits(marketRoot)
+			if err != nil {
+				return err
+			}
+			if ahead {
+				return GitPushGated(marketRoot)
+			}
+			return nil
+		}
+	}
+	if err := UpdateMarketplaceVersion(marketRoot, pluginName, version); err != nil {
+		return err
+	}
+	if err := GitAdd(marketRoot, filepath.Join(".claude-plugin", "marketplace.json")); err != nil {
+		return err
+	}
+	if err := GitCommit(marketRoot, fmt.Sprintf("chore: bump %s to v%s", pluginName, version)); err != nil {
+		return err
+	}
+	return GitPushGated(marketRoot)
 }
 
 // SyncCCMarketplace updates the CC marketplace checkout to match the monorepo.

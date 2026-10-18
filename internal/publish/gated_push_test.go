@@ -304,8 +304,8 @@ func TestSyncPeerMarketplaces_RetriesAClonePreviouslyLeftUnpushed(t *testing.T) 
 	if err := SyncPeerMarketplaces(src, "interbrowse", "0.5.2"); err == nil {
 		t.Fatal("first sync: expected the push failure to be reported")
 	}
-	if !hasUnpushedCommits(peer) {
-		t.Fatal("first sync should have left a local commit to retry")
+	if ahead, err := hasUnpushedCommits(peer); err != nil || !ahead {
+		t.Fatalf("first sync should have left a local commit to retry (ahead=%v err=%v)", ahead, err)
 	}
 
 	// Second sync: the manifest already reads 0.5.2, so the old code skipped
@@ -323,5 +323,39 @@ func mustGit(t *testing.T, dir string, args ...string) {
 	}
 	if out, err := exec.Command("git", full...).CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %s: %v", args, out, err)
+	}
+}
+
+// A peer whose branch has no upstream must keep reporting failure: the
+// upstream query error is surfaced, not read as "nothing to push".
+func TestSyncPeerNoUpstreamReportsError(t *testing.T) {
+	isolateHome(t)
+	src := t.TempDir()
+	peer := t.TempDir()
+	for _, d := range []string{src, peer} {
+		if err := os.MkdirAll(d+"/.claude-plugin", 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mf := func(v string) string {
+		return `{"plugins":[{"name":"interbrowse","version":"` + v + `"}]}`
+	}
+	if err := os.WriteFile(src+"/.claude-plugin/marketplace.json", []byte(mf("0.5.2")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(peer+"/.claude-plugin/marketplace.json", []byte(mf("0.5.2")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"init", "-q"}, {"config", "user.email", "t@example.invalid"},
+		{"config", "user.name", "t"}, {"add", "-A"}, {"commit", "-qm", "seed"},
+	} {
+		mustGit(t, peer, args...)
+	}
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+	for i := 0; i < 2; i++ {
+		if err := SyncPeerMarketplaces(src, "interbrowse", "0.5.2"); err == nil {
+			t.Fatalf("sync %d: peer with no upstream must report an error", i+1)
+		}
 	}
 }
