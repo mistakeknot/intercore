@@ -501,7 +501,15 @@ func UpdateMarketplaceAndPublish(marketRoot, pluginName, version string) error {
 	// already published this version" reachable, and in that case there is
 	// nothing to commit -- an empty commit would fail and turn a successful
 	// no-op into a hard error.
-	if have, err := ReadMarketplaceVersion(marketRoot, pluginName); err == nil && have == version {
+	//
+	// Equal or newer on the remote means nothing to write. Newer matters: a
+	// stale publish must never downgrade a version another machine already
+	// released. A bump commit left unpushed by an earlier failed run is
+	// pushed here rather than stranded.
+	if have, err := ReadMarketplaceVersion(marketRoot, pluginName); err == nil && CompareVersions(have, version) >= 0 {
+		if hasUnpushedCommits(marketRoot) {
+			return GitPushGated(marketRoot)
+		}
 		return nil
 	}
 	if err := UpdateMarketplaceVersion(marketRoot, pluginName, version); err != nil {

@@ -98,6 +98,12 @@ func GitCommit(dir, message string) error {
 // failed and your repository is now mid-rebase" call for different responses,
 // so they must not read identically.
 func GitPullRebase(dir string) error {
+	// A rebase that was already in progress is the user's, not ours: refuse
+	// without touching it, so a failure below can only abort a rebase this
+	// call started.
+	if rebaseInProgress(dir) {
+		return fmt.Errorf("git pull --rebase: %s already has a rebase in progress; finish or abort it first", dir)
+	}
 	cmd := exec.Command("git", "-C", dir, "pull", "--rebase")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

@@ -152,6 +152,31 @@ func TestGitPullRebase_ConflictLeavesNoRebaseInProgress(t *testing.T) {
 	}
 }
 
+// A rebase the user already has in progress is theirs: GitPullRebase refuses
+// and must not abort it.
+func TestGitPullRebase_LeavesAPreexistingRebaseAlone(t *testing.T) {
+	origin, a := seededOrigin(t, "version.txt", "0.6.298\n")
+	b := cloneOf(t, origin)
+	writeIn(t, b, "version.txt", "0.6.299\n")
+	runGit(t, b, "commit", "-am", "remote bump")
+	runGit(t, b, "push", "origin", "main")
+	writeIn(t, a, "version.txt", "0.6.300\n")
+	runGit(t, a, "commit", "-am", "local bump")
+
+	// Start a conflicting rebase by hand and leave it interrupted.
+	_ = exec.Command("git", "-C", a, "pull", "--rebase").Run()
+	if !rebaseInProgress(a) {
+		t.Fatal("setup: expected an interrupted rebase")
+	}
+
+	if err := GitPullRebase(a); err == nil {
+		t.Fatal("GitPullRebase should refuse while a rebase is in progress")
+	}
+	if !rebaseInProgress(a) {
+		t.Error("the user's rebase was aborted")
+	}
+}
+
 // Control. Without this, the test above would still pass if GitPullRebase
 // simply failed at everything.
 func TestGitPullRebase_CleanSyncStillSucceeds(t *testing.T) {

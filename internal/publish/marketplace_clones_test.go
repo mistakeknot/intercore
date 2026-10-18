@@ -379,6 +379,48 @@ func TestUpdateMarketplaceAndPublish_AlreadyAtTargetIsANoOp(t *testing.T) {
 	}
 }
 
+// A stale publish must not downgrade the remote: the clone is at 0.6.298, the
+// target is 0.6.300, and another machine has already released 0.6.301.
+func TestUpdateMarketplaceAndPublish_NeverDowngradesTheRemote(t *testing.T) {
+	isolateHome(t)
+	clone, origin := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.298"})
+
+	other := cloneOf(t, origin)
+	if err := UpdateMarketplaceVersion(other, "clavain", "0.6.301"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, other, "commit", "-am", "chore: bump clavain to v0.6.301")
+	runGit(t, other, "push", "origin", "main")
+
+	if err := UpdateMarketplaceAndPublish(clone, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("stale publish should be a no-op, got: %v", err)
+	}
+	runGit(t, other, "pull", "--ff-only", "origin", "main")
+	if v, _ := ReadMarketplaceVersion(other, "clavain"); v != "0.6.301" {
+		t.Errorf("origin downgraded to %q, want 0.6.301", v)
+	}
+}
+
+// A bump commit stranded locally by an earlier failed push must be pushed by
+// the retry, not skipped because the version already equals the target.
+func TestUpdateMarketplaceAndPublish_NoOpStillPushesAStrandedCommit(t *testing.T) {
+	isolateHome(t)
+	clone, origin := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.298"})
+
+	if err := UpdateMarketplaceVersion(clone, "clavain", "0.6.300"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, clone, "commit", "-am", "chore: bump clavain to v0.6.300") // never pushed
+
+	if err := UpdateMarketplaceAndPublish(clone, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	other := cloneOf(t, origin)
+	if v, _ := ReadMarketplaceVersion(other, "clavain"); v != "0.6.300" {
+		t.Errorf("stranded bump never reached origin: %q", v)
+	}
+}
+
 func TestSemverLess(t *testing.T) {
 	cases := []struct {
 		a, b string
