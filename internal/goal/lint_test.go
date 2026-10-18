@@ -411,6 +411,46 @@ func TestFormRules(t *testing.T) {
 		}
 	})
 
+	t.Run("numbered gate header with a title still gates the merge", func(t *testing.T) {
+		text := "Ship the fix. OUTCOME: the change lands. GATE 1 \u2014 landing: mk merges PR #26. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("documented GATE n header not recognised: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a PR in the previous section is not borrowed across a header", func(t *testing.T) {
+		text := "Merge the lists. OUTCOME: both lists are ranked.\nGATE: mk approves PR #26\n" +
+			"DONE WHEN: merge the ranked lists and tests pass, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("PR borrowed from the GATE section: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a bare uppercase word does not end the opening clause", func(t *testing.T) {
+		text := "Install the GATE plugin. OUTCOME: the plugin runs. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); !landing {
+			t.Errorf("landing action after a bare GATE word missed: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a wrapped opening line is still one clause", func(t *testing.T) {
+		text := "Ship\nit. OUTCOME: the change lands. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); !landing {
+			t.Errorf("wrapped landing opening missed: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("every canonical section header ends a gate", func(t *testing.T) {
+		for _, label := range []string{"PREMISE", "OUT", "OUTCOME", "DONE WHEN", "WHO\u2019S WAITING", "WHO'S WAITING"} {
+			text := "Do work. GATE: mk reviews. " + label + ": merge PR #26 here. DONE WHEN: x, or stop after 5 turns."
+			if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+				t.Errorf("%s did not end the gate: %v", label, LintCondition(text))
+			}
+		}
+	})
+
 	t.Run("merge conflict is a noun, not a merge of the PR", func(t *testing.T) {
 		text := "Fix detection. OUTCOME: every merge conflict in PR input is detected. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."

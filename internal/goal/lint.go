@@ -132,7 +132,7 @@ var mergeBeforePR = regexp.MustCompile(`(?i)` + prRef + `(?:\s+\S+){0,3}\s+$`)
 // sectionLabel marks the start of a goal section (header syntax: the colon is
 // required, so prose such as "the GATE API" is not a label); a merge is gated when the
 // nearest label before it is GATE.
-var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE(?:\s+(?:\d+|n)\b)?|DONE WHEN|OUT|PREMISE|WHO[\x{2019}']S WAITING)(?:\s*\([^)\n]*\))?:`)
+var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE(?:\s+(?:\d+|n)\b(?:\s*[\x{2014}\x{2013}-]\s*[^:\n]{1,40})?)?|DONE WHEN|OUT|PREMISE|WHO[\x{2019}']S WAITING)(?:\s*\([^)\n]*\))?:`)
 
 // clauseBreak ends a clause. A period only counts when followed by space or
 // the end, so paths like ./dist/plugin.zip do not split.
@@ -148,18 +148,26 @@ func mergeGated(text string, pos int) bool {
 	return strings.HasPrefix(text[last[2]:last[3]], "GATE")
 }
 
-// clauseAfter returns the text after pos up to the end of its clause.
+// clauseAfter returns the text after pos up to the end of its clause or the
+// next section header, whichever comes first.
 func clauseAfter(text string, pos int) string {
 	rest := text[pos:]
+	if loc := sectionLabel.FindStringIndex(rest); loc != nil {
+		rest = rest[:loc[0]]
+	}
 	if loc := clauseBreak.FindStringIndex(rest); loc != nil {
 		return rest[:loc[0]]
 	}
 	return rest
 }
 
-// clauseBefore returns the text before pos back to the start of its clause.
+// clauseBefore returns the text before pos back to the start of its clause or
+// the last section header.
 func clauseBefore(text string, pos int) string {
 	head := text[:pos]
+	if loc := sectionLabel.FindAllStringIndex(head, -1); len(loc) > 0 {
+		head = head[loc[len(loc)-1][1]:]
+	}
 	locs := clauseBreak.FindAllStringIndex(head, -1)
 	if len(locs) == 0 {
 		return head
@@ -170,7 +178,9 @@ func clauseBefore(text string, pos int) string {
 // openingClause cuts text at the first sentence end or section label, so the
 // landing object has to sit in the opening clause and cannot be borrowed from
 // the OUTCOME that follows it.
-var openingEnd = regexp.MustCompile(`[!?;\n]|\.(?:\s|$)|\b(?:OUTCOME|GATE|DONE WHEN|OUT)\b`)
+// Wrapped lines join; only a sentence end or a section header (colon syntax,
+// see sectionLabel) closes it.
+var openingEnd = regexp.MustCompile(`[!?;]|\.(?:\s|$)|` + sectionLabel.String())
 
 func openingClause(s string) string {
 	if loc := openingEnd.FindStringIndex(s); loc != nil {
