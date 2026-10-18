@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -457,6 +456,13 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 				continue
 			}
 			if cmp >= 0 {
+				// The peer is at or past the target. A local commit it is
+				// still holding is pushed, not silently left pending.
+				if isGit && hasUnpushedCommits(clone) {
+					if err := GitPushGated(clone); err != nil && firstErr == nil {
+						firstErr = fmt.Errorf("retry push %s: %w", clone, err)
+					}
+				}
 				continue
 			}
 		}
@@ -501,6 +507,28 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 	return firstErr
 }
 
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// cmpDigits orders two digit strings numerically without converting them, so
+// an identifier too large for an int still compares correctly.
+func cmpDigits(a, b string) int {
+	a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+	if len(a) != len(b) {
+		return cmpInt(len(a), len(b))
+	}
+	return strings.Compare(a, b)
+}
+
 // precedence compares two semver strings by semver precedence: numeric core,
 // then a release over any pre-release, then pre-release identifiers pairwise
 // (numeric identifiers numerically and below alphanumeric ones). Unlike
@@ -530,16 +558,14 @@ func precedence(a, b string) (int, error) {
 	}
 	as, bs := strings.Split(apre, "."), strings.Split(bpre, ".")
 	for i := 0; i < len(as) && i < len(bs); i++ {
-		ai, aerr := strconv.Atoi(as[i])
-		bi, berr := strconv.Atoi(bs[i])
 		switch {
-		case aerr == nil && berr == nil:
-			if ai != bi {
-				return cmpInt(ai, bi), nil
+		case allDigits(as[i]) && allDigits(bs[i]):
+			if c := cmpDigits(as[i], bs[i]); c != 0 {
+				return c, nil
 			}
-		case aerr == nil:
+		case allDigits(as[i]):
 			return -1, nil
-		case berr == nil:
+		case allDigits(bs[i]):
 			return 1, nil
 		case as[i] != bs[i]:
 			if as[i] < bs[i] {

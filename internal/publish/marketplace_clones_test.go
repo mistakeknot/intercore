@@ -435,6 +435,8 @@ func TestPrecedence(t *testing.T) {
 		{"1.0.0", "1.0.0-rc.1", 1},
 		{"1.0.0-1", "1.0.0-alpha", -1}, // numeric below alphanumeric
 		{"1.0.0-rc", "1.0.0-rc.1", -1},
+		{"1.0.0-rc.99999999999999999999", "1.0.0-rc.100000000000000000000", -1}, // beyond int range
+		{"1.0.0-rc.007", "1.0.0-rc.7", 0},
 	}
 	for _, c := range cases {
 		got, err := precedence(c.a, c.b)
@@ -479,6 +481,27 @@ func TestSyncPeerMarketplaces_NeverDowngradesAPeer(t *testing.T) {
 	runGit(t, other, "pull", "--ff-only", "origin", "main")
 	if v, _ := ReadMarketplaceVersion(other, "clavain"); v != "0.6.301" {
 		t.Errorf("origin downgraded to %q", v)
+	}
+}
+
+// A peer holding an unpushed newer commit must have it pushed (or the failure
+// reported) rather than skipped because the target is older.
+func TestSyncPeerMarketplaces_PushesAPeersNewerUnpushedCommit(t *testing.T) {
+	isolateHome(t)
+	src, origin := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.298"})
+	peer := cloneOf(t, origin)
+	if err := UpdateMarketplaceVersion(peer, "clavain", "0.6.301"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, peer, "commit", "-am", "chore: bump clavain to v0.6.301") // unpushed
+
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+	if err := SyncPeerMarketplaces(src, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	other := cloneOf(t, origin)
+	if v, _ := ReadMarketplaceVersion(other, "clavain"); v != "0.6.301" {
+		t.Errorf("the peer's newer commit never reached origin: %q", v)
 	}
 }
 
