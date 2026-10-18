@@ -14,9 +14,18 @@ func ParseVersion(s string) (major, minor, patch int, pre string, err error) {
 	if m == nil {
 		return 0, 0, 0, "", fmt.Errorf("invalid semver: %q", s)
 	}
-	major, _ = strconv.Atoi(m[1])
-	minor, _ = strconv.Atoi(m[2])
-	patch, _ = strconv.Atoi(m[3])
+	// An oversized component is rejected, not saturated: a clamped value
+	// would compare equal to a different version.
+	var aerr error
+	if major, aerr = strconv.Atoi(m[1]); aerr != nil {
+		return 0, 0, 0, "", fmt.Errorf("invalid semver %q: major: %w", s, aerr)
+	}
+	if minor, aerr = strconv.Atoi(m[2]); aerr != nil {
+		return 0, 0, 0, "", fmt.Errorf("invalid semver %q: minor: %w", s, aerr)
+	}
+	if patch, aerr = strconv.Atoi(m[3]); aerr != nil {
+		return 0, 0, 0, "", fmt.Errorf("invalid semver %q: patch: %w", s, aerr)
+	}
 	if m[4] != "" {
 		pre = m[4][1:] // strip leading '-'
 	}

@@ -476,14 +476,18 @@ func isGitRepo(dir string) bool {
 }
 
 // hasUnpushedCommits reports whether dir's current branch is ahead of its
-// upstream. A branch with no upstream configured counts as not ahead: there is
-// nowhere for it to be ahead of.
-func hasUnpushedCommits(dir string) bool {
+// upstream. A failed upstream query is returned, not treated as "not ahead":
+// a clone with no upstream (or a broken one) would otherwise hide a failed
+// push from every later retry.
+func hasUnpushedCommits(dir string) (bool, error) {
 	cmd := exec.Command("git", "-C", dir, "rev-list", "--count", "@{upstream}..HEAD")
 	out, err := cmd.Output()
 	if err != nil {
-		return false
+		return false, fmt.Errorf("query upstream of %s: %w", dir, err)
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
-	return err == nil && n > 0
+	if err != nil {
+		return false, fmt.Errorf("parse unpushed count of %s: %w", dir, err)
+	}
+	return n > 0, nil
 }
