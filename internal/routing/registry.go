@@ -54,8 +54,8 @@ type TrustZone string
 
 const (
 	ZoneLocal          TrustZone = "local"           // self-hosted on our hardware
-	ZoneApprovedVendor TrustZone = "approved-vendor"  // contractually cleared vendor cloud
-	ZoneVendorCloud    TrustZone = "vendor-cloud"     // general vendor API
+	ZoneApprovedVendor TrustZone = "approved-vendor" // contractually cleared vendor cloud
+	ZoneVendorCloud    TrustZone = "vendor-cloud"    // general vendor API
 )
 
 // CostType selects how a deployment is priced (spec Q-2.2). The decision
@@ -83,7 +83,7 @@ const (
 type CapabilityValue struct {
 	Value      float64    `yaml:"value"`
 	Provenance Provenance `yaml:"provenance"`
-	VerifiedAt string     `yaml:"verified_at"`       // YYYY-MM-DD
+	VerifiedAt string     `yaml:"verified_at"` // YYYY-MM-DD
 	JudgedBy   string     `yaml:"judged_by,omitempty"`
 	Rationale  string     `yaml:"rationale,omitempty"`
 }
@@ -107,9 +107,9 @@ type Deployment struct {
 
 // Registry is the whole model registry (spec §2).
 type Registry struct {
-	Version          int                    `yaml:"version"`
-	StalenessHorizon string                 `yaml:"staleness_horizon"` // e.g. "90d"
-	Deployments      map[string]Deployment  `yaml:"deployments"`
+	Version          int                   `yaml:"version"`
+	StalenessHorizon string                `yaml:"staleness_horizon"` // e.g. "90d"
+	Deployments      map[string]Deployment `yaml:"deployments"`
 }
 
 // LoadRegistry reads and validates a registry YAML file.
@@ -139,6 +139,11 @@ func (r *Registry) Validate() error {
 	for key, dep := range r.Deployments {
 		if dep.TrustZone == "" {
 			return fmt.Errorf("deployment %q: trust_zone is required", key)
+		}
+		switch dep.TrustZone {
+		case ZoneLocal, ZoneApprovedVendor, ZoneVendorCloud:
+		default:
+			return fmt.Errorf("deployment %q: unknown trust_zone %q", key, dep.TrustZone)
 		}
 		if dep.Cost.Type == "" {
 			return fmt.Errorf("deployment %q: cost.type is required", key)

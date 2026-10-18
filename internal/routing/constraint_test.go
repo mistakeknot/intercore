@@ -4,6 +4,7 @@ import (
 	"errors"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 )
@@ -115,5 +116,18 @@ func TestRegistry_StalenessDowngrade(t *testing.T) {
 	}
 	if got := reg.StalenessAdjusted(live, older, now); got != ProvJudgment {
 		t.Errorf("older vendor-live (beyond 45d) = %q, want judgment (downgraded)", got)
+	}
+}
+
+func TestRegistry_ValidateRejectsUnknownTrustZone(t *testing.T) {
+	bad := &Registry{
+		Version: 1,
+		Deployments: map[string]Deployment{
+			"x/y@z": {TrustZone: "anywhere", VersionStability: StabilityPinned},
+		},
+	}
+	err := bad.Validate()
+	if err == nil || !strings.Contains(err.Error(), "unknown trust_zone") {
+		t.Errorf("want unknown trust_zone error, got %v", err)
 	}
 }
