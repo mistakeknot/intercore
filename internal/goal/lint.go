@@ -116,17 +116,60 @@ var landingVerb = regexp.MustCompile(`(?i)^\s*(?:/goal\s+)?` +
 var landingObject = regexp.MustCompile(`(?i)(?:\b(?:PRs?|pull\s+requests?|branch(?:es)?|releases?|versions?|` +
 	`v\d[\w.]*|tags?|main|master|prod|production|staging|plugins?|packages?|wave|it|this|the\s+fix|the\s+change)\b|#\d+)`)
 
-// mergeNearPR: a merge verb within three words of a PR reference, either order.
-var mergeNearPR = regexp.MustCompile(`(?i)\bmerg\w*(?:\s+\S+){0,3}\s+(?:\bPRs?\b|\bpull\s+requests?\b|#\d+)` +
-	`|(?:\bPRs?\b|\bpull\s+requests?\b|#\d+)(?:\s+\S+){0,3}\s+merg\w*`)
+// mergeWord finds each merge word on its own, so one occurrence can never
+// swallow another (a noun use next to a real merge, or a span that bridges
+// two sections).
+var mergeWord = regexp.MustCompile(`(?i)\bmerg\w*`)
 
-// gateBefore: a GATE marker in the same sentence before the merge phrase.
-var gateBefore = regexp.MustCompile(`(?i)\bGATE\b[^.]*$`)
+// prRef is a PR reference: "PR", "pull request" or "#123".
+const prRef = `(?:\bPRs?\b|\bpull\s+requests?\b|#\d+)`
+
+// mergeAfterPR / mergeBeforePR: a PR reference within three words after / before
+// the merge word, inside one clause.
+var mergeAfterPR = regexp.MustCompile(`(?i)^(?:\s+\S+){0,3}\s+` + prRef)
+var mergeBeforePR = regexp.MustCompile(`(?i)` + prRef + `(?:\s+\S+){0,3}\s+$`)
+
+// sectionLabel marks the start of a goal section; a merge is gated when the
+// nearest label before it is GATE.
+var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE|DONE WHEN|OUT)\b(?:\s*\([^)\n]*\))?:?`)
+
+// clauseBreak ends a clause. A period only counts when followed by space or
+// the end, so paths like ./dist/plugin.zip do not split.
+var clauseBreak = regexp.MustCompile(`[;!?\n]|\.(?:\s|$)`)
+
+// mergeGated reports whether the nearest section label before pos is GATE.
+func mergeGated(text string, pos int) bool {
+	locs := sectionLabel.FindAllStringSubmatchIndex(text[:pos], -1)
+	if len(locs) == 0 {
+		return false
+	}
+	last := locs[len(locs)-1]
+	return text[last[2]:last[3]] == "GATE"
+}
+
+// clauseAfter returns the text after pos up to the end of its clause.
+func clauseAfter(text string, pos int) string {
+	rest := text[pos:]
+	if loc := clauseBreak.FindStringIndex(rest); loc != nil {
+		return rest[:loc[0]]
+	}
+	return rest
+}
+
+// clauseBefore returns the text before pos back to the start of its clause.
+func clauseBefore(text string, pos int) string {
+	head := text[:pos]
+	locs := clauseBreak.FindAllStringIndex(head, -1)
+	if len(locs) == 0 {
+		return head
+	}
+	return head[locs[len(locs)-1][1]:]
+}
 
 // openingClause cuts text at the first sentence end or section label, so the
 // landing object has to sit in the opening clause and cannot be borrowed from
 // the OUTCOME that follows it.
-var openingEnd = regexp.MustCompile(`[.!?;\n]|\b(?:OUTCOME|GATE|DONE WHEN|OUT)\b`)
+var openingEnd = regexp.MustCompile(`[!?;\n]|\.(?:\s|$)|\b(?:OUTCOME|GATE|DONE WHEN|OUT)\b`)
 
 func openingClause(s string) string {
 	if loc := openingEnd.FindStringIndex(s); loc != nil {
@@ -138,16 +181,11 @@ func openingClause(s string) string {
 // mergeNoun marks "merge" used as a technical noun or modifier ("merge
 // conflict", "merge commit", "merge strategy"), which is work the agent can do.
 var mergeNoun = regexp.MustCompile(`(?i)^\s+(conflicts?|commits?|bases?|strateg\w+|queues?|drivers?|markers?|logic|tools?|results?|algorithms?|requests?)\b`)
-var mergeWord = regexp.MustCompile(`(?i)\bmerg\w*`)
 
-// mergeIsNoun reports whether the merge word inside the matched span is
-// followed by a technical noun, in which case it is not a merge of the PR.
-func mergeIsNoun(text string, loc []int) bool {
-	w := mergeWord.FindStringIndex(text[loc[0]:loc[1]])
-	if w == nil {
-		return false
-	}
-	return mergeNoun.MatchString(text[loc[0]+w[1]:])
+// mergeIsNoun reports whether the merge word ending at end is followed by a
+// technical noun, in which case it is not a merge of the PR.
+func mergeIsNoun(text string, end int) bool {
+	return mergeNoun.MatchString(text[end:])
 }
 
 // formProblems returns the form findings: canonical-form markers, a
@@ -176,24 +214,23 @@ func formProblems(text string) []Problem {
 				"who does it, and make the goal the work the landing unblocks",
 			strings.TrimSpace(m[0]))})
 	}
-	// Every occurrence is judged on its own: a gated first merge must not
+	// Every merge word is judged on its own: a gated first merge must not
 	// hide a later ungated one.
-	for _, loc := range mergeNearPR.FindAllStringIndex(text, -1) {
-		phrase := text[loc[0]:loc[1]]
-		if mergeIsNoun(text, loc) {
+	for _, loc := range mergeWord.FindAllStringIndex(text, -1) {
+		if mergeIsNoun(text, loc[1]) {
 			continue
 		}
-		before := text[:loc[0]]
-		if start := len(before) - 80; start > 0 {
-			before = before[start:]
+		if !mergeAfterPR.MatchString(clauseAfter(text, loc[1])) &&
+			!mergeBeforePR.MatchString(clauseBefore(text, loc[0])) {
+			continue
 		}
-		if gateBefore.MatchString(before) {
+		if mergeGated(text, loc[0]) {
 			continue
 		}
 		probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
 			"merge is not the agent's: %q. Merging a PR is the user's call; "+
 				"state it as a GATE naming who merges, and make the goal the work "+
-				"the merge unblocks", strings.TrimSpace(phrase))})
+				"the merge unblocks", strings.TrimSpace(text[loc[0]:loc[1]]))})
 		break
 	}
 	return probs

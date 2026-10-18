@@ -427,6 +427,32 @@ func TestFormRules(t *testing.T) {
 		}
 	})
 
+	t.Run("a gate does not leak across a newline or semicolon", func(t *testing.T) {
+		for _, text := range []string{
+			"Do the work. GATE: mk merges PR #26\nDONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+			"Do the work. GATE: mk merges PR #26; DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+			"Do the work. GATE: mk approves PR #26. DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+		} {
+			if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+				t.Errorf("ungated merge hidden: %q", text)
+			}
+		}
+	})
+
+	t.Run("a noun merge does not hide a real one", func(t *testing.T) {
+		text := "Fix the PR merge conflict; merge PR #27. OUTCOME: x. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("real merge hidden by the noun use: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a path period does not truncate the landing object", func(t *testing.T) {
+		text := "Install ./dist/plugin.zip into production. OUTCOME: x. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); !landing {
+			t.Errorf("landing action missed after path punctuation: %v", LintCondition(text))
+		}
+	})
+
 	t.Run("a technical merge is not a landing action", func(t *testing.T) {
 		text := "Merge the ranked lists into one shortlist. OUTCOME: one ordered list. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
