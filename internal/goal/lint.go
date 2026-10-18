@@ -99,8 +99,10 @@ var preRuled = regexp.MustCompile(`(?i)(canon|design|open)\s+(call|question|deci
 // merge rule steps aside when the merge is already under a GATE that names
 // who merges, because that is the recommended form.
 
-var canonicalOutcome = regexp.MustCompile(`\bOUTCOME:`)
-var canonicalDone = regexp.MustCompile(`\bDONE WHEN:`)
+// The markers use the same label grammar as the section parsers, so
+// "OUTCOME (the change):" counts as present.
+var canonicalOutcome = regexp.MustCompile(`\bOUTCOME` + label)
+var canonicalDone = regexp.MustCompile(`\bDONE WHEN` + label)
 
 // landingVerb captures the five words after a landing verb at the start of
 // the text (after an optional leading "/goal").
@@ -121,6 +123,33 @@ var mergeNearPR = regexp.MustCompile(`(?i)\bmerg\w*(?:\s+\S+){0,3}\s+(?:\bPRs?\b
 // gateBefore: a GATE marker in the same sentence before the merge phrase.
 var gateBefore = regexp.MustCompile(`(?i)\bGATE\b[^.]*$`)
 
+// openingClause cuts text at the first sentence end or section label, so the
+// landing object has to sit in the opening clause and cannot be borrowed from
+// the OUTCOME that follows it.
+var openingEnd = regexp.MustCompile(`[.!?;\n]|\b(?:OUTCOME|GATE|DONE WHEN|OUT)\b`)
+
+func openingClause(s string) string {
+	if loc := openingEnd.FindStringIndex(s); loc != nil {
+		return s[:loc[0]]
+	}
+	return s
+}
+
+// mergeNoun marks "merge" used as a technical noun or modifier ("merge
+// conflict", "merge commit", "merge strategy"), which is work the agent can do.
+var mergeNoun = regexp.MustCompile(`(?i)^\s+(conflicts?|commits?|bases?|strateg\w+|queues?|drivers?|markers?|logic|tools?|results?|algorithms?|requests?)\b`)
+var mergeWord = regexp.MustCompile(`(?i)\bmerg\w*`)
+
+// mergeIsNoun reports whether the merge word inside the matched span is
+// followed by a technical noun, in which case it is not a merge of the PR.
+func mergeIsNoun(text string, loc []int) bool {
+	w := mergeWord.FindStringIndex(text[loc[0]:loc[1]])
+	if w == nil {
+		return false
+	}
+	return mergeNoun.MatchString(text[loc[0]+w[1]:])
+}
+
 // formProblems returns the form findings: canonical-form markers, a
 // landing-only opening, and a merge the agent cannot perform.
 func formProblems(text string) []Problem {
@@ -139,7 +168,7 @@ func formProblems(text string) []Problem {
 				"see docs/guide-goal-shape.md); without them the successor cannot "+
 				"tell finished from abandoned", strings.Join(missing, " or "))})
 	}
-	if m := landingVerb.FindStringSubmatch(text); m != nil && landingObject.MatchString(m[2]) {
+	if m := landingVerb.FindStringSubmatch(text); m != nil && landingObject.MatchString(openingClause(m[2])) {
 		probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
 			"landing-first: %q opens with a landing action. Merging, installing, "+
 				"deploying and shipping are an mk-step or the tail of the current "+
@@ -147,17 +176,25 @@ func formProblems(text string) []Problem {
 				"who does it, and make the goal the work the landing unblocks",
 			strings.TrimSpace(m[0]))})
 	}
-	if loc := mergeNearPR.FindStringIndex(text); loc != nil {
+	// Every occurrence is judged on its own: a gated first merge must not
+	// hide a later ungated one.
+	for _, loc := range mergeNearPR.FindAllStringIndex(text, -1) {
+		phrase := text[loc[0]:loc[1]]
+		if mergeIsNoun(text, loc) {
+			continue
+		}
 		before := text[:loc[0]]
 		if start := len(before) - 80; start > 0 {
 			before = before[start:]
 		}
-		if !gateBefore.MatchString(before) {
-			probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
-				"merge is not the agent's: %q. Merging a PR is the user's call; "+
-					"state it as a GATE naming who merges, and make the goal the work "+
-					"the merge unblocks", strings.TrimSpace(text[loc[0]:loc[1]]))})
+		if gateBefore.MatchString(before) {
+			continue
 		}
+		probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
+			"merge is not the agent's: %q. Merging a PR is the user's call; "+
+				"state it as a GATE naming who merges, and make the goal the work "+
+				"the merge unblocks", strings.TrimSpace(phrase))})
+		break
 	}
 	return probs
 }

@@ -395,6 +395,38 @@ func TestFormRules(t *testing.T) {
 		}
 	})
 
+	t.Run("parenthesised section labels count as canonical", func(t *testing.T) {
+		text := "Repair the audit chain. OUTCOME (the change): every block is detected. " +
+			"DONE WHEN (judged by the suite): `go test ./...` exits 0, or stop after 5 turns."
+		if form, _, _, _ := kinds(LintCondition(text)); form {
+			t.Errorf("labelled headers flagged as missing: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("landing object must sit in the opening clause", func(t *testing.T) {
+		text := "Merge two lists. OUTCOME: every PR shows its status. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); landing {
+			t.Errorf("object borrowed from the next sentence: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("merge conflict is a noun, not a merge of the PR", func(t *testing.T) {
+		text := "Fix detection. OUTCOME: every merge conflict in PR input is detected. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("noun use flagged: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a gated first merge does not hide a later ungated one", func(t *testing.T) {
+		text := "Do the work. OUTCOME: the change exists. GATE: mk merges PR #26. " +
+			"DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("later ungated merge hidden: %v", LintCondition(text))
+		}
+	})
+
 	t.Run("a technical merge is not a landing action", func(t *testing.T) {
 		text := "Merge the ranked lists into one shortlist. OUTCOME: one ordered list. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
