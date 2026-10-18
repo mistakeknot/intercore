@@ -343,3 +343,245 @@ func TestJudgeRules(t *testing.T) {
 		}
 	})
 }
+
+// TestFormRules pins the canonical-form and landing-only warnings (mk-hxgi).
+// The motivating text is the #1 candidate a Next-goal block recommended on
+// 2026-09-01: a merge, which is the user's call and not a successor goal, in
+// a shape with no OUTCOME: and no DONE WHEN:. Both rules are warnings, so
+// their precision is what keeps them from being learned as noise: a goal that
+// merges two lists, or that names the merge as a GATE for the user, must not
+// trip them.
+func TestFormRules(t *testing.T) {
+	landingGoal := "Merge PR #26 so the intercore goal-close protocol lands and is merged, " +
+		"then run the publish wave from the build host, or stop after 5 turns."
+
+	canonicalGoal := "Repair the Next-goal audit chain. OUTCOME: every emitted block is " +
+		"detected and its receipts are checked for freshness and coverage. GATE: the " +
+		"canonical-form rule stays a warning until measured. DONE WHEN: `bats tests/shell` " +
+		"exits 0 and the hook flags a stale receipt, or stop after 40 turns."
+
+	kinds := func(probs []Problem) (form, landing, merge bool, errs int) {
+		for _, p := range probs {
+			switch {
+			case strings.HasPrefix(p.Message, "canonical form:"):
+				form = true
+			case strings.HasPrefix(p.Message, "landing-first:"):
+				landing = true
+			case strings.HasPrefix(p.Message, "merge is not the agent's:"):
+				merge = true
+			}
+			if p.Severity == "error" {
+				errs++
+			}
+		}
+		return
+	}
+
+	t.Run("the 2026-09-01 #1 candidate yields all three warnings and no error", func(t *testing.T) {
+		probs := LintCondition(landingGoal)
+		form, landing, merge, errs := kinds(probs)
+		if !form || !landing || !merge {
+			t.Errorf("wanted form=%v landing=%v merge=%v all true: %v", form, landing, merge, probs)
+		}
+		if errs != 0 {
+			t.Errorf("these are warnings, got %d error(s): %v", errs, probs)
+		}
+	})
+
+	t.Run("a canonical goal yields none of the three", func(t *testing.T) {
+		form, landing, merge, _ := kinds(LintCondition(canonicalGoal))
+		if form || landing || merge {
+			t.Errorf("false positive on the canonical form: %v", LintCondition(canonicalGoal))
+		}
+	})
+
+	t.Run("parenthesised section labels count as canonical", func(t *testing.T) {
+		text := "Repair the audit chain. OUTCOME (the change): every block is detected. " +
+			"DONE WHEN (judged by the suite): `go test ./...` exits 0, or stop after 5 turns."
+		if form, _, _, _ := kinds(LintCondition(text)); form {
+			t.Errorf("labelled headers flagged as missing: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("landing object must sit in the opening clause", func(t *testing.T) {
+		text := "Merge two lists. OUTCOME: every PR shows its status. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); landing {
+			t.Errorf("object borrowed from the next sentence: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a merge named inside a gate title is gated", func(t *testing.T) {
+		text := "Repair the chain. OUTCOME: the audit passes. GATE 2 \u2014 merge PR #26: mk decides whether it lands. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("merge inside GATE title flagged as ungated: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a header after a short opening is not truncated away", func(t *testing.T) {
+		text := "Merge lists\nGATE 1 \u2014 PR landing: mk decides. OUTCOME: the lists are merged. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); landing {
+			t.Errorf("object borrowed across a header: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a long gate title still gates the merge", func(t *testing.T) {
+		text := "Ship the fix. OUTCOME: the change lands. GATE 2 \u2014 production rollout approval after independent review: mk merges PR #26. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("title length cap hid the gate: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("numbered gate header with a title still gates the merge", func(t *testing.T) {
+		text := "Ship the fix. OUTCOME: the change lands. GATE 1 \u2014 landing: mk merges PR #26. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("documented GATE n header not recognised: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a PR in the previous section is not borrowed across a header", func(t *testing.T) {
+		text := "Merge the lists. OUTCOME: both lists are ranked.\nGATE: mk approves PR #26\n" +
+			"DONE WHEN: merge the ranked lists and tests pass, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("PR borrowed from the GATE section: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a bare uppercase word does not end the opening clause", func(t *testing.T) {
+		text := "Install the GATE plugin. OUTCOME: the plugin runs. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); !landing {
+			t.Errorf("landing action after a bare GATE word missed: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a wrapped opening line is still one clause", func(t *testing.T) {
+		text := "Ship\nit. OUTCOME: the change lands. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); !landing {
+			t.Errorf("wrapped landing opening missed: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("every canonical section header ends a gate", func(t *testing.T) {
+		for _, label := range []string{"PREMISE", "OUT", "OUTCOME", "DONE WHEN", "WHO\u2019S WAITING", "WHO'S WAITING"} {
+			text := "Do work. GATE: mk reviews. " + label + ": merge PR #26 here. DONE WHEN: x, or stop after 5 turns."
+			if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+				t.Errorf("%s did not end the gate: %v", label, LintCondition(text))
+			}
+		}
+	})
+
+	t.Run("merge conflict is a noun, not a merge of the PR", func(t *testing.T) {
+		text := "Fix detection. OUTCOME: every merge conflict in PR input is detected. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("noun use flagged: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a gated first merge does not hide a later ungated one", func(t *testing.T) {
+		text := "Do the work. OUTCOME: the change exists. GATE: mk merges PR #26. " +
+			"DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("later ungated merge hidden: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a gate does not leak across a newline or semicolon", func(t *testing.T) {
+		for _, text := range []string{
+			"Do the work. GATE: mk merges PR #26\nDONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+			"Do the work. GATE: mk merges PR #26; DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+			"Do the work. GATE: mk approves PR #26. DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+		} {
+			if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+				t.Errorf("ungated merge hidden: %q", text)
+			}
+		}
+	})
+
+	t.Run("a noun merge does not hide a real one", func(t *testing.T) {
+		text := "Fix the PR merge conflict; merge PR #27. OUTCOME: x. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("real merge hidden by the noun use: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a path period does not truncate the landing object", func(t *testing.T) {
+		text := "Install ./dist/plugin.zip into production. OUTCOME: x. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); !landing {
+			t.Errorf("landing action missed after path punctuation: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("prose uppercase words are not section labels", func(t *testing.T) {
+		ungated := "Do the work. OUTCOME: x. DONE WHEN: implement the GATE API and merge PR #27, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(ungated)); !merge {
+			t.Errorf("prose GATE suppressed the warning: %v", LintCondition(ungated))
+		}
+		gated := "Do the work. OUTCOME: x. GATE: mk checks SQL OUT parameters and merges PR #26. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(gated)); merge {
+			t.Errorf("prose OUT ended the gate: %v", LintCondition(gated))
+		}
+	})
+
+	t.Run("every canonical section ends a gate", func(t *testing.T) {
+		text := "Do the work. GATE: mk approves the design. PREMISE: merge PR #27 to test the assumption. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("PREMISE did not end the gate: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a wrapped line does not hide a merge", func(t *testing.T) {
+		text := "Do the work. OUTCOME: x. DONE WHEN: merge\nPR #27 and tests pass, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("line wrap hid the merge: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a technical merge is not a landing action", func(t *testing.T) {
+		text := "Merge the ranked lists into one shortlist. OUTCOME: one ordered list. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		_, landing, merge, _ := kinds(LintCondition(text))
+		if landing || merge {
+			t.Errorf("verb without a landing object must not warn: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("the test fixture's own 'Ship it.' is a landing action", func(t *testing.T) {
+		text := "Ship it. OUTCOME: the thing is live. DONE WHEN: deployed, or stop after 5 turns."
+		_, landing, _, _ := kinds(LintCondition(text))
+		if !landing {
+			t.Errorf("'Ship it.' must warn landing-first: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a merge named as the user's GATE is not the agent's merge", func(t *testing.T) {
+		text := "Run the close protocol in production. OUTCOME: goals close through ic. " +
+			"GATE: mk merges PR #26. DONE WHEN: `ic goal close finish` exits 0, or stop after 10 turns."
+		_, landing, merge, _ := kinds(LintCondition(text))
+		if landing || merge {
+			t.Errorf("a GATE naming who merges is the recommended form: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("missing only DONE WHEN still warns and names it", func(t *testing.T) {
+		text := "OUTCOME: the API answers. `curl` returns HTTP 200, or stop after 5 turns."
+		var msg string
+		for _, p := range LintCondition(text) {
+			if strings.HasPrefix(p.Message, "canonical form:") {
+				msg = p.Message
+			}
+		}
+		if !strings.Contains(msg, "DONE WHEN:") || strings.Contains(msg, "OUTCOME:") == false {
+			// the message must name what is missing without claiming OUTCOME: is
+			t.Logf("message: %q", msg)
+		}
+		if msg == "" || !strings.Contains(msg, "DONE WHEN:") {
+			t.Errorf("wanted a canonical-form warning naming DONE WHEN:, got %q", msg)
+		}
+	})
+}

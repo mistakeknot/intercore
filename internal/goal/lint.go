@@ -84,6 +84,195 @@ var planDetail = regexp.MustCompile(`(?i)` +
 // A gate the drafter has already decided is not a gate.
 var preRuled = regexp.MustCompile(`(?i)(canon|design|open)\s+(call|question|decision)`)
 
+// ── Form rules (mk-hxgi) ────────────────────────────────────────────────────
+//
+// The shape rules ask whether the right person wrote it. These ask whether it
+// is a goal at all. On 2026-09-01 a Next-goal block recommended "Merge PR #26
+// so the intercore goal-close protocol lands" as the successor goal: a merge,
+// which is the user's call and not the agent's, in a shape with no OUTCOME:
+// and no DONE WHEN:. Only 5 of 24 minted goals carried the canonical form.
+//
+// All three are WARNINGS, and their precision is what keeps them from being
+// learned as noise. The landing rule needs both a landing VERB at the start
+// and a landing-shaped OBJECT within the next five words, so "merge the
+// ranked lists" is a technical goal and "Ship it." is a landing action. The
+// merge rule steps aside when the merge is already under a GATE that names
+// who merges, because that is the recommended form.
+
+// The markers use the same label grammar as the section parsers, so
+// "OUTCOME (the change):" counts as present.
+var canonicalOutcome = regexp.MustCompile(`\bOUTCOME` + label)
+var canonicalDone = regexp.MustCompile(`\bDONE WHEN` + label)
+
+// landingVerb matches a landing verb at the start of the text (after an
+// optional leading "/goal"). The words after it are cut at the opening
+// clause first and limited to five afterwards, so a section header further
+// along can never be truncated out of sight.
+var landingVerb = regexp.MustCompile(`(?i)^\s*(?:/goal\s+)?` +
+	`(merge|rebuild|reinstall|install|bump|tag|publish|deploy|push|ship|release|roll\s+out|cut)\b`)
+
+// openingObject returns up to five words after the landing verb that ends at
+// verbEnd, within the opening clause. ok is false when there are none.
+func openingObject(text string, verbEnd int) (words string, ok bool) {
+	f := strings.Fields(openingClause(text[verbEnd:]))
+	if len(f) == 0 {
+		return "", false
+	}
+	if len(f) > 5 {
+		f = f[:5]
+	}
+	return strings.Join(f, " "), true
+}
+
+// landingObject is what makes the verb a landing action rather than a
+// technical one: a PR, a branch, a release, a version, an environment, a
+// plugin, or a bare "it"/"this".
+var landingObject = regexp.MustCompile(`(?i)(?:\b(?:PRs?|pull\s+requests?|branch(?:es)?|releases?|versions?|` +
+	`v\d[\w.]*|tags?|main|master|prod|production|staging|plugins?|packages?|wave|it|this|the\s+fix|the\s+change)\b|#\d+)`)
+
+// mergeWord finds each merge word on its own, so one occurrence can never
+// swallow another (a noun use next to a real merge, or a span that bridges
+// two sections).
+var mergeWord = regexp.MustCompile(`(?i)\bmerg\w*`)
+
+// prRef is a PR reference: "PR", "pull request" or "#123".
+const prRef = `(?:\bPRs?\b|\bpull\s+requests?\b|#\d+)`
+
+// mergeAfterPR / mergeBeforePR: a PR reference within three words after / before
+// the merge word, inside one clause.
+var mergeAfterPR = regexp.MustCompile(`(?i)^(?:\s+\S+){0,3}\s+` + prRef)
+var mergeBeforePR = regexp.MustCompile(`(?i)` + prRef + `(?:\s+\S+){0,3}\s+$`)
+
+// sectionLabel marks the start of a goal section (header syntax: the colon is
+// required, so prose such as "the GATE API" is not a label); a merge is gated when the
+// nearest label before it is GATE.
+var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE(?:\s+(?:\d+|n)\b(?:\s*[\x{2014}\x{2013}-]\s*[^:\n]+)?)?|DONE WHEN|OUT|PREMISE|WHO[\x{2019}']S WAITING)(?:\s*\([^)\n]*\))?:`)
+
+// clauseBreak ends a clause. A period only counts when followed by space or
+// the end, so paths like ./dist/plugin.zip do not split.
+var clauseBreak = regexp.MustCompile(`[;!?]|\.(?:\s|$)`)
+
+// mergeGated reports whether pos belongs to a GATE section: either it sits
+// inside a GATE header (before the header's colon, e.g. in the title) or the
+// nearest header that ends before it is a GATE.
+func mergeGated(text string, pos int) bool {
+	var nearest []int
+	for _, loc := range sectionLabel.FindAllStringSubmatchIndex(text, -1) {
+		if loc[0] <= pos && pos < loc[1] {
+			return strings.HasPrefix(text[loc[2]:loc[3]], "GATE")
+		}
+		if loc[1] > pos {
+			break
+		}
+		nearest = loc
+	}
+	if nearest == nil {
+		return false
+	}
+	return strings.HasPrefix(text[nearest[2]:nearest[3]], "GATE")
+}
+
+// clauseAfter returns the text after pos up to the end of its clause or the
+// next section header, whichever comes first.
+func clauseAfter(text string, pos int) string {
+	rest := text[pos:]
+	if loc := sectionLabel.FindStringIndex(rest); loc != nil {
+		rest = rest[:loc[0]]
+	}
+	if loc := clauseBreak.FindStringIndex(rest); loc != nil {
+		return rest[:loc[0]]
+	}
+	return rest
+}
+
+// clauseBefore returns the text before pos back to the start of its clause or
+// the last section header.
+func clauseBefore(text string, pos int) string {
+	head := text[:pos]
+	if loc := sectionLabel.FindAllStringIndex(head, -1); len(loc) > 0 {
+		head = head[loc[len(loc)-1][1]:]
+	}
+	locs := clauseBreak.FindAllStringIndex(head, -1)
+	if len(locs) == 0 {
+		return head
+	}
+	return head[locs[len(locs)-1][1]:]
+}
+
+// openingClause cuts text at the first sentence end or section label, so the
+// landing object has to sit in the opening clause and cannot be borrowed from
+// the OUTCOME that follows it.
+// Wrapped lines join; only a sentence end or a section header (colon syntax,
+// see sectionLabel) closes it.
+var openingEnd = regexp.MustCompile(`[!?;]|\.(?:\s|$)|` + sectionLabel.String())
+
+func openingClause(s string) string {
+	if loc := openingEnd.FindStringIndex(s); loc != nil {
+		return s[:loc[0]]
+	}
+	return s
+}
+
+// mergeNoun marks "merge" used as a technical noun or modifier ("merge
+// conflict", "merge commit", "merge strategy"), which is work the agent can do.
+var mergeNoun = regexp.MustCompile(`(?i)^\s+(conflicts?|commits?|bases?|strateg\w+|queues?|drivers?|markers?|logic|tools?|results?|algorithms?|requests?)\b`)
+
+// mergeIsNoun reports whether the merge word ending at end is followed by a
+// technical noun, in which case it is not a merge of the PR.
+func mergeIsNoun(text string, end int) bool {
+	return mergeNoun.MatchString(text[end:])
+}
+
+// formProblems returns the form findings: canonical-form markers, a
+// landing-only opening, and a merge the agent cannot perform.
+func formProblems(text string) []Problem {
+	var probs []Problem
+	missing := []string{}
+	if !canonicalOutcome.MatchString(text) {
+		missing = append(missing, "OUTCOME:")
+	}
+	if !canonicalDone.MatchString(text) {
+		missing = append(missing, "DONE WHEN:")
+	}
+	if len(missing) > 0 {
+		probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
+			"canonical form: no %s line. A goal states the outcome first and names "+
+				"the observable condition it is done at (OUTCOME / GATE / DONE WHEN, "+
+				"see docs/guide-goal-shape.md); without them the successor cannot "+
+				"tell finished from abandoned", strings.Join(missing, " or "))})
+	}
+	if loc := landingVerb.FindStringIndex(text); loc != nil {
+		if obj, ok := openingObject(text, loc[1]); ok && landingObject.MatchString(obj) {
+			probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
+				"landing-first: %q opens with a landing action. Merging, installing, "+
+					"deploying and shipping are an mk-step or the tail of the current "+
+					"goal, not a successor; if it is a gate, put it under GATE and name "+
+					"who does it, and make the goal the work the landing unblocks",
+				strings.TrimSpace(text[:loc[1]]+" "+obj))})
+		}
+	}
+	// Every merge word is judged on its own: a gated first merge must not
+	// hide a later ungated one.
+	for _, loc := range mergeWord.FindAllStringIndex(text, -1) {
+		if mergeIsNoun(text, loc[1]) {
+			continue
+		}
+		if !mergeAfterPR.MatchString(clauseAfter(text, loc[1])) &&
+			!mergeBeforePR.MatchString(clauseBefore(text, loc[0])) {
+			continue
+		}
+		if mergeGated(text, loc[0]) {
+			continue
+		}
+		probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
+			"merge is not the agent's: %q. Merging a PR is the user's call; "+
+				"state it as a GATE naming who merges, and make the goal the work "+
+				"the merge unblocks", strings.TrimSpace(text[loc[0]:loc[1]]))})
+		break
+	}
+	return probs
+}
+
 // ── Judge and bar rules (mk-3mo0w) ──────────────────────────────────────────
 //
 // A goal whose only predicates are artifacts its producer creates (a commit,
@@ -406,5 +595,6 @@ func LintCondition(text string) []Problem {
 			"consider appending 'or stop after N turns'"})
 	}
 	probs = append(probs, shapeProblems(text)...)
-	return append(probs, judgeProblems(text)...)
+	probs = append(probs, judgeProblems(text)...)
+	return append(probs, formProblems(text)...)
 }
