@@ -104,11 +104,25 @@ var preRuled = regexp.MustCompile(`(?i)(canon|design|open)\s+(call|question|deci
 var canonicalOutcome = regexp.MustCompile(`\bOUTCOME` + label)
 var canonicalDone = regexp.MustCompile(`\bDONE WHEN` + label)
 
-// landingVerb captures the five words after a landing verb at the start of
-// the text (after an optional leading "/goal").
+// landingVerb matches a landing verb at the start of the text (after an
+// optional leading "/goal"). The words after it are cut at the opening
+// clause first and limited to five afterwards, so a section header further
+// along can never be truncated out of sight.
 var landingVerb = regexp.MustCompile(`(?i)^\s*(?:/goal\s+)?` +
-	`(merge|rebuild|reinstall|install|bump|tag|publish|deploy|push|ship|release|roll\s+out|cut)\b` +
-	`((?:\s+\S+){1,5})`)
+	`(merge|rebuild|reinstall|install|bump|tag|publish|deploy|push|ship|release|roll\s+out|cut)\b`)
+
+// openingObject returns up to five words after the landing verb that ends at
+// verbEnd, within the opening clause. ok is false when there are none.
+func openingObject(text string, verbEnd int) (words string, ok bool) {
+	f := strings.Fields(openingClause(text[verbEnd:]))
+	if len(f) == 0 {
+		return "", false
+	}
+	if len(f) > 5 {
+		f = f[:5]
+	}
+	return strings.Join(f, " "), true
+}
 
 // landingObject is what makes the verb a landing action rather than a
 // technical one: a PR, a branch, a release, a version, an environment, a
@@ -132,20 +146,30 @@ var mergeBeforePR = regexp.MustCompile(`(?i)` + prRef + `(?:\s+\S+){0,3}\s+$`)
 // sectionLabel marks the start of a goal section (header syntax: the colon is
 // required, so prose such as "the GATE API" is not a label); a merge is gated when the
 // nearest label before it is GATE.
-var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE(?:\s+(?:\d+|n)\b(?:\s*[\x{2014}\x{2013}-]\s*[^:\n]{1,40})?)?|DONE WHEN|OUT|PREMISE|WHO[\x{2019}']S WAITING)(?:\s*\([^)\n]*\))?:`)
+var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE(?:\s+(?:\d+|n)\b(?:\s*[\x{2014}\x{2013}-]\s*[^:\n]+)?)?|DONE WHEN|OUT|PREMISE|WHO[\x{2019}']S WAITING)(?:\s*\([^)\n]*\))?:`)
 
 // clauseBreak ends a clause. A period only counts when followed by space or
 // the end, so paths like ./dist/plugin.zip do not split.
 var clauseBreak = regexp.MustCompile(`[;!?]|\.(?:\s|$)`)
 
-// mergeGated reports whether the nearest section label before pos is GATE.
+// mergeGated reports whether pos belongs to a GATE section: either it sits
+// inside a GATE header (before the header's colon, e.g. in the title) or the
+// nearest header that ends before it is a GATE.
 func mergeGated(text string, pos int) bool {
-	locs := sectionLabel.FindAllStringSubmatchIndex(text[:pos], -1)
-	if len(locs) == 0 {
+	var nearest []int
+	for _, loc := range sectionLabel.FindAllStringSubmatchIndex(text, -1) {
+		if loc[0] <= pos && pos < loc[1] {
+			return strings.HasPrefix(text[loc[2]:loc[3]], "GATE")
+		}
+		if loc[1] > pos {
+			break
+		}
+		nearest = loc
+	}
+	if nearest == nil {
 		return false
 	}
-	last := locs[len(locs)-1]
-	return strings.HasPrefix(text[last[2]:last[3]], "GATE")
+	return strings.HasPrefix(text[nearest[2]:nearest[3]], "GATE")
 }
 
 // clauseAfter returns the text after pos up to the end of its clause or the
@@ -217,13 +241,15 @@ func formProblems(text string) []Problem {
 				"see docs/guide-goal-shape.md); without them the successor cannot "+
 				"tell finished from abandoned", strings.Join(missing, " or "))})
 	}
-	if m := landingVerb.FindStringSubmatch(text); m != nil && landingObject.MatchString(openingClause(m[2])) {
-		probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
-			"landing-first: %q opens with a landing action. Merging, installing, "+
-				"deploying and shipping are an mk-step or the tail of the current "+
-				"goal, not a successor; if it is a gate, put it under GATE and name "+
-				"who does it, and make the goal the work the landing unblocks",
-			strings.TrimSpace(m[0]))})
+	if loc := landingVerb.FindStringIndex(text); loc != nil {
+		if obj, ok := openingObject(text, loc[1]); ok && landingObject.MatchString(obj) {
+			probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
+				"landing-first: %q opens with a landing action. Merging, installing, "+
+					"deploying and shipping are an mk-step or the tail of the current "+
+					"goal, not a successor; if it is a gate, put it under GATE and name "+
+					"who does it, and make the goal the work the landing unblocks",
+				strings.TrimSpace(text[:loc[1]]+" "+obj))})
+		}
 	}
 	// Every merge word is judged on its own: a gated first merge must not
 	// hide a later ungated one.

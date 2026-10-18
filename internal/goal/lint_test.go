@@ -411,6 +411,30 @@ func TestFormRules(t *testing.T) {
 		}
 	})
 
+	t.Run("a merge named inside a gate title is gated", func(t *testing.T) {
+		text := "Repair the chain. OUTCOME: the audit passes. GATE 2 \u2014 merge PR #26: mk decides whether it lands. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("merge inside GATE title flagged as ungated: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a header after a short opening is not truncated away", func(t *testing.T) {
+		text := "Merge lists\nGATE 1 \u2014 PR landing: mk decides. OUTCOME: the lists are merged. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, landing, _, _ := kinds(LintCondition(text)); landing {
+			t.Errorf("object borrowed across a header: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a long gate title still gates the merge", func(t *testing.T) {
+		text := "Ship the fix. OUTCOME: the change lands. GATE 2 \u2014 production rollout approval after independent review: mk merges PR #26. " +
+			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); merge {
+			t.Errorf("title length cap hid the gate: %v", LintCondition(text))
+		}
+	})
+
 	t.Run("numbered gate header with a title still gates the merge", func(t *testing.T) {
 		text := "Ship the fix. OUTCOME: the change lands. GATE 1 \u2014 landing: mk merges PR #26. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
