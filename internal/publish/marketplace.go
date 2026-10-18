@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -443,6 +444,22 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 				continue
 			}
 		}
+		// Whatever the peer now holds, never write an older version over a
+		// newer one: a stale publish target must not be pushed to a clone
+		// that fast-forwarded past it. An unreadable comparison is reported,
+		// not overwritten.
+		if now, err := ReadMarketplaceVersion(clone, pluginName); err == nil {
+			cmp, perr := precedence(now, version)
+			if perr != nil {
+				if firstErr == nil {
+					firstErr = fmt.Errorf("compare versions in %s: %w", clone, perr)
+				}
+				continue
+			}
+			if cmp >= 0 {
+				continue
+			}
+		}
 
 		if err := UpdateMarketplaceVersion(clone, pluginName, version); err != nil {
 			if firstErr == nil {
@@ -484,6 +501,56 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 	return firstErr
 }
 
+// precedence compares two semver strings by semver precedence: numeric core,
+// then a release over any pre-release, then pre-release identifiers pairwise
+// (numeric identifiers numerically and below alphanumeric ones). Unlike
+// CompareVersions it refuses unparseable input instead of falling back to
+// string order, because the answer gates overwriting a published version.
+func precedence(a, b string) (int, error) {
+	am, an, ap, apre, err := ParseVersion(a)
+	if err != nil {
+		return 0, err
+	}
+	bm, bn, bp, bpre, err := ParseVersion(b)
+	if err != nil {
+		return 0, err
+	}
+	for _, d := range [][2]int{{am, bm}, {an, bn}, {ap, bp}} {
+		if d[0] != d[1] {
+			return cmpInt(d[0], d[1]), nil
+		}
+	}
+	switch {
+	case apre == bpre:
+		return 0, nil
+	case apre == "":
+		return 1, nil
+	case bpre == "":
+		return -1, nil
+	}
+	as, bs := strings.Split(apre, "."), strings.Split(bpre, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		ai, aerr := strconv.Atoi(as[i])
+		bi, berr := strconv.Atoi(bs[i])
+		switch {
+		case aerr == nil && berr == nil:
+			if ai != bi {
+				return cmpInt(ai, bi), nil
+			}
+		case aerr == nil:
+			return -1, nil
+		case berr == nil:
+			return 1, nil
+		case as[i] != bs[i]:
+			if as[i] < bs[i] {
+				return -1, nil
+			}
+			return 1, nil
+		}
+	}
+	return cmpInt(len(as), len(bs)), nil
+}
+
 // UpdateMarketplaceAndPublish brings marketRoot in step with its remote, then
 // writes the new version, commits it and pushes.
 //
@@ -506,11 +573,17 @@ func UpdateMarketplaceAndPublish(marketRoot, pluginName, version string) error {
 	// stale publish must never downgrade a version another machine already
 	// released. A bump commit left unpushed by an earlier failed run is
 	// pushed here rather than stranded.
-	if have, err := ReadMarketplaceVersion(marketRoot, pluginName); err == nil && CompareVersions(have, version) >= 0 {
-		if hasUnpushedCommits(marketRoot) {
-			return GitPushGated(marketRoot)
+	if have, err := ReadMarketplaceVersion(marketRoot, pluginName); err == nil {
+		cmp, perr := precedence(have, version)
+		if perr != nil {
+			return fmt.Errorf("refusing to overwrite marketplace version %q with %q: %w", have, version, perr)
 		}
-		return nil
+		if cmp >= 0 {
+			if hasUnpushedCommits(marketRoot) {
+				return GitPushGated(marketRoot)
+			}
+			return nil
+		}
 	}
 	if err := UpdateMarketplaceVersion(marketRoot, pluginName, version); err != nil {
 		return err

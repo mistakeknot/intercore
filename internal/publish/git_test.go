@@ -177,6 +177,32 @@ func TestGitPullRebase_LeavesAPreexistingRebaseAlone(t *testing.T) {
 	}
 }
 
+// Inside a worktree the rebase state lives under the parent .git; a
+// pre-existing rebase there must be preserved as well.
+func TestGitPullRebase_LeavesAPreexistingRebaseInAWorktreeAlone(t *testing.T) {
+	origin, a := seededOrigin(t, "version.txt", "0.6.298\n")
+	b := cloneOf(t, origin)
+	writeIn(t, b, "version.txt", "0.6.299\n")
+	runGit(t, b, "commit", "-am", "remote bump")
+	runGit(t, b, "push", "origin", "main")
+
+	wt := filepath.Join(t.TempDir(), "wt")
+	runGit(t, a, "worktree", "add", "-b", "wtb", wt, "main")
+	runGit(t, wt, "branch", "--set-upstream-to=origin/main")
+	writeIn(t, wt, "version.txt", "0.6.300\n")
+	runGit(t, wt, "commit", "-am", "local bump")
+	_ = exec.Command("git", "-C", wt, "pull", "--rebase").Run()
+	if !rebaseInProgress(wt) {
+		t.Skip("could not stage an interrupted rebase in the worktree")
+	}
+	if err := GitPullRebase(wt); err == nil {
+		t.Fatal("should refuse while a rebase is in progress")
+	}
+	if !rebaseInProgress(wt) {
+		t.Error("the worktree's rebase was aborted")
+	}
+}
+
 // Control. Without this, the test above would still pass if GitPullRebase
 // simply failed at everything.
 func TestGitPullRebase_CleanSyncStillSucceeds(t *testing.T) {

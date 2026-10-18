@@ -421,6 +421,67 @@ func TestUpdateMarketplaceAndPublish_NoOpStillPushesAStrandedCommit(t *testing.T
 	}
 }
 
+func TestPrecedence(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"0.6.299", "0.6.300", -1},
+		{"0.6.301", "0.6.300", 1},
+		{"0.6.300", "0.6.300", 0},
+		{"1.0.0-rc.2", "1.0.0-rc.10", -1}, // numeric identifiers, not lexical
+		{"1.0.0-rc.10", "1.0.0-rc.2", 1},
+		{"1.0.0-rc.1", "1.0.0", -1},
+		{"1.0.0", "1.0.0-rc.1", 1},
+		{"1.0.0-1", "1.0.0-alpha", -1}, // numeric below alphanumeric
+		{"1.0.0-rc", "1.0.0-rc.1", -1},
+	}
+	for _, c := range cases {
+		got, err := precedence(c.a, c.b)
+		if err != nil || got != c.want {
+			t.Errorf("precedence(%q,%q) = %d, %v; want %d", c.a, c.b, got, err, c.want)
+		}
+	}
+	if _, err := precedence("latest", "0.6.300"); err == nil {
+		t.Error("an unparseable version must be refused, not ordered as a string")
+	}
+}
+
+func TestUpdateMarketplaceAndPublish_RefusesAnUnparseableVersion(t *testing.T) {
+	isolateHome(t)
+	clone, _ := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.298"})
+	if err := UpdateMarketplaceAndPublish(clone, "clavain", "latest"); err == nil {
+		t.Fatal("publishing an unparseable version should fail")
+	}
+}
+
+// The stale target must not reach a peer that has already fast-forwarded past
+// it: the primary publish no-ops, and peer sync must not push the older value.
+func TestSyncPeerMarketplaces_NeverDowngradesAPeer(t *testing.T) {
+	isolateHome(t)
+	src, origin := gitMarketplaceClone(t, pluginEntry{Name: "clavain", Version: "0.6.298"})
+	peer := cloneOf(t, origin)
+
+	other := cloneOf(t, origin)
+	if err := UpdateMarketplaceVersion(other, "clavain", "0.6.301"); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, other, "commit", "-am", "chore: bump clavain to v0.6.301")
+	runGit(t, other, "push", "origin", "main")
+
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+	if err := SyncPeerMarketplaces(src, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if v, _ := ReadMarketplaceVersion(peer, "clavain"); v != "0.6.301" {
+		t.Errorf("peer downgraded to %q", v)
+	}
+	runGit(t, other, "pull", "--ff-only", "origin", "main")
+	if v, _ := ReadMarketplaceVersion(other, "clavain"); v != "0.6.301" {
+		t.Errorf("origin downgraded to %q", v)
+	}
+}
+
 func TestSemverLess(t *testing.T) {
 	cases := []struct {
 		a, b string
