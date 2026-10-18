@@ -54,6 +54,8 @@ func TestRouteRecordEvidenceCLI(t *testing.T) {
 		{"--kind=escalation", "--from=sonnet", "--to=opus", "--exhausted"},
 		{"--kind=escalation", "--to=opus"},
 		{"--kind", "gate"},
+		{"--kind=gate", "--gate=g", "--model=m", "--executed=flase"},
+		{"--kind=escalation", "--from=sonnet", "--exhausted=nope"},
 	} {
 		if rc := cmdRouteRecordEvidence(ctx, bad); rc != exitMalformed {
 			t.Errorf("%v rc = %d, want %d", bad, rc, exitMalformed)

@@ -106,6 +106,11 @@ func TestRouteDecideExitCodes(t *testing.T) {
 			want: exitMalformed,
 		},
 		{
+			name: "data label with whitespace or uppercase is malformed, never a silent drop",
+			args: []string{"--class=synthesis", "--role=researcher", "--data=Client Confidential", "--registry=" + vendorOnly},
+			want: exitMalformed,
+		},
+		{
 			name: "client-confidential with an approved-vendor deployment → decision",
 			args: []string{"--class=synthesis", "--role=researcher", "--data=client-confidential", "--registry=" + approved},
 			want: exitDecision,

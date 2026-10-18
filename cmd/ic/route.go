@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -120,6 +121,16 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 		}
 	}
 
+	boolKey := "executed"
+	if kind == "escalation" {
+		boolKey = "exhausted"
+	}
+	flagTrue, berr := strictBoolFlag(f, boolKey)
+	if berr != nil {
+		fmt.Fprintf(os.Stderr, "ic route record-evidence: %v\n", berr)
+		return exitMalformed
+	}
+
 	var esc routing.EscalationEvidence
 	var gate routing.GateEvidence
 	var verr error
@@ -131,7 +142,7 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 			ToModel:    f.String("to", ""),
 			StrikeMode: f.String("mode", ""),
 			Detail:     f.String("detail", ""),
-			Exhausted:  f.Bool("exhausted"),
+			Exhausted:  flagTrue,
 			Agent:      f.String("agent", ""),
 			ProjectDir: projectDir,
 			RunID:      f.String("run", ""),
@@ -142,7 +153,7 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 		gate = routing.GateEvidence{
 			Gate:       f.String("gate", ""),
 			Model:      f.String("model", ""),
-			Executed:   f.Bool("executed"),
+			Executed:   flagTrue,
 			Agent:      f.String("agent", ""),
 			ProjectDir: projectDir,
 			RunID:      f.String("run", ""),
@@ -182,6 +193,29 @@ func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
 	return 0
 }
 
+// dataLabelRE is the shape of a data-sensitivity label. A value that does not
+// match could never equal a constraint's label, so it would silently skip the
+// trust-zone rule; reject it instead.
+var dataLabelRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// strictBoolFlag reads an optional boolean flag. A bare flag is true; a value
+// must parse as a boolean, so a typo such as --executed=flase is an error
+// rather than a silent false.
+func strictBoolFlag(f *cli.Flags, key string) (bool, error) {
+	if !f.Has(key) {
+		return false, nil
+	}
+	v := f.String(key, "")
+	if v == "" {
+		return true, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("--%s=%q is not a boolean (use true or false)", key, v)
+	}
+	return b, nil
+}
+
 // harnessNote formats the optional harness for the rationale string.
 func harnessNote(h string) string {
 	if h == "" {
@@ -219,6 +253,10 @@ func cmdRouteDecide(ctx context.Context, args []string) int {
 			fmt.Fprintf(os.Stderr, "ic route decide: --%s needs a value (use --%s=<value>)\n", k, k)
 			return exitMalformed
 		}
+	}
+	if data != "" && !dataLabelRE.MatchString(data) {
+		fmt.Fprintf(os.Stderr, "ic route decide: --data %q is not a sensitivity label (lowercase letters, digits and hyphens)\n", data)
+		return exitMalformed
 	}
 	if registryPath == "" {
 		registryPath = findConfigFile("registry.yaml")
