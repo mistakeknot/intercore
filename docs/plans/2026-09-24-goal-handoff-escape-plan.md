@@ -45,7 +45,7 @@ The lever we control is text inside the condition.
 
 ### Harness
 
-`tools/goal-judge-canary/` in intercore, run on zklw. It drives **real Claude Code**:
+`tools/goal-judge-canary/` in intercore, run on the build host. It drives **real Claude Code**:
 
 - **Scratch directory** `~/projects/.goal-canary/<case>/`, under an already-trusted parent.
   Before the first run the harness verifies that trust is inherited and that hooks are not
@@ -66,7 +66,7 @@ The lever we control is text inside the condition.
   `[condition]: reason` re-injections.
 - **Pinned judge [R2 P0-2].** Every canary and real-`/goal` run sets
   `ANTHROPIC_SMALL_FAST_MODEL=<id>`, so `Gy()` returns exactly that id.
-  - The id is recorded with the Claude Code version and the auth path: zklw's pooled
+  - The id is recorded with the Claude Code version and the auth path: the build host's pooled
     `ANTHROPIC_BASE_URL` gateway, the same one sessions use [R2 P2-12].
   - The results are **invalidated** by a Claude Code version bump **or** a change of judge
     model id.
