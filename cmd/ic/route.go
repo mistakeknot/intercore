@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +27,9 @@ func cmdRoute(ctx context.Context, args []string) int {
 Usage: ic route <subcommand> [args]
 
 Subcommands:
+  decide  --class=<c> --role=<r> [--data=<sensitivity>] [--harness=<h>] --registry=<path>
+                                                    Registry-based routing decision (constraint-enforced)
+  record-evidence --kind=escalation|gate ...        Record an escalation/gate evidence event (observable via 'list')
   model   --phase=<p> --category=<c> --agent=<a> [--calibration=<path>]   Resolve a single model
   batch   --phase=<p> [--calibration=<path>] <agent1> <agent2> ...         Resolve models for multiple agents
   dispatch --tier=<name>                            Resolve a dispatch tier to model
@@ -34,11 +39,18 @@ Subcommands:
   table   [--phase=<p>]                             Show full routing table
   record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
   list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
+
+Exit codes (decide): 0 decision, 1 no-eligible-model, 3 malformed-input, 4 constraint-violation.
+On a non-zero exit the caller MUST halt; it MUST NOT fall back to a native model knob.
 `)
 		return 3
 	}
 
 	switch args[0] {
+	case "decide":
+		return cmdRouteDecide(ctx, args[1:])
+	case "record-evidence":
+		return cmdRouteRecordEvidence(ctx, args[1:])
 	case "model":
 		return cmdRouteModel(ctx, args[1:])
 	case "batch":
@@ -73,6 +85,287 @@ Subcommands:
 		slog.Error("route: unknown subcommand", "subcommand", args[0])
 		return 3
 	}
+}
+
+// Exit codes for `ic route decide` — the spec's typed failures (§3, Q-3.2).
+// Distinct codes let a harness adapter detect WHY routing failed and honor the
+// fail-closed obligation: any non-zero exit means halt, never native fallback.
+const (
+	exitDecision            = 0 // a decision was produced
+	exitNoEligible          = 1 // no deployment survived filtering
+	exitMalformed           = 3 // bad/missing input
+	exitConstraintViolation = 4 // an applicable constraint blocked every candidate
+)
+
+// cmdRouteRecordEvidence records an escalation or gate evidence event to the
+// decision store, so a harness (e.g. the Hermes adapter on a local host) can make
+// escalation/gate outcomes observable via `ic route list` by shelling out to
+// `ic`, with no Go library linkage. This is the emission entry point for the
+// DoD's "escalation/gate-execution observable in evidence" clause.
+func cmdRouteRecordEvidence(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	kind := f.String("kind", "")
+	if kind != "escalation" && kind != "gate" {
+		fmt.Fprintln(os.Stderr, "ic route record-evidence: --kind=escalation|gate is required")
+		return exitMalformed
+	}
+	if len(f.Positionals) > 0 {
+		fmt.Fprintf(os.Stderr, "ic route record-evidence: unexpected arguments %q (use --flag=value)\n", f.Positionals)
+		return exitMalformed
+	}
+
+	projectDir := f.String("project", "")
+	if projectDir == "" {
+		if wd, werr := os.Getwd(); werr == nil {
+			projectDir = wd
+		}
+	}
+
+	boolKey := "executed"
+	if kind == "escalation" {
+		boolKey = "exhausted"
+	}
+	flagTrue, berr := strictBoolFlag(f, boolKey)
+	if berr != nil {
+		fmt.Fprintf(os.Stderr, "ic route record-evidence: %v\n", berr)
+		return exitMalformed
+	}
+
+	var esc routing.EscalationEvidence
+	var gate routing.GateEvidence
+	var verr error
+	switch kind {
+	case "escalation":
+		esc = routing.EscalationEvidence{
+			ChainKey:   f.String("chain", ""),
+			FromModel:  f.String("from", ""),
+			ToModel:    f.String("to", ""),
+			StrikeMode: f.String("mode", ""),
+			Detail:     f.String("detail", ""),
+			Exhausted:  flagTrue,
+			Agent:      f.String("agent", ""),
+			ProjectDir: projectDir,
+			RunID:      f.String("run", ""),
+			SessionID:  f.String("session", ""),
+		}
+		verr = esc.Validate()
+	case "gate":
+		gate = routing.GateEvidence{
+			Gate:       f.String("gate", ""),
+			Model:      f.String("model", ""),
+			Executed:   flagTrue,
+			Agent:      f.String("agent", ""),
+			ProjectDir: projectDir,
+			RunID:      f.String("run", ""),
+			SessionID:  f.String("session", ""),
+		}
+		verr = gate.Validate()
+	}
+	if verr != nil {
+		fmt.Fprintf(os.Stderr, "ic route record-evidence: %v\n", verr)
+		return exitMalformed
+	}
+
+	d, err := openDB()
+	if err != nil {
+		slog.Error("route record-evidence", "error", err)
+		return 2
+	}
+	defer d.Close()
+	store := routing.NewDecisionStore(d.SqlDB())
+
+	var id int64
+	if kind == "escalation" {
+		id, err = store.RecordEscalation(ctx, esc)
+	} else {
+		id, err = store.RecordGate(ctx, gate)
+	}
+	if err != nil {
+		slog.Error("route record-evidence", "error", err)
+		return 2
+	}
+
+	if flagJSON {
+		json.NewEncoder(os.Stdout).Encode(map[string]any{"id": id, "kind": kind})
+	} else {
+		fmt.Printf("Evidence recorded: id=%d kind=%s\n", id, kind)
+	}
+	return 0
+}
+
+// dataLabelRE is the shape of a data-sensitivity label. A value that does not
+// match could never equal a constraint's label, so it would silently skip the
+// trust-zone rule; reject it instead.
+var dataLabelRE = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+
+// strictBoolFlag reads an optional boolean flag. A bare flag is true; a value
+// must parse as a boolean, so a typo such as --executed=flase is an error
+// rather than a silent false.
+func strictBoolFlag(f *cli.Flags, key string) (bool, error) {
+	if !f.Has(key) {
+		return false, nil
+	}
+	p := f.StringPtr(key)
+	if p == nil {
+		return true, nil // bare --flag
+	}
+	v := *p
+	if v == "" {
+		return false, fmt.Errorf("--%s= has an empty value (use --%s, --%s=true or --%s=false)", key, key, key, key)
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("--%s=%q is not a boolean (use true or false)", key, v)
+	}
+	return b, nil
+}
+
+// knownDataLabelList renders the accepted labels, sorted, for error messages.
+func knownDataLabelList() string {
+	labels := make([]string, 0, len(routing.KnownDataLabels))
+	for l := range routing.KnownDataLabels {
+		labels = append(labels, l)
+	}
+	sort.Strings(labels)
+	return strings.Join(labels, ", ")
+}
+
+// harnessNote formats the optional harness for the rationale string.
+func harnessNote(h string) string {
+	if h == "" {
+		return ""
+	}
+	return " harness=" + h
+}
+
+// cmdRouteDecide is the registry-based, constraint-enforcing decision path
+// (spec §3). It loads the registry, applies trust-zone constraints against the
+// task descriptor, and emits the eligible deployments (or a typed block).
+// This is what a harness (Clavain, Codex, Hermes) actually calls.
+func cmdRouteDecide(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	class := f.String("class", "")
+	role := f.String("role", "")
+	data := f.String("data", "")       // data-sensitivity label, e.g. client-confidential
+	harness := f.String("harness", "") // selects the per-harness binding (Q-3.1); optional
+	registryPath := f.String("registry", "")
+
+	if class == "" || role == "" {
+		fmt.Fprintln(os.Stderr, "ic route decide: --class and --role are required")
+		return exitMalformed
+	}
+	// The sensitivity label gates trust-zone enforcement, so a malformed
+	// spelling must fail closed rather than silently drop the constraint:
+	// `--data client-confidential` (space form) parses as a bare flag plus a
+	// positional and would otherwise leave data empty.
+	if len(f.Positionals) > 0 {
+		fmt.Fprintf(os.Stderr, "ic route decide: unexpected arguments %q (use --flag=value)\n", f.Positionals)
+		return exitMalformed
+	}
+	// An unrecognised flag (`--dtaa=client-confidential`) would otherwise be
+	// ignored and drop the trust-zone constraint, so it fails closed too.
+	if bad := f.Unknown("class", "role", "data", "harness", "registry"); len(bad) > 0 {
+		fmt.Fprintf(os.Stderr, "ic route decide: unknown flag(s) --%s (known: --class, --role, --data, --harness, --registry)\n", strings.Join(bad, ", --"))
+		return exitMalformed
+	}
+	for _, k := range []string{"class", "role", "data", "harness", "registry"} {
+		if f.Has(k) && f.String(k, "") == "" {
+			fmt.Fprintf(os.Stderr, "ic route decide: --%s needs a value (use --%s=<value>)\n", k, k)
+			return exitMalformed
+		}
+	}
+	if data != "" && !dataLabelRE.MatchString(data) {
+		fmt.Fprintf(os.Stderr, "ic route decide: --data %q is not a sensitivity label (lowercase letters, digits and hyphens)\n", data)
+		return exitMalformed
+	}
+	if data != "" && !routing.KnownDataLabels[data] {
+		fmt.Fprintf(os.Stderr, "ic route decide: --data %q is not a known sensitivity label (known: %s)\n", data, knownDataLabelList())
+		return exitMalformed
+	}
+	if registryPath == "" {
+		registryPath = findConfigFile("registry.yaml")
+	}
+	if registryPath == "" {
+		fmt.Fprintln(os.Stderr, "ic route decide: registry not found (pass --registry=<path>)")
+		return exitMalformed
+	}
+
+	reg, err := routing.LoadRegistry(registryPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic route decide: %v\n", err)
+		return exitMalformed
+	}
+
+	td := routing.TaskDescriptor{Role: role, Class: class, Fields: map[string]string{}}
+	if data != "" {
+		td.Fields["data"] = data
+	}
+	if harness != "" {
+		td.Fields["harness"] = harness // selects per-harness binding once bindings load from routing.yaml
+	}
+
+	// v1 constraint set: the client-confidential trust-zone rule (the DoD's
+	// first clause). Future: load the constraints block from routing.yaml.
+	constraints := []routing.Constraint{{
+		Match:            map[string]string{"data": "client-confidential"},
+		RequireTrustZone: []routing.TrustZone{routing.ZoneLocal, routing.ZoneApprovedVendor},
+	}}
+
+	eligible := reg.EligibleDeployments(constraints, td)
+
+	// Distinguish "constraint blocked everything" from "registry was empty":
+	// if a constraint applies and nothing is eligible, that is a fail-closed
+	// constraint violation (exit 4), not a plain no-model (exit 1).
+	if len(eligible) == 0 {
+		constraintApplied := false
+		for _, c := range constraints {
+			if c.Applies(td) {
+				constraintApplied = true
+				break
+			}
+		}
+		code := exitNoEligible
+		reason := "no eligible deployment"
+		if constraintApplied {
+			code = exitConstraintViolation
+			reason = "constraint-violation: no deployment satisfies the trust-zone requirement for this task"
+		}
+		if flagJSON {
+			json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"decision": nil, "eligible": []string{}, "reason": reason,
+				"exit_code": code,
+			})
+		} else {
+			fmt.Fprintln(os.Stderr, reason)
+		}
+		return code
+	}
+
+	// Deterministic pick for now: first eligible by sorted key. (Vector-based
+	// ranking is the next mechanism step; the contract surface is stable.)
+	sort.Strings(eligible)
+	chosen := eligible[0]
+
+	rationale := fmt.Sprintf("role=%s class=%s%s → %s (%d eligible)",
+		role, class, harnessNote(harness), chosen, len(eligible))
+	out := map[string]any{
+		"model":              chosen,
+		"role":               role,
+		"class":              class,
+		"harness":            harness,
+		"eligible":           eligible,
+		"registry_as_of":     reg.Version,
+		"verification_gates": []string{}, // populated when gates wire in
+		"rationale":          rationale,  // one-liner (Q-3.3); full trace via `ic route explain`
+	}
+	if flagJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(out)
+	} else {
+		fmt.Println(chosen)
+	}
+	return exitDecision
 }
 
 // findConfigFile searches for a config file by walking up from CWD.

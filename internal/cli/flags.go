@@ -6,6 +6,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -63,6 +64,28 @@ func indexOf(s string, c byte) int {
 		}
 	}
 	return -1
+}
+
+// Unknown returns the sorted names of flags that were provided but are not in
+// allowed, so a subcommand can reject a misspelt flag instead of ignoring it.
+func (f *Flags) Unknown(allowed ...string) []string {
+	ok := make(map[string]bool, len(allowed))
+	for _, a := range allowed {
+		ok[a] = true
+	}
+	var bad []string
+	for k := range f.values {
+		if !ok[k] {
+			bad = append(bad, k)
+		}
+	}
+	for k := range f.bools {
+		if !ok[k] {
+			bad = append(bad, k)
+		}
+	}
+	sort.Strings(bad)
+	return bad
 }
 
 // Has returns true if the flag was provided (as value or boolean).
