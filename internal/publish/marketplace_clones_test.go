@@ -283,6 +283,24 @@ func TestSyncPeerMarketplaces_PlainDirectoryIsNotAGitFailure(t *testing.T) {
 	if v, _ := ReadMarketplaceVersion(peer, "clavain"); v != "0.6.300" {
 		t.Errorf("plain-directory clone not updated: %q", v)
 	}
+	// Already at the target version: a second (and third) sync is a no-op,
+	// not an upstream-query error.
+	for i := 0; i < 2; i++ {
+		if err := SyncPeerMarketplaces(src, "clavain", "0.6.300"); err != nil {
+			t.Fatalf("repeat sync %d of an already-synced plain directory: %v", i+1, err)
+		}
+	}
+}
+
+// A plain directory that is already at the target version from the start.
+func TestSyncPeerMarketplaces_PlainDirectoryAlreadyCurrent(t *testing.T) {
+	isolateHome(t)
+	src := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.300"})
+	peer := setupMarketplace(t, pluginEntry{Name: "clavain", Version: "0.6.300"})
+	t.Setenv("IC_MARKETPLACE_CLONES", peer)
+	if err := SyncPeerMarketplaces(src, "clavain", "0.6.300"); err != nil {
+		t.Fatalf("equal-version plain directory reported as a failure: %v", err)
+	}
 }
 
 // A peer clone that shares the origin already has the new version waiting for

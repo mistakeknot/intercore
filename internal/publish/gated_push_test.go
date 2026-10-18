@@ -329,6 +329,7 @@ func mustGit(t *testing.T, dir string, args ...string) {
 // A peer whose branch has no upstream must keep reporting failure: the
 // upstream query error is surfaced, not read as "nothing to push".
 func TestSyncPeerNoUpstreamReportsError(t *testing.T) {
+	isolateHome(t)
 	src := t.TempDir()
 	peer := t.TempDir()
 	for _, d := range []string{src, peer} {

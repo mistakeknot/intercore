@@ -417,13 +417,17 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 			// failed last time looks "in sync" here forever and its local commit
 			// is never retried. That is precisely how a clone reaches 1 ahead and
 			// 147 behind without a word (mk-1e9o).
-			if ahead, err := hasUnpushedCommits(clone); err != nil {
-				if firstErr == nil {
-					firstErr = err
-				}
-			} else if ahead {
-				if err := GitPushGated(clone); err != nil && firstErr == nil {
-					firstErr = fmt.Errorf("retry push %s: %w", clone, err)
+			// A plain-directory marketplace has no commits to push and no
+			// upstream to query; only a git peer can be stranded.
+			if isGitRepo(clone) {
+				if ahead, err := hasUnpushedCommits(clone); err != nil {
+					if firstErr == nil {
+						firstErr = err
+					}
+				} else if ahead {
+					if err := GitPushGated(clone); err != nil && firstErr == nil {
+						firstErr = fmt.Errorf("retry push %s: %w", clone, err)
+					}
 				}
 			}
 			continue
