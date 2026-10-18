@@ -453,6 +453,31 @@ func TestFormRules(t *testing.T) {
 		}
 	})
 
+	t.Run("prose uppercase words are not section labels", func(t *testing.T) {
+		ungated := "Do the work. OUTCOME: x. DONE WHEN: implement the GATE API and merge PR #27, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(ungated)); !merge {
+			t.Errorf("prose GATE suppressed the warning: %v", LintCondition(ungated))
+		}
+		gated := "Do the work. OUTCOME: x. GATE: mk checks SQL OUT parameters and merges PR #26. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(gated)); merge {
+			t.Errorf("prose OUT ended the gate: %v", LintCondition(gated))
+		}
+	})
+
+	t.Run("every canonical section ends a gate", func(t *testing.T) {
+		text := "Do the work. GATE: mk approves the design. PREMISE: merge PR #27 to test the assumption. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("PREMISE did not end the gate: %v", LintCondition(text))
+		}
+	})
+
+	t.Run("a wrapped line does not hide a merge", func(t *testing.T) {
+		text := "Do the work. OUTCOME: x. DONE WHEN: merge\nPR #27 and tests pass, or stop after 5 turns."
+		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
+			t.Errorf("line wrap hid the merge: %v", LintCondition(text))
+		}
+	})
+
 	t.Run("a technical merge is not a landing action", func(t *testing.T) {
 		text := "Merge the ranked lists into one shortlist. OUTCOME: one ordered list. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."

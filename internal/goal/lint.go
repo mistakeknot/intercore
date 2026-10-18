@@ -129,13 +129,14 @@ const prRef = `(?:\bPRs?\b|\bpull\s+requests?\b|#\d+)`
 var mergeAfterPR = regexp.MustCompile(`(?i)^(?:\s+\S+){0,3}\s+` + prRef)
 var mergeBeforePR = regexp.MustCompile(`(?i)` + prRef + `(?:\s+\S+){0,3}\s+$`)
 
-// sectionLabel marks the start of a goal section; a merge is gated when the
+// sectionLabel marks the start of a goal section (header syntax: the colon is
+// required, so prose such as "the GATE API" is not a label); a merge is gated when the
 // nearest label before it is GATE.
-var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE|DONE WHEN|OUT)\b(?:\s*\([^)\n]*\))?:?`)
+var sectionLabel = regexp.MustCompile(`\b(OUTCOME|GATE(?:\s+(?:\d+|n)\b)?|DONE WHEN|OUT|PREMISE|WHO[\x{2019}']S WAITING)(?:\s*\([^)\n]*\))?:`)
 
 // clauseBreak ends a clause. A period only counts when followed by space or
 // the end, so paths like ./dist/plugin.zip do not split.
-var clauseBreak = regexp.MustCompile(`[;!?\n]|\.(?:\s|$)`)
+var clauseBreak = regexp.MustCompile(`[;!?]|\.(?:\s|$)`)
 
 // mergeGated reports whether the nearest section label before pos is GATE.
 func mergeGated(text string, pos int) bool {
@@ -144,7 +145,7 @@ func mergeGated(text string, pos int) bool {
 		return false
 	}
 	last := locs[len(locs)-1]
-	return text[last[2]:last[3]] == "GATE"
+	return strings.HasPrefix(text[last[2]:last[3]], "GATE")
 }
 
 // clauseAfter returns the text after pos up to the end of its clause.
