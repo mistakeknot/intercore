@@ -19,6 +19,7 @@
 *.db.backup-*
 /ic
 /ic.exe
+/cmd/ic/ic
 .tldrs/
 .tldrsignore
 
