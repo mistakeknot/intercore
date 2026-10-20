@@ -28,7 +28,7 @@ func validReceipt(root, buildPath, installedPath string) Receipt {
 			RunID:       "run-123",
 			ProjectRoot: root,
 			GitHead:     strings.Repeat("a", 40),
-			Host:        "clavain",
+			Host:        "devhost",
 			CreatedAt:   created.Format(time.RFC3339Nano),
 		},
 		Artifact: Artifact{
@@ -138,7 +138,7 @@ func writeFixture(t *testing.T, mutate func(*Receipt)) (string, VerifyOptions) {
 		Expectations:         validExpectations(buildPath, installedPath),
 		Environment: Environment{
 			Now:      func() time.Time { return fixedNow },
-			Hostname: func() (string, error) { return "clavain", nil },
+			Hostname: func() (string, error) { return "devhost", nil },
 			GitHead: func(context.Context, string) (string, error) {
 				return strings.Repeat("a", 40), nil
 			},
@@ -243,7 +243,7 @@ func TestVerifyFileValid(t *testing.T) {
 	if result.Summary.ProofHash != result.ProofHash || result.Summary.RunID != "run-123" {
 		t.Fatalf("bad summary: %+v", result.Summary)
 	}
-	if result.Summary.HostFingerprint == "" || strings.Contains(result.Summary.HostFingerprint, "clavain") {
+	if result.Summary.HostFingerprint == "" || strings.Contains(result.Summary.HostFingerprint, "devhost") {
 		t.Fatalf("host fingerprint was not sanitized: %q", result.Summary.HostFingerprint)
 	}
 }
