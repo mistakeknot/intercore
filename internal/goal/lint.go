@@ -31,7 +31,7 @@ var demonstrable = regexp.MustCompile(`(?i)` +
 
 var turnBound = regexp.MustCompile(`(?i)stop after \d+ turns`)
 
-// ── Shape rules (Sylveste-7t3n) ─────────────────────────────────────────────
+// ── Shape rules ─────────────────────────────────────────────
 //
 // The rules above ask "can the evaluator judge this?". These ask "did the
 // right person write it, and is it a goal rather than a plan?".
@@ -245,7 +245,7 @@ func formProblems(text string) []Problem {
 		if obj, ok := openingObject(text, loc[1]); ok && landingObject.MatchString(obj) {
 			probs = append(probs, Problem{Severity: "warning", Message: fmt.Sprintf(
 				"landing-first: %q opens with a landing action. Merging, installing, "+
-					"deploying and shipping are an mk-step or the tail of the current "+
+					"deploying and shipping are a maintainer step or the tail of the current "+
 					"goal, not a successor; if it is a gate, put it under GATE and name "+
 					"who does it, and make the goal the work the landing unblocks",
 				strings.TrimSpace(text[:loc[1]]+" "+obj))})

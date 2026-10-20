@@ -31,11 +31,11 @@ func writeInstalled(t *testing.T, home string, versions map[string]string) {
 	}
 }
 
-// TestCheckInstalledDrift_SeverityDependsOnDirection pins the mk-fkfr decision.
+// TestCheckInstalledDrift_SeverityDependsOnDirection pins the drift-severity decision.
 //
 // A trailing install is the normal state between a publish and the next Claude
 // Code restart and self-heals, so it must not be an error -- seven such findings
-// stood open on zklw and made `doctor` exit non-zero on a healthy machine. An
+// stood open on one machine and made `doctor` exit non-zero on a healthy machine. An
 // install AHEAD of the marketplace cannot arise from any normal path and must
 // stay an error.
 //

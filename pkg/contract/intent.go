@@ -25,7 +25,7 @@ const (
 	IntentAgentCancel   = "agent.cancel"
 )
 
-// beadIDPattern validates bead IDs (e.g., "iv-abc123").
+// beadIDPattern validates bead IDs (e.g., "bd-abc123").
 var beadIDPattern = regexp.MustCompile(`^[A-Za-z]+-[a-z0-9]+$`)
 
 // sessionIDPattern validates session IDs (hex, UUID, or short alphanumeric).

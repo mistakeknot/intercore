@@ -13,7 +13,7 @@ import (
 
 // TestPublishClearsLockOnDirtyWorktree verifies the deferred lock-cleanup:
 // a publish that fails at the plugin-repo-dirty validation gate must not leave
-// a publish_state row behind. Before sylveste-2uhz the row survived at phase
+// a publish_state row behind. Previously the row survived at phase
 // 'validation' and blocked the next publish until it aged past the stale
 // threshold (or an --auto run cleared it).
 func TestPublishClearsLockOnDirtyWorktree(t *testing.T) {
@@ -82,7 +82,7 @@ func TestPublishClearsLockOnDirtyWorktree(t *testing.T) {
 }
 
 // TestPublishNonexistentRelativeCWDErrorsWithoutFallback reproduces the
-// sylveste-1zu incident: `ic publish --auto --cwd=interverse/interline`, run
+// An earlier incident: `ic publish --auto --cwd=interverse/interline`, run
 // from inside a directory that IS itself a valid plugin (interpulse), where
 // the relative --cwd doesn't exist from there. Before the fix,
 // filepath.Abs resolved the missing relative path against the process cwd,

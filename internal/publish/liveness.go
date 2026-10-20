@@ -29,7 +29,7 @@ import (
 // interpreted, plugin hooks read on demand, and lazily-loaded assets fail at
 // use rather than at delete — which is to say, later, and somewhere else.
 //
-// Measured on Clavain 2026-08-11: `ic publish` pruned intermux 0.1.9 while 23
+// Measured on a developer machine 2026-08-11: `ic publish` pruned intermux 0.1.9 while 23
 // intermux-mcp servers were executing it. They ran on for days, unnameable. The
 // existing protections could not have caught it — installed_plugins.json and
 // the marketplace guard both describe what SHOULD be running, and the

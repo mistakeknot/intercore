@@ -107,7 +107,7 @@ func checkPluginMarketplaceDrift(result *DoctorResult, mktVersions map[string]st
 			role := CurrentPublishRole()
 
 			// A local checkout that TRAILS the marketplace is the normal steady
-			// state on a machine that does not publish (mk-ldnb). Reporting 21
+			// state on a machine that does not publish. Reporting 21
 			// of those as errors trains everyone to ignore doctor output.
 			if !localIsNewer && role == RoleVerifier {
 				result.Findings = append(result.Findings, Finding{
@@ -169,14 +169,14 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 		instVer := entries[0].Version
 		if instVer != mktVer {
 			// Severity depends on DIRECTION, and the asymmetry is the whole
-			// point (mk-fkfr).
+			// point.
 			//
 			// installed BEHIND marketplace is the normal, expected steady state
 			// between a publish and the next Claude Code restart -- Claude Code
 			// installs from the marketplace at startup, so this self-heals with
 			// no human action. Reporting it as an error made `doctor` exit
 			// non-zero on a perfectly healthy machine (7 such findings stood
-			// open on zklw), and a check that cries wolf on normal operation
+			// open on one machine), and a check that cries wolf on normal operation
 			// gets ignored, which is just a slower way of not running it.
 			//
 			// installed AHEAD of marketplace cannot happen through any normal
@@ -222,8 +222,8 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 // checkCCMarketplaceSync compares every known marketplace clone against every
 // other and reports version disagreements as ERRORS.
 //
-// The previous implementation had a blind spot that hid a real divergence
-// (mk-963o). It began:
+// The previous implementation had a blind spot that hid a real divergence.
+// It began:
 //
 //	if absMarket == absCCPath { return }   // "same directory"
 //
@@ -231,7 +231,7 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 // the Sylveste tree -- which is precisely the situation that creates the
 // divergence. So the check disabled itself in the one directory where it
 // mattered. Publishing interbrowse 0.5.2 left core/marketplace at 0.5.1 and
-// doctor, run from ~/projects/interbrowse, reported nothing.
+// doctor, run from the plugin's own checkout, reported nothing.
 //
 // It was also severity "warning", so even when it did fire it did not fail.
 func checkCCMarketplaceSync(result *DoctorResult, marketRoot string, mktVersions map[string]string, opts DoctorOpts) {

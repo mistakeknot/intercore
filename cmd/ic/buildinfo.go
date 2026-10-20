@@ -13,7 +13,7 @@ import (
 // DATABASE schema version. Two machines could -- and did -- report identical
 // output while running binaries built from different commits, and nothing on
 // either machine recorded which commit either binary came from. A cross-compiled
-// artifact deployed to zklw was indistinguishable from one built a month
+// artifact deployed to a server was indistinguishable from one built a month
 // earlier. That is the same failure shape as a check that always exits 0: the
 // output is present, confident, and carries no information.
 //

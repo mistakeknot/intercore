@@ -19,9 +19,9 @@ func TestCanonicalPayload_Example1(t *testing.T) {
 	row := SignRow{
 		ID:             "01HQ8YR7JCMV7K8WK5T6V9BGQF",
 		OpType:         "bead-close",
-		Target:         "sylveste-qdqr",
+		Target:         "bd-qdqr",
 		AgentID:        "claude-opus-4-7",
-		BeadID:         "sylveste-qdqr",
+		BeadID:         "bd-qdqr",
 		Mode:           "auto",
 		PolicyMatch:    "bead-close#0",
 		PolicyHash:     "f3f77555ffc398ff8af8e63f8518e3d9d6764fc7e487dfb9b3999755ccf10340",
@@ -36,9 +36,9 @@ func TestCanonicalPayload_Example1(t *testing.T) {
 	}
 	want := "01HQ8YR7JCMV7K8WK5T6V9BGQF\n" +
 		"bead-close\n" +
-		"sylveste-qdqr\n" +
+		"bd-qdqr\n" +
 		"claude-opus-4-7\n" +
-		"sylveste-qdqr\n" +
+		"bd-qdqr\n" +
 		"auto\n" +
 		"bead-close#0\n" +
 		"f3f77555ffc398ff8af8e63f8518e3d9d6764fc7e487dfb9b3999755ccf10340\n" +

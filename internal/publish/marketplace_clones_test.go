@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// Tests for the multi-clone marketplace handling (mk-963o).
+// Tests for the multi-clone marketplace handling.
 //
 // The bug these lock down: `ic publish` resolves the marketplace by walking up
 // from cwd, so a plugin inside the Sylveste tree updates core/marketplace while
@@ -17,7 +17,7 @@ import (
 // true in exactly the case that produces the divergence.
 
 // isolateHome points HOME at a temp dir so KnownMarketplaceClones cannot pick up
-// the developer's real ~/projects/Sylveste/core/marketplace.
+// the developer's real marketplace checkout.
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
@@ -92,7 +92,7 @@ func TestSyncPeerMarketplaces_PropagatesFromEitherDirection(t *testing.T) {
 		t.Fatalf("read monorepo: %v", err)
 	}
 	if got != "0.5.2" {
-		t.Errorf("monorepo clone still at %s, want 0.5.2 -- the mk-963o regression", got)
+		t.Errorf("monorepo clone still at %s, want 0.5.2 -- multi-clone regression", got)
 	}
 }
 

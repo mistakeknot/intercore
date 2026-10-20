@@ -226,7 +226,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 	// behind at its failed phase. A leaked row blocks the next publish until it
 	// ages past the stale threshold (or an --auto run clears it). Track success
 	// and, on any non-success exit, delete the row so the lock self-clears
-	// immediately. See sylveste-2uhz.
+	// immediately.
 	succeeded := false
 	defer func() {
 		if !succeeded && e.store != nil && stateID != "" {
@@ -313,7 +313,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 
 		// Frontmatter YAML check — clavain 0.6.245 shipped a broken description
 		// (unquoted colon) that silently took the entire plugin out of
-		// skill_listing. See sylveste-ulp8.
+		// skill_listing.
 		if fmErr := ValidateFrontmatter(pluginRoot); fmErr != nil {
 			setError(PhaseValidation, fmErr)
 			return fmt.Errorf("frontmatter validation: %w", fmErr)
@@ -515,7 +515,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 		// arouth-plugins, etc. don't accumulate stale versions either. The version
 		// we JUST published is passed as explicit protection: RefreshCCMarketplace
 		// above can rewrite installed_plugins.json concurrently, and the prune must
-		// not depend on that file to know this version is live (Sylveste-0lt).
+		// not depend on that file to know this version is live.
 		if report, err := PruneStaleVersionsAcrossMarketplaces(1, map[string]string{
 			plugin.Name + "@interagency-marketplace": targetVersion,
 		}); err != nil {
@@ -563,7 +563,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 	}
 
-	// Post-publish assertion (Sylveste-0lt): the path installed_plugins.json
+	// Post-publish assertion: the path installed_plugins.json
 	// points at must exist NOW — a silent miss here surfaces as "plugin failed
 	// to load" at the next session start, with no clue it was the publish.
 	if ip2, err := ReadInstalled(); err == nil {
@@ -574,7 +574,7 @@ func (e *Engine) Publish(ctx context.Context) error {
 		}
 	}
 
-	// Release canary (sylveste-ao0q): register the pending record — the
+	// Release canary: register the pending record — the
 	// session-start check marks it passed/failed against the next real
 	// session's load state — then run the post-release probe. A tripped
 	// probe is loud but non-fatal: the publish already happened; the canary

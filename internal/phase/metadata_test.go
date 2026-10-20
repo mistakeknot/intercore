@@ -59,7 +59,7 @@ func TestStoreCreateValidatesAndCanonicalizesMetadata(t *testing.T) {
 		t.Fatalf("Create invalid metadata error = %v, want ErrInvalidMetadata", err)
 	}
 
-	valid := `{"z":1,"close_gate":{"bead_id":"sylveste-6h7x","requirements":["runtime-evidence/v1"]}}`
+	valid := `{"z":1,"close_gate":{"bead_id":"bd-6h7x","requirements":["runtime-evidence/v1"]}}`
 	id, err := store.Create(ctx, &Run{ProjectDir: "/tmp", Goal: "good", Complexity: 3, Metadata: &valid})
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestStoreCreateValidatesAndCanonicalizesMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `{"close_gate":{"bead_id":"sylveste-6h7x","requirements":["runtime-evidence/v1"]},"z":1}`
+	want := `{"close_gate":{"bead_id":"bd-6h7x","requirements":["runtime-evidence/v1"]},"z":1}`
 	if run.Metadata == nil || *run.Metadata != want {
 		t.Fatalf("metadata = %v, want %s", run.Metadata, want)
 	}
@@ -99,7 +99,7 @@ func TestStoreCreatePortfolioRejectsInvalidChildMetadataAtomically(t *testing.T)
 
 func TestStoreCreateRejectsRuntimeGateWithoutDoneTerminal(t *testing.T) {
 	store := setupTestStore(t)
-	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`
+	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`
 	_, err := store.Create(context.Background(), &Run{
 		ProjectDir: "/tmp", Goal: "bad chain", Complexity: 3,
 		Phases: []string{"reflect", "ship"}, Metadata: &metadata,
@@ -111,7 +111,7 @@ func TestStoreCreateRejectsRuntimeGateWithoutDoneTerminal(t *testing.T) {
 
 func TestStoreCreateRejectsRuntimeGateWithoutRealTerminalTransition(t *testing.T) {
 	store := setupTestStore(t)
-	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`
+	metadata := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`
 	for _, phases := range [][]string{{PhaseDone}, {PhaseReflect, PhaseReflect, PhaseDone}} {
 		_, err := store.Create(context.Background(), &Run{
 			ProjectDir: "/tmp", Goal: "bad chain", Complexity: 3, Phases: phases, Metadata: &metadata,
@@ -132,7 +132,7 @@ func TestUpdateConfigurationRejectsBindingNonDoneChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = store.UpdateConfiguration(ctx, id, RunConfigUpdate{
-		MetadataMerge: `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`,
+		MetadataMerge: `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`,
 	})
 	if !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("UpdateConfiguration error = %v, want ErrInvalidMetadata", err)
@@ -147,7 +147,7 @@ func sealedMetadata() string {
 	return `{
 		"close_gate": {
 			"requirements": ["runtime-evidence/v1"],
-			"bead_id": "sylveste-6h7x",
+			"bead_id": "bd-6h7x",
 			"adoption": {"plan_digest": "sha256:plan", "source_heads": {"clavain": "abc"}},
 			"runtime_expectations": {
 				"expected_build_path": "/tmp/build/server",
@@ -198,7 +198,7 @@ func TestMergeMetadataPreservesSealedFieldsAndAllowsAdditions(t *testing.T) {
 		t.Fatal(err)
 	}
 	closeGate := obj["close_gate"].(map[string]any)
-	if closeGate["bead_id"] != "sylveste-6h7x" {
+	if closeGate["bead_id"] != "bd-6h7x" {
 		t.Fatalf("sealed bead changed: %#v", closeGate)
 	}
 	other := obj["other"].(map[string]any)
@@ -208,7 +208,7 @@ func TestMergeMetadataPreservesSealedFieldsAndAllowsAdditions(t *testing.T) {
 }
 
 func TestMergeMetadataRejectsNullAdoptionWithoutPoisoningFutureValue(t *testing.T) {
-	base := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`
+	base := `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`
 	if _, err := MergeMetadata(base, `{"close_gate":{"adoption":null}}`); !errors.Is(err, ErrInvalidMetadata) {
 		t.Fatalf("null adoption error = %v, want ErrInvalidMetadata", err)
 	}
@@ -326,7 +326,7 @@ func TestUpdateConfigurationCannotRaceBindingPastTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = store.UpdateConfiguration(ctx, id, RunConfigUpdate{
-		MetadataMerge: `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"sylveste-6h7x"}}`,
+		MetadataMerge: `{"close_gate":{"requirements":["runtime-evidence/v1"],"bead_id":"bd-6h7x"}}`,
 		beforeCAS: func() {
 			if updateErr := store.UpdatePhase(ctx, id, PhaseReflect, PhaseDone); updateErr != nil {
 				t.Fatalf("race phase update: %v", updateErr)

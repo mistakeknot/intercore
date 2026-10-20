@@ -39,21 +39,20 @@ func TestLintCondition(t *testing.T) {
 	}
 }
 
-// TestShapeRules pins the shape axis (Sylveste-7t3n). The cases are the real
-// texts that motivated the rules: five agent-drafted /goal blocks the user
-// pasted verbatim and later called "weird", against the rewrite that fixed
+// TestShapeRules pins the shape axis. The cases are synthetic texts modelled
+// on the goal blocks that motivated the rules, against a rewrite that fixes
 // them. The rewrite MUST lint clean or the rules are punishing the good form.
 func TestShapeRules(t *testing.T) {
 	// The worst of the five, with a predicate added — this exact text returned
 	// null, exit 0 before the shape rules existed.
-	badGoal := "RaveNous the spiral becomes the game. [1] ravenous-egq, and I am ruling it: " +
+	badGoal := "Project Alpha the spiral becomes the game. [1] alpha-egq, and I am ruling it: " +
 		"retarget re-points the bird's ROTATION via a new AnimalCommand::Rotate { animal, site } " +
-		"at discriminant 1. Acceptance: a_click_does_something.rs inverts. [2] ravenous-5vd, and " +
+		"at discriminant 1. Acceptance: a_click_does_something.rs inverts. [2] alpha-5vd, and " +
 		"I am answering its canon question: a recruit INHERITS the flock's rotation. [3] The " +
 		"mechanism exists at wards.rs:568 — rewire it. Tests pass, or stop after 40 turns."
 
 	// The rewrite: outcome first, open calls left open as gates, no mechanism.
-	goodGoal := "RaveNous — the year can hurt me. OUTCOME: I play a year and can lose a bird. " +
+	goodGoal := "Project Alpha — the year can hurt me. OUTCOME: I play a year and can lose a bird. " +
 		"Today I cannot: 52 weeks produces 0 deaths and 0 refusals. GATE 1 — measure before " +
 		"building: what can the sim take from me, by what path, at what rate? GATE 2 — canon " +
 		"call, mine to make: last goal ruled external danger out of scope because the spiral " +
@@ -412,7 +411,7 @@ func TestFormRules(t *testing.T) {
 	})
 
 	t.Run("a merge named inside a gate title is gated", func(t *testing.T) {
-		text := "Repair the chain. OUTCOME: the audit passes. GATE 2 \u2014 merge PR #26: mk decides whether it lands. " +
+		text := "Repair the chain. OUTCOME: the audit passes. GATE 2 \u2014 merge PR #26: the maintainer decides whether it lands. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
 		if _, _, merge, _ := kinds(LintCondition(text)); merge {
 			t.Errorf("merge inside GATE title flagged as ungated: %v", LintCondition(text))
@@ -420,7 +419,7 @@ func TestFormRules(t *testing.T) {
 	})
 
 	t.Run("a header after a short opening is not truncated away", func(t *testing.T) {
-		text := "Merge lists\nGATE 1 \u2014 PR landing: mk decides. OUTCOME: the lists are merged. " +
+		text := "Merge lists\nGATE 1 \u2014 PR landing: the maintainer decides. OUTCOME: the lists are merged. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
 		if _, landing, _, _ := kinds(LintCondition(text)); landing {
 			t.Errorf("object borrowed across a header: %v", LintCondition(text))
@@ -428,7 +427,7 @@ func TestFormRules(t *testing.T) {
 	})
 
 	t.Run("a long gate title still gates the merge", func(t *testing.T) {
-		text := "Ship the fix. OUTCOME: the change lands. GATE 2 \u2014 production rollout approval after independent review: mk merges PR #26. " +
+		text := "Ship the fix. OUTCOME: the change lands. GATE 2 \u2014 production rollout approval after independent review: the maintainer merges PR #26. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
 		if _, _, merge, _ := kinds(LintCondition(text)); merge {
 			t.Errorf("title length cap hid the gate: %v", LintCondition(text))
@@ -436,7 +435,7 @@ func TestFormRules(t *testing.T) {
 	})
 
 	t.Run("numbered gate header with a title still gates the merge", func(t *testing.T) {
-		text := "Ship the fix. OUTCOME: the change lands. GATE 1 \u2014 landing: mk merges PR #26. " +
+		text := "Ship the fix. OUTCOME: the change lands. GATE 1 \u2014 landing: the maintainer merges PR #26. " +
 			"DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
 		if _, _, merge, _ := kinds(LintCondition(text)); merge {
 			t.Errorf("documented GATE n header not recognised: %v", LintCondition(text))
@@ -444,7 +443,7 @@ func TestFormRules(t *testing.T) {
 	})
 
 	t.Run("a PR in the previous section is not borrowed across a header", func(t *testing.T) {
-		text := "Merge the lists. OUTCOME: both lists are ranked.\nGATE: mk approves PR #26\n" +
+		text := "Merge the lists. OUTCOME: both lists are ranked.\nGATE: the maintainer approves PR #26\n" +
 			"DONE WHEN: merge the ranked lists and tests pass, or stop after 5 turns."
 		if _, _, merge, _ := kinds(LintCondition(text)); merge {
 			t.Errorf("PR borrowed from the GATE section: %v", LintCondition(text))
@@ -468,7 +467,7 @@ func TestFormRules(t *testing.T) {
 
 	t.Run("every canonical section header ends a gate", func(t *testing.T) {
 		for _, label := range []string{"PREMISE", "OUT", "OUTCOME", "DONE WHEN", "WHO\u2019S WAITING", "WHO'S WAITING"} {
-			text := "Do work. GATE: mk reviews. " + label + ": merge PR #26 here. DONE WHEN: x, or stop after 5 turns."
+			text := "Do work. GATE: the maintainer reviews. " + label + ": merge PR #26 here. DONE WHEN: x, or stop after 5 turns."
 			if _, _, merge, _ := kinds(LintCondition(text)); !merge {
 				t.Errorf("%s did not end the gate: %v", label, LintCondition(text))
 			}
@@ -484,7 +483,7 @@ func TestFormRules(t *testing.T) {
 	})
 
 	t.Run("a gated first merge does not hide a later ungated one", func(t *testing.T) {
-		text := "Do the work. OUTCOME: the change exists. GATE: mk merges PR #26. " +
+		text := "Do the work. OUTCOME: the change exists. GATE: the maintainer merges PR #26. " +
 			"DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns."
 		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
 			t.Errorf("later ungated merge hidden: %v", LintCondition(text))
@@ -493,9 +492,9 @@ func TestFormRules(t *testing.T) {
 
 	t.Run("a gate does not leak across a newline or semicolon", func(t *testing.T) {
 		for _, text := range []string{
-			"Do the work. GATE: mk merges PR #26\nDONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
-			"Do the work. GATE: mk merges PR #26; DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
-			"Do the work. GATE: mk approves PR #26. DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+			"Do the work. GATE: the maintainer merges PR #26\nDONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+			"Do the work. GATE: the maintainer merges PR #26; DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
+			"Do the work. GATE: the maintainer approves PR #26. DONE WHEN: merge PR #27 and `go test ./...` exits 0, or stop after 5 turns.",
 		} {
 			if _, _, merge, _ := kinds(LintCondition(text)); !merge {
 				t.Errorf("ungated merge hidden: %q", text)
@@ -522,14 +521,14 @@ func TestFormRules(t *testing.T) {
 		if _, _, merge, _ := kinds(LintCondition(ungated)); !merge {
 			t.Errorf("prose GATE suppressed the warning: %v", LintCondition(ungated))
 		}
-		gated := "Do the work. OUTCOME: x. GATE: mk checks SQL OUT parameters and merges PR #26. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		gated := "Do the work. OUTCOME: x. GATE: the maintainer checks SQL OUT parameters and merges PR #26. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
 		if _, _, merge, _ := kinds(LintCondition(gated)); merge {
 			t.Errorf("prose OUT ended the gate: %v", LintCondition(gated))
 		}
 	})
 
 	t.Run("every canonical section ends a gate", func(t *testing.T) {
-		text := "Do the work. GATE: mk approves the design. PREMISE: merge PR #27 to test the assumption. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
+		text := "Do the work. GATE: the maintainer approves the design. PREMISE: merge PR #27 to test the assumption. DONE WHEN: `go test ./...` exits 0, or stop after 5 turns."
 		if _, _, merge, _ := kinds(LintCondition(text)); !merge {
 			t.Errorf("PREMISE did not end the gate: %v", LintCondition(text))
 		}
@@ -561,7 +560,7 @@ func TestFormRules(t *testing.T) {
 
 	t.Run("a merge named as the user's GATE is not the agent's merge", func(t *testing.T) {
 		text := "Run the close protocol in production. OUTCOME: goals close through ic. " +
-			"GATE: mk merges PR #26. DONE WHEN: `ic goal close finish` exits 0, or stop after 10 turns."
+			"GATE: the maintainer merges PR #26. DONE WHEN: `ic goal close finish` exits 0, or stop after 10 turns."
 		_, landing, merge, _ := kinds(LintCondition(text))
 		if landing || merge {
 			t.Errorf("a GATE naming who merges is the recommended form: %v", LintCondition(text))

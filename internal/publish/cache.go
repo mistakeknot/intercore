@@ -84,7 +84,7 @@ func CleanOrphans() (PruneReport, error) {
 // version was superseded, when the question is whether anyone is still running
 // it — and those diverge exactly where it matters: a session open for weeks is
 // the likeliest holder AND the furthest outside any window. Measured on
-// Clavain 2026-08-14: `ic publish clean` (minAge 0, so no window at all)
+// a developer machine 2026-08-14: `ic publish clean` (minAge 0, so no window at all)
 // unlinked intermux 0.1.11 while two servers were executing it. The marker age
 // stays as a backstop; liveness is now the evidence.
 func CleanOrphansOlderThan(minAge time.Duration) (PruneReport, error) {
@@ -194,8 +194,8 @@ func StripGitDirs() (count int, bytesFreed int64, err error) {
 // For each plugin, it keeps the installed version, the version marketplace.json points at,
 // and the `keep-1` most recent other versions, removing the rest. Symlinks and orphaned
 // directories are skipped (orphans have their own cleanup). Plugins whose installed version
-// cannot be determined and have no marketplace record are skipped wholesale (Sylveste-0lt:
-// no ground truth means "touch nothing", never "delete everything").
+// cannot be determined and have no marketplace record are skipped wholesale
+// (no ground truth means "touch nothing", never "delete everything").
 // Version directories a running process is executing out of are kept
 // regardless, and reported in the returned PruneReport — `doctor --fix` reaches
 // this path, so leaving it unguarded would make the interlock bypassable
@@ -400,7 +400,7 @@ func listAllCacheEntriesIn(root string) (map[string][]CacheEntry, error) {
 // → version), and an explicit protect map of the same shape (the version a
 // publish flow JUST wrote, shielded regardless of installed_plugins.json).
 //
-// Fail-safe (Sylveste-0lt): a plugin with NO installed version and NO protect
+// Fail-safe: a plugin with NO installed version and NO protect
 // entry is skipped wholesale. installed_plugins.json can be mid-rewrite while
 // `claude plugin marketplace update` re-clones (that is how clavain 0.6.278's
 // entire cache dir was deleted right after publishing it) — a missing record
@@ -461,7 +461,7 @@ type PruneReport struct {
 // marketplace cache, not just interagency-marketplace. For each plugin, keeps the
 // version listed in installed_plugins.json, anything in protect (the version a
 // publish just wrote), and the keep-1 most recent others. Plugins with no
-// installed record and no protect entry are left untouched (Sylveste-0lt).
+// installed record and no protect entry are left untouched.
 //
 // Version directories that a running process is executing out of are kept
 // regardless of all of the above, and reported in the returned PruneReport.
@@ -482,7 +482,7 @@ func PruneStaleVersionsAcrossMarketplaces(keep int, protect map[string]string) (
 		}
 	}
 
-	// Marketplace guard (Sylveste-0lt, second layer): the version each
+	// Marketplace guard (second layer): the version each
 	// marketplace.json points at is what `claude` will (re)install — never a
 	// deletion candidate, even when installed_plugins.json is unreadable or
 	// mid-rewrite. Explicit protect entries from the publish flow overlay it.
@@ -760,7 +760,7 @@ func ListCacheEntries() (map[string][]CacheEntry, error) {
 // no go.mod, no launcher — and stay quiet. A plugin that has BOTH and still
 // yields no build target is a defect and says so, because the quiet version of
 // that branch hid a 100%-miss parser across all five Go MCP plugins until a
-// survey went looking for it (mk-cg3z).
+// survey went looking for it.
 func BuildGoMCPBinary(pluginName, srcRoot, cacheDest string) error {
 	// Skip if no go.mod
 	if _, err := os.Stat(filepath.Join(srcRoot, "go.mod")); os.IsNotExist(err) {

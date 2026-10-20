@@ -1,4 +1,4 @@
--- Migration 036: authorization legacy-anchor seal (sylveste-mn13).
+-- Migration 036: authorization legacy-anchor seal.
 --
 -- This is intentionally a no-data migration. Advancing PRAGMA user_version to
 -- 36 tells authorization verifiers to require the external signed legacy

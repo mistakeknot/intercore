@@ -20,7 +20,7 @@ func gitShow(repo, ref string) (string, error) {
 
 const receiptLine = `printf '{"schema_version":1,"verified":true}\n'`
 
-// TestVerifierUnavailableIsNotStale is the regression guard for mk-cg3z. It
+// TestVerifierUnavailableIsNotStale is the regression guard for the original defect. It
 // fails if "could not run" is ever folded back into "is stale" — which is how
 // the original defect read as normal for as long as it did. Both halves of the
 // assertion matter: the positive one alone would still pass if a future change

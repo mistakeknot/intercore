@@ -253,7 +253,7 @@ func randHex(rng *mathrand.Rand, n int) string {
 }
 
 // TestVerifyErrors confirms the sentinel error mapping per canon §Verification
-// semantics. The verify CLI in sylveste-ewy3.5.3 will errors.Is over these
+// semantics. The verify CLI will errors.Is over these
 // to pick the right exit code.
 func TestVerifyErrors(t *testing.T) {
 	store := goldenStore()

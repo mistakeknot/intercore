@@ -43,7 +43,7 @@ type VerdictQuerier interface {
 	HasVerdict(ctx context.Context, scopeID string) (bool, error)
 	// CountUncleanVerdicts returns the number of dispatches in scope whose
 	// verdict_status indicates a non-clean outcome (fail/error). Used by the
-	// verdict_clean ship gate (sylveste-0ly7).
+	// verdict_clean ship gate.
 	CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error)
 }
 
@@ -339,8 +339,8 @@ func evaluateGate(ctx context.Context, run *Run, cfg GateConfig, from, to string
 			// verdict_clean: the strongest ship gate. Requires that a verdict
 			// exists AND that zero dispatches in scope returned a non-clean
 			// (fail/error) verdict — i.e. no NEEDS_ATTENTION findings survive.
-			// Wires the executor for the spec's review_clean=verdict_clean gate
-			// (sylveste-0ly7); previously declared in YAML with no evaluator.
+			// Wires the executor for the spec's review_clean=verdict_clean gate;
+			// previously declared in YAML with no evaluator.
 			if vq == nil {
 				cond.Result = GateFail
 				cond.Detail = "no verdict querier provided"

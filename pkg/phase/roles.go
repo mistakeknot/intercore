@@ -33,7 +33,7 @@ const (
 // PhaseToOODARCRole maps each lifecycle phase in DefaultChain to the OODARC
 // leg an agent predominantly performs while the sprint sits in that phase.
 //
-// Rationale per phase (see docs/brainstorms/2026-03-19-sprint-v2-lifecycle-redesign-brainstorm.md):
+// Rationale per phase:
 //   - brainstorm           → observe   (gather the problem space)
 //   - brainstorm-reviewed  → observe   (quality-observe: read the review of what was gathered)
 //   - strategized          → orient    (situate the gathered facts against the goal)

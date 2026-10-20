@@ -49,7 +49,7 @@ func effortOrder(profile DispatchProfile) ([]string, bool) {
 	case profile.Backend == "codex" && strings.HasPrefix(profile.ModelIdentity, "gpt-6-"):
 		key = "codex/gpt-6-*"
 	case profile.Backend == "codex" && strings.HasPrefix(profile.ModelIdentity, "gpt-6.1-"):
-		// mk-51s7: "gpt-6." does not match the "gpt-6-" prefix above, so
+		// "gpt-6." does not match the "gpt-6-" prefix above, so
 		// without this case every effort floor on a GPT-6.1 seat is excluded as
 		// unsupported_adapter. Same low..xhigh ladder as GPT-6 (codex model catalog).
 		key = "codex/gpt-6.1-*"

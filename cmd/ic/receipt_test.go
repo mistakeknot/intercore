@@ -83,7 +83,7 @@ func TestValidateReceiptFindArgs(t *testing.T) {
 
 // TestVerifyVerdict covers the verdict → canon-exit-code mapping that is the
 // core of `ic receipt verify` (acceptance criteria #1 and #3 of
-// sylveste-ewy3.5.3). It exercises the pure mapping without a DB or the CLI
+// the receipt-verify work). It exercises the pure mapping without a DB or the CLI
 // global flags, so each verdict path is asserted in isolation.
 func TestVerifyVerdict(t *testing.T) {
 	ks := receipt.NewMemKeyStore()

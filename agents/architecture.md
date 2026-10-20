@@ -30,7 +30,7 @@ Name and scope components reject `/`, `\`, `..`, empty, `.`. Resolved path must 
 ### Deployment: Schema Upgrade
 
 ```bash
-go build -o /home/mk/go/bin/ic ./cmd/ic   # Rebuild (schema is //go:embed'd)
+go build -o $HOME/go/bin/ic ./cmd/ic   # Rebuild (schema is //go:embed'd)
 ic init                                     # Migrate live DB (creates backup)
 ic version                                  # Verify schema version
 ```

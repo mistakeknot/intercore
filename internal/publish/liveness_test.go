@@ -144,7 +144,7 @@ func TestPruneStaleVersions_PrunesWhenNoProcessHoldsIt(t *testing.T) {
 // The orphan cleaner is the path that actually bit, and it bit while the
 // version-prune interlock above was already in place.
 //
-// Observed on Clavain 2026-08-14, using a build that carried the prune fix:
+// Observed on a developer machine 2026-08-14, using a build that carried the prune fix:
 // `ic publish clean` unlinked intermux 0.1.11 while two servers were executing
 // it. The deletion came through the .orphaned_at cleaner, which CleanOrphans
 // calls with minAge 0 — no grace window at all — and which never asked what was
@@ -197,7 +197,7 @@ func TestCleanOrphans_KeepsMarkedDirectoryWithRunningProcess(t *testing.T) {
 // The preview must not promise a deletion the real command will refuse. Shipped
 // without this, `--dry-run` counted held directories among the ones it "would
 // clean" — which is the wrong answer to the only question a dry-run is asked.
-// Fixture is the 2026-08-14 state on Clavain: intermux 0.1.13 installed, 0.1.12
+// Fixture is the 2026-08-14 state on a developer machine: intermux 0.1.13 installed, 0.1.12
 // marked orphaned by `claude plugin update` with six sessions still inside it.
 func TestCountStaleIn_ReportsHeldSeparatelyFromDeletable(t *testing.T) {
 	root := makeCacheTree(t, [][3]string{

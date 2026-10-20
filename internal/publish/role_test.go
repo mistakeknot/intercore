@@ -47,7 +47,7 @@ func TestCurrentPublishRole_EnvAndFile(t *testing.T) {
 
 // The hazard: --fix wrote the local plugin.json version into the marketplace
 // unconditionally, so on a machine whose checkouts trail the marketplace it
-// would roll every one of them backwards (mk-ldnb).
+// would roll every one of them backwards.
 func TestCheckPluginMarketplaceDrift_FixNeverDowngrades(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("IC_PUBLISH_ROLE", "signer")

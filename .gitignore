@@ -19,6 +19,7 @@
 *.db.backup-*
 /ic
 /ic.exe
+/cmd/ic/ic
 .tldrs/
 .tldrsignore
 
@@ -36,3 +37,4 @@
 # intercore was the repo that never got the same treatment.
 .beads/
 .claude/worktrees/
+.DS_Store

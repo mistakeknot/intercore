@@ -9,10 +9,10 @@ import (
 // PublishRole describes whether this machine is allowed to be a source of
 // plugin versions.
 //
-// Why this exists (mk-ldnb): publishes run on the signer machine (zklw). Other
+// Why this exists: publishes run on the signer machine. Other
 // machines hold checkouts that are never version-bumped, so `ic publish doctor`
 // reported 21 plugins as "plugin.json=0.2.2 marketplace=0.2.3" errors on
-// Clavain. Those are not faults -- they are the expected steady state of a
+// a non-publishing machine. Those are not faults -- they are the expected steady state of a
 // machine that does not publish.
 //
 // Worse, `--fix` responded to that drift by writing the LOCAL version into the

@@ -97,7 +97,7 @@ func (t *txVerdictQuerier) HasVerdict(ctx context.Context, scopeID string) (bool
 	return count > 0, nil
 }
 
-// CountUncleanVerdicts mirrors dispatch.Store.CountUncleanVerdicts (sylveste-0ly7).
+// CountUncleanVerdicts mirrors dispatch.Store.CountUncleanVerdicts.
 func (t *txVerdictQuerier) CountUncleanVerdicts(ctx context.Context, scopeID string) (int, error) {
 	if scopeID == "" {
 		return 0, nil
