@@ -84,7 +84,7 @@ func CleanOrphans() (PruneReport, error) {
 // version was superseded, when the question is whether anyone is still running
 // it — and those diverge exactly where it matters: a session open for weeks is
 // the likeliest holder AND the furthest outside any window. Measured on
-// Clavain 2026-08-14: `ic publish clean` (minAge 0, so no window at all)
+// a developer machine 2026-08-14: `ic publish clean` (minAge 0, so no window at all)
 // unlinked intermux 0.1.11 while two servers were executing it. The marker age
 // stays as a backstop; liveness is now the evidence.
 func CleanOrphansOlderThan(minAge time.Duration) (PruneReport, error) {
