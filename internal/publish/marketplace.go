@@ -311,7 +311,7 @@ func CCMarketplacePath() string {
 //
 // Why this exists: `ic publish` resolves the marketplace by walking up
 // from cwd, so a plugin inside the Sylveste tree updates core/marketplace while a
-// plugin outside it (interbrowse lives at ~/projects/interbrowse) updates the
+// plugin outside it (a plugin checked out elsewhere on disk) updates the
 // Claude Code checkout instead. Syncing only "monorepo -> CC" left the monorepo
 // clone stale whenever a publish came in through the other door: publishing
 // interbrowse 0.5.2 left core/marketplace reading 0.5.1.
@@ -495,7 +495,7 @@ func SyncPeerMarketplaces(marketRoot, pluginName, version string) error {
 		// "best-effort". Under a branch that requires a status check the push
 		// fails every time, and discarding that leaves the clone committed but
 		// unpushed -- ahead of origin, drifting further behind on every publish,
-		// with nothing said. That is the state ~/projects/interagency-marketplace
+		// with nothing said. That is the state a developer's own marketplace checkout
 		// was found in: 1 ahead, 147 behind.
 		//
 		// Still non-fatal to the publish that already landed on the primary

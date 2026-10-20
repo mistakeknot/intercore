@@ -17,7 +17,7 @@ import (
 // true in exactly the case that produces the divergence.
 
 // isolateHome points HOME at a temp dir so KnownMarketplaceClones cannot pick up
-// the developer's real ~/projects/Sylveste/core/marketplace.
+// the developer's real marketplace checkout.
 func isolateHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()

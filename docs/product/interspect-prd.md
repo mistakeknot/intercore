@@ -5,7 +5,7 @@
 **Status:** Pre-implementation
 **Owner:** Clavain hub
 
-> **Current-state note (2026-03-05).** This PRD is still directionally valid, but the measurement substrate is less settled than the surrounding prose implies. `ic events tail` is not yet the full measurement read model, `review_events` lose fidelity when projected into the generic bus, `interspect_events` still live on a typed side path, session->bead->run attribution is still being hardened, and the north-star landed-change denominator is not yet canonical. Treat raw fact preservation and attribution integrity as prerequisites for autonomy-grade learning. See `docs/research/interspect-event-validity-and-outcome-attribution.md`.
+> **Current-state note (2026-03-05).** This PRD is still directionally valid, but the measurement substrate is less settled than the surrounding prose implies. `ic events tail` is not yet the full measurement read model, `review_events` lose fidelity when projected into the generic bus, `interspect_events` still live on a typed side path, session->bead->run attribution is still being hardened, and the north-star landed-change denominator is not yet canonical. Treat raw fact preservation and attribution integrity as prerequisites for autonomy-grade learning.
 
 ---
 

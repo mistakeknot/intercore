@@ -231,7 +231,7 @@ func checkInstalledDrift(result *DoctorResult, mktVersions map[string]string, op
 // the Sylveste tree -- which is precisely the situation that creates the
 // divergence. So the check disabled itself in the one directory where it
 // mattered. Publishing interbrowse 0.5.2 left core/marketplace at 0.5.1 and
-// doctor, run from ~/projects/interbrowse, reported nothing.
+// doctor, run from the plugin's own checkout, reported nothing.
 //
 // It was also severity "warning", so even when it did fire it did not fail.
 func checkCCMarketplaceSync(result *DoctorResult, marketRoot string, mktVersions map[string]string, opts DoctorOpts) {

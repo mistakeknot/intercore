@@ -37,3 +37,4 @@
 # intercore was the repo that never got the same treatment.
 .beads/
 .claude/worktrees/
+.DS_Store
