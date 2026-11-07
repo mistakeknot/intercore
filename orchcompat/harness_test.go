@@ -55,14 +55,15 @@ func runMain(m *testing.M) int {
 	return m.Run()
 }
 
-// hermeticBuildEnv gives the nested go build an explicit environment: HOME,
-// TMPDIR and the Go config and telemetry locations point into dir, the
-// toolchain is local, no module proxy is used and no user GOFLAGS apply. The
-// module cache and build cache are the ones the running go test already uses
-// (module cache read-only, so a missing module fails instead of downloading).
 func hermeticBuildEnv(dir string) ([]string, error) {
 	query := func(name string) (string, error) {
-		out, err := exec.Command("go", "env", name).Output()
+		if v := os.Getenv(name); v != "" {
+			return v, nil
+		}
+		cmd := exec.Command("go", "env", name)
+		cmd.Env = append(os.Environ(),
+			"GOTOOLCHAIN=local", "GOTELEMETRY=off", "GOPROXY=off", "GOFLAGS=", "GOWORK=off")
+		out, err := cmd.Output()
 		if err != nil {
 			return "", fmt.Errorf("go env %s: %w", name, err)
 		}
@@ -110,10 +111,6 @@ func hermeticBuildEnv(dir string) ([]string, error) {
 	return env, nil
 }
 
-// failOnAncestorPolicy fails the test when any ancestor of root holds a routing
-// policy at a location ic's working-directory discovery checks. Such a file
-// would turn the expected "policy unavailable" cases into successes, so the
-// run is refused with the offending path instead of skipped.
 func failOnAncestorPolicy(t *testing.T, root string) {
 	t.Helper()
 	dir := root
