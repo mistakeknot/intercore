@@ -40,13 +40,96 @@ func runMain(m *testing.M) int {
 	}
 	defer os.RemoveAll(dir)
 	icBinary = filepath.Join(dir, "ic")
+	buildEnv, err := hermeticBuildEnv(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
 	build := exec.Command("go", "build", "-buildvcs=false", "-o", icBinary, "./cmd/ic")
 	build.Dir = ".."
+	build.Env = buildEnv
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "building ic: %v\n%s", err, out)
 		return 1
 	}
 	return m.Run()
+}
+
+// hermeticBuildEnv gives the nested go build an explicit environment: HOME,
+// TMPDIR and the Go config and telemetry locations point into dir, the
+// toolchain is local, no module proxy is used and no user GOFLAGS apply. The
+// module cache and build cache are the ones the running go test already uses
+// (module cache read-only, so a missing module fails instead of downloading).
+func hermeticBuildEnv(dir string) ([]string, error) {
+	query := func(name string) (string, error) {
+		out, err := exec.Command("go", "env", name).Output()
+		if err != nil {
+			return "", fmt.Errorf("go env %s: %w", name, err)
+		}
+		return strings.TrimSpace(string(out)), nil
+	}
+	goroot, err := query("GOROOT")
+	if err != nil {
+		return nil, err
+	}
+	modcache, err := query("GOMODCACHE")
+	if err != nil {
+		return nil, err
+	}
+	gocache, err := query("GOCACHE")
+	if err != nil {
+		return nil, err
+	}
+	home := filepath.Join(dir, "home")
+	tmp := filepath.Join(dir, "tmp")
+	for _, d := range []string{home, tmp} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return nil, err
+		}
+	}
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + home,
+		"TMPDIR=" + tmp,
+		"XDG_CONFIG_HOME=" + filepath.Join(home, ".config"),
+		"GOROOT=" + goroot,
+		"GOMODCACHE=" + modcache,
+		"GOCACHE=" + gocache,
+		"GOPATH=" + filepath.Join(home, "gopath"),
+		"GOENV=off",
+		"GOFLAGS=-mod=readonly",
+		"GOPROXY=off",
+		"GOSUMDB=off",
+		"GOTOOLCHAIN=local",
+		"GOTELEMETRY=off",
+		"GOWORK=off",
+	}
+	if cc := os.Getenv("CC"); cc != "" {
+		env = append(env, "CC="+cc)
+	}
+	return env, nil
+}
+
+// failOnAncestorPolicy fails the test when any ancestor of root holds a routing
+// policy at a location ic's working-directory discovery checks. Such a file
+// would turn the expected "policy unavailable" cases into successes, so the
+// run is refused with the offending path instead of skipped.
+func failOnAncestorPolicy(t *testing.T, root string) {
+	t.Helper()
+	dir := root
+	for {
+		for _, rel := range []string{"config/routing.yaml", "os/Clavain/config/routing.yaml", "os/clavain/config/routing.yaml"} {
+			p := filepath.Join(dir, rel)
+			if _, err := os.Stat(p); err == nil {
+				t.Fatalf("routing policy %s exists above the temp root %s; working-directory discovery would find it and change the no-policy cases. Run with TMPDIR set to a directory outside that tree.", p, root)
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return
+		}
+		dir = parent
+	}
 }
 
 const fixtureRel = "testdata/routing.yaml"
@@ -72,6 +155,7 @@ func newSandbox(t *testing.T) *sandbox {
 	if err != nil {
 		t.Fatal(err)
 	}
+	failOnAncestorPolicy(t, base)
 	s := &sandbox{t: t, root: base}
 	s.home = filepath.Join(base, "home")
 	s.cwd = filepath.Join(base, "work")
