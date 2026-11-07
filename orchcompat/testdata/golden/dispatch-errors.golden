@@ -1,0 +1,739 @@
+=== unsupported role
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=not-a-role
+exit: 1
+--- stdout
+--- stderr
+role "not-a-role": no dispatch profile found
+
+
+=== unsupported role with reasons
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=not-a-role --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "not-a-role": no dispatch profile found
+
+
+=== review role without producer
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation
+exit: 1
+--- stdout
+--- stderr
+role "validation" requires --producer-identity
+
+
+=== review role with unknown producer
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=mystery-model
+exit: 1
+--- stdout
+--- stderr
+producer: unknown model identity "mystery-model": configure dispatch.model_aliases with a concrete model ID
+
+
+=== review role with empty producer
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=
+exit: 1
+--- stdout
+--- stderr
+role "cross-lab-review" requires --producer-identity
+
+
+=== no role tier or type
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml
+exit: 3
+--- stdout
+--- stderr
+ic route dispatch: requires --role=<name>, --tier=<name>, or --type=<name>
+
+
+=== empty role value
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=
+exit: 3
+--- stdout
+--- stderr
+ic route dispatch: requires --role=<name>, --tier=<name>, or --type=<name>
+
+
+=== unknown reason
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["made-up-reason"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+unknown classification reason "made-up-reason"
+
+
+=== known and unknown reason
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["capability-failure","made-up-reason"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+unknown classification reason "made-up-reason"
+
+
+=== blank rationale
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":""}
+exit: 1
+--- stdout
+--- stderr
+classification requires rationale
+
+
+=== whitespace rationale
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"   \t "}
+exit: 1
+--- stdout
+--- stderr
+classification requires rationale
+
+
+=== missing rationale
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["capability-failure"]}
+exit: 1
+--- stdout
+--- stderr
+classification requires rationale
+
+
+=== rationale without reasons
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== empty reasons list
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":[],"rationale":""}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [],
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== duplicate reasons
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["capability-failure","capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "frontier-planning",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "planning-opus"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "planning-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "frontier-planning",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Frontier authoring fallback when Astra is unavailable"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "planning-astra",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "planning-opus",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "capability-failure",
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== all five reasons
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants","broad-consequences","difficult-verification","capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "frontier-planning",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "planning-opus"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "planning-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "frontier-planning",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Frontier authoring fallback when Astra is unavailable"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "planning-astra",
+      "reasons": [
+        "capability-failure",
+        "difficult-verification",
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "planning-opus",
+      "reasons": [
+        "capability-failure",
+        "difficult-verification",
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants",
+    "broad-consequences",
+    "difficult-verification",
+    "capability-failure"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants",
+      "broad-consequences",
+      "difficult-verification",
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== malformed context text
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: not json
+exit: 3
+--- stdout
+--- stderr
+invalid character 'o' in literal null (expecting 'u')
+
+
+=== malformed context truncated
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":["capability-failure"
+exit: 3
+--- stdout
+--- stderr
+unexpected EOF
+
+
+=== context unknown field
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":[],"surprise":true}
+exit: 3
+--- stdout
+--- stderr
+json: unknown field "surprise"
+
+
+=== context two objects
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {} {}
+exit: 3
+--- stdout
+--- stderr
+decision context must contain one JSON object
+
+
+=== context trailing text
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {} trailing
+exit: 3
+--- stdout
+--- stderr
+decision context must contain one JSON object
+
+
+=== context array
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: []
+exit: 3
+--- stdout
+--- stderr
+json: cannot unmarshal array into Go value of type routing.DecisionContext
+
+
+=== context null
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: null
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== context wrong type for reasons
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"reasons":"capability-failure"}
+exit: 3
+--- stdout
+--- stderr
+json: cannot unmarshal string into Go struct field DecisionContext.reasons of type []string
+
+
+=== context nonexistent file
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+exit: 3
+--- stdout
+--- stderr
+open <SANDBOX>/ctx/none.json: no such file or directory
+
+
+=== context file is a directory
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+exit: 3
+--- stdout
+--- stderr
+read <SANDBOX>/ctx: is a directory
+
+
+=== context empty object
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== investigation without reasons
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"investigation_active":true}
+exit: 1
+--- stdout
+--- stderr
+active investigation requires classification reasons
+
+
+=== investigation with reasons
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --context-file=<CTX>
+context: {"investigation_active":true,"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "frontier-planning",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "planning-opus"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "planning-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "frontier-planning",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "description": "Frontier authoring fallback when Astra is unavailable"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "investigation_active": true,
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== investigation routine
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --context-file=<CTX>
+context: {"investigation_active":true,"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "deep-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-astra"
+        ],
+        "description": "Default deep-execution seat when the context is not elevated"
+      },
+      "reason": "frontier_required"
+    },
+    {
+      "profile_ref": "deep-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "deep-execution",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-opus"
+        ],
+        "description": "Deep-execution fallback for explicit Astra unavailability"
+      },
+      "reason": "frontier_required"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "deep-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "deep-execution",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "deep-sol"
+    ],
+    "description": "Complex implementation and long-running execution"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "deep-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for deep execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "investigation_active": true,
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== investigation scout
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=scout --context-file=<CTX>
+context: {"investigation_active":true,"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "scout",
+  "profile_ref": "scout-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "scout",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "scout-sonnet"
+    ],
+    "description": "Repository exploration and bounded read-only reconnaissance"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "scout-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "scout",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "description": "Capacity fallback for scout when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "investigation_active": true,
+    "available_models": null
+  }
+}
+--- stderr
+

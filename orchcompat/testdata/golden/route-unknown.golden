@@ -1,0 +1,42 @@
+=== unknown
+$ ic route nonsense
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route: unknown subcommand","subcommand":"nonsense"}
+
+
+=== no subcommand
+$ ic route
+exit: 3
+--- stdout
+--- stderr
+ic route — cost-aware model routing
+
+Usage: ic route <subcommand> [args]
+
+Subcommands:
+  decide  --class=<c> --role=<r> [--data=<sensitivity>] [--harness=<h>] --registry=<path>
+                                                    Registry-based routing decision (constraint-enforced)
+  record-evidence --kind=escalation|gate ...        Record an escalation/gate evidence event (observable via 'list')
+  model   --phase=<p> --category=<c> --agent=<a> [--calibration=<path>]   Resolve a single model
+  batch   --phase=<p> [--calibration=<path>] <agent1> <agent2> ...         Resolve models for multiple agents
+  dispatch --tier=<name>                            Resolve a dispatch tier to model
+  dispatch --role=<name> [--policy=<path>] [--context-file=<json>] [--effort-override=<level>] [--policy-profile=<name>] [--producer-identity=<id>] [--calibration=<path>] --json  Resolve independent role profiles
+  identity --model=<id>                            Canonical model identity for review separation
+  dispatch --type=<name> [--phase=<p>]             Resolve subagent type to model
+  table   [--phase=<p>]                             Show full routing table
+  record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
+  list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
+
+Exit codes (decide): 0 decision, 1 no-eligible-model, 3 malformed-input, 4 constraint-violation.
+On a non-zero exit the caller MUST halt; it MUST NOT fall back to a native model knob.
+
+
+=== dispatch without selector
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml
+exit: 3
+--- stdout
+--- stderr
+ic route dispatch: requires --role=<name>, --tier=<name>, or --type=<name>
+

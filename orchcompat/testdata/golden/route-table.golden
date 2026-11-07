@@ -1,0 +1,221 @@
+=== json phase=
+$ ic --json route table --policy=<SANDBOX>/plugin/config/routing.yaml
+exit: 0
+--- stdout
+[
+  {
+    "agent": "interflux:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  }
+]
+--- stderr
+
+
+=== text phase=
+$ ic route table --policy=<SANDBOX>/plugin/config/routing.yaml
+exit: 0
+--- stdout
+AGENT                                    CATEGORY     MODEL    FLOOR
+------------------------------------------------------------------------
+interflux:fd-correctness                              sonnet   -
+interflux:fd-safety                                   sonnet   -
+interflux:review:fd-correctness                       sonnet   -
+interflux:review:fd-safety                            sonnet   -
+--- stderr
+
+
+=== json phase=brainstorm
+$ ic --json route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm
+exit: 0
+--- stdout
+[
+  {
+    "agent": "interflux:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  }
+]
+--- stderr
+
+
+=== text phase=brainstorm
+$ ic route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm
+exit: 0
+--- stdout
+Phase: brainstorm
+AGENT                                    CATEGORY     MODEL    FLOOR
+------------------------------------------------------------------------
+interflux:fd-correctness                              sonnet   -
+interflux:fd-safety                                   sonnet   -
+interflux:review:fd-correctness                       sonnet   -
+interflux:review:fd-safety                            sonnet   -
+--- stderr
+
+
+=== json phase=planned
+$ ic --json route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned
+exit: 0
+--- stdout
+[
+  {
+    "agent": "interflux:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  }
+]
+--- stderr
+
+
+=== text phase=planned
+$ ic route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned
+exit: 0
+--- stdout
+Phase: planned
+AGENT                                    CATEGORY     MODEL    FLOOR
+------------------------------------------------------------------------
+interflux:fd-correctness                              sonnet   -
+interflux:fd-safety                                   sonnet   -
+interflux:review:fd-correctness                       sonnet   -
+interflux:review:fd-safety                            sonnet   -
+--- stderr
+
+
+=== json phase=executing
+$ ic --json route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing
+exit: 0
+--- stdout
+[
+  {
+    "agent": "interflux:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  }
+]
+--- stderr
+
+
+=== text phase=executing
+$ ic route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing
+exit: 0
+--- stdout
+Phase: executing
+AGENT                                    CATEGORY     MODEL    FLOOR
+------------------------------------------------------------------------
+interflux:fd-correctness                              sonnet   -
+interflux:fd-safety                                   sonnet   -
+interflux:review:fd-correctness                       sonnet   -
+interflux:review:fd-safety                            sonnet   -
+--- stderr
+
+
+=== json phase=no-such-phase
+$ ic --json route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase
+exit: 0
+--- stdout
+[
+  {
+    "agent": "interflux:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-correctness",
+    "category": "",
+    "model": "sonnet"
+  },
+  {
+    "agent": "interflux:review:fd-safety",
+    "category": "",
+    "model": "sonnet"
+  }
+]
+--- stderr
+
+
+=== text phase=no-such-phase
+$ ic route table --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase
+exit: 0
+--- stdout
+Phase: no-such-phase
+AGENT                                    CATEGORY     MODEL    FLOOR
+------------------------------------------------------------------------
+interflux:fd-correctness                              sonnet   -
+interflux:fd-safety                                   sonnet   -
+interflux:review:fd-correctness                       sonnet   -
+interflux:review:fd-safety                            sonnet   -
+--- stderr
+
+
+=== missing policy
+$ ic --json route table --policy=<SANDBOX>/none.yaml
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route table","error":"lstat <SANDBOX>/none.yaml: no such file or directory"}
+

@@ -1,0 +1,714 @@
+=== override low no floor
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=low
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "low",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "planning-sol",
+    "requested": "low",
+    "applied": true,
+    "changed": true,
+    "from": "high",
+    "to": "low",
+    "final_effort": "low"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "low",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override medium no floor
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=medium
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "planning-sol",
+    "requested": "medium",
+    "applied": true,
+    "changed": true,
+    "from": "high",
+    "to": "medium",
+    "final_effort": "medium"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "medium",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override high no floor
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=high
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "planning-sol",
+    "requested": "high",
+    "applied": true,
+    "changed": false,
+    "from": "high",
+    "to": "high",
+    "final_effort": "high"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "high",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override xhigh no floor
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=xhigh
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "planning-sol",
+    "requested": "xhigh",
+    "applied": true,
+    "changed": true,
+    "from": "high",
+    "to": "xhigh",
+    "final_effort": "xhigh"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "xhigh",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override invalid level
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=extreme
+exit: 1
+--- stdout
+--- stderr
+invalid effort_override "extreme"
+
+
+=== override uppercase
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=HIGH
+exit: 1
+--- stdout
+--- stderr
+invalid effort_override "HIGH"
+
+
+=== override empty value
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=
+exit: 3
+--- stdout
+--- stderr
+--effort-override requires --role and a nonempty value (low, medium, high, xhigh)
+
+
+=== override without role
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=fast --effort-override=high
+exit: 3
+--- stdout
+--- stderr
+--effort-override requires --role and a nonempty value (low, medium, high, xhigh)
+
+
+=== override low under floor
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=low --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "frontier-planning",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "planning-opus"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "planning-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "frontier-planning",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Frontier authoring fallback when Astra is unavailable"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "planning-astra",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "low",
+      "to": "high"
+    },
+    {
+      "profile_ref": "planning-opus",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "planning-astra",
+    "requested": "low",
+    "applied": true,
+    "changed": true,
+    "from": "medium",
+    "to": "low",
+    "final_effort": "high"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": true,
+  "decision_context": {
+    "effort_override": "low",
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override xhigh under floor
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --effort-override=xhigh --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "frontier-planning",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "planning-opus"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "planning-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "frontier-planning",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Frontier authoring fallback when Astra is unavailable"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "planning-opus",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "planning-astra",
+    "requested": "xhigh",
+    "applied": true,
+    "changed": true,
+    "from": "medium",
+    "to": "xhigh",
+    "final_effort": "xhigh"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": true,
+  "decision_context": {
+    "effort_override": "xhigh",
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override on claude seat
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --effort-override=xhigh
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "routine-exec-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "routine-sol"
+        ],
+        "description": "Default routine (mechanical) execution seat"
+      },
+      "reason": "unsupported_adapter"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "routine-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "routine-execution",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "High-volume routine implementation"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "routine-exec-sonnet",
+    "requested": "xhigh",
+    "applied": false,
+    "changed": false,
+    "from": "high",
+    "to": "high",
+    "final_effort": null
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "xhigh",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override on claude seat medium
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination --effort-override=medium
+exit: 0
+--- stdout
+{
+  "requested_role": "coordination",
+  "profile_ref": "coordination-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "coordination",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "coordination-sol"
+    ],
+    "description": "Coordinator relay, wait and status turns"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "coordination-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "coordination",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "description": "Capacity fallback for coordination when the Claude lane is out"
+      }
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "coordination-sonnet",
+    "requested": "medium",
+    "applied": true,
+    "changed": false,
+    "from": "medium",
+    "to": "medium",
+    "final_effort": "medium"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "medium",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override on claude seat low
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination --effort-override=low
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "coordination-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "coordination",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "coordination-sol"
+        ],
+        "description": "Coordinator relay, wait and status turns"
+      },
+      "reason": "unsupported_adapter"
+    }
+  ],
+  "requested_role": "coordination",
+  "profile_ref": "coordination-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "coordination",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "description": "Capacity fallback for coordination when the Claude lane is out"
+  },
+  "fallback_chain": [],
+  "effort_override": {
+    "profile_ref": "coordination-sonnet",
+    "requested": "low",
+    "applied": false,
+    "changed": false,
+    "from": "medium",
+    "to": "medium",
+    "final_effort": null
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "low",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== override with producer
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol --effort-override=high
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "effort_override": {
+    "profile_ref": "validation-opus",
+    "requested": "high",
+    "applied": true,
+    "changed": true,
+    "from": "medium",
+    "to": "high",
+    "final_effort": "high"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "effort_override": "high",
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+

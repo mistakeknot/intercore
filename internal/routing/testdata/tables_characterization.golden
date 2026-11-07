@@ -1,0 +1,116 @@
+effort levels: low,medium,high,xhigh
+backend effort orders (5):
+  claude/claude-opus-* => medium,high
+  claude/claude-sonnet-* => medium,high
+  codex/gpt-6-* => low,medium,high,xhigh
+  codex/gpt-6.1-* => low,medium,high,xhigh
+  kimi/kimi-code/k3 => high
+effort order selection:
+  backend="codex" identity="gpt-6-astra" => ok=true order=low,medium,high,xhigh
+  backend="codex" identity="gpt-6-sol" => ok=true order=low,medium,high,xhigh
+  backend="codex" identity="gpt-6.1-sol" => ok=true order=low,medium,high,xhigh
+  backend="codex" identity="gpt-6.1-astra" => ok=true order=low,medium,high,xhigh
+  backend="codex" identity="gpt-6" => ok=false order=
+  backend="codex" identity="gpt-6." => ok=false order=
+  backend="codex" identity="gpt-5.6-sol" => ok=false order=
+  backend="codex" identity="claude-opus-5-5" => ok=false order=
+  backend="claude" identity="claude-opus-5-5" => ok=true order=medium,high
+  backend="claude" identity="claude-sonnet-5-5" => ok=true order=medium,high
+  backend="claude" identity="claude-haiku-5-5" => ok=false order=
+  backend="claude" identity="claude-fable-5-1" => ok=false order=
+  backend="claude" identity="gpt-6-astra" => ok=false order=
+  backend="kimi" identity="kimi-code/k3" => ok=true order=high
+  backend="kimi" identity="kimi-code/k30" => ok=false order=
+  backend="kimi" identity="kimi-code/k3-preview" => ok=false order=
+  backend="main" identity="gpt-6-astra" => ok=false order=
+  backend="unknown" identity="gpt-6-astra" => ok=false order=
+  backend="codex" identity="" => ok=false order=
+  backend="" identity="" => ok=false order=
+
+model lab by canonical identity:
+  "gpt-6-astra" => "openai"
+  "gpt-6.1-sol" => "openai"
+  "gpt-5.6-sol" => "openai"
+  "gpt-" => "openai"
+  "gpt" => ""
+  "GPT-6-astra" => ""
+  "claude-opus-5-5" => "anthropic"
+  "claude-sonnet-5-5" => "anthropic"
+  "claude-haiku-5-5" => "anthropic"
+  "claude-fable-5-1" => "anthropic"
+  "claude-" => "anthropic"
+  "claude" => ""
+  "kimi-code/k3" => "moonshot"
+  "kimi/k3" => "moonshot"
+  "kimi-k3" => "moonshot"
+  "kimi" => "moonshot"
+  "moonshot-v1" => ""
+  "gemini-3" => ""
+  "o3" => ""
+  "unknown" => ""
+  "" => ""
+
+codex/gpt-6-astra low reasons=[] => effort=low raised=[] err=<nil>
+codex/gpt-6-astra low reasons=[unresolved-success-criteria] => effort=low raised=[] err=<nil>
+codex/gpt-6-astra low reasons=[broad-consequences] => effort=medium raised=[broad-consequences] err=<nil>
+codex/gpt-6-astra low reasons=[foundational-invariants] => effort=high raised=[foundational-invariants] err=<nil>
+codex/gpt-6-astra low reasons=[capability-failure] => effort=xhigh raised=[capability-failure] err=<nil>
+codex/gpt-6-astra low reasons=[foundational-invariants capability-failure] => effort=xhigh raised=[capability-failure foundational-invariants] err=<nil>
+codex/gpt-6-astra low reasons=[capability-failure foundational-invariants foundational-invariants] => effort=xhigh raised=[capability-failure foundational-invariants] err=<nil>
+codex/gpt-6-astra low reasons=[weird] => effort=low raised=[] err=unsupported_adapter: codex/gpt-6-astra cannot enforce floor "ultra"
+codex/gpt-6.1-sol medium reasons=[] => effort=medium raised=[] err=<nil>
+codex/gpt-6.1-sol medium reasons=[unresolved-success-criteria] => effort=medium raised=[] err=<nil>
+codex/gpt-6.1-sol medium reasons=[broad-consequences] => effort=medium raised=[] err=<nil>
+codex/gpt-6.1-sol medium reasons=[foundational-invariants] => effort=high raised=[foundational-invariants] err=<nil>
+codex/gpt-6.1-sol medium reasons=[capability-failure] => effort=xhigh raised=[capability-failure] err=<nil>
+codex/gpt-6.1-sol medium reasons=[foundational-invariants capability-failure] => effort=xhigh raised=[capability-failure foundational-invariants] err=<nil>
+codex/gpt-6.1-sol medium reasons=[capability-failure foundational-invariants foundational-invariants] => effort=xhigh raised=[capability-failure foundational-invariants] err=<nil>
+codex/gpt-6.1-sol medium reasons=[weird] => effort=medium raised=[] err=unsupported_adapter: codex/gpt-6.1-sol cannot enforce floor "ultra"
+codex/gpt-6.1-sol xhigh reasons=[] => effort=xhigh raised=[] err=<nil>
+codex/gpt-6.1-sol xhigh reasons=[unresolved-success-criteria] => effort=xhigh raised=[] err=<nil>
+codex/gpt-6.1-sol xhigh reasons=[broad-consequences] => effort=xhigh raised=[] err=<nil>
+codex/gpt-6.1-sol xhigh reasons=[foundational-invariants] => effort=xhigh raised=[] err=<nil>
+codex/gpt-6.1-sol xhigh reasons=[capability-failure] => effort=xhigh raised=[] err=<nil>
+codex/gpt-6.1-sol xhigh reasons=[foundational-invariants capability-failure] => effort=xhigh raised=[] err=<nil>
+codex/gpt-6.1-sol xhigh reasons=[capability-failure foundational-invariants foundational-invariants] => effort=xhigh raised=[] err=<nil>
+codex/gpt-6.1-sol xhigh reasons=[weird] => effort=xhigh raised=[] err=unsupported_adapter: codex/gpt-6.1-sol cannot enforce floor "ultra"
+claude/claude-opus-5-5 medium reasons=[] => effort=medium raised=[] err=<nil>
+claude/claude-opus-5-5 medium reasons=[unresolved-success-criteria] => effort=medium raised=[] err=<nil>
+claude/claude-opus-5-5 medium reasons=[broad-consequences] => effort=medium raised=[] err=<nil>
+claude/claude-opus-5-5 medium reasons=[foundational-invariants] => effort=high raised=[foundational-invariants] err=<nil>
+claude/claude-opus-5-5 medium reasons=[capability-failure] => effort=medium raised=[] err=unsupported_adapter: claude/claude-opus-5-5 cannot enforce floor "xhigh"
+claude/claude-opus-5-5 medium reasons=[foundational-invariants capability-failure] => effort=medium raised=[] err=unsupported_adapter: claude/claude-opus-5-5 cannot enforce floor "xhigh"
+claude/claude-opus-5-5 medium reasons=[capability-failure foundational-invariants foundational-invariants] => effort=medium raised=[] err=unsupported_adapter: claude/claude-opus-5-5 cannot enforce floor "xhigh"
+claude/claude-opus-5-5 medium reasons=[weird] => effort=medium raised=[] err=unsupported_adapter: claude/claude-opus-5-5 cannot enforce floor "ultra"
+claude/claude-sonnet-5-5 high reasons=[] => effort=high raised=[] err=<nil>
+claude/claude-sonnet-5-5 high reasons=[unresolved-success-criteria] => effort=high raised=[] err=<nil>
+claude/claude-sonnet-5-5 high reasons=[broad-consequences] => effort=high raised=[] err=<nil>
+claude/claude-sonnet-5-5 high reasons=[foundational-invariants] => effort=high raised=[] err=<nil>
+claude/claude-sonnet-5-5 high reasons=[capability-failure] => effort=high raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 cannot enforce floor "xhigh"
+claude/claude-sonnet-5-5 high reasons=[foundational-invariants capability-failure] => effort=high raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 cannot enforce floor "xhigh"
+claude/claude-sonnet-5-5 high reasons=[capability-failure foundational-invariants foundational-invariants] => effort=high raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 cannot enforce floor "xhigh"
+claude/claude-sonnet-5-5 high reasons=[weird] => effort=high raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 cannot enforce floor "ultra"
+claude/claude-sonnet-5-5 low reasons=[] => effort=low raised=[] err=<nil>
+claude/claude-sonnet-5-5 low reasons=[unresolved-success-criteria] => effort=low raised=[] err=<nil>
+claude/claude-sonnet-5-5 low reasons=[broad-consequences] => effort=low raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 effort "low"
+claude/claude-sonnet-5-5 low reasons=[foundational-invariants] => effort=low raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 effort "low"
+claude/claude-sonnet-5-5 low reasons=[capability-failure] => effort=low raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 effort "low"
+claude/claude-sonnet-5-5 low reasons=[foundational-invariants capability-failure] => effort=low raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 effort "low"
+claude/claude-sonnet-5-5 low reasons=[capability-failure foundational-invariants foundational-invariants] => effort=low raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 effort "low"
+claude/claude-sonnet-5-5 low reasons=[weird] => effort=low raised=[] err=unsupported_adapter: claude/claude-sonnet-5-5 effort "low"
+kimi/kimi-code/k3 high reasons=[] => effort=high raised=[] err=<nil>
+kimi/kimi-code/k3 high reasons=[unresolved-success-criteria] => effort=high raised=[] err=<nil>
+kimi/kimi-code/k3 high reasons=[broad-consequences] => effort=high raised=[] err=<nil>
+kimi/kimi-code/k3 high reasons=[foundational-invariants] => effort=high raised=[] err=<nil>
+kimi/kimi-code/k3 high reasons=[capability-failure] => effort=high raised=[] err=unsupported_adapter: kimi/kimi-code/k3 cannot enforce floor "xhigh"
+kimi/kimi-code/k3 high reasons=[foundational-invariants capability-failure] => effort=high raised=[] err=unsupported_adapter: kimi/kimi-code/k3 cannot enforce floor "xhigh"
+kimi/kimi-code/k3 high reasons=[capability-failure foundational-invariants foundational-invariants] => effort=high raised=[] err=unsupported_adapter: kimi/kimi-code/k3 cannot enforce floor "xhigh"
+kimi/kimi-code/k3 high reasons=[weird] => effort=high raised=[] err=unsupported_adapter: kimi/kimi-code/k3 cannot enforce floor "ultra"
+main/gpt-6-astra high reasons=[] => effort=high raised=[] err=<nil>
+main/gpt-6-astra high reasons=[unresolved-success-criteria] => effort=high raised=[] err=<nil>
+main/gpt-6-astra high reasons=[broad-consequences] => effort=high raised=[] err=unsupported_adapter: main/gpt-6-astra effort "high"
+main/gpt-6-astra high reasons=[foundational-invariants] => effort=high raised=[] err=unsupported_adapter: main/gpt-6-astra effort "high"
+main/gpt-6-astra high reasons=[capability-failure] => effort=high raised=[] err=unsupported_adapter: main/gpt-6-astra effort "high"
+main/gpt-6-astra high reasons=[foundational-invariants capability-failure] => effort=high raised=[] err=unsupported_adapter: main/gpt-6-astra effort "high"
+main/gpt-6-astra high reasons=[capability-failure foundational-invariants foundational-invariants] => effort=high raised=[] err=unsupported_adapter: main/gpt-6-astra effort "high"
+main/gpt-6-astra high reasons=[weird] => effort=high raised=[] err=unsupported_adapter: main/gpt-6-astra effort "high"

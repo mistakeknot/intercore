@@ -1,0 +1,127 @@
+=== role=coordination text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination
+exit: 0
+--- stdout
+claude-sonnet-5-5
+--- stderr
+
+
+=== role=coordinator-seat text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordinator-seat
+exit: 0
+--- stdout
+claude-sonnet-5-5
+--- stderr
+
+
+=== role=cross-lab-review text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=gpt-6.1-sol
+exit: 0
+--- stdout
+claude-opus-5-5
+--- stderr
+
+
+=== role=deep-execution text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=deep-execution
+exit: 0
+--- stdout
+claude-sonnet-5-5
+--- stderr
+
+
+=== role=escalation text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=escalation
+exit: 0
+--- stdout
+gpt-6-astra
+--- stderr
+
+
+=== role=frontier-planning text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=frontier-planning
+exit: 0
+--- stdout
+gpt-6-astra
+--- stderr
+
+
+=== role=lane text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=lane
+exit: 0
+--- stdout
+claude-opus-5-5
+--- stderr
+
+
+=== role=main-integrator text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-integrator
+exit: 0
+--- stdout
+gpt-6-astra
+--- stderr
+
+
+=== role=main-session text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-session
+exit: 0
+--- stdout
+claude-sonnet-5-5
+--- stderr
+
+
+=== role=plan-review text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=plan-review --producer-identity=gpt-6.1-sol
+exit: 0
+--- stdout
+claude-opus-5-5
+--- stderr
+
+
+=== role=planning text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning
+exit: 0
+--- stdout
+gpt-6.1-sol
+--- stderr
+
+
+=== role=release-authority text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority
+exit: 0
+--- stdout
+gpt-6-astra
+--- stderr
+
+
+=== role=release-preparation text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-preparation
+exit: 0
+--- stdout
+gpt-6.1-sol
+--- stderr
+
+
+=== role=routine-execution text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution
+exit: 0
+--- stdout
+claude-sonnet-5-5
+--- stderr
+
+
+=== role=scout text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=scout
+exit: 0
+--- stdout
+gpt-6.1-sol
+--- stderr
+
+
+=== role=validation text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol
+exit: 0
+--- stdout
+claude-opus-5-5
+--- stderr
+

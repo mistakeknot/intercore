@@ -1,0 +1,188 @@
+=== calibration missing file
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --calibration=<SANDBOX>/none/calibration.json
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "calibration": {
+    "artifact_kind": "agent_model_calibration",
+    "sha256": null,
+    "schema_version": null,
+    "mode": "enforce",
+    "mode_source": "policy",
+    "disposition": "static",
+    "recommended_model": null,
+    "selected_scope": null,
+    "selected_arm": null,
+    "exclusions": [
+      {
+        "scope": "artifact",
+        "reason": "artifact_unreadable"
+      },
+      {
+        "scope": "role",
+        "reason": "unsupported_artifact_kind"
+      }
+    ],
+    "fallback_reason": "calibration_artifact_unreadable",
+    "freshness": "unknown",
+    "freshness_reason": "artifact_has_no_verified_validity",
+    "authority": "resolution_only"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== calibration missing file validation
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol --calibration=<SANDBOX>/none/calibration.json
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "calibration": {
+    "artifact_kind": "agent_model_calibration",
+    "sha256": null,
+    "schema_version": null,
+    "mode": "enforce",
+    "mode_source": "policy",
+    "disposition": "static",
+    "recommended_model": null,
+    "selected_scope": null,
+    "selected_arm": null,
+    "exclusions": [
+      {
+        "scope": "artifact",
+        "reason": "artifact_unreadable"
+      },
+      {
+        "scope": "role",
+        "reason": "unsupported_artifact_kind"
+      }
+    ],
+    "fallback_reason": "calibration_artifact_unreadable",
+    "freshness": "unknown",
+    "freshness_reason": "artifact_has_no_verified_validity",
+    "authority": "resolution_only"
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+

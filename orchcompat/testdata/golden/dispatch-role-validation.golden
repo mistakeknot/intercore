@@ -1,0 +1,1380 @@
+=== reason=none
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation
+exit: 1
+--- stdout
+--- stderr
+role "validation" requires --producer-identity
+
+
+=== reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "validation" requires --producer-identity
+
+
+=== reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "validation" requires --producer-identity
+
+
+=== reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "validation" requires --producer-identity
+
+
+=== reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "validation" requires --producer-identity
+
+
+=== reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "validation" requires --producer-identity
+
+
+=== reason=none producer=gpt-6.1-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=unresolved-success-criteria producer=gpt-6.1-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=foundational-invariants producer=gpt-6.1-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "validation-opus",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=broad-consequences producer=gpt-6.1-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=difficult-verification producer=gpt-6.1-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "validation-opus",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=capability-failure producer=gpt-6.1-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=gpt-6.1-sol --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "validation-opus",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=none producer=claude-opus-5-5
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=claude-opus-5-5
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "fallback_reason": "producer_model_conflict",
+  "excluded": [
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "validation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-opus",
+      "validation-sonnet"
+    ],
+    "description": "Codex validation fallback when its resolved model differs from the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "to": [
+      "validation-sol",
+      "validation-sonnet",
+      "validation-kimi"
+    ]
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=unresolved-success-criteria producer=claude-opus-5-5
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "fallback_reason": "producer_model_conflict",
+  "excluded": [
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "validation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-opus",
+      "validation-sonnet"
+    ],
+    "description": "Codex validation fallback when its resolved model differs from the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "to": [
+      "validation-sol",
+      "validation-sonnet",
+      "validation-kimi"
+    ]
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=foundational-invariants producer=claude-opus-5-5
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "fallback_reason": "producer_model_conflict",
+  "excluded": [
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "validation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-opus",
+      "validation-sonnet"
+    ],
+    "description": "Codex validation fallback when its resolved model differs from the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "to": [
+      "validation-sol",
+      "validation-sonnet",
+      "validation-kimi"
+    ]
+  },
+  "effort_floors_applied": [
+    {
+      "profile_ref": "validation-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=broad-consequences producer=claude-opus-5-5
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "fallback_reason": "producer_model_conflict",
+  "excluded": [
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "validation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-opus",
+      "validation-sonnet"
+    ],
+    "description": "Codex validation fallback when its resolved model differs from the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "to": [
+      "validation-sol",
+      "validation-sonnet",
+      "validation-kimi"
+    ]
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=difficult-verification producer=claude-opus-5-5
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "fallback_reason": "producer_model_conflict",
+  "excluded": [
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "validation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-opus",
+      "validation-sonnet"
+    ],
+    "description": "Codex validation fallback when its resolved model differs from the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "to": [
+      "validation-sol",
+      "validation-sonnet",
+      "validation-kimi"
+    ]
+  },
+  "effort_floors_applied": [
+    {
+      "profile_ref": "validation-sol",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=capability-failure producer=claude-opus-5-5
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "fallback_reason": "producer_model_conflict",
+  "excluded": [
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "validation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-opus",
+      "validation-sonnet"
+    ],
+    "description": "Codex validation fallback when its resolved model differs from the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "to": [
+      "validation-sol",
+      "validation-sonnet",
+      "validation-kimi"
+    ]
+  },
+  "effort_floors_applied": [
+    {
+      "profile_ref": "validation-sol",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+

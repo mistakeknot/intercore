@@ -1,0 +1,454 @@
+=== model missing.json
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review --calibration=<SANDBOX>/cal/missing.json
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "calibration": {
+    "artifact_kind": "agent_model_calibration",
+    "sha256": null,
+    "schema_version": null,
+    "mode": "enforce",
+    "mode_source": "policy",
+    "disposition": "static",
+    "recommended_model": null,
+    "selected_scope": null,
+    "selected_arm": null,
+    "exclusions": [
+      {
+        "scope": "artifact",
+        "reason": "artifact_unreadable"
+      }
+    ],
+    "fallback_reason": "calibration_artifact_unreadable",
+    "freshness": "unknown",
+    "freshness_reason": "artifact_has_no_verified_validity",
+    "authority": "resolution_only"
+  },
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== batch missing.json
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --calibration=<SANDBOX>/cal/missing.json fd-safety fd-architecture
+exit: 0
+--- stdout
+{
+  "models": {
+    "fd-architecture": "sonnet",
+    "fd-safety": "sonnet"
+  },
+  "calibration": {
+    "fd-architecture": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": null,
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "artifact_unreadable"
+        }
+      ],
+      "fallback_reason": "calibration_artifact_unreadable",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    },
+    "fd-safety": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": null,
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "artifact_unreadable"
+        }
+      ],
+      "fallback_reason": "calibration_artifact_unreadable",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    }
+  }
+}
+--- stderr
+
+
+=== model malformed.json
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review --calibration=<SANDBOX>/cal/malformed.json
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "calibration": {
+    "artifact_kind": "agent_model_calibration",
+    "sha256": "92072df399cb74703f8e86f450d552bc0bb01eeeb98a90985a1b7772c8fd0016",
+    "schema_version": null,
+    "mode": "enforce",
+    "mode_source": "policy",
+    "disposition": "static",
+    "recommended_model": null,
+    "selected_scope": null,
+    "selected_arm": null,
+    "exclusions": [
+      {
+        "scope": "artifact",
+        "reason": "invalid_json"
+      }
+    ],
+    "fallback_reason": "invalid_calibration_artifact",
+    "freshness": "unknown",
+    "freshness_reason": "artifact_has_no_verified_validity",
+    "authority": "resolution_only"
+  },
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== batch malformed.json
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --calibration=<SANDBOX>/cal/malformed.json fd-safety fd-architecture
+exit: 0
+--- stdout
+{
+  "models": {
+    "fd-architecture": "sonnet",
+    "fd-safety": "sonnet"
+  },
+  "calibration": {
+    "fd-architecture": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "92072df399cb74703f8e86f450d552bc0bb01eeeb98a90985a1b7772c8fd0016",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "invalid_json"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    },
+    "fd-safety": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "92072df399cb74703f8e86f450d552bc0bb01eeeb98a90985a1b7772c8fd0016",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "invalid_json"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    }
+  }
+}
+--- stderr
+
+
+=== model empty.json
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review --calibration=<SANDBOX>/cal/empty.json
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "calibration": {
+    "artifact_kind": "agent_model_calibration",
+    "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "schema_version": null,
+    "mode": "enforce",
+    "mode_source": "policy",
+    "disposition": "static",
+    "recommended_model": null,
+    "selected_scope": null,
+    "selected_arm": null,
+    "exclusions": [
+      {
+        "scope": "artifact",
+        "reason": "schema_wrong_type"
+      }
+    ],
+    "fallback_reason": "invalid_calibration_artifact",
+    "freshness": "unknown",
+    "freshness_reason": "artifact_has_no_verified_validity",
+    "authority": "resolution_only"
+  },
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== batch empty.json
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --calibration=<SANDBOX>/cal/empty.json fd-safety fd-architecture
+exit: 0
+--- stdout
+{
+  "models": {
+    "fd-architecture": "sonnet",
+    "fd-safety": "sonnet"
+  },
+  "calibration": {
+    "fd-architecture": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "schema_wrong_type"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    },
+    "fd-safety": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "schema_wrong_type"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    }
+  }
+}
+--- stderr
+
+
+=== model array.json
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review --calibration=<SANDBOX>/cal/array.json
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "calibration": {
+    "artifact_kind": "agent_model_calibration",
+    "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "schema_version": null,
+    "mode": "enforce",
+    "mode_source": "policy",
+    "disposition": "static",
+    "recommended_model": null,
+    "selected_scope": null,
+    "selected_arm": null,
+    "exclusions": [
+      {
+        "scope": "artifact",
+        "reason": "top_level_not_object"
+      }
+    ],
+    "fallback_reason": "invalid_calibration_artifact",
+    "freshness": "unknown",
+    "freshness_reason": "artifact_has_no_verified_validity",
+    "authority": "resolution_only"
+  },
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== batch array.json
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --calibration=<SANDBOX>/cal/array.json fd-safety fd-architecture
+exit: 0
+--- stdout
+{
+  "models": {
+    "fd-architecture": "sonnet",
+    "fd-safety": "sonnet"
+  },
+  "calibration": {
+    "fd-architecture": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "top_level_not_object"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    },
+    "fd-safety": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "top_level_not_object"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    }
+  }
+}
+--- stderr
+
+
+=== model blank.json
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review --calibration=<SANDBOX>/cal/blank.json
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "calibration": {
+    "artifact_kind": "agent_model_calibration",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "schema_version": null,
+    "mode": "enforce",
+    "mode_source": "policy",
+    "disposition": "static",
+    "recommended_model": null,
+    "selected_scope": null,
+    "selected_arm": null,
+    "exclusions": [
+      {
+        "scope": "artifact",
+        "reason": "invalid_json"
+      }
+    ],
+    "fallback_reason": "invalid_calibration_artifact",
+    "freshness": "unknown",
+    "freshness_reason": "artifact_has_no_verified_validity",
+    "authority": "resolution_only"
+  },
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== batch blank.json
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --calibration=<SANDBOX>/cal/blank.json fd-safety fd-architecture
+exit: 0
+--- stdout
+{
+  "models": {
+    "fd-architecture": "sonnet",
+    "fd-safety": "sonnet"
+  },
+  "calibration": {
+    "fd-architecture": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "invalid_json"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    },
+    "fd-safety": {
+      "artifact_kind": "agent_model_calibration",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "schema_version": null,
+      "mode": "enforce",
+      "mode_source": "policy",
+      "disposition": "static",
+      "recommended_model": null,
+      "selected_scope": null,
+      "selected_arm": null,
+      "exclusions": [
+        {
+          "scope": "artifact",
+          "reason": "invalid_json"
+        }
+      ],
+      "fallback_reason": "invalid_calibration_artifact",
+      "freshness": "unknown",
+      "freshness_reason": "artifact_has_no_verified_validity",
+      "authority": "resolution_only"
+    }
+  }
+}
+--- stderr
+

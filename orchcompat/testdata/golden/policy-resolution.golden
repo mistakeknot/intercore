@@ -1,0 +1,881 @@
+=== flag alone
+$ ic --json route dispatch --role=planning --policy=<SANDBOX>/sel/flag/routing.yaml
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/sel/flag/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== flag beats every environment selection
+$ ic --json route dispatch --role=planning --policy=<SANDBOX>/sel/flag/routing.yaml
+env: CLAUDE_PLUGIN_ROOT=<SANDBOX>/sel/plugin-root
+env: CLAVAIN_ROOT=<SANDBOX>/sel/env-root
+env: CLAVAIN_ROUTING_POLICY=<SANDBOX>/sel/env-policy/routing.yaml
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/sel/flag/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== routing policy env beats roots
+$ ic --json route dispatch --role=planning
+env: CLAUDE_PLUGIN_ROOT=<SANDBOX>/sel/plugin-root
+env: CLAVAIN_ROOT=<SANDBOX>/sel/env-root
+env: CLAVAIN_ROUTING_POLICY=<SANDBOX>/sel/env-policy/routing.yaml
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/sel/env-policy/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== clavain root beats plugin root
+$ ic --json route dispatch --role=planning
+env: CLAUDE_PLUGIN_ROOT=<SANDBOX>/sel/plugin-root
+env: CLAVAIN_ROOT=<SANDBOX>/sel/env-root
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/sel/env-root/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== plugin root with policy file
+$ ic --json route dispatch --role=planning
+env: CLAUDE_PLUGIN_ROOT=<SANDBOX>/sel/plugin-root
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/sel/plugin-root/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== plugin root without policy file falls through to home link
+$ ic --json route dispatch --role=planning
+env: CLAUDE_PLUGIN_ROOT=<SANDBOX>/sel/no-such-root
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/install/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== plugin root without policy file and no home
+$ ic --json route dispatch --role=planning
+env: CLAUDE_PLUGIN_ROOT=<SANDBOX>/sel/no-such-root
+env: HOME=<SANDBOX>/home-empty
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"routing policy unavailable: select --policy, CLAVAIN_ROUTING_POLICY or CLAVAIN_ROOT"}
+
+
+=== clavain root missing policy fails closed
+$ ic --json route dispatch --role=planning
+env: CLAUDE_PLUGIN_ROOT=<SANDBOX>/sel/plugin-root
+env: CLAVAIN_ROOT=<SANDBOX>/sel/no-such-root
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"lstat <SANDBOX>/sel/no-such-root: no such file or directory"}
+
+
+=== routing policy env missing fails closed
+$ ic --json route dispatch --role=planning
+env: CLAVAIN_ROOT=<SANDBOX>/sel/env-root
+env: CLAVAIN_ROUTING_POLICY=<SANDBOX>/sel/absent.yaml
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"lstat <SANDBOX>/sel/absent.yaml: no such file or directory"}
+
+
+=== routing policy env is a directory
+$ ic --json route dispatch --role=planning
+env: CLAVAIN_ROUTING_POLICY=<SANDBOX>/sel
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"policy is not a regular file: <SANDBOX>/sel"}
+
+
+=== routing policy env dangling link
+$ ic --json route dispatch --role=planning
+env: CLAVAIN_ROUTING_POLICY=<SANDBOX>/links/dangling.yaml
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"lstat <SANDBOX>/sel/absent.yaml: no such file or directory"}
+
+
+=== flag dangling link
+$ ic --json route dispatch --role=planning --policy=<SANDBOX>/links/dangling.yaml
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"lstat <SANDBOX>/sel/absent.yaml: no such file or directory"}
+
+
+=== flag symlink reports target
+$ ic --json route dispatch --role=planning --policy=<SANDBOX>/links/policy-link.yaml
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/sel/flag/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== home skill link
+$ ic --json route dispatch --role=planning
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/install/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== home skill link beats cwd walk
+$ ic --json route dispatch --role=planning
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/install/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== env beats home skill link
+$ ic --json route dispatch --role=planning
+env: CLAVAIN_ROOT=<SANDBOX>/sel/env-root
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/sel/env-root/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cwd walk finds config
+$ ic --json route dispatch --role=planning
+env: HOME=<SANDBOX>/home-empty
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/trees/plain/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cwd walk finds os/Clavain
+$ ic --json route dispatch --role=planning
+env: HOME=<SANDBOX>/home-empty
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/trees/upper/os/Clavain/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cwd walk finds os/clavain
+$ ic --json route dispatch --role=planning
+env: HOME=<SANDBOX>/home-empty
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/trees/lower/os/clavain/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cwd walk prefers config over os/Clavain
+$ ic --json route dispatch --role=planning
+env: HOME=<SANDBOX>/home-empty
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/trees/both/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cwd walk prefers nearest ancestor
+$ ic --json route dispatch --role=planning
+env: HOME=<SANDBOX>/home-empty
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/trees/nested/inner/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cwd walk finds nothing
+$ ic --json route dispatch --role=planning
+env: HOME=<SANDBOX>/home-empty
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"routing policy unavailable: select --policy, CLAVAIN_ROUTING_POLICY or CLAVAIN_ROOT"}
+
+
+=== home link dangling falls to cwd walk
+$ ic --json route dispatch --role=planning
+env: HOME=<SANDBOX>/home-dangling
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/trees/plain/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== text output uses same resolution
+$ ic route dispatch --role=planning
+env: CLAVAIN_ROOT=<SANDBOX>/sel/env-root
+exit: 0
+--- stdout
+gpt-6.1-sol
+--- stderr
+
+
+=== route model uses same resolution
+$ ic --json route model --phase=planned --category=review --agent=fd-safety
+env: CLAVAIN_ROOT=<SANDBOX>/sel/env-root
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== route table without any selection
+$ ic --json route table
+env: HOME=<SANDBOX>/home-empty
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route table","error":"routing policy unavailable: select --policy, CLAVAIN_ROUTING_POLICY or CLAVAIN_ROOT"}
+

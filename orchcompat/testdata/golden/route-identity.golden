@@ -1,0 +1,295 @@
+=== model=gpt-6.1-sol
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=gpt-6.1-sol
+exit: 0
+--- stdout
+{"model_identity":"gpt-6.1-sol"}
+--- stderr
+
+
+=== model=gpt-6-astra
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=gpt-6-astra
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=GPT-6-ASTRA
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=GPT-6-ASTRA
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=  gpt-6-astra  
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=  gpt-6-astra  
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=gpt-6-astra-2026-06-01
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=gpt-6-astra-2026-06-01
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=gpt-6-astra-20260601
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=gpt-6-astra-20260601
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=codex/gpt-6.1-sol
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=codex/gpt-6.1-sol
+exit: 0
+--- stdout
+{"model_identity":"gpt-6.1-sol"}
+--- stderr
+
+
+=== model=openai/gpt-6-astra
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=openai/gpt-6-astra
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=openai:gpt-6-astra
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=openai:gpt-6-astra
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=codex/openai/gpt-6-astra
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=codex/openai/gpt-6-astra
+exit: 0
+--- stdout
+{"model_identity":"gpt-6-astra"}
+--- stderr
+
+
+=== model=claude-opus-5-5
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude-opus-5-5
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=claude-opus-5-5[1m]
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude-opus-5-5[1m]
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=claude-opus-5-5[200k]
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude-opus-5-5[200k]
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=claude/claude-opus-5-5
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude/claude-opus-5-5
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=claude-code/claude-opus-5-5
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude-code/claude-opus-5-5
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=anthropic/claude-opus-5-5
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=anthropic/claude-opus-5-5
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=claude-opus-5-5-20260601
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude-opus-5-5-20260601
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=claude-sonnet-5-5
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude-sonnet-5-5
+exit: 0
+--- stdout
+{"model_identity":"claude-sonnet-5-5"}
+--- stderr
+
+
+=== model=opus
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=opus
+exit: 0
+--- stdout
+{"model_identity":"claude-opus-5-5"}
+--- stderr
+
+
+=== model=sonnet
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=sonnet
+exit: 0
+--- stdout
+{"model_identity":"claude-sonnet-5-5"}
+--- stderr
+
+
+=== model=k3
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=k3
+exit: 0
+--- stdout
+{"model_identity":"kimi-code/k3"}
+--- stderr
+
+
+=== model=kimi/k3
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=kimi/k3
+exit: 0
+--- stdout
+{"model_identity":"kimi-code/k3"}
+--- stderr
+
+
+=== model=kimi-code/k3
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=kimi-code/k3
+exit: 0
+--- stdout
+{"model_identity":"kimi-code/k3"}
+--- stderr
+
+
+=== model=kimi/kimi-code/k3
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=kimi/kimi-code/k3
+exit: 0
+--- stdout
+{"model_identity":"kimi/kimi-code/k3"}
+--- stderr
+
+
+=== model=moonshot/kimi-code/k3
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=moonshot/kimi-code/k3
+exit: 0
+--- stdout
+{"model_identity":"kimi-code/k3"}
+--- stderr
+
+
+=== model=kimi-code/k3-2026-05-01
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=kimi-code/k3-2026-05-01
+exit: 0
+--- stdout
+{"model_identity":"kimi-code/k3"}
+--- stderr
+
+
+=== model=haiku
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=haiku
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"haiku\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== model=unknown-model
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=unknown-model
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"unknown-model\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== model=gpt
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=gpt
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"gpt\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== model=claude
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=claude
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"claude\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== model=kimi
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=kimi
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"kimi\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== model=gpt-
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=gpt-
+exit: 0
+--- stdout
+{"model_identity":"gpt-"}
+--- stderr
+
+
+=== model=
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== text opus
+$ ic route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=opus
+exit: 0
+--- stdout
+claude-opus-5-5
+--- stderr
+
+
+=== text unknown
+$ ic route identity --policy=<SANDBOX>/plugin/config/routing.yaml --model=unknown-model
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"unknown-model\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== no model flag
+$ ic --json route identity --policy=<SANDBOX>/plugin/config/routing.yaml
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"unknown model identity \"\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== missing policy
+$ ic --json route identity --policy=<SANDBOX>/none.yaml --model=opus
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"lstat <SANDBOX>/none.yaml: no such file or directory"}
+

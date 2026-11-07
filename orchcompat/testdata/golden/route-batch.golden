@@ -1,0 +1,70 @@
+=== json planned
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned fd-safety fd-architecture repo-research-analyst other-agent
+exit: 0
+--- stdout
+{
+  "fd-architecture": "sonnet",
+  "fd-safety": "sonnet",
+  "other-agent": "opus",
+  "repo-research-analyst": "haiku"
+}
+--- stderr
+
+
+=== text planned
+$ ic route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned fd-safety fd-architecture repo-research-analyst other-agent
+exit: 0
+--- stdout
+fd-safety	sonnet
+fd-architecture	sonnet
+repo-research-analyst	haiku
+other-agent	opus
+--- stderr
+
+
+=== json without phase
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml fd-safety fd-architecture
+exit: 0
+--- stdout
+{
+  "fd-architecture": "sonnet",
+  "fd-safety": "sonnet"
+}
+--- stderr
+
+
+=== json unknown phase
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase fd-safety
+exit: 0
+--- stdout
+{
+  "fd-safety": "sonnet"
+}
+--- stderr
+
+
+=== duplicate agents
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing fd-safety fd-safety
+exit: 0
+--- stdout
+{
+  "fd-safety": "sonnet"
+}
+--- stderr
+
+
+=== no agents
+$ ic --json route batch --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned
+exit: 3
+--- stdout
+--- stderr
+ic route batch: provide agent names as positional args
+
+
+=== missing policy
+$ ic --json route batch --policy=<SANDBOX>/none.yaml fd-safety
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route batch","error":"lstat <SANDBOX>/none.yaml: no such file or directory"}
+

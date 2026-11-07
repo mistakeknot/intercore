@@ -1,0 +1,342 @@
+=== reason=none
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-preparation
+exit: 0
+--- stdout
+{
+  "requested_role": "release-preparation",
+  "profile_ref": "release-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "release-preparation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "release-sonnet"
+    ],
+    "description": "Release packet and documentation preparation"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "release-preparation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for release preparation when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-preparation --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-preparation",
+  "profile_ref": "release-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "release-preparation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "release-sonnet"
+    ],
+    "description": "Release packet and documentation preparation"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "release-preparation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for release preparation when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-preparation --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-preparation",
+  "profile_ref": "release-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "release-preparation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "release-sonnet"
+    ],
+    "description": "Release packet and documentation preparation"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "release-preparation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for release preparation when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "release-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-preparation --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-preparation",
+  "profile_ref": "release-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "release-preparation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "release-sonnet"
+    ],
+    "description": "Release packet and documentation preparation"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "release-preparation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for release preparation when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-preparation --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-preparation",
+  "profile_ref": "release-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "release-preparation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "release-sonnet"
+    ],
+    "description": "Release packet and documentation preparation"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "release-preparation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for release preparation when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "release-sol",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-preparation --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-preparation",
+  "profile_ref": "release-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "release-preparation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "release-sonnet"
+    ],
+    "description": "Release packet and documentation preparation"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "release-preparation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for release preparation when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "release-sol",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+

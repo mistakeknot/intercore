@@ -1,0 +1,576 @@
+=== explicit default profile
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-integrator --policy-profile=default
+exit: 0
+--- stdout
+{
+  "requested_role": "main-integrator",
+  "profile_ref": "main-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "main-integrator",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "main-sol"
+    ],
+    "description": "Interactive orchestration and integration under the main session authority"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "main-integrator",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "pilot-opus"
+        ],
+        "description": "Main-integrator fallback while Astra account access is unavailable"
+      }
+    },
+    {
+      "profile_ref": "pilot-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "main-integrator",
+        "backend": "main",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "main-opus"
+        ]
+      }
+    },
+    {
+      "profile_ref": "main-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "main-integrator",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Floor-safe main-integrator substitute when Codex is exhausted and a floored reason excludes pilot-opus (backend: main). Does not carry commit/push/deploy authority the way pilot-opus does."
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== unknown profile
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-integrator --policy-profile=missing-profile
+exit: 1
+--- stdout
+--- stderr
+unknown policy profile "missing-profile"
+
+
+=== pilot profile without scope
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-integrator --policy-profile=ci-campaign-pilot
+exit: 1
+--- stdout
+--- stderr
+policy profile "ci-campaign-pilot" requires scope "pilot-campaign"
+
+
+=== pilot profile wrong scope
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-integrator --policy-profile=ci-campaign-pilot --context-file=<CTX>
+context: {"scope":"other-scope"}
+exit: 1
+--- stdout
+--- stderr
+policy profile "ci-campaign-pilot" requires scope "pilot-campaign"
+
+
+=== pilot profile main-integrator
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-integrator --policy-profile=ci-campaign-pilot --context-file=<CTX>
+context: {"scope":"pilot-campaign"}
+exit: 0
+--- stdout
+{
+  "requested_role": "main-integrator",
+  "profile_ref": "pilot-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "main-integrator",
+    "backend": "main",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "main-opus"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "main-integrator",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Floor-safe main-integrator substitute when Codex is exhausted and a floored reason excludes pilot-opus (backend: main). Does not carry commit/push/deploy authority the way pilot-opus does."
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "ci-campaign-pilot",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "scope": "pilot-campaign",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== pilot profile routine-execution
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --policy-profile=ci-campaign-pilot --context-file=<CTX>
+context: {"scope":"pilot-campaign"}
+exit: 0
+--- stdout
+{
+  "requested_role": "routine-execution",
+  "profile_ref": "pilot-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "routine-execution",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard"
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "ci-campaign-pilot",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "scope": "pilot-campaign",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== pilot profile validation
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --policy-profile=ci-campaign-pilot --producer-identity=gpt-6.1-sol --context-file=<CTX>
+context: {"scope":"pilot-campaign"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "gpt-6.1-sol",
+  "producer_model": "gpt-6.1-sol",
+  "validator_relationship": "different-model",
+  "fallback_reason": "producer_model_conflict",
+  "excluded": [
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "validation",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-sonnet",
+      "validation-sol",
+      "validation-kimi"
+    ],
+    "description": "Independent validator for Codex-produced work"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "ci-campaign-pilot",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "scope": "pilot-campaign",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== pilot profile validation claude producer
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --policy-profile=ci-campaign-pilot --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"scope":"pilot-campaign"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "validation",
+  "profile_ref": "validation-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "validation",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "validation-opus",
+      "validation-sonnet"
+    ],
+    "description": "Codex validation fallback when its resolved model differs from the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "ci-campaign-pilot",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "scope": "pilot-campaign",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== pilot profile unmapped role
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --policy-profile=ci-campaign-pilot --context-file=<CTX>
+context: {"scope":"pilot-campaign"}
+exit: 0
+--- stdout
+{
+  "requested_role": "planning",
+  "profile_ref": "planning-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "planning",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "routine-sonnet"
+    ],
+    "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "routine-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "routine-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for routine execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "ci-campaign-pilot",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "scope": "pilot-campaign",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== pilot profile main-integrator foundational
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-integrator --policy-profile=ci-campaign-pilot --context-file=<CTX>
+context: {"scope":"pilot-campaign","reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "pilot-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "main-integrator",
+        "backend": "main",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "main-opus"
+        ]
+      },
+      "reason": "unsupported_adapter"
+    }
+  ],
+  "requested_role": "main-integrator",
+  "profile_ref": "main-opus",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "main-integrator",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "description": "Floor-safe main-integrator substitute when Codex is exhausted and a floored reason excludes pilot-opus (backend: main). Does not carry commit/push/deploy authority the way pilot-opus does."
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "ci-campaign-pilot",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "scope": "pilot-campaign",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== pilot profile routine elevated
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --policy-profile=ci-campaign-pilot --context-file=<CTX>
+context: {"scope":"pilot-campaign","reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "deep-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-astra"
+        ],
+        "description": "Default deep-execution seat when the context is not elevated"
+      },
+      "reason": "frontier_required"
+    },
+    {
+      "profile_ref": "deep-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "deep-execution",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-opus"
+        ],
+        "description": "Deep-execution fallback for explicit Astra unavailability"
+      },
+      "reason": "frontier_required"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "deep-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "deep-execution",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "deep-sol"
+    ],
+    "description": "Complex implementation and long-running execution"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "deep-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for deep execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "ci-campaign-pilot",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "scope": "pilot-campaign",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== pilot profile routine unavailable codex
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --policy-profile=ci-campaign-pilot --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"scope":"pilot-campaign","available_models":["claude-opus-5-5"]}
+exit: 1
+--- stdout
+--- stderr
+role "validation": no eligible model satisfies reasoning contract
+

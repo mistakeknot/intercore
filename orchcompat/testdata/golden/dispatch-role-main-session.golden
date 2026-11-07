@@ -1,0 +1,354 @@
+=== reason=none
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-session
+exit: 0
+--- stdout
+{
+  "requested_role": "main-session",
+  "profile_ref": "main-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "main-session",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "main-session-astra"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-session-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "main-session",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-session --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "main-session",
+  "profile_ref": "main-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "main-session",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "main-session-astra"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-session-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "main-session",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-session --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "main-session",
+  "profile_ref": "main-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "main-session",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "main-session-astra"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-session-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "main-session",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high",
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "main-sonnet",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "main-session-astra",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-session --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "main-session",
+  "profile_ref": "main-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "main-session",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "main-session-astra"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-session-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "main-session",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "medium",
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-session --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "main-session",
+  "profile_ref": "main-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "main-session",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "main-session-astra"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-session-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "main-session",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high",
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "main-sonnet",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "main-session-astra",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=main-session --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "main-session",
+  "profile_ref": "main-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "main-session",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "main-session-astra"
+    ]
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "main-session-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "main-session",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "high",
+        "service_tier": "standard"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "main-sonnet",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "main-session-astra",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
