@@ -1,0 +1,119 @@
+=== nonexistent policy
+$ ic --json route dispatch --policy=<SANDBOX>/policies/absent.yaml --role=planning
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"lstat <SANDBOX>/policies/absent.yaml: no such file or directory"}
+
+
+=== policy is a directory
+$ ic --json route dispatch --policy=<SANDBOX>/policies --role=planning
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"policy is not a regular file: <SANDBOX>/policies"}
+
+
+=== empty policy file
+$ ic --json route dispatch --policy=<SANDBOX>/policies/empty.yaml --role=planning
+exit: 1
+--- stdout
+--- stderr
+role "planning": no dispatch profile found
+
+
+=== policy not yaml
+$ ic --json route dispatch --policy=<SANDBOX>/policies/not-yaml.yaml --role=planning
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"parse routing.yaml: yaml: line 1: did not find expected ',' or ']'"}
+
+
+=== policy without roles
+$ ic --json route dispatch --policy=<SANDBOX>/policies/no-roles.yaml --role=planning
+exit: 1
+--- stdout
+--- stderr
+role "planning": no dispatch profile found
+
+
+=== policy with unknown frontier model
+$ ic --json route dispatch --policy=<SANDBOX>/policies/bad-frontier.yaml --role=planning
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"reasoning.frontier_models entry \"mystery-model\": unknown model identity \"mystery-model\": configure dispatch.model_aliases with a concrete model ID"}
+
+
+=== policy with unknown floor reason
+$ ic --json route dispatch --policy=<SANDBOX>/policies/bad-floor.yaml --role=planning
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"not-a-reason\": unknown classification reason"}
+
+
+=== policy role names missing tier
+$ ic --json route dispatch --policy=<SANDBOX>/policies/bad-role-tier.yaml --role=planning
+exit: 1
+--- stdout
+--- stderr
+role "planning": no dispatch profile found
+
+
+=== no policy selected
+$ ic --json route dispatch --role=planning
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"routing policy unavailable: select --policy, CLAVAIN_ROUTING_POLICY or CLAVAIN_ROOT"}
+
+
+=== model on missing policy
+$ ic --json route model --policy=<SANDBOX>/policies/absent.yaml --phase=planned --category=review --agent=fd-safety
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route model","error":"lstat <SANDBOX>/policies/absent.yaml: no such file or directory"}
+
+
+=== batch on missing policy
+$ ic --json route batch --policy=<SANDBOX>/policies/absent.yaml --phase=planned fd-safety
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route batch","error":"lstat <SANDBOX>/policies/absent.yaml: no such file or directory"}
+
+
+=== table on missing policy
+$ ic --json route table --policy=<SANDBOX>/policies/absent.yaml
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route table","error":"lstat <SANDBOX>/policies/absent.yaml: no such file or directory"}
+
+
+=== identity on missing policy
+$ ic --json route identity --policy=<SANDBOX>/policies/absent.yaml --model=opus
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route identity","error":"lstat <SANDBOX>/policies/absent.yaml: no such file or directory"}
+
+
+=== tier on missing policy
+$ ic --json route dispatch --policy=<SANDBOX>/policies/absent.yaml --tier=fast
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"lstat <SANDBOX>/policies/absent.yaml: no such file or directory"}
+
+
+=== type on missing policy
+$ ic --json route dispatch --policy=<SANDBOX>/policies/absent.yaml --type=fast
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"lstat <SANDBOX>/policies/absent.yaml: no such file or directory"}
+

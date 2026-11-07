@@ -1,0 +1,1277 @@
+=== seat-astra-low codex/gpt-6-astra@low reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-bogus-level.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"route dispatch","error":"dispatch.effort_floors entry \"broad-consequences\": unknown effort \"turbo\""}
+

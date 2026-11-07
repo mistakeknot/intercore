@@ -1,0 +1,2165 @@
+=== phase= category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "haiku",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "haiku",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase= category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase= --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": ""
+}
+--- stderr
+
+
+=== phase=brainstorm category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "haiku",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "opus",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": "brainstorm"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=brainstorm-reviewed category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=brainstorm-reviewed --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "brainstorm-reviewed"
+}
+--- stderr
+
+
+=== phase=strategized category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "haiku",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "opus",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategized category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategized --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": "strategized"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=strategy-reviewed category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=strategy-reviewed --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "strategy-reviewed"
+}
+--- stderr
+
+
+=== phase=planned category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "haiku",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=planned category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "opus",
+  "phase": "planned"
+}
+--- stderr
+
+
+=== phase=executing category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=executing category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=executing --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "executing"
+}
+--- stderr
+
+
+=== phase=shipping category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=shipping category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=shipping --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "shipping"
+}
+--- stderr
+
+
+=== phase=reflect category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=reflect category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=reflect --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "reflect"
+}
+--- stderr
+
+
+=== phase=done category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=done category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=done --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "sonnet",
+  "phase": "done"
+}
+--- stderr
+
+
+=== phase=no-such-phase category= agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category= --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=research agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=research --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "research",
+  "model": "haiku",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=review agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=review --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=synthesis agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=synthesis --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=explore agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=explore --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "explore",
+  "model": "haiku",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=workflow agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=workflow --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "workflow",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=general-purpose agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=general-purpose --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "general-purpose",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=no-such-category agent=
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=no-such-category --agent=
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "no-such-category",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category= agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category= --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category= agent=fd-architecture
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category= --agent=fd-architecture
+exit: 0
+--- stdout
+{
+  "agent": "fd-architecture",
+  "category": "",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category= agent=repo-research-analyst
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category= --agent=repo-research-analyst
+exit: 0
+--- stdout
+{
+  "agent": "repo-research-analyst",
+  "category": "",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category= agent=best-practices-researcher
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category= --agent=best-practices-researcher
+exit: 0
+--- stdout
+{
+  "agent": "best-practices-researcher",
+  "category": "",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category= agent=interflux:review:fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category= --agent=interflux:review:fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "interflux:review:fd-correctness",
+  "category": "",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=review agent=fd-correctness
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=review --agent=fd-correctness
+exit: 0
+--- stdout
+{
+  "agent": "fd-correctness",
+  "category": "review",
+  "model": "sonnet",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== phase=no-such-phase category=synthesis agent=fd-safety
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=no-such-phase --category=synthesis --agent=fd-safety
+exit: 0
+--- stdout
+{
+  "agent": "fd-safety",
+  "category": "synthesis",
+  "model": "haiku",
+  "phase": "no-such-phase"
+}
+--- stderr
+
+
+=== text output
+$ ic route model --policy=<SANDBOX>/plugin/config/routing.yaml --phase=planned --category=review
+exit: 0
+--- stdout
+sonnet
+--- stderr
+
+
+=== no flags
+$ ic --json route model --policy=<SANDBOX>/plugin/config/routing.yaml
+exit: 0
+--- stdout
+{
+  "agent": "",
+  "category": "",
+  "model": "sonnet",
+  "phase": ""
+}
+--- stderr
+

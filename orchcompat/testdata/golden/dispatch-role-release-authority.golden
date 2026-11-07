@@ -1,0 +1,183 @@
+=== reason=none
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority
+exit: 0
+--- stdout
+{
+  "requested_role": "release-authority",
+  "profile_ref": "release-authority-main",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "release-authority",
+    "backend": "main",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "release-authority-sol"
+    ],
+    "description": "Commit, push, and deploy authority retained by the main integrator"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-authority-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "release-authority",
+        "backend": "main",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Main-integrator release authority while Astra access is unavailable"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-authority",
+  "profile_ref": "release-authority-main",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "release-authority",
+    "backend": "main",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "release-authority-sol"
+    ],
+    "description": "Commit, push, and deploy authority retained by the main integrator"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-authority-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "release-authority",
+        "backend": "main",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Main-integrator release authority while Astra access is unavailable"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "release-authority": no eligible model satisfies reasoning contract
+
+
+=== reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-authority",
+  "profile_ref": "release-authority-main",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "release-authority",
+    "backend": "main",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "release-authority-sol"
+    ],
+    "description": "Commit, push, and deploy authority retained by the main integrator"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-authority-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "release-authority",
+        "backend": "main",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Main-integrator release authority while Astra access is unavailable"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "release-authority": no eligible model satisfies reasoning contract
+
+
+=== reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "release-authority": no eligible model satisfies reasoning contract
+

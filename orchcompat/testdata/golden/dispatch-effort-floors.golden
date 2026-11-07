@@ -1,0 +1,2405 @@
+=== cross-lab-review reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "crosslab-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "cross-lab-review",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-kimi"
+        ],
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      },
+      "reason": "producer_model_conflict"
+    },
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "cross-lab-review",
+  "profile_ref": "crosslab-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "cross-lab-review",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "crosslab-astra",
+      "crosslab-opus"
+    ],
+    "description": "Sealed first-pass review by a provider/model other than the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "crosslab-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "cross-lab-review",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "service_tier": "standard",
+        "minimum_codex_version": "0.153.1",
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-kimi",
+      "validation-sol",
+      "validation-sonnet"
+    ],
+    "to": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-sol",
+      "validation-kimi",
+      "validation-sonnet"
+    ]
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== coordination reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "coordination",
+  "profile_ref": "coordination-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "coordination",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "coordination-sol"
+    ],
+    "description": "Coordinator relay, wait and status turns"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "coordination-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "coordination",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "description": "Capacity fallback for coordination when the Claude lane is out"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== routine-execution reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "deep-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-astra"
+        ],
+        "description": "Default deep-execution seat when the context is not elevated"
+      },
+      "reason": "frontier_required"
+    },
+    {
+      "profile_ref": "deep-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "deep-execution",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-opus"
+        ],
+        "description": "Deep-execution fallback for explicit Astra unavailability"
+      },
+      "reason": "frontier_required"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "deep-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "deep-execution",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "deep-sol"
+    ],
+    "description": "Complex implementation and long-running execution"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "deep-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for deep execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== scout reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=scout --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "scout",
+  "profile_ref": "scout-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "scout",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "scout-sonnet"
+    ],
+    "description": "Repository exploration and bounded read-only reconnaissance"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "scout-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "scout",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "description": "Capacity fallback for scout when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== release-authority reason=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-authority",
+  "profile_ref": "release-authority-main",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "release-authority",
+    "backend": "main",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "release-authority-sol"
+    ],
+    "description": "Commit, push, and deploy authority retained by the main integrator"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-authority-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "release-authority",
+        "backend": "main",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Main-integrator release authority while Astra access is unavailable"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cross-lab-review reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "crosslab-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "cross-lab-review",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-kimi"
+        ],
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      },
+      "reason": "producer_model_conflict"
+    },
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "cross-lab-review",
+  "profile_ref": "crosslab-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "cross-lab-review",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "crosslab-astra",
+      "crosslab-opus"
+    ],
+    "description": "Sealed first-pass review by a provider/model other than the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "crosslab-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "cross-lab-review",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "service_tier": "standard",
+        "minimum_codex_version": "0.153.1",
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-kimi",
+      "validation-sol",
+      "validation-sonnet"
+    ],
+    "to": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-sol",
+      "validation-kimi",
+      "validation-sonnet"
+    ]
+  },
+  "effort_floors_applied": [
+    {
+      "profile_ref": "crosslab-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== coordination reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "coordination",
+  "profile_ref": "coordination-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "coordination",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "coordination-sol"
+    ],
+    "description": "Coordinator relay, wait and status turns"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "coordination-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "coordination",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for coordination when the Claude lane is out"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "coordination-sonnet",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "coordination-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== routine-execution reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "deep-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-astra"
+        ],
+        "description": "Default deep-execution seat when the context is not elevated"
+      },
+      "reason": "frontier_required"
+    },
+    {
+      "profile_ref": "deep-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "deep-execution",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-opus"
+        ],
+        "description": "Deep-execution fallback for explicit Astra unavailability"
+      },
+      "reason": "frontier_required"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "deep-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "deep-execution",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "deep-sol"
+    ],
+    "description": "Complex implementation and long-running execution"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "deep-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for deep execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== scout reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=scout --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "scout",
+  "profile_ref": "scout-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "scout",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "scout-sonnet"
+    ],
+    "description": "Repository exploration and bounded read-only reconnaissance"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "scout-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "scout",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for scout when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "scout-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "scout-sonnet",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== release-authority reason=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "release-authority": no eligible model satisfies reasoning contract
+
+
+=== cross-lab-review reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "crosslab-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "cross-lab-review",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-kimi"
+        ],
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      },
+      "reason": "producer_model_conflict"
+    },
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "cross-lab-review",
+  "profile_ref": "crosslab-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "cross-lab-review",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "crosslab-astra",
+      "crosslab-opus"
+    ],
+    "description": "Sealed first-pass review by a provider/model other than the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "crosslab-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "cross-lab-review",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "service_tier": "standard",
+        "minimum_codex_version": "0.153.1",
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-kimi",
+      "validation-sol",
+      "validation-sonnet"
+    ],
+    "to": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-sol",
+      "validation-kimi",
+      "validation-sonnet"
+    ]
+  },
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== coordination reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "coordination",
+  "profile_ref": "coordination-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "coordination",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "coordination-sol"
+    ],
+    "description": "Coordinator relay, wait and status turns"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "coordination-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "coordination",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "description": "Capacity fallback for coordination when the Claude lane is out"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== routine-execution reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "deep-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-astra"
+        ],
+        "description": "Default deep-execution seat when the context is not elevated"
+      },
+      "reason": "frontier_required"
+    },
+    {
+      "profile_ref": "deep-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "deep-execution",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-opus"
+        ],
+        "description": "Deep-execution fallback for explicit Astra unavailability"
+      },
+      "reason": "frontier_required"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "deep-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "deep-execution",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "deep-sol"
+    ],
+    "description": "Complex implementation and long-running execution"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "deep-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for deep execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== scout reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=scout --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "scout",
+  "profile_ref": "scout-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "scout",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "scout-sonnet"
+    ],
+    "description": "Repository exploration and bounded read-only reconnaissance"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "scout-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "scout",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "description": "Capacity fallback for scout when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== release-authority reason=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "release-authority",
+  "profile_ref": "release-authority-main",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "release-authority",
+    "backend": "main",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "release-authority-sol"
+    ],
+    "description": "Commit, push, and deploy authority retained by the main integrator"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "release-authority-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "release-authority",
+        "backend": "main",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Main-integrator release authority while Astra access is unavailable"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cross-lab-review reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "crosslab-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "cross-lab-review",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-kimi"
+        ],
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      },
+      "reason": "producer_model_conflict"
+    },
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "cross-lab-review",
+  "profile_ref": "crosslab-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "cross-lab-review",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "crosslab-astra",
+      "crosslab-opus"
+    ],
+    "description": "Sealed first-pass review by a provider/model other than the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "crosslab-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "cross-lab-review",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "service_tier": "standard",
+        "minimum_codex_version": "0.153.1",
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-kimi",
+      "validation-sol",
+      "validation-sonnet"
+    ],
+    "to": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-sol",
+      "validation-kimi",
+      "validation-sonnet"
+    ]
+  },
+  "effort_floors_exempted": [
+    "difficult-verification"
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== coordination reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "coordination",
+  "profile_ref": "coordination-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "coordination",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "coordination-sol"
+    ],
+    "description": "Coordinator relay, wait and status turns"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "coordination-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "coordination",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for coordination when the Claude lane is out"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "coordination-sonnet",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "coordination-sol",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== routine-execution reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "deep-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-astra"
+        ],
+        "description": "Default deep-execution seat when the context is not elevated"
+      },
+      "reason": "frontier_required"
+    },
+    {
+      "profile_ref": "deep-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "deep-execution",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-opus"
+        ],
+        "description": "Deep-execution fallback for explicit Astra unavailability"
+      },
+      "reason": "frontier_required"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "deep-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "deep-execution",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "deep-sol"
+    ],
+    "description": "Complex implementation and long-running execution"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "deep-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for deep execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== scout reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=scout --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "scout",
+  "profile_ref": "scout-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "scout",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "scout-sonnet"
+    ],
+    "description": "Repository exploration and bounded read-only reconnaissance"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "scout-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "scout",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for scout when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "scout-sol",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "scout-sonnet",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== release-authority reason=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "release-authority": no eligible model satisfies reasoning contract
+
+
+=== cross-lab-review reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "crosslab-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "cross-lab-review",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-kimi"
+        ],
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      },
+      "reason": "producer_model_conflict"
+    },
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "cross-lab-review",
+  "profile_ref": "crosslab-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "cross-lab-review",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "crosslab-astra",
+      "crosslab-opus"
+    ],
+    "description": "Sealed first-pass review by a provider/model other than the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "crosslab-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "cross-lab-review",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "service_tier": "standard",
+        "minimum_codex_version": "0.153.1",
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-kimi",
+      "validation-sol",
+      "validation-sonnet"
+    ],
+    "to": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-sol",
+      "validation-kimi",
+      "validation-sonnet"
+    ]
+  },
+  "effort_floors_applied": [
+    {
+      "profile_ref": "crosslab-sol",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sol",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== coordination reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=coordination --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "coordination",
+  "profile_ref": "coordination-sonnet",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "coordination",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "coordination-sol"
+    ],
+    "description": "Coordinator relay, wait and status turns"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "coordination-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "coordination",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for coordination when the Claude lane is out"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "coordination-sonnet",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "coordination-sol",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== routine-execution reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "fallback_reason": "reasoning_contract",
+  "excluded": [
+    {
+      "profile_ref": "deep-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-astra"
+        ],
+        "description": "Default deep-execution seat when the context is not elevated"
+      },
+      "reason": "frontier_required"
+    },
+    {
+      "profile_ref": "deep-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "deep-execution",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "deep-opus"
+        ],
+        "description": "Deep-execution fallback for explicit Astra unavailability"
+      },
+      "reason": "frontier_required"
+    }
+  ],
+  "requested_role": "routine-execution",
+  "profile_ref": "deep-astra",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "deep-execution",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "minimum_codex_version": "0.153.1",
+    "fallbacks": [
+      "deep-sol"
+    ],
+    "description": "Complex implementation and long-running execution"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "deep-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "deep-execution",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for deep execution when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": true,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== scout reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=scout --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "requested_role": "scout",
+  "profile_ref": "scout-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "scout",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "scout-sonnet"
+    ],
+    "description": "Repository exploration and bounded read-only reconnaissance"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "scout-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "scout",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "description": "Capacity fallback for scout when the Codex lane is out of usage"
+      }
+    }
+  ],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "scout-sol",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "scout-sonnet",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== release-authority reason=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=release-authority --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 1
+--- stdout
+--- stderr
+role "release-authority": no eligible model satisfies reasoning contract
+
+
+=== cross-lab-review exemption keeps other floors
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["difficult-verification","foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "crosslab-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "cross-lab-review",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-kimi"
+        ],
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      },
+      "reason": "producer_model_conflict"
+    },
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "cross-lab-review",
+  "profile_ref": "crosslab-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "cross-lab-review",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": "standard",
+    "fallbacks": [
+      "crosslab-astra",
+      "crosslab-opus"
+    ],
+    "description": "Sealed first-pass review by a provider/model other than the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "crosslab-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "cross-lab-review",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "service_tier": "standard",
+        "minimum_codex_version": "0.153.1",
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-kimi",
+      "validation-sol",
+      "validation-sonnet"
+    ],
+    "to": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-sol",
+      "validation-kimi",
+      "validation-sonnet"
+    ]
+  },
+  "effort_floors_applied": [
+    {
+      "profile_ref": "crosslab-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sol",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "effort_floors_exempted": [
+    "difficult-verification"
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification",
+    "foundational-invariants"
+  ],
+  "review_requirement": "other-frontier",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification",
+      "foundational-invariants"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== cross-lab-review exemption alone
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --role=cross-lab-review --producer-identity=claude-opus-5-5 --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"synthetic characterization rationale"}
+exit: 0
+--- stdout
+{
+  "producer_identity": "claude-opus-5-5",
+  "producer_model": "claude-opus-5-5",
+  "validator_relationship": "different-model",
+  "excluded": [
+    {
+      "profile_ref": "crosslab-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "cross-lab-review",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-kimi"
+        ],
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      },
+      "reason": "producer_model_conflict"
+    },
+    {
+      "profile_ref": "validation-opus",
+      "profile": {
+        "model_identity": "claude-opus-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-opus-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sonnet",
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Independent validator for Codex-produced work"
+      },
+      "reason": "producer_model_conflict"
+    }
+  ],
+  "requested_role": "cross-lab-review",
+  "profile_ref": "crosslab-sol",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "cross-lab-review",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "medium",
+    "service_tier": "standard",
+    "fallbacks": [
+      "crosslab-astra",
+      "crosslab-opus"
+    ],
+    "description": "Sealed first-pass review by a provider/model other than the producer"
+  },
+  "fallback_chain": [
+    {
+      "profile_ref": "crosslab-astra",
+      "profile": {
+        "model_identity": "gpt-6-astra",
+        "role": "cross-lab-review",
+        "backend": "codex",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "service_tier": "standard",
+        "minimum_codex_version": "0.153.1",
+        "description": "Sealed first-pass review by a provider/model other than the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-sol",
+      "profile": {
+        "model_identity": "gpt-6.1-sol",
+        "role": "validation",
+        "backend": "codex",
+        "model": "gpt-6.1-sol",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-opus",
+          "validation-sonnet"
+        ],
+        "description": "Codex validation fallback when its resolved model differs from the producer"
+      }
+    },
+    {
+      "profile_ref": "validation-kimi",
+      "profile": {
+        "model_identity": "kimi-code/k3",
+        "role": "validation",
+        "backend": "kimi",
+        "model": "kimi-code/k3",
+        "reasoning_effort": "high",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol"
+        ],
+        "description": "Cross-provider validation fallback"
+      }
+    },
+    {
+      "profile_ref": "validation-sonnet",
+      "profile": {
+        "model_identity": "claude-sonnet-5-5",
+        "role": "validation",
+        "backend": "claude",
+        "model": "claude-sonnet-5-5",
+        "reasoning_effort": "medium",
+        "service_tier": "standard",
+        "fallbacks": [
+          "validation-sol",
+          "validation-kimi"
+        ],
+        "description": "Validation fallback when Opus is unavailable or is the producer"
+      }
+    }
+  ],
+  "cross_lab_reorder": {
+    "from": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-kimi",
+      "validation-sol",
+      "validation-sonnet"
+    ],
+    "to": [
+      "crosslab-sol",
+      "crosslab-astra",
+      "validation-sol",
+      "validation-kimi",
+      "validation-sonnet"
+    ]
+  },
+  "effort_floors_exempted": [
+    "difficult-verification"
+  ],
+  "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+  "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "synthetic characterization rationale",
+    "available_models": null
+  }
+}
+--- stderr
+

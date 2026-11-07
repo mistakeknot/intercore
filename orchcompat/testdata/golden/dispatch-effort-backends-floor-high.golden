@@ -1,0 +1,4442 @@
+=== seat-astra-low codex/gpt-6-astra@low reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-low",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-low",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-low",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-low",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-low codex/gpt-6-astra@low reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-low",
+  "profile_ref": "t-seat-astra-low",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-low",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-low",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-medium",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-medium",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-medium",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-medium",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-medium codex/gpt-6-astra@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-medium",
+  "profile_ref": "t-seat-astra-medium",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-medium",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-astra-medium",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-high codex/gpt-6-astra@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-high",
+  "profile_ref": "t-seat-astra-high",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-high",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-xhigh codex/gpt-6-astra@xhigh reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-xhigh",
+  "profile_ref": "t-seat-astra-xhigh",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-xhigh",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sol-low",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sol-low",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sol-low",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sol-low",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-low codex/gpt-6.1-sol@low reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-low",
+  "profile_ref": "t-seat-sol-low",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-low",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sol-low",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "low",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sol-high codex/gpt-6.1-sol@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sol-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sol-high",
+  "profile_ref": "t-seat-sol-high",
+  "profile": {
+    "model_identity": "gpt-6.1-sol",
+    "role": "seat-sol-high",
+    "backend": "codex",
+    "model": "gpt-6.1-sol",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-opus-medium",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-opus-medium",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-opus-medium",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-opus-medium",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-medium claude/claude-opus-5-5@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-medium",
+  "profile_ref": "t-seat-opus-medium",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-medium",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-opus-medium",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-high claude/claude-opus-5-5@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-high",
+  "profile_ref": "t-seat-opus-high",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-high",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-xhigh",
+  "profile_ref": "t-seat-opus-xhigh",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-xhigh",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-xhigh",
+  "profile_ref": "t-seat-opus-xhigh",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-xhigh",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-xhigh": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-xhigh",
+  "profile_ref": "t-seat-opus-xhigh",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-xhigh",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "xhigh",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-xhigh": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-xhigh": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-xhigh": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-xhigh claude/claude-opus-5-5@xhigh reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-xhigh --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-xhigh": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-low",
+  "profile_ref": "t-seat-opus-low",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-low",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-low",
+  "profile_ref": "t-seat-opus-low",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-low",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-low": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-low",
+  "profile_ref": "t-seat-opus-low",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-low",
+    "backend": "claude",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "low",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-low": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-low": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-low": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-low claude/claude-opus-5-5@low reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-low --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-low": no eligible model satisfies reasoning contract
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sonnet-medium",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sonnet-medium",
+      "reasons": [
+        "difficult-verification"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sonnet-medium",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sonnet-medium",
+      "reasons": [
+        "capability-failure"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-medium claude/claude-sonnet-5-5@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-medium",
+  "profile_ref": "t-seat-sonnet-medium",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-medium",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "effort_floors_applied": [
+    {
+      "profile_ref": "t-seat-sonnet-medium",
+      "reasons": [
+        "foundational-invariants"
+      ],
+      "from": "medium",
+      "to": "high"
+    }
+  ],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-sonnet-high claude/claude-sonnet-5-5@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-sonnet-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-sonnet-high",
+  "profile_ref": "t-seat-sonnet-high",
+  "profile": {
+    "model_identity": "claude-sonnet-5-5",
+    "role": "seat-sonnet-high",
+    "backend": "claude",
+    "model": "claude-sonnet-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "difficult-verification"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "difficult-verification"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences",
+    "capability-failure"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences",
+      "capability-failure"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-high kimi/kimi-code/k3@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-high --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-high",
+  "profile_ref": "t-seat-kimi-high",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-high",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria",
+    "foundational-invariants"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria",
+      "foundational-invariants"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-medium",
+  "profile_ref": "t-seat-kimi-medium",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-medium",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-medium",
+  "profile_ref": "t-seat-kimi-medium",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-medium",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-kimi-medium": no eligible model satisfies reasoning contract
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-kimi-medium",
+  "profile_ref": "t-seat-kimi-medium",
+  "profile": {
+    "model_identity": "kimi-code/k3",
+    "role": "seat-kimi-medium",
+    "backend": "kimi",
+    "model": "kimi-code/k3",
+    "reasoning_effort": "medium",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-kimi-medium": no eligible model satisfies reasoning contract
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-kimi-medium": no eligible model satisfies reasoning contract
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-kimi-medium": no eligible model satisfies reasoning contract
+
+
+=== seat-kimi-medium kimi/kimi-code/k3@medium reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-kimi-medium --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-kimi-medium": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-on-claude",
+  "profile_ref": "t-seat-astra-on-claude",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-on-claude",
+    "backend": "claude",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-on-claude",
+  "profile_ref": "t-seat-astra-on-claude",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-on-claude",
+    "backend": "claude",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-on-claude": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-on-claude",
+  "profile_ref": "t-seat-astra-on-claude",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-on-claude",
+    "backend": "claude",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-on-claude": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-on-claude": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-on-claude": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-on-claude claude/gpt-6-astra@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-on-claude --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-on-claude": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-on-codex",
+  "profile_ref": "t-seat-opus-on-codex",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-on-codex",
+    "backend": "codex",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-on-codex",
+  "profile_ref": "t-seat-opus-on-codex",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-on-codex",
+    "backend": "codex",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-on-codex": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-opus-on-codex",
+  "profile_ref": "t-seat-opus-on-codex",
+  "profile": {
+    "model_identity": "claude-opus-5-5",
+    "role": "seat-opus-on-codex",
+    "backend": "codex",
+    "model": "claude-opus-5-5",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-on-codex": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-on-codex": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-on-codex": no eligible model satisfies reasoning contract
+
+
+=== seat-opus-on-codex codex/claude-opus-5-5@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-opus-on-codex --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-opus-on-codex": no eligible model satisfies reasoning contract
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-unknown-backend",
+  "profile_ref": "t-seat-unknown-backend",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-unknown-backend",
+    "backend": "other",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-unknown-backend",
+  "profile_ref": "t-seat-unknown-backend",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-unknown-backend",
+    "backend": "other",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-unknown-backend": no eligible model satisfies reasoning contract
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-unknown-backend",
+  "profile_ref": "t-seat-unknown-backend",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-unknown-backend",
+    "backend": "other",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "high",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-unknown-backend": no eligible model satisfies reasoning contract
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-unknown-backend": no eligible model satisfies reasoning contract
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-unknown-backend": no eligible model satisfies reasoning contract
+
+
+=== seat-unknown-backend other/gpt-6-astra@high reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-unknown-backend --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-unknown-backend": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=none
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-bogus-effort",
+  "profile_ref": "t-seat-astra-bogus-effort",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-bogus-effort",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "turbo",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": null,
+    "rationale": "",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=unresolved-success-criteria
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-bogus-effort",
+  "profile_ref": "t-seat-astra-bogus-effort",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-bogus-effort",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "turbo",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "unresolved-success-criteria"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "unresolved-success-criteria"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-bogus-effort": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=broad-consequences
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["broad-consequences"],"rationale":"r"}
+exit: 0
+--- stdout
+{
+  "requested_role": "seat-astra-bogus-effort",
+  "profile_ref": "t-seat-astra-bogus-effort",
+  "profile": {
+    "model_identity": "gpt-6-astra",
+    "role": "seat-astra-bogus-effort",
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "reasoning_effort": "turbo",
+    "service_tier": ""
+  },
+  "fallback_chain": [],
+  "policy_source": "<SANDBOX>/policies/floor-high.yaml",
+  "policy_hash": "7ebd7404daa2a07590db53cc6e77a1458a5bc3637542b3e2a55cd4cf36eb4cd1",
+  "policy_profile": "default",
+  "classification_reasons": [
+    "broad-consequences"
+  ],
+  "review_requirement": "existing-gates",
+  "frontier_required": false,
+  "decision_context": {
+    "reasons": [
+      "broad-consequences"
+    ],
+    "rationale": "r",
+    "available_models": null
+  }
+}
+--- stderr
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=difficult-verification
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["difficult-verification"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-bogus-effort": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-bogus-effort": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=broad-consequences,capability-failure
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["broad-consequences","capability-failure"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-bogus-effort": no eligible model satisfies reasoning contract
+
+
+=== seat-astra-bogus-effort codex/gpt-6-astra@turbo reasons=unresolved-success-criteria,foundational-invariants
+$ ic --json route dispatch --policy=<SANDBOX>/policies/floor-high.yaml --role=seat-astra-bogus-effort --context-file=<CTX>
+context: {"reasons":["unresolved-success-criteria","foundational-invariants"],"rationale":"r"}
+exit: 1
+--- stdout
+--- stderr
+role "seat-astra-bogus-effort": no eligible model satisfies reasoning contract
+

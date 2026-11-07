@@ -1,0 +1,106 @@
+=== role with model
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --model=gpt-6-astra --prompt-file=<SANDBOX>/prompt.md
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"role cannot be combined with model or type"}
+
+
+=== role with type
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --type=codex --prompt-file=<SANDBOX>/prompt.md
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"role cannot be combined with model or type"}
+
+
+=== role missing policy
+$ ic --json dispatch spawn --policy=<SANDBOX>/absent.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch policy","error":"lstat <SANDBOX>/absent.yaml: no such file or directory"}
+
+
+=== role no policy selected
+$ ic --json dispatch spawn --role=planning --prompt-file=<SANDBOX>/prompt.md
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch policy","error":"routing policy unavailable: select --policy, CLAVAIN_ROUTING_POLICY or CLAVAIN_ROOT"}
+
+
+=== role malformed context
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --context-file=<CTX>
+context: not json
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch context","error":"invalid character 'o' in literal null (expecting 'u')"}
+
+
+=== role blank rationale
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":""}
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch reasoning","error":"classification requires rationale"}
+
+
+=== role unsupported
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=not-a-role --prompt-file=<SANDBOX>/prompt.md
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch reasoning","error":"role \"not-a-role\": no dispatch profile found"}
+
+
+=== role review without producer
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --prompt-file=<SANDBOX>/prompt.md
+exit: 1
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch reasoning","error":"role \"validation\" requires --producer-identity"}
+
+
+=== role missing prompt file flag
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch spawn: --prompt-file is required"}
+
+
+=== role missing prompt file on disk
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/absent.md --scheduled
+exit: 2
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch spawn failed","error":"open: set busy_timeout: unable to open database file (14)"}
+
+
+=== role effort floor still resolves
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --run-id= --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch spawn: binding requires a nonempty value","flag":"run-id"}
+
+
+=== role bad limit
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --max-active-global=-1
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch spawn: limit requires a nonnegative integer","flag":"max-active-global"}
+
+
+=== role bad timeout
+$ ic --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --timeout=soon
+exit: 3
+--- stdout
+--- stderr
+{"time":"<TIME>","level":"ERROR","msg":"dispatch spawn: invalid timeout","value":"soon"}
+

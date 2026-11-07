@@ -1,0 +1,541 @@
+=== tier=coordination-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=coordination-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "coordination-sol"
+}
+--- stderr
+
+
+=== tier=coordination-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=coordination-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "coordination-sonnet"
+}
+--- stderr
+
+
+=== tier=coordinator-seat-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=coordinator-seat-opus
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "coordinator-seat-opus"
+}
+--- stderr
+
+
+=== tier=coordinator-seat-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=coordinator-seat-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "coordinator-seat-sonnet"
+}
+--- stderr
+
+
+=== tier=crosslab-astra
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=crosslab-astra
+exit: 0
+--- stdout
+{
+  "model": "gpt-6-astra",
+  "tier": "crosslab-astra"
+}
+--- stderr
+
+
+=== tier=crosslab-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=crosslab-opus
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "crosslab-opus"
+}
+--- stderr
+
+
+=== tier=crosslab-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=crosslab-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "crosslab-sol"
+}
+--- stderr
+
+
+=== tier=deep
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=deep
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "deep"
+}
+--- stderr
+
+
+=== tier=deep-alt
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=deep-alt
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "deep-alt"
+}
+--- stderr
+
+
+=== tier=deep-astra
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=deep-astra
+exit: 0
+--- stdout
+{
+  "model": "gpt-6-astra",
+  "tier": "deep-astra"
+}
+--- stderr
+
+
+=== tier=deep-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=deep-opus
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "deep-opus"
+}
+--- stderr
+
+
+=== tier=deep-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=deep-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "deep-sol"
+}
+--- stderr
+
+
+=== tier=deep-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=deep-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "deep-sonnet"
+}
+--- stderr
+
+
+=== tier=fast
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=fast
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "fast"
+}
+--- stderr
+
+
+=== tier=fast-alt
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=fast-alt
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "fast-alt"
+}
+--- stderr
+
+
+=== tier=lane-status-quo
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=lane-status-quo
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "lane-status-quo"
+}
+--- stderr
+
+
+=== tier=main-astra
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=main-astra
+exit: 0
+--- stdout
+{
+  "model": "gpt-6-astra",
+  "tier": "main-astra"
+}
+--- stderr
+
+
+=== tier=main-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=main-opus
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "main-opus"
+}
+--- stderr
+
+
+=== tier=main-session-astra
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=main-session-astra
+exit: 0
+--- stdout
+{
+  "model": "gpt-6-astra",
+  "tier": "main-session-astra"
+}
+--- stderr
+
+
+=== tier=main-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=main-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "main-sol"
+}
+--- stderr
+
+
+=== tier=main-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=main-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "main-sonnet"
+}
+--- stderr
+
+
+=== tier=pilot-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=pilot-opus
+exit: 0
+--- stdout
+{
+  "model": "opus",
+  "tier": "pilot-opus"
+}
+--- stderr
+
+
+=== tier=pilot-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=pilot-sonnet
+exit: 0
+--- stdout
+{
+  "model": "sonnet",
+  "tier": "pilot-sonnet"
+}
+--- stderr
+
+
+=== tier=planning-astra
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=planning-astra
+exit: 0
+--- stdout
+{
+  "model": "gpt-6-astra",
+  "tier": "planning-astra"
+}
+--- stderr
+
+
+=== tier=planning-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=planning-opus
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "planning-opus"
+}
+--- stderr
+
+
+=== tier=planning-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=planning-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "planning-sol"
+}
+--- stderr
+
+
+=== tier=release-authority-main
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=release-authority-main
+exit: 0
+--- stdout
+{
+  "model": "gpt-6-astra",
+  "tier": "release-authority-main"
+}
+--- stderr
+
+
+=== tier=release-authority-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=release-authority-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "release-authority-sol"
+}
+--- stderr
+
+
+=== tier=release-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=release-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "release-sol"
+}
+--- stderr
+
+
+=== tier=release-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=release-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "release-sonnet"
+}
+--- stderr
+
+
+=== tier=review-astra
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=review-astra
+exit: 0
+--- stdout
+{
+  "model": "gpt-6-astra",
+  "tier": "review-astra"
+}
+--- stderr
+
+
+=== tier=review-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=review-opus
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "review-opus"
+}
+--- stderr
+
+
+=== tier=routine-exec-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=routine-exec-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "routine-exec-sonnet"
+}
+--- stderr
+
+
+=== tier=routine-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=routine-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "routine-sol"
+}
+--- stderr
+
+
+=== tier=routine-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=routine-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "routine-sonnet"
+}
+--- stderr
+
+
+=== tier=scout-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=scout-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "scout-sol"
+}
+--- stderr
+
+
+=== tier=scout-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=scout-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "scout-sonnet"
+}
+--- stderr
+
+
+=== tier=validation-kimi
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=validation-kimi
+exit: 0
+--- stdout
+{
+  "model": "kimi-code/k3",
+  "tier": "validation-kimi"
+}
+--- stderr
+
+
+=== tier=validation-opus
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=validation-opus
+exit: 0
+--- stdout
+{
+  "model": "claude-opus-5-5",
+  "tier": "validation-opus"
+}
+--- stderr
+
+
+=== tier=validation-sol
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=validation-sol
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "validation-sol"
+}
+--- stderr
+
+
+=== tier=validation-sonnet
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=validation-sonnet
+exit: 0
+--- stdout
+{
+  "model": "claude-sonnet-5-5",
+  "tier": "validation-sonnet"
+}
+--- stderr
+
+
+=== tier text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=fast
+exit: 0
+--- stdout
+gpt-6.1-sol
+--- stderr
+
+
+=== tier positional
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml deep
+exit: 0
+--- stdout
+gpt-6.1-sol
+--- stderr
+
+
+=== tier fallback alias
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=fast-alt
+exit: 0
+--- stdout
+{
+  "model": "gpt-6.1-sol",
+  "tier": "fast-alt"
+}
+--- stderr
+
+
+=== tier missing
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=no-such-tier
+exit: 1
+--- stdout
+--- stderr
+tier "no-such-tier": not found (checked fallbacks)
+
+
+=== tier missing text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --tier=no-such-tier
+exit: 1
+--- stdout
+--- stderr
+tier "no-such-tier": not found (checked fallbacks)
+
+
+=== type unknown json
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --type=no-such-type
+exit: 0
+--- stdout
+{"model":"","phase":"","type":"no-such-type"}
+--- stderr
+
+
+=== type unknown text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --type=no-such-type
+exit: 1
+--- stdout
+--- stderr
+type "no-such-type": no dispatch tier found
+
+
+=== type phase unknown
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --type=no-such-type --phase=planned
+exit: 0
+--- stdout
+{"model":"","phase":"planned","type":"no-such-type"}
+--- stderr
+
+
+=== type tier name
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --type=fast
+exit: 0
+--- stdout
+{"model":"gpt-6.1-sol","phase":"","type":"fast"}
+--- stderr
+
+
+=== type tier name text
+$ ic route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml --type=deep
+exit: 0
+--- stdout
+gpt-6.1-sol
+--- stderr
+
+
+=== no selector
+$ ic --json route dispatch --policy=<SANDBOX>/plugin/config/routing.yaml
+exit: 3
+--- stdout
+--- stderr
+ic route dispatch: requires --role=<name>, --tier=<name>, or --type=<name>
+

@@ -1,0 +1,500 @@
+subagents:
+  defaults:
+    model: sonnet
+    categories:
+      research: haiku
+      review: sonnet
+      workflow: sonnet
+      synthesis: haiku
+      explore: haiku
+      general-purpose: sonnet
+  overrides:
+    interflux:review:fd-safety: sonnet
+    interflux:review:fd-correctness: sonnet
+    interflux:fd-safety: sonnet
+    interflux:fd-correctness: sonnet
+  phases:
+    brainstorm:
+      model: opus
+      categories:
+        research: haiku
+        review: sonnet
+        synthesis: haiku
+    brainstorm-reviewed:
+      model: sonnet
+    strategized:
+      model: opus
+      categories:
+        research: haiku
+        review: sonnet
+        synthesis: haiku
+    strategy-reviewed:
+      model: sonnet
+    planned:
+      model: opus
+      categories:
+        research: haiku
+        review: sonnet
+    executing:
+      model: sonnet
+      categories:
+        review: sonnet
+    shipping:
+      model: sonnet
+    reflect:
+      model: sonnet
+    done:
+      model: sonnet
+reasoning:
+  frontier_models:
+  - gpt-6-astra
+  - claude-opus-5-5
+  frontier_reasons:
+  - unresolved-success-criteria
+  - foundational-invariants
+  - broad-consequences
+  - difficult-verification
+  - capability-failure
+  dual_review_reasons:
+  - foundational-invariants
+  - broad-consequences
+  strikes: 2
+  profiles:
+    ci-campaign-pilot:
+      scope: pilot-campaign
+      roles:
+        main-integrator: pilot-opus
+        routine-execution: pilot-sonnet
+        validation: validation-sol
+dispatch:
+  model_aliases:
+    opus: claude-opus-5-5
+    sonnet: claude-sonnet-5-5
+    k3: kimi-code/k3
+    kimi/k3: kimi-code/k3
+  roles:
+    planning: planning-sol
+    frontier-planning: planning-astra
+    plan-review: review-opus
+    escalation: planning-astra
+    main-integrator: main-astra
+    scout: scout-sol
+    routine-execution: routine-exec-sonnet
+    deep-execution: deep-sonnet
+    validation: validation-opus
+    release-preparation: release-sol
+    release-authority: release-authority-main
+    cross-lab-review: crosslab-sol
+    coordination: coordination-sonnet
+    coordinator-seat: coordinator-seat-sonnet
+    main-session: main-sonnet
+    lane: lane-status-quo
+  cross_lab_first:
+  - validation
+  - cross-lab-review
+  - plan-review
+  effort_floors:
+    foundational-invariants: high
+    difficult-verification: high
+    capability-failure: high
+  effort_floor_exemptions:
+    cross-lab-review:
+    - difficult-verification
+  tiers:
+    planning-astra:
+      role: frontier-planning
+      backend: codex
+      model: gpt-6-astra
+      reasoning_effort: medium
+      service_tier: standard
+      minimum_codex_version: 0.153.1
+      fallbacks:
+      - planning-opus
+    planning-opus:
+      role: frontier-planning
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      description: Frontier authoring fallback when Astra is unavailable
+    review-astra:
+      role: plan-review
+      backend: codex
+      model: gpt-6-astra
+      reasoning_effort: medium
+      service_tier: standard
+      minimum_codex_version: 0.153.1
+      description: Cross-lab reviewer for Claude-authored plans
+    review-opus:
+      role: plan-review
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - review-astra
+    pilot-opus:
+      role: main-integrator
+      backend: main
+      model: opus
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - main-opus
+    main-opus:
+      role: main-integrator
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: high
+      service_tier: standard
+      description: 'Floor-safe main-integrator substitute when Codex is exhausted and a floored reason excludes pilot-opus (backend: main). Does not carry commit/push/deploy authority the way pilot-opus does.'
+    pilot-sonnet:
+      role: routine-execution
+      backend: claude
+      model: sonnet
+      reasoning_effort: high
+      service_tier: standard
+    fast:
+      role: routine-execution
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - routine-sonnet
+      description: Scoped read-only tasks, exploration, verification, quick reviews
+    fast-alt:
+      role: scout
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - scout-sonnet
+      description: Alternate interserve-mode default for read-only/administrative tasks
+    deep:
+      role: deep-execution
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - deep-opus
+      description: Generative tasks, implementation, complex reasoning, debates
+    deep-alt:
+      role: deep-execution
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - deep-opus
+      description: Alternate interserve-mode high-complexity/research/flux-drive dispatch
+    main-astra:
+      role: main-integrator
+      backend: codex
+      model: gpt-6-astra
+      reasoning_effort: xhigh
+      service_tier: standard
+      minimum_codex_version: 0.153.1
+      fallbacks:
+      - main-sol
+      description: Interactive orchestration and integration under the main session authority
+    main-sol:
+      role: main-integrator
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - pilot-opus
+      description: Main-integrator fallback while Astra account access is unavailable
+    scout-sol:
+      role: scout
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - scout-sonnet
+      description: Repository exploration and bounded read-only reconnaissance
+    scout-sonnet:
+      role: scout
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      description: Capacity fallback for scout when the Codex lane is out of usage
+    main-sonnet:
+      role: main-session
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - main-session-astra
+    main-session-astra:
+      role: main-session
+      backend: codex
+      model: gpt-6-astra
+      reasoning_effort: medium
+      service_tier: standard
+    lane-status-quo:
+      role: lane
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - main-sonnet
+    coordinator-seat-opus:
+      role: coordinator-seat
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - coordinator-seat-sonnet
+    coordinator-seat-sonnet:
+      role: coordinator-seat
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - main-session-astra
+    coordination-sonnet:
+      role: coordination
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - coordination-sol
+      description: Coordinator relay, wait and status turns
+    coordination-sol:
+      role: coordination
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      description: Capacity fallback for coordination when the Claude lane is out
+    routine-sol:
+      role: routine-execution
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - routine-sonnet
+      description: High-volume routine implementation
+    planning-sol:
+      role: planning
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - routine-sonnet
+      description: Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles
+    routine-exec-sonnet:
+      role: routine-execution
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - routine-sol
+      description: Default routine (mechanical) execution seat
+    deep-sonnet:
+      role: deep-execution
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - deep-astra
+      description: Default deep-execution seat when the context is not elevated
+    routine-sonnet:
+      role: routine-execution
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: high
+      service_tier: standard
+      description: Capacity fallback for routine execution when the Codex lane is out of usage
+    deep-astra:
+      role: deep-execution
+      backend: codex
+      model: gpt-6-astra
+      reasoning_effort: high
+      service_tier: standard
+      minimum_codex_version: 0.153.1
+      fallbacks:
+      - deep-sol
+      description: Complex implementation and long-running execution
+    deep-sol:
+      role: deep-execution
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - deep-opus
+      description: Deep-execution fallback for explicit Astra unavailability
+    deep-opus:
+      role: deep-execution
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: high
+      service_tier: standard
+      description: Capacity fallback for deep execution when the Codex lane is out of usage
+    validation-opus:
+      role: validation
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - validation-sonnet
+      - validation-sol
+      - validation-kimi
+      description: Independent validator for Codex-produced work
+    validation-sonnet:
+      role: validation
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - validation-sol
+      - validation-kimi
+      description: Validation fallback when Opus is unavailable or is the producer
+    validation-kimi:
+      role: validation
+      backend: kimi
+      model: kimi-code/k3
+      reasoning_effort: high
+      service_tier: standard
+      fallbacks:
+      - validation-sol
+      description: Cross-provider validation fallback
+    validation-sol:
+      role: validation
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - validation-opus
+      - validation-sonnet
+      description: Codex validation fallback when its resolved model differs from the producer
+    release-sol:
+      role: release-preparation
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - release-sonnet
+      description: Release packet and documentation preparation
+    release-sonnet:
+      role: release-preparation
+      backend: claude
+      model: claude-sonnet-5-5
+      reasoning_effort: high
+      service_tier: standard
+      description: Capacity fallback for release preparation when the Codex lane is out of usage
+    release-authority-main:
+      role: release-authority
+      backend: main
+      model: gpt-6-astra
+      reasoning_effort: xhigh
+      service_tier: standard
+      minimum_codex_version: 0.153.1
+      fallbacks:
+      - release-authority-sol
+      description: Commit, push, and deploy authority retained by the main integrator
+    release-authority-sol:
+      role: release-authority
+      backend: main
+      model: gpt-6.1-sol
+      reasoning_effort: high
+      service_tier: standard
+      description: Main-integrator release authority while Astra access is unavailable
+    crosslab-sol:
+      role: cross-lab-review
+      backend: codex
+      model: gpt-6.1-sol
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - crosslab-astra
+      - crosslab-opus
+      description: Sealed first-pass review by a provider/model other than the producer
+    crosslab-astra:
+      role: cross-lab-review
+      backend: codex
+      model: gpt-6-astra
+      reasoning_effort: xhigh
+      service_tier: standard
+      minimum_codex_version: 0.153.1
+      description: Sealed first-pass review by a provider/model other than the producer
+    crosslab-opus:
+      role: cross-lab-review
+      backend: claude
+      model: claude-opus-5-5
+      reasoning_effort: medium
+      service_tier: standard
+      fallbacks:
+      - validation-kimi
+      description: Sealed first-pass review by a provider/model other than the producer
+  fallback:
+    fast: deep
+    fast-alt: deep-alt
+    deep-alt: deep
+complexity:
+  mode: enforce
+  tiers:
+    C5:
+      description: "Architectural \u2014 multi-system design, novel algorithms, cross-cutting concerns"
+      prompt_tokens: 4000
+      file_count: 15
+      reasoning_depth: 5
+    C4:
+      description: "Complex \u2014 multi-file implementation, significant refactoring"
+      prompt_tokens: 2000
+      file_count: 8
+      reasoning_depth: 4
+    C3:
+      description: "Moderate \u2014 single-component feature, standard patterns"
+      prompt_tokens: 800
+      file_count: 4
+      reasoning_depth: 3
+    C2:
+      description: "Simple \u2014 focused change, well-understood scope"
+      prompt_tokens: 300
+      file_count: 2
+      reasoning_depth: 2
+    C1:
+      description: "Trivial \u2014 typo fix, config tweak, single-line change"
+      prompt_tokens: 0
+      file_count: 0
+      reasoning_depth: 1
+  overrides:
+    C5:
+      subagent_model: opus
+      dispatch_tier: deep
+    C4:
+      subagent_model: opus
+      dispatch_tier: deep
+    C3:
+      subagent_model: inherit
+      dispatch_tier: inherit
+    C2:
+      subagent_model: haiku
+      dispatch_tier: fast
+    C1:
+      subagent_model: haiku
+      dispatch_tier: fast
+calibration:
+  mode: enforce

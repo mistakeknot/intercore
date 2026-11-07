@@ -1,0 +1,545 @@
+=== init
+$ ic --db=<SANDBOX>/work/t.db init
+exit: 0
+files: created work/t.db, created work/t.db.backup-<STAMP>
+--- stdout
+initialized <SANDBOX>/work/t.db (schema v40)
+--- stderr
+
+
+=== spawn planning no context
+$ ic --db=<SANDBOX>/work/t.db --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --project=<SANDBOX>/work --scheduled
+exit: 0
+files: modified work/t.db
+--- stdout
+{"job_id":"<JOB-ID>","scheduled":true}
+--- stderr
+
+
+=== status planning no context
+$ ic --db=<SANDBOX>/work/t.db --json scheduler status <JOB-ID>
+exit: 0
+--- stdout
+{"agent_type":"codex","created_at":<EPOCH>,"id":"<JOB-ID>","max_retries":3,"priority":2,"retry_count":0,"status":"pending"}
+--- stderr
+
+
+=== spawn planning capability-failure
+$ ic --db=<SANDBOX>/work/t.db --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --project=<SANDBOX>/work --scheduled --context-file=<CTX>
+context: {"reasons":["capability-failure"],"rationale":"synthetic characterization rationale"}
+exit: 0
+files: modified work/t.db
+--- stdout
+{"job_id":"<JOB-ID>","scheduled":true}
+--- stderr
+
+
+=== status planning capability-failure
+$ ic --db=<SANDBOX>/work/t.db --json scheduler status <JOB-ID>
+exit: 0
+--- stdout
+{"agent_type":"codex","created_at":<EPOCH>,"id":"<JOB-ID>","max_retries":3,"priority":2,"retry_count":0,"status":"pending"}
+--- stderr
+
+
+=== spawn routine-execution foundational
+$ ic --db=<SANDBOX>/work/t.db --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=routine-execution --prompt-file=<SANDBOX>/prompt.md --project=<SANDBOX>/work --scheduled --context-file=<CTX>
+context: {"reasons":["foundational-invariants"],"rationale":"synthetic characterization rationale"}
+exit: 0
+files: modified work/t.db
+--- stdout
+{"job_id":"<JOB-ID>","scheduled":true}
+--- stderr
+
+
+=== status routine-execution foundational
+$ ic --db=<SANDBOX>/work/t.db --json scheduler status <JOB-ID>
+exit: 0
+--- stdout
+{"agent_type":"codex","created_at":<EPOCH>,"id":"<JOB-ID>","max_retries":3,"priority":2,"retry_count":0,"status":"pending"}
+--- stderr
+
+
+=== spawn validation with producer
+$ ic --db=<SANDBOX>/work/t.db --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=validation --prompt-file=<SANDBOX>/prompt.md --project=<SANDBOX>/work --scheduled --producer-identity=claude-opus-5-5
+exit: 0
+files: modified work/t.db
+--- stdout
+{"job_id":"<JOB-ID>","scheduled":true}
+--- stderr
+
+
+=== status validation with producer
+$ ic --db=<SANDBOX>/work/t.db --json scheduler status <JOB-ID>
+exit: 0
+--- stdout
+{"agent_type":"codex","created_at":<EPOCH>,"id":"<JOB-ID>","max_retries":3,"priority":2,"retry_count":0,"status":"pending"}
+--- stderr
+
+
+=== spawn planning with effort in session
+$ ic --db=<SANDBOX>/work/t.db --json dispatch spawn --policy=<SANDBOX>/plugin/config/routing.yaml --role=planning --prompt-file=<SANDBOX>/prompt.md --project=<SANDBOX>/work --scheduled --scheduler-session=synthetic-session
+exit: 0
+files: modified work/t.db
+--- stdout
+{"job_id":"<JOB-ID>","scheduled":true}
+--- stderr
+
+
+=== status planning with effort in session
+$ ic --db=<SANDBOX>/work/t.db --json scheduler status <JOB-ID>
+exit: 0
+--- stdout
+{"agent_type":"codex","created_at":<EPOCH>,"id":"<JOB-ID>","max_retries":3,"priority":2,"retry_count":0,"session_name":"synthetic-session","status":"pending"}
+--- stderr
+
+
+=== stored scheduler jobs (read-only query, in submission order)
+job agent_type=codex status=pending
+{
+  "AgentType": "codex",
+  "BudgetQuerier": null,
+  "Decision": {
+    "classification_reasons": [],
+    "decision_context": {
+      "available_models": null,
+      "rationale": "",
+      "reasons": null
+    },
+    "fallback_chain": [
+      {
+        "profile": {
+          "backend": "claude",
+          "description": "Capacity fallback for routine execution when the Codex lane is out of usage",
+          "model": "claude-sonnet-5-5",
+          "model_identity": "claude-sonnet-5-5",
+          "reasoning_effort": "high",
+          "role": "routine-execution",
+          "service_tier": "standard"
+        },
+        "profile_ref": "routine-sonnet"
+      }
+    ],
+    "frontier_required": false,
+    "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+    "policy_profile": "default",
+    "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+    "profile": {
+      "backend": "codex",
+      "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles",
+      "fallbacks": [
+        "routine-sonnet"
+      ],
+      "model": "gpt-6.1-sol",
+      "model_identity": "gpt-6.1-sol",
+      "reasoning_effort": "high",
+      "role": "planning",
+      "service_tier": "standard"
+    },
+    "profile_ref": "planning-sol",
+    "requested_role": "planning",
+    "review_requirement": "existing-gates"
+  },
+  "DispatchSH": "<SANDBOX>/plugin/scripts/dispatch.sh",
+  "Model": "gpt-6.1-sol",
+  "Name": "",
+  "OutputFile": "",
+  "ParentDispatchID": "",
+  "ParentID": "",
+  "Policy": {
+    "BudgetEnforce": false,
+    "MaxActiveGlobal": 0,
+    "MaxActivePerRun": 0,
+    "MaxAgentsPerRun": 0,
+    "MaxSpawnDepth": 0
+  },
+  "ProjectDir": "<SANDBOX>/work",
+  "PromptFile": "<SANDBOX>/prompt.md",
+  "RunID": "",
+  "Sandbox": "",
+  "SandboxSpec": "",
+  "ScopeID": "",
+  "TimeoutSec": 0
+}
+job agent_type=codex status=pending
+{
+  "AgentType": "codex",
+  "BudgetQuerier": null,
+  "Decision": {
+    "classification_reasons": [
+      "capability-failure"
+    ],
+    "decision_context": {
+      "available_models": null,
+      "rationale": "synthetic characterization rationale",
+      "reasons": [
+        "capability-failure"
+      ]
+    },
+    "effort_floors_applied": [
+      {
+        "from": "medium",
+        "profile_ref": "planning-astra",
+        "reasons": [
+          "capability-failure"
+        ],
+        "to": "high"
+      },
+      {
+        "from": "medium",
+        "profile_ref": "planning-opus",
+        "reasons": [
+          "capability-failure"
+        ],
+        "to": "high"
+      }
+    ],
+    "fallback_chain": [
+      {
+        "profile": {
+          "backend": "claude",
+          "description": "Frontier authoring fallback when Astra is unavailable",
+          "model": "claude-opus-5-5",
+          "model_identity": "claude-opus-5-5",
+          "reasoning_effort": "high",
+          "role": "frontier-planning",
+          "service_tier": "standard"
+        },
+        "profile_ref": "planning-opus"
+      }
+    ],
+    "frontier_required": true,
+    "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+    "policy_profile": "default",
+    "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+    "profile": {
+      "backend": "codex",
+      "fallbacks": [
+        "planning-opus"
+      ],
+      "minimum_codex_version": "0.153.1",
+      "model": "gpt-6-astra",
+      "model_identity": "gpt-6-astra",
+      "reasoning_effort": "high",
+      "role": "frontier-planning",
+      "service_tier": "standard"
+    },
+    "profile_ref": "planning-astra",
+    "requested_role": "planning",
+    "review_requirement": "existing-gates"
+  },
+  "DispatchSH": "<SANDBOX>/plugin/scripts/dispatch.sh",
+  "Model": "gpt-6-astra",
+  "Name": "",
+  "OutputFile": "",
+  "ParentDispatchID": "",
+  "ParentID": "",
+  "Policy": {
+    "BudgetEnforce": false,
+    "MaxActiveGlobal": 0,
+    "MaxActivePerRun": 0,
+    "MaxAgentsPerRun": 0,
+    "MaxSpawnDepth": 0
+  },
+  "ProjectDir": "<SANDBOX>/work",
+  "PromptFile": "<SANDBOX>/prompt.md",
+  "RunID": "",
+  "Sandbox": "",
+  "SandboxSpec": "",
+  "ScopeID": "",
+  "TimeoutSec": 0
+}
+job agent_type=codex status=pending
+{
+  "AgentType": "codex",
+  "BudgetQuerier": null,
+  "Decision": {
+    "classification_reasons": [
+      "foundational-invariants"
+    ],
+    "decision_context": {
+      "available_models": null,
+      "rationale": "synthetic characterization rationale",
+      "reasons": [
+        "foundational-invariants"
+      ]
+    },
+    "excluded": [
+      {
+        "profile": {
+          "backend": "claude",
+          "description": "Default deep-execution seat when the context is not elevated",
+          "fallbacks": [
+            "deep-astra"
+          ],
+          "model": "claude-sonnet-5-5",
+          "model_identity": "claude-sonnet-5-5",
+          "reasoning_effort": "high",
+          "role": "deep-execution",
+          "service_tier": "standard"
+        },
+        "profile_ref": "deep-sonnet",
+        "reason": "frontier_required"
+      },
+      {
+        "profile": {
+          "backend": "codex",
+          "description": "Deep-execution fallback for explicit Astra unavailability",
+          "fallbacks": [
+            "deep-opus"
+          ],
+          "model": "gpt-6.1-sol",
+          "model_identity": "gpt-6.1-sol",
+          "reasoning_effort": "high",
+          "role": "deep-execution",
+          "service_tier": "standard"
+        },
+        "profile_ref": "deep-sol",
+        "reason": "frontier_required"
+      }
+    ],
+    "fallback_chain": [
+      {
+        "profile": {
+          "backend": "claude",
+          "description": "Capacity fallback for deep execution when the Codex lane is out of usage",
+          "model": "claude-opus-5-5",
+          "model_identity": "claude-opus-5-5",
+          "reasoning_effort": "high",
+          "role": "deep-execution",
+          "service_tier": "standard"
+        },
+        "profile_ref": "deep-opus"
+      }
+    ],
+    "fallback_reason": "reasoning_contract",
+    "frontier_required": true,
+    "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+    "policy_profile": "default",
+    "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+    "profile": {
+      "backend": "codex",
+      "description": "Complex implementation and long-running execution",
+      "fallbacks": [
+        "deep-sol"
+      ],
+      "minimum_codex_version": "0.153.1",
+      "model": "gpt-6-astra",
+      "model_identity": "gpt-6-astra",
+      "reasoning_effort": "high",
+      "role": "deep-execution",
+      "service_tier": "standard"
+    },
+    "profile_ref": "deep-astra",
+    "requested_role": "routine-execution",
+    "review_requirement": "other-frontier"
+  },
+  "DispatchSH": "<SANDBOX>/plugin/scripts/dispatch.sh",
+  "Model": "gpt-6-astra",
+  "Name": "",
+  "OutputFile": "",
+  "ParentDispatchID": "",
+  "ParentID": "",
+  "Policy": {
+    "BudgetEnforce": false,
+    "MaxActiveGlobal": 0,
+    "MaxActivePerRun": 0,
+    "MaxAgentsPerRun": 0,
+    "MaxSpawnDepth": 0
+  },
+  "ProjectDir": "<SANDBOX>/work",
+  "PromptFile": "<SANDBOX>/prompt.md",
+  "RunID": "",
+  "Sandbox": "",
+  "SandboxSpec": "",
+  "ScopeID": "",
+  "TimeoutSec": 0
+}
+job agent_type=codex status=pending
+{
+  "AgentType": "codex",
+  "BudgetQuerier": null,
+  "Decision": {
+    "classification_reasons": [],
+    "cross_lab_reorder": {
+      "from": [
+        "validation-sonnet",
+        "validation-sol",
+        "validation-kimi"
+      ],
+      "to": [
+        "validation-sol",
+        "validation-sonnet",
+        "validation-kimi"
+      ]
+    },
+    "decision_context": {
+      "available_models": null,
+      "rationale": "",
+      "reasons": null
+    },
+    "excluded": [
+      {
+        "profile": {
+          "backend": "claude",
+          "description": "Independent validator for Codex-produced work",
+          "fallbacks": [
+            "validation-sonnet",
+            "validation-sol",
+            "validation-kimi"
+          ],
+          "model": "claude-opus-5-5",
+          "model_identity": "claude-opus-5-5",
+          "reasoning_effort": "medium",
+          "role": "validation",
+          "service_tier": "standard"
+        },
+        "profile_ref": "validation-opus",
+        "reason": "producer_model_conflict"
+      }
+    ],
+    "fallback_chain": [
+      {
+        "profile": {
+          "backend": "claude",
+          "description": "Validation fallback when Opus is unavailable or is the producer",
+          "fallbacks": [
+            "validation-sol",
+            "validation-kimi"
+          ],
+          "model": "claude-sonnet-5-5",
+          "model_identity": "claude-sonnet-5-5",
+          "reasoning_effort": "medium",
+          "role": "validation",
+          "service_tier": "standard"
+        },
+        "profile_ref": "validation-sonnet"
+      },
+      {
+        "profile": {
+          "backend": "kimi",
+          "description": "Cross-provider validation fallback",
+          "fallbacks": [
+            "validation-sol"
+          ],
+          "model": "kimi-code/k3",
+          "model_identity": "kimi-code/k3",
+          "reasoning_effort": "high",
+          "role": "validation",
+          "service_tier": "standard"
+        },
+        "profile_ref": "validation-kimi"
+      }
+    ],
+    "fallback_reason": "producer_model_conflict",
+    "frontier_required": false,
+    "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+    "policy_profile": "default",
+    "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+    "producer_identity": "claude-opus-5-5",
+    "producer_model": "claude-opus-5-5",
+    "profile": {
+      "backend": "codex",
+      "description": "Codex validation fallback when its resolved model differs from the producer",
+      "fallbacks": [
+        "validation-opus",
+        "validation-sonnet"
+      ],
+      "model": "gpt-6.1-sol",
+      "model_identity": "gpt-6.1-sol",
+      "reasoning_effort": "medium",
+      "role": "validation",
+      "service_tier": "standard"
+    },
+    "profile_ref": "validation-sol",
+    "requested_role": "validation",
+    "review_requirement": "existing-gates",
+    "validator_relationship": "different-model"
+  },
+  "DispatchSH": "<SANDBOX>/plugin/scripts/dispatch.sh",
+  "Model": "gpt-6.1-sol",
+  "Name": "",
+  "OutputFile": "",
+  "ParentDispatchID": "",
+  "ParentID": "",
+  "Policy": {
+    "BudgetEnforce": false,
+    "MaxActiveGlobal": 0,
+    "MaxActivePerRun": 0,
+    "MaxAgentsPerRun": 0,
+    "MaxSpawnDepth": 0
+  },
+  "ProjectDir": "<SANDBOX>/work",
+  "PromptFile": "<SANDBOX>/prompt.md",
+  "RunID": "",
+  "Sandbox": "",
+  "SandboxSpec": "",
+  "ScopeID": "",
+  "TimeoutSec": 0
+}
+job agent_type=codex status=pending
+{
+  "AgentType": "codex",
+  "BudgetQuerier": null,
+  "Decision": {
+    "classification_reasons": [],
+    "decision_context": {
+      "available_models": null,
+      "rationale": "",
+      "reasons": null
+    },
+    "fallback_chain": [
+      {
+        "profile": {
+          "backend": "claude",
+          "description": "Capacity fallback for routine execution when the Codex lane is out of usage",
+          "model": "claude-sonnet-5-5",
+          "model_identity": "claude-sonnet-5-5",
+          "reasoning_effort": "high",
+          "role": "routine-execution",
+          "service_tier": "standard"
+        },
+        "profile_ref": "routine-sonnet"
+      }
+    ],
+    "frontier_required": false,
+    "policy_hash": "76fffa83d5b35be3c8030ba75a79f61beacb2540851366b81ff149d6a979af4e",
+    "policy_profile": "default",
+    "policy_source": "<SANDBOX>/plugin/config/routing.yaml",
+    "profile": {
+      "backend": "codex",
+      "description": "Unelevated planning; Sol at high because Rule 6 bars Sol-medium from judgment roles",
+      "fallbacks": [
+        "routine-sonnet"
+      ],
+      "model": "gpt-6.1-sol",
+      "model_identity": "gpt-6.1-sol",
+      "reasoning_effort": "high",
+      "role": "planning",
+      "service_tier": "standard"
+    },
+    "profile_ref": "planning-sol",
+    "requested_role": "planning",
+    "review_requirement": "existing-gates"
+  },
+  "DispatchSH": "<SANDBOX>/plugin/scripts/dispatch.sh",
+  "Model": "gpt-6.1-sol",
+  "Name": "",
+  "OutputFile": "",
+  "ParentDispatchID": "",
+  "ParentID": "",
+  "Policy": {
+    "BudgetEnforce": false,
+    "MaxActiveGlobal": 0,
+    "MaxActivePerRun": 0,
+    "MaxAgentsPerRun": 0,
+    "MaxSpawnDepth": 0
+  },
+  "ProjectDir": "<SANDBOX>/work",
+  "PromptFile": "<SANDBOX>/prompt.md",
+  "RunID": "",
+  "Sandbox": "",
+  "SandboxSpec": "",
+  "ScopeID": "",
+  "TimeoutSec": 0
+}
