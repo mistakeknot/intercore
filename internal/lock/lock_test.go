@@ -370,3 +370,43 @@ func TestWriteOwnerFileExclusive(t *testing.T) {
 		t.Errorf("owner.json changed by a refused write:\n got %q\nwant %q", after, first)
 	}
 }
+
+// A persistent failure to write the owner record must end at the deadline with
+// an error. It used to retry without looking at the deadline, so it could spin
+// forever or report success after the wait was over.
+func TestAcquireOwnerWriteFailureHonoursDeadline(t *testing.T) {
+	m := setupTestManager(t)
+	ctx := context.Background()
+
+	// Remove the directory right after Mkdir so every owner write fails with
+	// ENOENT (not EEXIST), on every attempt.
+	afterMkdirHook = func(ld string) { os.Remove(ld) }
+	defer func() { afterMkdirHook = nil }()
+
+	type result struct {
+		err     error
+		elapsed time.Duration
+	}
+	done := make(chan result, 1)
+	go func() {
+		start := time.Now()
+		err := m.Acquire(ctx, "mutex", "s1", "1:host", 100*time.Millisecond)
+		done <- result{err, time.Since(start)}
+	}()
+	select {
+	case r := <-done:
+		if r.err == nil {
+			t.Fatalf("Acquire succeeded although every owner write failed")
+		}
+		if errors.Is(r.err, ErrTimeout) || errors.Is(r.err, fs.ErrNotExist) {
+			// either is a faithful report of the persistent failure
+		} else {
+			t.Errorf("Acquire = %v, want the write error or ErrTimeout", r.err)
+		}
+		if r.elapsed > 2*time.Second {
+			t.Errorf("Acquire took %v with a 100ms wait", r.elapsed)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Acquire did not return: retries ignore the deadline")
+	}
+}

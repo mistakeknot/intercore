@@ -144,7 +144,12 @@ func (m *Manager) Acquire(_ context.Context, name, scope, owner string, maxWait 
 				// Failed to write metadata — release the lock dir.
 				// The dir might already be gone (concurrent stale-break).
 				os.Remove(ld)
-				// Don't error — retry the acquire loop.
+				// Retry, but only until the deadline: a persistent failure must
+				// surface as an error, not loop or succeed after the wait is over.
+				if time.Now().After(deadline) {
+					return fmt.Errorf("lock acquire: write owner: %w", werr)
+				}
+				time.Sleep(DefaultRetryWait)
 				continue
 			}
 			return nil
@@ -337,7 +342,12 @@ func writeOwnerFile(lockDir, owner string) error {
 		os.Remove(ownerFilePath(lockDir))
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		// A record whose close failed may be incomplete; do not leave it.
+		os.Remove(ownerFilePath(lockDir))
+		return err
+	}
+	return nil
 }
 
 // readOwnerFile reads the owner metadata from a lock dir's owner.json.
