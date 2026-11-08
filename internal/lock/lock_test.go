@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -318,5 +319,54 @@ func TestGhostLockCleanup(t *testing.T) {
 	}
 	if removed != 1 {
 		t.Errorf("clean removed = %d, want 1", removed)
+	}
+}
+
+// A bash client (hooks/lib-intercore.sh) or a mkdir that reports success on an
+// existing directory can claim the directory between our Mkdir and our owner
+// write. The owner write must not overwrite its record, and Acquire must treat
+// the lock as contended.
+func TestAcquireOwnerFileClaimedByOtherClient(t *testing.T) {
+	m := setupTestManager(t)
+	m.StaleAge = 30 * time.Second
+	ctx := context.Background()
+
+	const other = `{"pid":4242,"host":"otherhost","owner":"4242:otherhost","created":4102444800}` + "\n"
+	afterMkdirHook = func(ld string) {
+		if err := os.WriteFile(filepath.Join(ld, "owner.json"), []byte(other), 0600); err != nil {
+			t.Errorf("simulated claim: %v", err)
+		}
+	}
+	defer func() { afterMkdirHook = nil }()
+
+	err := m.Acquire(ctx, "mutex", "s1", "1:host", 300*time.Millisecond)
+	if !errors.Is(err, ErrTimeout) {
+		t.Fatalf("Acquire = %v, want ErrTimeout (contention)", err)
+	}
+
+	ld := filepath.Join(m.BaseDir, "mutex", "s1")
+	got, rerr := os.ReadFile(filepath.Join(ld, "owner.json"))
+	if rerr != nil {
+		t.Fatalf("other client's lock was removed: %v", rerr)
+	}
+	if string(got) != other {
+		t.Errorf("other client's owner.json was overwritten:\n got %q\nwant %q", got, other)
+	}
+}
+
+func TestWriteOwnerFileExclusive(t *testing.T) {
+	dir := t.TempDir()
+	if err := writeOwnerFile(dir, "1:host"); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	first, _ := os.ReadFile(filepath.Join(dir, "owner.json"))
+
+	err := writeOwnerFile(dir, "2:host")
+	if !errors.Is(err, fs.ErrExist) {
+		t.Fatalf("second write = %v, want fs.ErrExist", err)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "owner.json"))
+	if string(after) != string(first) {
+		t.Errorf("owner.json changed by a refused write:\n got %q\nwant %q", after, first)
 	}
 }

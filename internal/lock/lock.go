@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -124,7 +125,22 @@ func (m *Manager) Acquire(_ context.Context, name, scope, owner string, maxWait 
 		err := os.Mkdir(ld, 0700)
 		if err == nil {
 			// Lock acquired — write owner metadata.
+			if afterMkdirHook != nil {
+				afterMkdirHook(ld)
+			}
 			if werr := writeOwnerFile(ld, owner); werr != nil {
+				if errors.Is(werr, fs.ErrExist) {
+					// Another client (the bash fallback in hooks/lib-intercore.sh,
+					// or a mkdir that reports success on an existing directory)
+					// already claimed this directory by creating owner.json.
+					// The directory is theirs: leave it and owner.json alone and
+					// treat this as contention.
+					if time.Now().After(deadline) {
+						return ErrTimeout
+					}
+					time.Sleep(DefaultRetryWait)
+					continue
+				}
 				// Failed to write metadata — release the lock dir.
 				// The dir might already be gone (concurrent stale-break).
 				os.Remove(ld)
@@ -281,7 +297,13 @@ func (m *Manager) Clean(_ context.Context, maxAge time.Duration) (int, error) {
 	return removed, nil
 }
 
-// writeOwnerFile writes the owner metadata file inside the lock dir.
+// afterMkdirHook, when non-nil, runs between a successful Mkdir and the owner
+// file write. It exists so tests can interleave another client deterministically.
+var afterMkdirHook func(lockDir string)
+
+// writeOwnerFile creates the owner metadata file inside the lock dir. The create
+// is exclusive (O_CREAT|O_EXCL): if owner.json already exists another client has
+// claimed the directory and the error satisfies errors.Is(err, fs.ErrExist).
 func writeOwnerFile(lockDir, owner string) error {
 	pid := os.Getpid()
 	host, _ := os.Hostname()
@@ -306,7 +328,16 @@ func writeOwnerFile(lockDir, owner string) error {
 		return err
 	}
 
-	return os.WriteFile(ownerFilePath(lockDir), data, 0600)
+	f, err := os.OpenFile(ownerFilePath(lockDir), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(ownerFilePath(lockDir))
+		return err
+	}
+	return f.Close()
 }
 
 // readOwnerFile reads the owner metadata from a lock dir's owner.json.
