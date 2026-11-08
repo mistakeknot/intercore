@@ -263,8 +263,8 @@ Commands:
   gate check <run_id> [--priority=N]   Dry-run gate evaluation (0=pass, 1=fail)
   gate override <run_id> --reason=<s>  Force advance past failing gate
   gate rules [--phase=<from>]          Show gate conditions
-  lock acquire <name> <scope> [--timeout=<dur>] [--owner=<s>]  Acquire a lock
-  lock release <name> <scope> [--owner=<s>]  Release a lock
+  lock acquire <name> <scope> [--timeout=<dur>] [--owner=<s>] [--print-token]  Acquire a lock
+  lock release <name> <scope> [--owner=<s>] [--token=<s>]  Release a lock
   lock list                     List active locks
   lock stale [--older-than=<dur>]  List stale locks
   lock clean [--older-than=<dur>]  Remove stale locks

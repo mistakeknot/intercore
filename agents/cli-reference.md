@@ -169,8 +169,8 @@ ic gate rules [--phase=<p>]                Display gate rules table
 ### Lock (filesystem-only, no SQLite)
 
 ```
-ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<id>]
-ic lock release <name> <scope> [--owner=<id>]
+ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<id>] [--print-token]
+ic lock release <name> <scope> [--owner=<id>] [--token=<token>]
 ic lock list                               List all held locks
 ic lock stale [--older-than=<dur>]         List stale locks
 ic lock clean [--older-than=<dur>]         Remove stale locks (PID-liveness check)

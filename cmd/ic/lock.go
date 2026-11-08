@@ -42,7 +42,7 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 	owner := f.String("owner", "")
 
 	if len(f.Positionals) < 2 {
-		fmt.Fprintf(os.Stderr, "ic: lock acquire: usage: ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<s>]\n")
+		fmt.Fprintf(os.Stderr, "ic: lock acquire: usage: ic lock acquire <name> <scope> [--timeout=<dur>] [--owner=<s>] [--print-token]\n")
 		return 3
 	}
 
@@ -62,7 +62,7 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 	}
 
 	mgr := lock.NewManager("")
-	err := mgr.Acquire(ctx, f.Positionals[0], f.Positionals[1], owner, dur)
+	token, err := mgr.AcquireToken(ctx, f.Positionals[0], f.Positionals[1], owner, dur)
 	if err != nil {
 		if errors.Is(err, lock.ErrTimeout) {
 			if flagVerbose {
@@ -74,7 +74,10 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	if flagVerbose {
+	if f.Bool("print-token") {
+		// Hand the acquisition token to the caller, for `lock release --token`.
+		fmt.Println(token)
+	} else if flagVerbose {
 		fmt.Printf("acquired %s/%s\n", f.Positionals[0], f.Positionals[1])
 	}
 	return 0
@@ -83,9 +86,10 @@ func cmdLockAcquire(ctx context.Context, args []string) int {
 func cmdLockRelease(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	owner := f.String("owner", "")
+	token := f.String("token", "")
 
 	if len(f.Positionals) < 2 {
-		fmt.Fprintf(os.Stderr, "ic: lock release: usage: ic lock release <name> <scope> [--owner=<s>]\n")
+		fmt.Fprintf(os.Stderr, "ic: lock release: usage: ic lock release <name> <scope> [--owner=<s>] [--token=<s>]\n")
 		return 3
 	}
 
@@ -95,7 +99,7 @@ func cmdLockRelease(ctx context.Context, args []string) int {
 	}
 
 	mgr := lock.NewManager("")
-	err := mgr.Release(ctx, f.Positionals[0], f.Positionals[1], owner)
+	err := mgr.ReleaseToken(ctx, f.Positionals[0], f.Positionals[1], owner, token)
 	if err != nil {
 		if errors.Is(err, lock.ErrNotFound) {
 			if flagVerbose {
