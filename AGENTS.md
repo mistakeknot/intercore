@@ -5,6 +5,7 @@ Kernel layer (Layer 1) of the Demarch autonomous software agency platform. Host-
 ## Canonical References
 1. [`PHILOSOPHY.md`](PHILOSOPHY.md) -- direction for ideation and planning decisions.
 2. `CLAUDE.md` -- Claude-specific build commands, SQLite gotchas and design decisions that are not to be re-asked. Architecture is in [agents/architecture.md](agents/architecture.md) and testing in [agents/testing.md](agents/testing.md).
+3. Worktrees: `ic publish` waves touch nested plugin repos that are absent from a root worktree, so they run against the main checkout.
 
 ## Quick Reference
 
@@ -20,7 +21,7 @@ ic version                                 # CLI + schema versions
 **Module:** `github.com/mistakeknot/intercore`
 **Location:** repository root (`core/intercore/` in the monorepo)
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
-**Schema:** tracked by `PRAGMA user_version`; the current version is `currentSchemaVersion` in `internal/db/db.go`, and `ic version` prints it
+**Schema:** tracked by `PRAGMA user_version`; the version this build expects is `currentSchemaVersion` in `internal/db/db.go`; `ic version` prints the schema version of the local database, which is `unknown` when there is none
 **CLI version:** `ic version` (the `version` constant in `cmd/ic/main.go`)
 
 ## Directory Layout
@@ -33,7 +34,7 @@ contracts/       JSON Schema contract registry + codegen (cli/, events/, overrid
 config/          costs.yaml (model pricing), metrics.yaml
 scripts/         validate-gitleaks-waivers.sh
 agents/          Topic guide markdown files
-lib-intercore.sh Bash wrappers for hooks (mirror of Clavain's canonical copy; see agents/bash-wrappers.md)
+lib-intercore.sh Bash wrappers for hooks (see agents/bash-wrappers.md)
 ```
 
 ## Topic Guides
@@ -43,7 +44,7 @@ lib-intercore.sh Bash wrappers for hooks (mirror of Clavain's canonical copy; se
 | CLI Reference | [agents/cli-reference.md](agents/cli-reference.md) | All `ic` commands, flags, exit codes, publish pipeline |
 | Modules | [agents/modules.md](agents/modules.md) | Dispatch, Phase, Gate, Event, Coordination, Scheduler, Lane, Discovery, Cost, Portfolio, Lock, supporting libraries |
 | Architecture | [agents/architecture.md](agents/architecture.md) | Security model, SQLite patterns, schema upgrade |
-| Bash Wrappers | [agents/bash-wrappers.md](agents/bash-wrappers.md) | lib-intercore.sh wrappers and how the mirror is kept in sync |
+| Bash Wrappers | [agents/bash-wrappers.md](agents/bash-wrappers.md) | lib-intercore.sh wrappers for hooks |
 | Testing & Recovery | [agents/testing.md](agents/testing.md) | Test suites, DB corruption, stuck locks, schema mismatch |
 
 ## Package and CLI reference
