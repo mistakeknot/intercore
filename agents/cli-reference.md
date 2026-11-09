@@ -300,6 +300,77 @@ ic agency show <stage> --spec-dir=<path>
 ic agency capabilities <run-id>
 ```
 
+### Route
+
+Model routing. Run `ic route` with no subcommand for the full help; exit codes for `decide`: 0 decision, 1 no eligible model, 3 malformed input, 4 constraint violation (the caller must halt, never fall back to a native model setting).
+
+```
+ic route decide --class=<c> --role=<r> [--data=<sensitivity>] [--harness=<h>] --registry=<path>
+ic route record-evidence --kind=escalation|gate ...   Record an escalation or gate evidence event
+ic route model --phase=<p> --category=<c> --agent=<a> [--calibration=<path>]
+ic route batch --phase=<p> [--calibration=<path>] <agent1> <agent2> ...
+ic route dispatch --tier=<name>                       Resolve a dispatch tier to a model
+ic route dispatch --role=<name> [--policy=<path>] [--context-file=<json>] [--effort-override=<level>] [--policy-profile=<name>] [--producer-identity=<id>] [--calibration=<path>] --json
+ic route dispatch --type=<name> [--phase=<p>]         Resolve a subagent type to a model
+ic route identity --model=<id>                        Canonical model identity for review separation
+ic route table [--phase=<p>]                          Full routing table
+ic route record --agent=<a> --model=<m> --rule=<r>    Record a routing decision
+ic route list [--agent=<a>] [--model=<m>] [--limit=N]
+```
+
+### Goal
+
+```
+ic goal create --title=<t> --project=<dir> --condition=<text>|--condition-file=<f> [--charter=<text>] [--bead=<id>] [--complexity=N] [--force]
+ic goal show <id>
+ic goal list [--project=<dir>] [--status=<s>]
+ic goal close begin <id> [--owner=<o>] [--run=<id>] [--ttl=<sec>]   Take the close lease (prints JSON with a fence; ttl default 1800)
+ic goal close step <id> --fence=<N> [--name=<step>]                 Stamp a close step
+ic goal close finish <id> --fence=<N>
+ic goal close release <id> --fence=<N>
+ic goal audit [--project=<dir>] [--dormant-after=<dur>]
+ic goal lint-condition --text=<text>|--file=<f>       Check a condition for a stated bar
+ic goal successor <id> --ref=<bead-or-goal-or-text>   Record what continues a goal
+```
+
+### Autonomy
+
+```
+ic autonomy status                         Declared delegation level and what it derives
+```
+
+### Landed
+
+```
+ic landed record --commit=<sha> --project=<dir> [--branch=<b>] [--dispatch=<id>] [--run=<id>] [--bead=<id>] [--session=<id>] [--files=N] [--insertions=N] [--deletions=N]
+ic landed list [--project=<dir>] [--bead=<id>] [--run=<id>] [--session=<id>] [--since=<rfc3339>] [--limit=N] [--include-reverted]
+ic landed revert --commit=<sha> --project=<dir> --reverted-by=<sha>
+ic landed summary [--project=<dir>] [--bead=<id>] [--since=<rfc3339>] [--days=N]
+```
+
+### Session
+
+```
+ic session start --session=<id> --project=<dir> [--agent-type=<t>] [--model=<m>] [--metadata=<json>]
+ic session attribute --session=<id> [--project=<dir>] [--bead=<id>] [--run=<id>] [--phase=<p>]
+ic session end --session=<id>
+ic session current --session=<id> [--project=<dir>]
+ic session list [--project=<dir>] [--session=<id>] [--active-only] [--since=<ts>] [--limit=N]
+ic session tokens --session=<id> --input=N --output=N [--project=<dir>]
+```
+
+### Receipt
+
+Signed action receipts.
+
+```
+ic receipt emit --agent=<id> --model=<m> --content=<s>|--content-hash=<hex> [--parent-run=<id>] [--tool-calls=N] [--keys=<dir>] [--epoch=N]
+ic receipt find --agent=<id> --parent-run=<id> --content-hash=<hex>
+ic receipt verify <receipt_id> [--keys=<dir>]   Exit 0=valid, 1=not found, 2=bad signature, 3=bad schema, 4=unknown key
+ic receipt verify --since=<dur>                  Bulk verify; JSONL summary
+ic receipt keygen --agent=<id> [--keys=<dir>] [--epoch=N] [--force]
+```
+
 ### Publish
 
 ```
