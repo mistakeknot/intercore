@@ -18,11 +18,16 @@ func TestPoll_ConcurrentCollectorsOfDeadDispatchAllSucceed(t *testing.T) {
 	const (
 		dispatches = 30
 		collectors = 4
+		// The busy timeout `ic` applies by default. A collector that waits for
+		// the write lock while another one terminalizes is the case under test;
+		// a shorter timeout makes the wait itself fail when the host is loaded
+		// and a lock holder is descheduled for more than 100 ms.
+		busyTimeout = 5 * time.Second
 	)
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "test.db")
 
-	primary, err := db.Open(path, 100*time.Millisecond)
+	primary, err := db.Open(path, busyTimeout)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -50,7 +55,7 @@ func TestPoll_ConcurrentCollectorsOfDeadDispatchAllSucceed(t *testing.T) {
 	// One database handle per collector, as separate `ic` processes would have.
 	stores := make([]*Store, collectors)
 	for c := range stores {
-		handle, err := db.Open(path, 100*time.Millisecond)
+		handle, err := db.Open(path, busyTimeout)
 		if err != nil {
 			t.Fatalf("Open collector %d: %v", c, err)
 		}
