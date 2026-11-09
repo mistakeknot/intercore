@@ -109,15 +109,7 @@ Compares billing API data against self-reported dispatch token counts. Exit 0 = 
 
 ## Supporting Libraries
 
-**audit** -- Tamper-evident audit trail with SHA-256 hash chain. Each entry includes `prev_hash` of previous entry. Per-session sequence numbers detect deletion gaps. Auto-redacts sensitive values before persistence. Table: `audit_log` (v15).
-
 **redaction** -- Scans strings for sensitive patterns (API keys, tokens, secrets). Four modes: `off`, `warn` (report only), `redact` (replace with placeholders), `block` (set Blocked flag). Category-based allowlists.
-
-**scoring** -- Multi-factor assignment scoring for (agent, task) pairs. Factors: base priority, agent type bonus, profile tag affinity, file focus overlap, context exhaustion penalty, file reservation conflict penalty.
-
-**lifecycle** -- Agent state machine: `waiting -> generating -> thinking -> idle -> stalled -> error -> completed`. Stall detection via configurable velocity thresholds (tokens-per-minute).
-
-**handoff** -- Structured session handoff format (~400 tokens). Required fields: `Goal` (what was accomplished), `Now` (what to do next). Statuses: complete, partial, blocked.
 
 ## Portfolio Orchestration
 
