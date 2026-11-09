@@ -38,6 +38,8 @@ if [[ -n "$CLAVAIN_DIR" && ! -f "$CLAVAIN_DIR/hooks/lib-intercore.sh" ]]; then
     printf 'CLAVAIN_DIR=%s has no hooks/lib-intercore.sh\n' "$CLAVAIN_DIR" >&2
     exit 1
 fi
+# Absolute from here on: the script changes directory before using it.
+[[ -z "$CLAVAIN_DIR" ]] || CLAVAIN_DIR="$(cd "$CLAVAIN_DIR" && pwd)"
 
 echo "Building ic..."
 cd "$SCRIPT_DIR"
@@ -183,9 +185,14 @@ PATH="/usr/bin:/bin"  # strip any dir containing ic
 unset -f ic 2>/dev/null || true  # remove test helper function so command -v ic fails
 rm -f /tmp/clavain-legacy-test
 
-intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "no ic: first check allowed (fail-open)" || fail "no ic: first check should be allowed"
-[[ ! -e "/tmp/clavain-legacy-test" ]] && pass "no ic: no legacy file written" || fail "no ic: legacy file was written"
-intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "no ic: second check allowed (nothing throttles without ic)" || fail "no ic: second check should be allowed"
+# The fail-open checks only prove the no-ic branch if neither binary can be found.
+if command -v ic >/dev/null 2>&1 || command -v intercore >/dev/null 2>&1; then
+    skip "ic or intercore is installed in /usr/bin or /bin; no-ic fail-open checks would be vacuous"
+else
+    intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "no ic: first check allowed (fail-open)" || fail "no ic: first check should be allowed"
+    [[ ! -e "/tmp/clavain-legacy-test" ]] && pass "no ic: no legacy file written" || fail "no ic: legacy file was written"
+    intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "no ic: second check allowed (nothing throttles without ic)" || fail "no ic: second check should be allowed"
+fi
 
 # Remote-authority marker: local automatic actions are skipped.
 HOME="$(mktemp -d "$TEST_DIR/home.XXXXXX")"
