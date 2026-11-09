@@ -1054,8 +1054,10 @@ echo ""
 echo "=== E9: Portfolio Dependency Scheduling ==="
 
 # Create a portfolio run (project_dir="" signals portfolio)
-# head -1: portfolio create prints child IDs on subsequent lines
-PORTFOLIO_RUN=$(ic run create --project="" --goal="Portfolio dep test" --projects="/proj/a,/proj/b,/proj/c" --db="$TEST_DB" | head -1)
+# sed -n 1p: portfolio create prints child IDs on subsequent lines. Unlike
+# `head -1`, sed reads all of its input, so `ic` cannot be killed by SIGPIPE
+# (exit 141 under pipefail) while it is still writing the child IDs.
+PORTFOLIO_RUN=$(ic run create --project="" --goal="Portfolio dep test" --projects="/proj/a,/proj/b,/proj/c" --db="$TEST_DB" | sed -n 1p)
 [[ -n "$PORTFOLIO_RUN" ]] || fail "portfolio run create returned empty ID"
 pass "portfolio: create"
 
@@ -1116,7 +1118,7 @@ ic portfolio dep add "$PORTFOLIO_RUN" --upstream="/proj/b" --downstream="/proj/c
 pass "portfolio: diamond dep added (no cycle)"
 
 # No-dep portfolio: create one without deps, advance freely
-NODEP_PORTFOLIO=$(ic run create --project="" --goal="No-dep portfolio" --projects="/proj/x,/proj/y" --db="$TEST_DB" | head -1)
+NODEP_PORTFOLIO=$(ic run create --project="" --goal="No-dep portfolio" --projects="/proj/x,/proj/y" --db="$TEST_DB" | sed -n 1p)
 CHILD_X_ID=$(ic run list --db="$TEST_DB" --json | jq -r ".[] | select(.project_dir == \"/proj/x\") | .id")
 ic run advance "$CHILD_X_ID" --priority=4 --db="$TEST_DB" >/dev/null
 child_x_phase=$(ic run phase "$CHILD_X_ID" --db="$TEST_DB")
