@@ -166,11 +166,18 @@ intercore_state_delete_all() {
 intercore_cleanup_stale() {
     if intercore_available; then
         "$INTERCORE_BIN" sentinel prune --older-than=1h >/dev/null 2>&1 || true
-        # Routing-decision retention: archive then delete decisions older than the window.
+        # Routing-decision retention: archive then delete decisions older than the
+        # window, at most once a day (the pass reads the whole table, about a second
+        # on 100 MB). A stamp file does the throttling because the sentinel prune
+        # above would delete a day-long sentinel within the hour.
         # INTERCORE_ROUTING_RETENTION=<N>d|<duration> sets the window (default 30d);
         # =off skips it. An `ic` without `route prune` fails harmlessly here.
         if [[ "${INTERCORE_ROUTING_RETENTION:-30d}" != "off" ]]; then
-            "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" >/dev/null 2>&1 || true
+            local stamp="${INTERCORE_ROUTING_PRUNE_STAMP:-${XDG_STATE_HOME:-$HOME/.local/state}/intercore/routing-prune.stamp}"
+            if [[ ! -e "$stamp" ]] || [[ -n "$(find "$stamp" -mmin +1440 2>/dev/null)" ]]; then
+                mkdir -p "$(dirname "$stamp")" 2>/dev/null && : > "$stamp" 2>/dev/null || true
+                "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" >/dev/null 2>&1 || true
+            fi
         fi
         return 0
     fi

@@ -139,7 +139,7 @@ func cmdRouteRestore(ctx context.Context, args []string) int {
 		return 3
 	}
 	if len(f.Positionals) == 0 {
-		fmt.Fprintf(os.Stderr, "ic: route restore: usage: ic route restore <archive.jsonl.gz>...\n")
+		fmt.Fprintf(os.Stderr, "ic: route restore: usage: ic route restore <archive.jsonl.gz|dir>...\n")
 		return 3
 	}
 	d, err := openDB()

@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"compress/gzip"
 	"context"
 	"database/sql"
 	"fmt"
@@ -208,34 +207,177 @@ func TestPruneDecisionsKeepsRowsStillReferenced(t *testing.T) {
 	}
 }
 
-// decided_at is not guaranteed monotonic in id (clock steps, imports). The search
-// only narrows where to look; it must never delete a young row.
-func TestPruneDecisionsOutOfOrderTimestampsNeverDeleteYoungRows(t *testing.T) {
+// decided_at is not guaranteed monotonic in id (clock steps, imports). Every old
+// row goes, wherever it sits, and no young row ever does: a young or future-dated
+// row at a low id must not hold retention back.
+func TestPruneDecisionsOutOfOrderTimestamps(t *testing.T) {
 	sdb, _ := retentionDB(t)
-	a := seedAt(t, sdb, 90, 10, nil) // old
-	b := seedAt(t, sdb, 2, 10, nil)  // young, in the middle of the old range
-	c := seedAt(t, sdb, 80, 10, nil) // old, after a young row
-	d := seedAt(t, sdb, 1, 10, nil)  // young
-	_, err := PruneDecisions(context.Background(), sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow})
+	young0 := seedAt(t, sdb, -400, 10, nil) // dated far in the future, lowest id
+	a := seedAt(t, sdb, 90, 10, nil)        // old
+	b := seedAt(t, sdb, 2, 10, nil)         // young, in the middle of the old range
+	c := seedAt(t, sdb, 80, 10, nil)        // old, after a young row
+	d := seedAt(t, sdb, 1, 10, nil)         // young
+	res, err := PruneDecisions(context.Background(), sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow})
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := idsOf(t, sdb)
-	has := func(id int64) bool {
-		for _, g := range got {
-			if g == id {
-				return true
-			}
-		}
-		return false
+	if want := []int64{young0, b, d}; !reflect.DeepEqual(idsOf(t, sdb), want) {
+		t.Fatalf("remaining %v, want %v (old rows %d and %d should be gone)", idsOf(t, sdb), want, a, c)
 	}
-	if !has(b) || !has(d) {
-		t.Fatalf("a young row was deleted: remaining %v", got)
+	if res.Deleted != 2 {
+		t.Fatalf("deleted %d, want 2", res.Deleted)
 	}
-	if has(a) {
-		t.Fatalf("row %d (old, before the first young row) survived: %v", a, got)
+}
+
+// Archives are written whole and renamed into place, and only the batch's rows
+// are deleted after that: after a crash between archive and delete a rerun
+// archives the same rows again under the same name, never into a file that
+// already exists.
+func TestPruneRerunAfterArchiveWithoutDeleteMakesNoDuplicateFile(t *testing.T) {
+	sdb, _ := retentionDB(t)
+	dir := t.TempDir()
+	ctx := context.Background()
+	seedAt(t, sdb, 60, 10, nil)
+	seedAt(t, sdb, 61, 10, nil)
+	// Simulate the crash: archive the old rows, delete nothing.
+	old, err := selectOldBatch(ctx, sdb, 0, retNow.Add(-DefaultRetention).Unix(), 100)
+	if err != nil || len(old) != 2 {
+		t.Fatalf("select: %v %v", old, err)
 	}
-	_ = c // c may be left for a later run; it must still be old when it goes
+	var rows []Decision
+	for _, o := range old {
+		rows = append(rows, o.Decision)
+	}
+	first, err := writeArchive(dir, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := PruneDecisions(ctx, sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow, ArchiveDir: dir})
+	if err != nil || res.Deleted != 2 {
+		t.Fatalf("rerun: %+v %v", res, err)
+	}
+	if !reflect.DeepEqual(first, res.Files) {
+		t.Fatalf("rerun wrote %v, want the same file %v", res.Files, first)
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, "*")); len(m) != 1 {
+		t.Fatalf("archive dir holds %v, want one file and no temp files", m)
+	}
+}
+
+// A row that came to be referenced after it was selected survives the delete.
+func TestDeleteBatchKeepsRowThatBecameProtected(t *testing.T) {
+	sdb, _ := retentionDB(t)
+	ctx := context.Background()
+	id := seedAt(t, sdb, 90, 10, func(o *RecordDecisionOpts) { o.DispatchID = "d-late" })
+	other := seedAt(t, sdb, 90, 10, nil)
+	old, err := selectOldBatch(ctx, sdb, 0, retNow.Add(-DefaultRetention).Unix(), 100)
+	if err != nil || len(old) != 2 {
+		t.Fatalf("select: %v %v", old, err)
+	}
+	if old[0].protected || old[1].protected {
+		t.Fatal("nothing should be protected yet")
+	}
+	// The dispatch starts after the row was selected.
+	if _, err := sdb.ExecContext(ctx, `INSERT INTO dispatches (id, project_dir, status) VALUES ('d-late','/p','running')`); err != nil {
+		t.Fatal(err)
+	}
+	var rows []Decision
+	for _, o := range old {
+		rows = append(rows, o.Decision)
+	}
+	n, err := deleteBatch(ctx, sdb, rows)
+	if err != nil || n != 1 {
+		t.Fatalf("deleteBatch = %d, %v; want 1", n, err)
+	}
+	if got := idsOf(t, sdb); !reflect.DeepEqual(got, []int64{id}) {
+		t.Fatalf("remaining %v, want only %d (%d should be deleted)", got, id, other)
+	}
+}
+
+func TestRestoreRejectsDamagedArchiveAndChangesNothing(t *testing.T) {
+	sdb, _ := retentionDB(t)
+	dir := t.TempDir()
+	ctx := context.Background()
+	seedAt(t, sdb, 60, 10, nil)
+	seedAt(t, sdb, 61, 10, nil)
+	res, err := PruneDecisions(ctx, sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow, ArchiveDir: dir})
+	if err != nil || len(res.Files) != 1 {
+		t.Fatalf("prune: %+v %v", res, err)
+	}
+	good, _ := os.ReadFile(res.Files[0])
+	bad := filepath.Join(dir, "routing-decisions-2026-01-9-9-deadbeef.jsonl.gz")
+	if err := os.WriteFile(bad, good[:len(good)/2], 0o600); err != nil { // truncated
+		t.Fatal(err)
+	}
+	_, err = RestoreDecisions(ctx, sdb, []string{dir})
+	if err == nil || !strings.Contains(err.Error(), "deadbeef") {
+		t.Fatalf("restore err = %v, want one naming the damaged file", err)
+	}
+	if countRows(t, sdb) != 0 {
+		t.Fatal("a failed restore changed the table")
+	}
+	// Without the damaged file the directory restores.
+	if err := os.Remove(bad); err != nil {
+		t.Fatal(err)
+	}
+	rr, err := RestoreDecisions(ctx, sdb, []string{dir})
+	if err != nil || rr.Restored != 2 {
+		t.Fatalf("restore = %+v %v", rr, err)
+	}
+}
+
+// Restoring into a database that never held the rows advances the id counter, so
+// later decisions do not reuse a restored id.
+func TestRestoreIntoFreshDatabaseAdvancesIDCounter(t *testing.T) {
+	src, _ := retentionDB(t)
+	dir := t.TempDir()
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		seedAt(t, src, 60+float64(i), 10, nil)
+	}
+	if _, err := PruneDecisions(ctx, src, PruneOpts{OlderThan: DefaultRetention, Now: retNow, ArchiveDir: dir}); err != nil {
+		t.Fatal(err)
+	}
+	dst, _ := retentionDB(t)
+	if rr, err := RestoreDecisions(ctx, dst, []string{dir}); err != nil || rr.Restored != 5 {
+		t.Fatalf("restore = %+v %v", rr, err)
+	}
+	if id := seedAt(t, dst, 0, 5, nil); id <= 5 {
+		t.Fatalf("new id %d reuses a restored id", id)
+	}
+}
+
+// The archive is never half-written: if it cannot be put in place, nothing is deleted.
+func TestPruneArchiveRenameFailureDeletesNothing(t *testing.T) {
+	sdb, _ := retentionDB(t)
+	dir := t.TempDir()
+	ctx := context.Background()
+	seedAt(t, sdb, 60, 10, nil)
+	old, _ := selectOldBatch(ctx, sdb, 0, retNow.Add(-DefaultRetention).Unix(), 10)
+	var rows []Decision
+	for _, o := range old {
+		rows = append(rows, o.Decision)
+	}
+	paths, err := writeArchive(dir, rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Block the final name with a non-empty directory so the rename cannot succeed.
+	if err := os.Remove(paths[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(paths[0], "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PruneDecisions(ctx, sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow, ArchiveDir: dir}); err == nil {
+		t.Fatal("expected an archive error")
+	}
+	if countRows(t, sdb) != 1 {
+		t.Fatal("row deleted although its archive was not put in place")
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, ".routing-decisions-*.tmp")); len(m) != 0 {
+		t.Fatalf("temp files left behind: %v", m)
+	}
 }
 
 func TestPruneDecisionsArchiveFailureDeletesNothing(t *testing.T) {
@@ -312,41 +454,6 @@ func TestPruneThenRestoreRoundTripsEveryColumn(t *testing.T) {
 	// New rows keep taking fresh ids after a restore.
 	if id := seedAt(t, sdb, 0, 5, nil); id <= want[len(want)-1].ID {
 		t.Fatalf("new id %d collides with restored ids", id)
-	}
-}
-
-func TestPruneAppendsToExistingArchiveMonth(t *testing.T) {
-	sdb, _ := retentionDB(t)
-	dir := t.TempDir()
-	ctx := context.Background()
-	seedAt(t, sdb, 60, 10, nil)
-	r1, err := PruneDecisions(ctx, sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow, ArchiveDir: dir})
-	if err != nil || r1.Deleted != 1 {
-		t.Fatalf("first prune: %+v %v", r1, err)
-	}
-	seedAt(t, sdb, 60, 10, nil) // same month again
-	r2, err := PruneDecisions(ctx, sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow, ArchiveDir: dir})
-	if err != nil || r2.Deleted != 1 || !reflect.DeepEqual(r1.Files, r2.Files) {
-		t.Fatalf("second prune: %+v %v (files %v vs %v)", r2, err, r1.Files, r2.Files)
-	}
-	// A plain gzip reader sees both members.
-	f, _ := os.Open(r1.Files[0])
-	defer f.Close()
-	zr, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sb strings.Builder
-	buf := make([]byte, 4096)
-	for {
-		n, err := zr.Read(buf)
-		sb.Write(buf[:n])
-		if err != nil {
-			break
-		}
-	}
-	if lines := strings.Count(sb.String(), "\n"); lines != 2 {
-		t.Fatalf("archive holds %d lines, want 2", lines)
 	}
 }
 
@@ -441,7 +548,7 @@ func TestPruneRealSizedDatabase(t *testing.T) {
 	}
 	t.Logf("%d rows, %.0f MB; pruned %d in %v; left %d, %.0f MB after VACUUM; archive %.1f MB", rows, float64(before)/1e6, res.Deleted, took, left, float64(after)/1e6, float64(archived)/1e6)
 
-	// An immediate second run has nothing to do and must be cheap (binary search, no scan).
+	// An immediate second run has nothing to do and must be cheap (it still reads every row; the hook runs it once a day).
 	t0 = time.Now()
 	res2, err := PruneDecisions(ctx, sdb, PruneOpts{OlderThan: DefaultRetention, Now: retNow})
 	if err != nil || res2.Eligible != 0 {

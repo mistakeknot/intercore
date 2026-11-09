@@ -2,9 +2,12 @@ package routing
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,27 +23,31 @@ import (
 //
 // Every routing decision stores its full context JSON (about 5 KB) and nothing
 // used to delete a row, so the table grew about 100 MB a month. PruneDecisions
-// moves rows older than a window out of the database into a gzip JSONL archive
-// and RestoreDecisions puts them back, so a prune is reversible: the archive
-// is written and synced to disk before the rows it holds are deleted.
+// moves rows older than a window out of the database into gzip JSONL archive
+// files and RestoreDecisions puts them back, so a prune is reversible: a batch's
+// archive file is complete, synced and renamed into place, and its directory
+// entry synced, before any row of that batch is deleted.
+//
+// Each batch is its own file and nothing is ever appended to a file, so an
+// interrupted run can only leave an unreferenced temp file, never a damaged
+// archive, and two prunes at once cannot interleave their output. File names carry
+// the id range and a hash of the content, so re-archiving the same rows after a
+// crash between archive and delete writes the same name.
 //
 // No schema change. A new index on decided_at would bump PRAGMA user_version,
 // and every older `ic` binary refuses a database newer than it supports
-// (ErrSchemaVersionTooNew), which would break the hooks still running one.
-// Instead, rows are visited in id order. AUTOINCREMENT ids and Go-side
-// decided_at timestamps grow together, so a binary search over rowids finds
-// the end of the old range in O(log n) point lookups without scanning the
-// 5 KB context payloads. A run with nothing to prune therefore costs a few
-// lookups. The search only narrows where to look: every deleted row is
-// re-checked against the cutoff, so an out-of-order timestamp can leave an old
-// row for a later run but can never delete a young one.
+// (ErrSchemaVersionTooNew), which would break the hooks still running one. So
+// rows are visited in id order with decided_at tested on every row. That reads
+// the context payloads (decided_at is stored after them) and costs about a second
+// on a 100 MB table, which is why the hook runs the prune once a day, not on
+// every stop. It makes no assumption that timestamps rise with ids.
 
 // DefaultRetention is the retention window for `ic route prune` when none is given.
 // Rationale: October 2026 added 19,834 rows and 98 MB, so 30 days holds the table
 // near 100 MB instead of growing without bound. The archive keeps the rest.
 const DefaultRetention = 30 * 24 * time.Hour
 
-const pruneBatchSize = 500
+const pruneBatchSize = 2000
 
 // PruneOpts configures PruneDecisions.
 type PruneOpts struct {
@@ -49,14 +56,14 @@ type PruneOpts struct {
 	OlderThan time.Duration
 	// Now overrides the clock (tests). Zero means time.Now().
 	Now time.Time
-	// ArchiveDir receives one gzip JSONL file per calendar month of decided_at
-	// (routing-decisions-YYYY-MM.jsonl.gz, appended as gzip members). Empty
-	// means no archive, and then rows are deleted for good; callers must ask
+	// ArchiveDir receives, per batch and calendar month of decided_at (UTC), one
+	// gzip JSONL file named routing-decisions-YYYY-MM-<minid>-<maxid>-<hash>.jsonl.gz.
+	// Empty means no archive, and then rows are deleted for good; callers must ask
 	// for that explicitly.
 	ArchiveDir string
 	// DryRun counts what would be archived and deleted and changes nothing.
 	DryRun bool
-	// BatchSize limits rows per archive+delete round. Zero means 500.
+	// BatchSize limits rows per archive+delete round. Zero means 2000.
 	BatchSize int
 }
 
@@ -102,16 +109,8 @@ func PruneDecisions(ctx context.Context, db *sql.DB, opts PruneOpts) (*PruneResu
 	}
 	res := &PruneResult{Cutoff: now.Add(-opts.OlderThan).Unix(), DryRun: opts.DryRun}
 
-	bound, err := oldRangeEnd(ctx, db, res.Cutoff)
-	if err != nil {
-		return nil, err
-	}
-	if bound == 0 {
-		return res, nil
-	}
-
 	if opts.ArchiveDir != "" && !opts.DryRun {
-		if err := os.MkdirAll(opts.ArchiveDir, 0o700); err != nil {
+		if err := mkdirAllSync(opts.ArchiveDir); err != nil {
 			return nil, fmt.Errorf("prune routing decisions: archive dir: %w", err)
 		}
 		res.ArchiveDir = opts.ArchiveDir
@@ -120,20 +119,28 @@ func PruneDecisions(ctx context.Context, db *sql.DB, opts PruneOpts) (*PruneResu
 	files := map[string]bool{}
 	var after int64
 	for {
-		rows, err := selectOldBatch(ctx, db, after, bound, res.Cutoff, batch)
+		old, err := selectOldBatch(ctx, db, after, res.Cutoff, batch)
 		if err != nil {
 			return nil, err
 		}
-		if len(rows) == 0 {
+		if len(old) == 0 {
 			break
 		}
-		after = rows[len(rows)-1].ID
+		after = old[len(old)-1].ID
+		var rows []Decision
+		for _, d := range old {
+			if d.protected {
+				res.Protected++
+			} else {
+				rows = append(rows, d.Decision)
+			}
+		}
 		res.Eligible += int64(len(rows))
-		if opts.DryRun {
+		if opts.DryRun || len(rows) == 0 {
 			continue
 		}
 		if opts.ArchiveDir != "" {
-			written, err := appendArchive(opts.ArchiveDir, rows)
+			written, err := writeArchive(opts.ArchiveDir, rows)
 			if err != nil {
 				return nil, fmt.Errorf("prune routing decisions: archive: %w (nothing in this batch was deleted)", err)
 			}
@@ -148,12 +155,6 @@ func PruneDecisions(ctx context.Context, db *sql.DB, opts PruneOpts) (*PruneResu
 		}
 		res.Deleted += n
 	}
-
-	// Rows that are old but still referenced stay; report how many.
-	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM routing_decisions
-		WHERE id <= ? AND decided_at < ? AND `+protectedClause, bound, res.Cutoff).Scan(&res.Protected); err != nil {
-		return nil, fmt.Errorf("prune routing decisions: count protected: %w", err)
-	}
 	for f := range files {
 		res.Files = append(res.Files, f)
 	}
@@ -161,74 +162,35 @@ func PruneDecisions(ctx context.Context, db *sql.DB, opts PruneOpts) (*PruneResu
 	return res, nil
 }
 
-// oldRangeEnd returns the largest id whose decided_at is before cutoff, found
-// by binary search over rowids, or 0 when the table has no old rows. It assumes
-// decided_at rises with id; see the package comment for why that is safe.
-func oldRangeEnd(ctx context.Context, db *sql.DB, cutoff int64) (int64, error) {
-	var lo, hi sql.NullInt64
-	if err := db.QueryRowContext(ctx, `SELECT MIN(id), MAX(id) FROM routing_decisions`).Scan(&lo, &hi); err != nil {
-		return 0, fmt.Errorf("prune routing decisions: id range: %w", err)
-	}
-	if !lo.Valid {
-		return 0, nil
-	}
-	// decidedAt returns decided_at of the first row with id >= at.
-	decidedAt := func(at int64) (int64, int64, bool, error) {
-		var id, ts int64
-		err := db.QueryRowContext(ctx, `SELECT id, decided_at FROM routing_decisions WHERE id >= ? ORDER BY id LIMIT 1`, at).Scan(&id, &ts)
-		if err == sql.ErrNoRows {
-			return 0, 0, false, nil
-		}
-		return id, ts, err == nil, err
-	}
-	if _, ts, ok, err := decidedAt(lo.Int64); err != nil {
-		return 0, fmt.Errorf("prune routing decisions: probe: %w", err)
-	} else if !ok || ts >= cutoff {
-		return 0, nil
-	}
-	// Invariant: the row at lo is old. Find the last old row at or after lo.
-	last := lo.Int64
-	l, h := lo.Int64, hi.Int64
-	for l <= h {
-		mid := l + (h-l)/2
-		id, ts, ok, err := decidedAt(mid)
-		if err != nil {
-			return 0, fmt.Errorf("prune routing decisions: probe: %w", err)
-		}
-		if !ok {
-			h = mid - 1
-			continue
-		}
-		if ts < cutoff {
-			last = id
-			l = id + 1
-		} else {
-			h = mid - 1
-		}
-	}
-	return last, nil
+// oldDecision is an old row and whether something live still refers to it.
+type oldDecision struct {
+	Decision
+	protected bool
 }
 
-func selectOldBatch(ctx context.Context, db *sql.DB, after, bound, cutoff int64, limit int) ([]Decision, error) {
+// selectOldBatch returns the next old rows after id `after`, in id order. The age
+// test is on every row, so ids and timestamps need not agree.
+func selectOldBatch(ctx context.Context, db *sql.DB, after, cutoff int64, limit int) ([]oldDecision, error) {
 	q := `SELECT id, dispatch_id, run_id, session_id, bead_id,
 		project_dir, phase, agent, category,
 		selected_model, rule_matched,
 		floor_applied, floor_from, floor_to,
 		candidates, excluded,
 		policy_hash, override_id, complexity, context_json,
-		decided_at
+		decided_at, ` + protectedClause + `
 		FROM routing_decisions
-		WHERE id > ? AND id <= ? AND decided_at < ? AND NOT ` + protectedClause + `
+		WHERE id > ? AND decided_at < ?
 		ORDER BY id LIMIT ?`
-	rs, err := db.QueryContext(ctx, q, after, bound, cutoff, limit)
+	rs, err := db.QueryContext(ctx, q, after, cutoff, limit)
 	if err != nil {
 		return nil, fmt.Errorf("prune routing decisions: select: %w", err)
 	}
 	defer rs.Close()
-	var out []Decision
+	var out []oldDecision
 	for rs.Next() {
 		var (
 			d                                                     Decision
+			prot                                                  int
 			dispatchID, runID, sessionID, beadID, phase, category sql.NullString
 			floorFrom, floorTo, candidates, excluded, policyHash  sql.NullString
 			overrideID, contextJSON                               sql.NullString
@@ -241,7 +203,7 @@ func selectOldBatch(ctx context.Context, db *sql.DB, after, bound, cutoff int64,
 			&floorApplied, &floorFrom, &floorTo,
 			&candidates, &excluded,
 			&policyHash, &overrideID, &complexity, &contextJSON,
-			&d.DecidedAt); err != nil {
+			&d.DecidedAt, &prot); err != nil {
 			return nil, fmt.Errorf("prune routing decisions: scan: %w", err)
 		}
 		d.DispatchID, d.RunID, d.SessionID, d.BeadID = decNullStr(dispatchID), decNullStr(runID), decNullStr(sessionID), decNullStr(beadID)
@@ -252,7 +214,7 @@ func selectOldBatch(ctx context.Context, db *sql.DB, after, bound, cutoff int64,
 		d.PolicyHash, d.OverrideID = decNullStr(policyHash), decNullStr(overrideID)
 		d.Complexity = decNullIntPtr(complexity)
 		d.ContextJSON = decNullStr(contextJSON)
-		out = append(out, d)
+		out = append(out, oldDecision{Decision: d, protected: prot != 0})
 	}
 	return out, rs.Err()
 }
@@ -265,9 +227,11 @@ func deleteBatch(ctx context.Context, db *sql.DB, rows []Decision) (int64, error
 	defer tx.Rollback()
 	var total int64
 	for _, r := range rows {
-		// Re-check the age here so a row can never be deleted on the strength of
-		// the search alone.
-		out, err := tx.ExecContext(ctx, `DELETE FROM routing_decisions WHERE id = ? AND decided_at = ?`, r.ID, r.DecidedAt)
+		// Re-check, inside the deleting statement, that the row is unchanged and
+		// still unreferenced: a dispatch, run or terminal record may have come to
+		// point at it since it was selected and archived. Such a row stays (its
+		// archive copy is then a harmless duplicate).
+		out, err := tx.ExecContext(ctx, `DELETE FROM routing_decisions WHERE id = ? AND decided_at = ? AND NOT `+protectedClause, r.ID, r.DecidedAt)
 		if err != nil {
 			return 0, fmt.Errorf("prune routing decisions: delete: %w", err)
 		}
@@ -280,28 +244,24 @@ func deleteBatch(ctx context.Context, db *sql.DB, rows []Decision) (int64, error
 	return total, nil
 }
 
-// archiveName is the archive file for the month a row was decided in (UTC).
-func archiveName(decidedAt int64) string {
-	return "routing-decisions-" + time.Unix(decidedAt, 0).UTC().Format("2006-01") + ".jsonl.gz"
-}
-
-// appendArchive appends rows to their monthly archive files, one gzip member per
-// call and file, and syncs each file before returning.
-func appendArchive(dir string, rows []Decision) ([]string, error) {
-	byFile := map[string][]Decision{}
+// writeArchive writes rows to archive files, one per UTC month of decided_at, each
+// complete, synced and renamed into place with its directory entry synced before
+// it returns. It returns the final paths.
+func writeArchive(dir string, rows []Decision) ([]string, error) {
+	byMonth := map[string][]Decision{}
 	for _, r := range rows {
-		n := archiveName(r.DecidedAt)
-		byFile[n] = append(byFile[n], r)
+		m := time.Unix(r.DecidedAt, 0).UTC().Format("2006-01")
+		byMonth[m] = append(byMonth[m], r)
 	}
-	var names []string
-	for n := range byFile {
-		names = append(names, n)
+	var months []string
+	for m := range byMonth {
+		months = append(months, m)
 	}
-	sort.Strings(names)
+	sort.Strings(months)
 	var written []string
-	for _, n := range names {
-		path := filepath.Join(dir, n)
-		if err := appendMember(path, byFile[n]); err != nil {
+	for _, m := range months {
+		path, err := writeArchiveFile(dir, m, byMonth[m])
+		if err != nil {
 			return nil, err
 		}
 		written = append(written, path)
@@ -309,40 +269,92 @@ func appendArchive(dir string, rows []Decision) ([]string, error) {
 	return written, nil
 }
 
-// appendMember appends one gzip member holding rows to path and syncs it. If the
-// write fails part-way the file is cut back to its earlier length, so a failed
-// batch cannot leave a truncated member that blocks the members after it.
-func appendMember(path string, rows []Decision) (err error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}()
-	st, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	prev := st.Size()
-	defer func() {
-		if err != nil {
-			_ = f.Truncate(prev)
-		}
-	}()
-	zw := gzip.NewWriter(f)
-	enc := json.NewEncoder(zw)
+func writeArchiveFile(dir, month string, rows []Decision) (string, error) {
+	var plain bytes.Buffer
+	enc := json.NewEncoder(&plain)
+	minID, maxID := rows[0].ID, rows[0].ID
 	for _, r := range rows {
-		if err = enc.Encode(r); err != nil {
+		if err := enc.Encode(r); err != nil {
+			return "", err
+		}
+		if r.ID < minID {
+			minID = r.ID
+		}
+		if r.ID > maxID {
+			maxID = r.ID
+		}
+	}
+	sum := sha256.Sum256(plain.Bytes())
+	final := filepath.Join(dir, fmt.Sprintf("routing-decisions-%s-%d-%d-%s.jsonl.gz", month, minID, maxID, hex.EncodeToString(sum[:4])))
+
+	tmp, err := os.CreateTemp(dir, ".routing-decisions-*.tmp") // mode 0600
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmpName) }
+	zw := gzip.NewWriter(tmp)
+	if _, err := zw.Write(plain.Bytes()); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := zw.Close(); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return "", err
+	}
+	// The name holds a hash of the content, so a file already there is the same
+	// archive (a rerun after a crash before the delete); replacing it is harmless.
+	if err := os.Rename(tmpName, final); err != nil {
+		_ = os.Remove(tmpName)
+		return "", err
+	}
+	if err := syncDir(dir); err != nil {
+		return "", err
+	}
+	return final, nil
+}
+
+// syncDir makes the directory's entries durable.
+func syncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+// mkdirAllSync creates dir and any missing parents and syncs each parent that
+// gained an entry, so the archive directory itself survives a power loss.
+func mkdirAllSync(dir string) error {
+	dir = filepath.Clean(dir)
+	var created []string
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(d); err == nil {
+			break
+		}
+		created = append(created, d)
+		if filepath.Dir(d) == d {
+			break
+		}
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	for _, d := range created {
+		if err := syncDir(filepath.Dir(d)); err != nil {
 			return err
 		}
 	}
-	if err = zw.Close(); err != nil {
-		return err
-	}
-	return f.Sync()
+	return nil
 }
 
 // RestoreResult reports what RestoreDecisions did.
@@ -352,12 +364,44 @@ type RestoreResult struct {
 	Existing int64 `json:"already_present"`
 }
 
-// RestoreDecisions reads archive files (gzip JSONL as written by PruneDecisions)
-// and re-inserts their rows with their original ids. Rows whose id is already
+// expandArchivePaths replaces each directory with the archive files in it
+// (*.jsonl.gz and *.jsonl, in name order; temp files are not archives).
+func expandArchivePaths(paths []string) ([]string, error) {
+	var out []string
+	for _, p := range paths {
+		st, err := os.Stat(p)
+		if err != nil {
+			return nil, err
+		}
+		if !st.IsDir() {
+			out = append(out, p)
+			continue
+		}
+		var found []string
+		for _, pat := range []string{"*.jsonl.gz", "*.jsonl"} {
+			m, err := filepath.Glob(filepath.Join(p, pat))
+			if err != nil {
+				return nil, err
+			}
+			found = append(found, m...)
+		}
+		sort.Strings(found)
+		out = append(out, found...)
+	}
+	return out, nil
+}
+
+// RestoreDecisions reads archive files, or directories of them (gzip JSONL as
+// written by PruneDecisions), and re-inserts their rows with their original ids.
+// It is all or nothing: a damaged file fails the whole restore and changes nothing. Rows whose id is already
 // present are left alone, so restoring twice, or restoring a file that holds
 // rows from an interrupted prune, is harmless.
 func RestoreDecisions(ctx context.Context, db *sql.DB, paths []string) (*RestoreResult, error) {
 	res := &RestoreResult{}
+	paths, err := expandArchivePaths(paths)
+	if err != nil {
+		return nil, fmt.Errorf("restore routing decisions: %w", err)
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("restore routing decisions: begin: %w", err)

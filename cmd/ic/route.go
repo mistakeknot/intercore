@@ -41,7 +41,7 @@ Subcommands:
   list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
   prune   [--older-than=30d] [--archive-dir=<dir>|--no-archive] [--dry-run] [--vacuum]
                                                     Archive and delete routing decisions older than the window
-  restore <archive.jsonl.gz>...                     Re-insert archived routing decisions (undo a prune)
+  restore <archive.jsonl.gz|dir>...                 Re-insert archived routing decisions (undo a prune)
 
 Exit codes (decide): 0 decision, 1 no-eligible-model, 3 malformed-input, 4 constraint-violation.
 On a non-zero exit the caller MUST halt; it MUST NOT fall back to a native model knob.
