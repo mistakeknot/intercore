@@ -328,7 +328,7 @@ ic goal close begin <id> [--owner=<o>] [--run=<id>] [--ttl=<sec>]   Take the clo
 ic goal close step <id> --fence=<N> [--name=<step>]                 Stamp a close step
 ic goal close finish <id> --fence=<N>
 ic goal close release <id> --fence=<N>
-ic goal audit [--project=<dir>] [--dormant-after=<dur>]
+ic goal audit [--project=<dir>] [--dormant-after=<sec>]   (default 604800, seven days)
 ic goal lint-condition --text=<text>|--file=<f>       Check a condition for a stated bar
 ic goal successor <id> --ref=<bead-or-goal-or-text>   Record what continues a goal
 ```
@@ -356,7 +356,7 @@ ic session attribute --session=<id> [--project=<dir>] [--bead=<id>] [--run=<id>]
 ic session end --session=<id>
 ic session current --session=<id> [--project=<dir>]
 ic session list [--project=<dir>] [--session=<id>] [--active-only] [--since=<ts>] [--limit=N]
-ic session tokens --session=<id> --input=N --output=N [--project=<dir>]
+ic session tokens --session=<id> [--input=N] [--output=N] [--cache-creation=N] [--cache-read=N] [--project=<dir>]
 ```
 
 ### Receipt
@@ -364,11 +364,11 @@ ic session tokens --session=<id> --input=N --output=N [--project=<dir>]
 Signed action receipts.
 
 ```
-ic receipt emit --agent=<id> --model=<m> --content=<s>|--content-hash=<hex> [--parent-run=<id>] [--tool-calls=N] [--keys=<dir>] [--epoch=N]
+ic receipt emit --agent=<id> --model=<m> --content=<s>|--content-hash=<hex> [--parent-run=<id>] [--tool-calls=<json-array>] [--keys=<dir>] [--epoch=<id>]
 ic receipt find --agent=<id> --parent-run=<id> --content-hash=<hex>
 ic receipt verify <receipt_id> [--keys=<dir>]   Exit 0=valid, 1=not found, 2=bad signature, 3=bad schema, 4=unknown key
 ic receipt verify --since=<dur>                  Bulk verify; JSONL summary
-ic receipt keygen --agent=<id> [--keys=<dir>] [--epoch=N] [--force]
+ic receipt keygen --agent=<id> [--keys=<dir>] [--epoch=<id>] [--force]   (epoch defaults to the current calendar quarter)
 ```
 
 ### Publish

@@ -297,8 +297,8 @@ Commands:
   lane events <id>              Show lane events
   lane velocity [--days=N]      Starvation and throughput per lane (default 7 days)
   lane close <id>               Close a lane
-  agency load <stage|all> --run=<id> [--spec-dir=<path>]  Load agency specs for a run
-  agency validate <file> [--spec-dir=<path>] [--all]  Validate an agency spec
+  agency load <stage|all> --run=<id> --spec-dir=<path>  Load agency specs for a run
+  agency validate <file>... | --all --spec-dir=<path>  Validate an agency spec
   agency show <stage> --spec-dir=<path>  Show one stage spec
   agency capabilities <run>     Show agent capabilities for a run
   scheduler submit --prompt-file=<f> [--project=<dir>] [--type=<t>] [--session=<id>] [--name=<n>] [--run-id=<id>] [--model=<m>] [--priority=N]  Queue a job
@@ -308,8 +308,8 @@ Commands:
   scheduler pause               Pause the scheduler
   scheduler resume              Resume the scheduler
   scheduler cancel <job-id>     Cancel a job
-  scheduler prune --older-than=<dur>  Prune finished jobs
-  coordination reserve --owner=<o> --scope=<s> --pattern=<p> [--type=<t>] [--exclusive] [--ttl=<dur>] [--reason=<s>] [--dispatch=<id>] [--run=<id>]  Reserve files
+  scheduler prune [--older-than=<dur>]  Prune finished jobs (default 24h)
+  coordination reserve --owner=<o> --scope=<s> --pattern=<p> [--type=<t>] [--exclusive] [--ttl=<sec>] [--reason=<s>] [--dispatch=<id>] [--run=<id>]  Reserve files
   coordination release <id>     Release a reservation (or --owner=<o> --scope=<s>)
   coordination check --scope=<s> --pattern=<p> [--exclude-owner=<o>]  Check for conflicts
   coordination list [--scope=<s>] [--owner=<o>] [--type=<t>] [--active]  List reservations
@@ -346,7 +346,7 @@ Commands:
   session end --session=<id>    End a session
   session current --session=<id> [--project=<dir>]  Show latest attribution
   session list [--project=<dir>] [--active-only]    List sessions
-  session tokens --session=<id> --input=N --output=N [opts]  Add token counts
+  session tokens --session=<id> [--input=N] [--output=N] [--cache-creation=N] [--cache-read=N] [--project=<dir>]  Add token counts
   situation snapshot [opts]      Unified observation layer, including agency status
   receipt emit --agent=<id> --model=<m> --content=<s>  Sign + store an action receipt (prints receipt_id)
   receipt find --agent=<id> --parent-run=<id> --content-hash=<hex>  Resolve an existing action receipt
