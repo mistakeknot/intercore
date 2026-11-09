@@ -3,7 +3,6 @@ package phase
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 
 	exported "github.com/mistakeknot/intercore/pkg/phase"
 )
@@ -242,9 +241,4 @@ type GateSignal struct {
 // strPtr returns a pointer to s.
 func strPtr(s string) *string {
 	return &s
-}
-
-// nowUnix returns the current Unix timestamp.
-func nowUnix() int64 {
-	return time.Now().Unix()
 }

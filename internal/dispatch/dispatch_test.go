@@ -26,7 +26,6 @@ func testStore(t *testing.T) *Store {
 }
 
 func strPtr(s string) *string { return &s }
-func intPtr(i int) *int       { return &i }
 
 func TestCreateAndGet(t *testing.T) {
 	store := testStore(t)
