@@ -167,16 +167,31 @@ intercore_cleanup_stale() {
     if intercore_available; then
         "$INTERCORE_BIN" sentinel prune --older-than=1h >/dev/null 2>&1 || true
         # Routing-decision retention: archive then delete decisions older than the
-        # window, at most once a day (the pass reads the whole table, about a second
-        # on 100 MB). A stamp file does the throttling because the sentinel prune
-        # above would delete a day-long sentinel within the hour.
+        # window, at most once a day per database (the pass reads the whole table,
+        # about a second on 100 MB). A stamp file does the throttling because the
+        # sentinel prune above would delete a day-long sentinel within the hour; it
+        # is keyed by the database path (INTERCORE_DB, else the nearest
+        # .clavain/intercore.db above $PWD, as ic finds it) so one project's run
+        # does not starve another's, and is touched only after a successful prune.
         # INTERCORE_ROUTING_RETENTION=<N>d|<duration> sets the window (default 30d);
         # =off skips it. An `ic` without `route prune` fails harmlessly here.
         if [[ "${INTERCORE_ROUTING_RETENTION:-30d}" != "off" ]]; then
-            local stamp="${INTERCORE_ROUTING_PRUNE_STAMP:-${XDG_STATE_HOME:-$HOME/.local/state}/intercore/routing-prune.stamp}"
+            local db_path="${INTERCORE_DB:-}" d
+            if [[ -z "$db_path" ]]; then
+                d="$PWD"
+                while [[ -n "$d" ]]; do
+                    if [[ -e "$d/.clavain/intercore.db" ]]; then db_path="$d/.clavain/intercore.db"; break; fi
+                    [[ "$d" == "/" ]] && break
+                    d="$(dirname "$d")"
+                done
+            fi
+            local key stamp
+            key="$(printf '%s' "${db_path:-$PWD}" | cksum | cut -d' ' -f1)"
+            stamp="${INTERCORE_ROUTING_PRUNE_STAMP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/intercore}/routing-prune-$key.stamp"
             if [[ ! -e "$stamp" ]] || [[ -n "$(find "$stamp" -mmin +1440 2>/dev/null)" ]]; then
-                mkdir -p "$(dirname "$stamp")" 2>/dev/null && : > "$stamp" 2>/dev/null || true
-                "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" >/dev/null 2>&1 || true
+                if "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${db_path:+--db="$db_path"} >/dev/null 2>&1; then
+                    { mkdir -p "$(dirname "$stamp")" && : > "$stamp"; } 2>/dev/null || true
+                fi
             fi
         fi
         return 0

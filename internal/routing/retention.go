@@ -441,6 +441,9 @@ func restoreFile(ctx context.Context, tx *sql.Tx, path string, res *RestoreResul
 			if jerr := json.Unmarshal(line, &d); jerr != nil {
 				return fmt.Errorf("line %d: %w", res.Read+1, jerr)
 			}
+			if d.ID <= 0 || d.DecidedAt <= 0 || d.SelectedModel == "" {
+				return fmt.Errorf("line %d: not a routing decision record (id %d, decided_at %d, model %q)", res.Read+1, d.ID, d.DecidedAt, d.SelectedModel)
+			}
 			res.Read++
 			fa := 0
 			if d.FloorApplied {

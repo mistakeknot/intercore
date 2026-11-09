@@ -1501,4 +1501,38 @@ pass "events record rejects unsupported source"
 echo "  Events record tests passed"
 
 echo ""
+echo "=== routing retention hook (intercore_cleanup_stale) ==="
+HOOK_DIR="$TEST_DIR/hook"
+mkdir -p "$HOOK_DIR/projA/.clavain" "$HOOK_DIR/projB/.clavain" "$HOOK_DIR/stamps"
+: > "$HOOK_DIR/projA/.clavain/intercore.db"
+: > "$HOOK_DIR/projB/.clavain/intercore.db"
+printf '#!/bin/bash\necho "$@" >> "$HOOK_LOG"\n[[ "$1" == route && -n "${HOOK_FAIL:-}" ]] && exit 1\nexit 0\n' > "$HOOK_DIR/fake-ic"
+chmod +x "$HOOK_DIR/fake-ic"
+hook_run() { # $1=project dir, extra env via caller
+    ( unset INTERCORE_DB; cd "$HOOK_DIR/$1" && source "$SCRIPT_DIR/lib-intercore.sh" \
+      && INTERCORE_BIN="$HOOK_DIR/fake-ic" && intercore_available() { return 0; } \
+      && INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps" intercore_cleanup_stale )
+}
+export HOOK_LOG="$HOOK_DIR/log"
+hook_prunes() { grep -c '^route prune' "$HOOK_LOG" || true; }
+hook_run projA; hook_run projA
+[[ "$(hook_prunes)" == 1 ]] || fail "hook: expected one prune for repeated runs in one project, got $(hook_prunes)"
+hook_run projB
+[[ "$(hook_prunes)" == 2 ]] || fail "hook: another project must prune on its own, got $(hook_prunes)"
+pass "hook prunes once a day per database"
+mkdir -p "$HOOK_DIR/projC/.clavain"; : > "$HOOK_DIR/projC/.clavain/intercore.db"
+HOOK_FAIL=1 hook_run projC; HOOK_FAIL=1 hook_run projC
+[[ "$(hook_prunes)" == 4 ]] || fail "hook: a failed prune must be retried, got $(hook_prunes)"
+pass "hook retries after a failed prune"
+INTERCORE_ROUTING_RETENTION=off hook_run projB
+touch -d '2 days ago' "$HOOK_DIR"/stamps/*.stamp
+INTERCORE_ROUTING_RETENTION=off hook_run projB
+[[ "$(hook_prunes)" == 4 ]] || fail "hook: =off must not prune, got $(hook_prunes)"
+pass "hook skips the prune when INTERCORE_ROUTING_RETENTION=off"
+hook_run projB
+[[ "$(hook_prunes)" == 5 ]] || fail "hook: a day-old stamp must allow a prune, got $(hook_prunes)"
+grep -q -- "--db=$HOOK_DIR/projB/.clavain/intercore.db" "$HOOK_LOG" || fail "hook: prune must name the resolved database"
+pass "hook prunes again after a day"
+
+echo ""
 echo "All integration tests passed."

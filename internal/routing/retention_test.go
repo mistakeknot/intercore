@@ -294,6 +294,24 @@ func TestDeleteBatchKeepsRowThatBecameProtected(t *testing.T) {
 	}
 }
 
+// A line that is valid JSON but not a decision (null, {}) must not become a row.
+func TestRestoreRejectsRecordsThatAreNotDecisions(t *testing.T) {
+	sdb, _ := retentionDB(t)
+	ctx := context.Background()
+	for name, body := range map[string]string{"null": "null\n", "empty-object": "{}\n", "zero-id": `{"id":0,"selected_model":"m","decided_at":5}` + "\n"} {
+		path := filepath.Join(t.TempDir(), "x.jsonl")
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := RestoreDecisions(ctx, sdb, []string{path}); err == nil {
+			t.Fatalf("%s: restore accepted a record that is not a decision", name)
+		}
+		if countRows(t, sdb) != 0 {
+			t.Fatalf("%s: a bogus row was inserted", name)
+		}
+	}
+}
+
 func TestRestoreRejectsDamagedArchiveAndChangesNothing(t *testing.T) {
 	sdb, _ := retentionDB(t)
 	dir := t.TempDir()
@@ -305,7 +323,9 @@ func TestRestoreRejectsDamagedArchiveAndChangesNothing(t *testing.T) {
 		t.Fatalf("prune: %+v %v", res, err)
 	}
 	good, _ := os.ReadFile(res.Files[0])
-	bad := filepath.Join(dir, "routing-decisions-2026-01-9-9-deadbeef.jsonl.gz")
+	// Named so it sorts after the valid archive: its rows are inserted before the
+	// damage is hit, and the restore must roll them back.
+	bad := filepath.Join(dir, "routing-decisions-2026-12-9-9-deadbeef.jsonl.gz")
 	if err := os.WriteFile(bad, good[:len(good)/2], 0o600); err != nil { // truncated
 		t.Fatal(err)
 	}
