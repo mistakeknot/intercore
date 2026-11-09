@@ -64,6 +64,8 @@
 
 **routing** -- Cost-aware capability matching for model/agent selection. Unified routing logic replacing `lib-routing.sh` + `agent-roles.yaml` + `interserve classify`. Hierarchical resolution: per-agent override > phase-category > phase-model > default-category > default-model > "sonnet" fallback. Safety floor clamping from `agent-roles.yaml`. Dispatch tier resolution with 3-hop fallback chain. Batch resolution with category inference from agent name patterns. Routing decisions persisted for audit. Cost table: effective cost formula `input_per_mtok + 15 * output_per_mtok`. Tables: `routing_decisions` (v27).
 
+**routing retention** -- `routing_decisions` rows carry about 5 KB of `context_json` each and nothing else deletes them, so the table grows without bound (191 MB of a 217 MB database after seven weeks). `ic route prune [--older-than=30d] [--archive-dir=<dir>] [--no-archive] [--dry-run] [--vacuum]` removes decisions older than the window (default 30 days). Before any row is deleted it is appended, as one JSON object per line, to `<archive-dir>/routing-decisions-YYYY-MM.jsonl.gz` (UTC month of `decided_at`; default directory `routing-archive/` next to the database) and the file is fsynced; `--no-archive` deletes for good and cannot be combined with `--archive-dir`. A decision is kept while something still points at it: a dispatch that is `spawned` or `running`, a run that is not `completed`, `cancelled` or `failed`, or a `dispatch_terminals.route_decision_id`. `ic route restore <file>...` puts archived rows back with their original ids and is idempotent. Pruning needs no schema change, so older `ic` binaries keep working. The file does not shrink until `--vacuum` (or a separate `VACUUM`) runs; it needs free disk about the size of the database and holds an exclusive lock, so run it once after the first prune, not on every pass. `lib-intercore.sh` `intercore_cleanup_stale` runs the prune on each stop cycle; set `INTERCORE_ROUTING_RETENTION=<N>d` to change the window or `INTERCORE_ROUTING_RETENTION=off` to turn it off.
+
 ### Landed Changes & Replay
 
 **landed** -- Tracks commits that reached the trunk branch. Links commits to dispatches, runs, beads, sessions, and merge intents. Revert tracking. Summary aggregation by bead and run. Table: `landed_changes` (v25).
@@ -111,7 +113,7 @@ Registered contract types cover: coordination, dispatch, phase/run, runtrack, sc
 | Situation | `situation snapshot` |
 | Config/Agency | `config set/get/list`, `agency load/validate/show/capabilities` |
 | Publish | `publish <version>/--patch/--minor/--auto/--scoped/--dry-run/init/status/doctor/clean` |
-| Route | `route model/batch/dispatch/table/record/list` |
+| Route | `route model/batch/dispatch/table/record/list/prune/restore` |
 | Landed | `landed record/list/revert/summary` |
 | Session | `session start/attribute/end/current/list/tokens` |
 

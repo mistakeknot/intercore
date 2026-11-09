@@ -296,6 +296,8 @@ Commands:
   route table [--phase=<p>]     Show full routing table
   route record --agent=<a> --model=<m> --rule=<r>  Record a routing decision
   route list [--agent=<a>] [--model=<m>]  List routing decisions
+  route prune [--older-than=30d] [--archive-dir=<d>|--no-archive] [--dry-run] [--vacuum]  Archive and delete old routing decisions
+  route restore <archive.jsonl.gz>...  Re-insert archived routing decisions
   cost reconcile <run> --billed-in=N --billed-out=N [--dispatch=<id>] [--source=<s>]
   cost list <run> [--limit=N]   List past reconciliations
   publish <ver>                  Publish plugin (bump + push + sync)

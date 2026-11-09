@@ -161,11 +161,17 @@ intercore_state_delete_all() {
     rm -f $legacy_glob 2>/dev/null || true
 }
 
-# intercore_cleanup_stale — prune old sentinels (replaces find -mmin -delete).
+# intercore_cleanup_stale — prune old sentinels (replaces find -mmin -delete) and old routing decisions.
 # Called ONCE per stop cycle from session-handoff.sh only — not from every hook.
 intercore_cleanup_stale() {
     if intercore_available; then
         "$INTERCORE_BIN" sentinel prune --older-than=1h >/dev/null 2>&1 || true
+        # Routing-decision retention: archive then delete decisions older than the window.
+        # INTERCORE_ROUTING_RETENTION=<N>d|<duration> sets the window (default 30d);
+        # =off skips it. An `ic` without `route prune` fails harmlessly here.
+        if [[ "${INTERCORE_ROUTING_RETENTION:-30d}" != "off" ]]; then
+            "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" >/dev/null 2>&1 || true
+        fi
         return 0
     fi
     # Fallback: clean legacy temp files
