@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/mistakeknot/intercore/internal/state"
 	"github.com/mistakeknot/intercore/pkg/autonomy"
@@ -210,19 +209,4 @@ func listKernelKeys(ctx context.Context, store *state.Store) []string {
 		keys = append(keys, k)
 	}
 	return keys
-}
-
-// ReadConfigInt reads a kernel config key as an integer. Returns 0 if not set.
-func readConfigInt(ctx context.Context, store *state.Store, key string) int {
-	stateKey := "kernel." + key
-	payload, err := store.Get(ctx, stateKey, kernelScope)
-	if err != nil {
-		return 0
-	}
-	val := strings.TrimSpace(string(payload))
-	n, err := strconv.Atoi(val)
-	if err != nil {
-		return 0
-	}
-	return n
 }
