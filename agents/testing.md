@@ -5,9 +5,9 @@ Test suites and recovery procedures for common failure modes.
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~529 test functions across 23 packages)
+go test ./...                    # Unit tests
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (1320-line bash suite)
+bash test-integration.sh         # Full CLI integration test
 ```
 
 ## Recovery Procedures

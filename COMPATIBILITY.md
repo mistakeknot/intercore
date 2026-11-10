@@ -53,7 +53,8 @@ Current optional envelope fields (v2):
 
 These are internal implementation details that may change without notice:
 
-- **Internal Go API** — there is no library API in v1. The CLI is the contract.
+- **`internal/` Go packages** — not importable outside this module; they change freely. The CLI is the contract for them.
+- **`pkg/` Go packages** — importable by other modules, and Clavain and Autarch build against them. They have no tagged-release compatibility guarantee yet, so check both consumers before changing one.
 - **Database file layout and internal table structures** — callers should use `ic` commands, not raw SQL.
 - **Debug output format** — stderr messages may change without notice.
 - **Lock file format** — filesystem locks are an internal mechanism.
