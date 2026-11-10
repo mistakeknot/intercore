@@ -11,8 +11,9 @@ package main
 // outside the attempt cgroup" is checked in /proc. A test skips, with the
 // reason, when strace cannot trace or no delegated subtree can be made.
 //
-// Recorded-PID recovery (the adopt half of E2d and E2e, barriers 5 to 7) and the
-// fallback-mode sweep belong to later slices; the one barrier 5 case here is P4,
+// Recorded-PID recovery (adoption, barriers 5 to 7 and 11, K6, P1, P5, P6 and
+// the adopted halves of E2d and E2e) is in scheduler_run_adopt_test.go. The
+// fallback-mode sweep belongs to a later slice; the barrier 5 case here is P4,
 // which the boot change shortcut finishes without a process lookup.
 
 import (
@@ -314,24 +315,32 @@ func TestCLIRecoveryLostEntryBeforeLinkExits5(t *testing.T) {
 // dropped, and in every other iteration the barrier is released at once so the
 // launch races the repair pass. The runner exits 5 either way and writes no
 // finalize or quarantine. There are 0 or 1 launches, the row stays linked, and
-// no process runs outside the attempt cgroup. Without the release (0 launches)
-// the next runner sees a linked row with no PID and an empty cgroup and ends it
-// indeterminate; a process that did start is left to the recorded-PID recovery
-// of a later slice, so only the invariants are checked for it.
+// no process runs outside the attempt cgroup. A restarted runner then settles
+// the row from the database alone, with no second launch: a launch that never
+// started leaves an empty cgroup and ends indeterminate; one that did start is
+// adopted when its recorded PID and identity landed (the gate then opens and it
+// completes), and is otherwise killed with its cgroup and ends indeterminate. A
+// PID recorded without its identity is the unproven state, finished by the five
+// minute rule, which the clock hook moves.
 func TestCLIRecoveryLostEntryWhileLinkedExits5(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		release := i%2 == 0
 		t.Run(fmt.Sprintf("i%02d_release_%v", i, release), func(t *testing.T) {
 			r := newRec(t)
-			r.e.addJob(r.path, "j1", "sleep 5")
+			openGate := r.gateJob("j1", nil)
 			p, bar := r.heldAt("after_link_before_start", "drop_entry:after_link_before_start")
+			rpid := r.e.runnerPID(r.path)
 			if release {
 				// The repair pass may stop the runner before this release
 				// lands; either order must end in exit 5.
 				bar.tryRelease(2 * time.Second)
 			}
-			if code := p.waitExit(t); code != 5 {
-				t.Fatalf("runner exit %d, want 5: %s", code, p.stderr())
+			deadline := time.Now().Add(waitLimit)
+			for !procGone(rpid) {
+				if time.Now().After(deadline) {
+					t.Fatalf("the runner did not fail-stop: %s", p.stderr())
+				}
+				time.Sleep(5 * time.Millisecond)
 			}
 			n := r.execs()
 			if n > 1 || (!release && n != 0) {
@@ -351,17 +360,42 @@ func TestCLIRecoveryLostEntryWhileLinkedExits5(t *testing.T) {
 					t.Fatalf("executor %d runs outside its attempt cgroup: %s", pid, cg)
 				}
 			}
-			if release {
-				return // the teardown kills what started
-			}
-			p2 := r.run(nil)
+			old := r.token("j1")
+			clock := filepath.Join(t.TempDir(), "clock")
+			p2 := r.run([]string{"IC_SCHED_FAULT=clock_offset_file:" + clock})
 			p2.waitReady(t)
-			if status, outcome := r.waitOutcome("j1"); outcome != "indeterminate" || status != "failed" {
+			adopted := false
+			deadline = time.Now().Add(2 * time.Minute)
+			for !adopted {
+				if _, o := r.e.jobOutcome(r.path, "j1"); o != "" {
+					break
+				}
+				if r.token("j1") != old {
+					adopted = true
+					break
+				}
+				if strings.Contains(p2.stderr(), "recorded process: proof_absent") {
+					_ = os.WriteFile(clock, []byte("301"), 0o600)
+				}
+				if time.Now().After(deadline) {
+					t.Fatalf("the restarted runner did not settle the row: %s", p2.stderr())
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if adopted {
+				openGate()
+				if status, outcome := r.waitOutcome("j1"); status != "completed" || outcome != "ok" {
+					t.Fatalf("adopted job is %s/%s, want completed/ok", status, outcome)
+				}
+			} else if status, outcome := r.waitOutcome("j1"); status != "failed" || outcome != "indeterminate" {
 				t.Fatalf("job is %s/%s, want failed/indeterminate", status, outcome)
 			}
 			r.stop(p2)
-			if n := r.execs(); n != 0 {
-				t.Fatalf("launches = %d, want 0", n)
+			if code := p.waitExit(t); code != 5 {
+				t.Fatalf("runner exit %d, want 5: %s", code, p.stderr())
+			}
+			if got := r.execs(); got != n {
+				t.Fatalf("launches = %d after recovery, %d before: recovery launched again", got, n)
 			}
 		})
 	}
@@ -370,7 +404,7 @@ func TestCLIRecoveryLostEntryWhileLinkedExits5(t *testing.T) {
 // E2e (4b half): the entry is dropped while the executor still runs. The runner
 // exits 5 and touches neither the database nor the cgroup: the executor keeps
 // running in its attempt cgroup, is reparented to the test's subreaper and is
-// reaped there, leaving no zombie. Adopting it is a later slice.
+// reaped there, leaving no zombie. The adopted half is in scheduler_run_adopt_test.go.
 func TestCLIRecoveryLostEntryWhileRunningExits5(t *testing.T) {
 	if err := unix.Prctl(unix.PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0); err != nil {
 		t.Skipf("cannot become a subreaper: %v", err)

@@ -94,6 +94,10 @@ type Options struct {
 		bootID       func() string            // replaces BootID() for the identity this runner records
 		recoveryPass func()                   // after every recovery pass (the startup pass included)
 		recoverRow   func(token, step string) // before each recovery step of a row; step names the decision
+
+		// Slice 4c seams.
+		procRoot func() string    // the procfs root the recorded-PID check reads ("" or nil: /proc); a non-real root also skips pidfd_open
+		clock    func() time.Time // the clock of the five minute rule (nil: Options.Now)
 	}
 }
 

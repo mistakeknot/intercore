@@ -52,6 +52,7 @@ type engine struct {
 	mu      sync.Mutex
 	backoff map[string]backoffState // completing entries that failed a step
 	killed  map[string]bool         // cancelling tokens whose dispatch was signalled
+	unread  map[string]time.Time    // recorded-PID check: first pass that could not read a prior row's process (the five minute rule)
 	killing map[string]bool         // cancelling tokens with a signal in progress
 	reapers sync.WaitGroup          // running reapTerminalDispatch goroutines
 	closing bool                    // run is returning: no new reapers (guarded by mu)
@@ -78,6 +79,7 @@ func newEngine(o Options, store *scheduler.Store, sqlDB *sql.DB, epoch int64, cg
 		fl:      NewInFlight(),
 		backoff: map[string]backoffState{},
 		killed:  map[string]bool{},
+		unread:  map[string]time.Time{},
 		killing: map[string]bool{},
 		abort:   make(chan struct{}),
 		fatal:   make(chan error, 1),
