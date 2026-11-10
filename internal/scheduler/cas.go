@@ -53,6 +53,9 @@ type ClaimParams struct {
 	JobID string
 	Epoch int64
 	Now   time.Time
+	// Token is the claim token to record. A runner that registers its in-flight
+	// entry before the claim transaction supplies it; empty generates one.
+	Token string
 }
 
 // FinalizeParams ends the attempt of a claim.
@@ -128,12 +131,16 @@ func newToken() (string, error) {
 // a job that is retry-blocked, not yet due, or queued while the scheduler is
 // paused, and it refuses a runner whose epoch is no longer current.
 func (s *Store) Claim(ctx context.Context, p ClaimParams) (*Claim, error) {
-	token, err := newToken()
-	if err != nil {
-		return nil, err
+	token := p.Token
+	if token == "" {
+		var err error
+		if token, err = newToken(); err != nil {
+			return nil, err
+		}
 	}
 	now := p.Now.Unix()
 	var c *Claim
+	var err error
 	err = s.inTx(ctx, func(tx *db.ImmediateTx) error {
 		res, err := tx.ExecContext(ctx, `UPDATE scheduler_jobs
 			SET status = 'launching', attempt_seq = attempt_seq + 1, claim_token = ?, lease_epoch = ?, updated_at = ?

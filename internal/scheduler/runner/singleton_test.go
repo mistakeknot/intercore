@@ -159,9 +159,11 @@ func TestRunBumpsEpochHeartbeatsAndDrains(t *testing.T) {
 	}
 }
 
-func TestRunClaimsNothing(t *testing.T) {
-	path, store, _ := newQueue(t)
+// A paused queue is left alone (the unpaused control is TestHappyPathCompletesOnce).
+func TestRunClaimsNothingWhilePaused(t *testing.T) {
+	path, store, raw := newQueue(t)
 	ctx := context.Background()
+	setPaused(t, raw, true)
 	if err := store.Create(ctx, &scheduler.SpawnJob{
 		ID: "j1", Status: scheduler.StatusPending, Priority: scheduler.PriorityNormal, AgentType: "codex",
 		SpawnOpts: "{}", MaxRetries: 3, CreatedAt: time.Unix(1_700_000_000, 0),

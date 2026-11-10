@@ -13,14 +13,24 @@ go test -tags icsched_test ./... # Scheduler runner tests (Linux)
 
 ### Scheduler runner build tag
 
-`ic scheduler run` is compiled only under the `icsched_test` build tag. A
-release build exits 2 with "scheduler runner not enabled in this build" and
-touches nothing. The runner tests (`internal/scheduler/runner`, and the
+`ic scheduler run` and `ic scheduler runner` are compiled only under the
+`icsched_test` build tag. A release build exits 2 with "scheduler runner not
+enabled in this build" and touches nothing. The runner tests (`internal/scheduler/runner`, and the
 `TestCLI*` tests in `cmd/ic`, which build the tagged binary) run only with
 `-tags icsched_test`. Run them with a throwaway HOME, a working directory under
 a temp dir and an explicit `--db`; never point a runner at
 `~/.clavain/intercore.db`. The runner refuses a database under a live
 `.clavain/` directory unless `IC_SCHEDULER_ALLOW_LIVE=1` is set.
+
+The claim and launch tests use a fake executor
+(`internal/scheduler/runner/testdata/fake-dispatch.sh`) and in-package seams
+(`hooks` in `options.go`) so races are forced, not slept through; each one has
+a control that lifts the condition it proves. The in-process tests count
+executor runs from `$FAKE_LOG` and from the dispatch ledger. The CLI tests
+(`scheduler_run_launch_test.go`) run the tagged binary under `strace -f -e
+trace=execve` and count `execve` calls from outside the process; they skip with
+the reason when strace cannot trace here. Run concurrency tests with `-race
+-count=50`.
 
 The A2 and A7 tests use unprivileged user namespaces (`unshare -Urm`,
 `unshare -Un`) and skip with a reason where those are unavailable.
