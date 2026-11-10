@@ -420,6 +420,69 @@ func TestOnAdmittedGoroutineCannotWriteAfterTheHookReturns(t *testing.T) {
 	}
 }
 
+// A goroutine the hook started may be inside a long query, under a context of
+// its own, when the hook returns or panics. Cleanup must interrupt that query,
+// not wait for it: admission has to go on to roll back and free the connection.
+func TestOnAdmittedInFlightQueryIsInterruptedAtHookEnd(t *testing.T) {
+	const forever = `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM c`
+	for _, panics := range []bool{false, true} {
+		name := "return"
+		if panics {
+			name = "panic"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := testStore(t)
+			ctx := context.Background()
+			conn, err := store.db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+				t.Fatal(err)
+			}
+			var wg sync.WaitGroup
+			started := make(chan struct{})
+			hook := func(_ context.Context, q Querier, _ string) error {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					close(started)
+					var n int
+					_ = q.QueryRowContext(context.Background(), forever).Scan(&n)
+				}()
+				<-started
+				time.Sleep(100 * time.Millisecond) // let the query start running
+				if panics {
+					panic("boom")
+				}
+				return nil
+			}
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				defer func() { _ = recover() }()
+				_ = runAdmittedHook(ctx, conn, hook, "d")
+			}()
+			select {
+			case <-finished:
+			case <-time.After(10 * time.Second):
+				t.Fatal("hook cleanup waited on an in-flight query instead of interrupting it")
+			}
+			done := make(chan struct{})
+			go func() { wg.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the hook's query goroutine never ended")
+			}
+			if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+				t.Fatalf("rollback after the hook: %v", err)
+			}
+		})
+	}
+}
+
 func TestOnAdmittedNotCalledWhenAdmissionRejects(t *testing.T) {
 	store, f := testStore(t), newHookFixture(t)
 	called := false
