@@ -209,9 +209,9 @@ intercore_cleanup_stale() {
         # files) so equivalent spellings of one database share one stamp.
         if [[ -n "$db_path" ]]; then
             dd="$(cd "$(dirname "$db_path")" 2>/dev/null && pwd -P)" && db_path="$dd/$(basename "$db_path")"
-            # Follow a symlinked database file too (a few hops at most).
+            # Follow a symlinked database file too (up to 40 hops).
             n=0
-            while [[ -L "$db_path" && "$n" -lt 10 ]]; do
+            while [[ -L "$db_path" && "$n" -lt 40 ]]; do
                 t="$(readlink "$db_path" 2>/dev/null)" || break
                 [[ -n "$t" ]] || break
                 [[ "$t" == /* ]] || t="$(dirname "$db_path")/$t"
@@ -219,6 +219,9 @@ intercore_cleanup_stale() {
                 db_path="$dd/$(basename "$t")"
                 n=$(( n + 1 ))
             done
+            # A chain this long, a loop, or a link readlink cannot read has no
+            # trustworthy identity: skip rather than prune under a second key.
+            [[ ! -L "$db_path" ]] || return 0
         fi
         state_dir="${INTERCORE_ROUTING_PRUNE_STAMP_DIR:-}"
         if [[ -z "$state_dir" ]]; then

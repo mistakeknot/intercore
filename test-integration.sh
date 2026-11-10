@@ -1764,6 +1764,20 @@ run_ok "hook: path aliases and an octal-looking timeout must not fail the caller
 [[ ! -s "$HOOK_DIR/alias.err" ]] || fail "hook: INTERCORE_ROUTING_PRUNE_TIMEOUT=08 must stay quiet: $(head -c 200 "$HOOK_DIR/alias.err")"
 pass "hook shares one stamp across equivalent database paths"
 
+# A long symlink chain still resolves to the target's stamp; a symlink loop skips the prune.
+rm -f "$HOOK_DIR/count-calls"; rm -rf "$HOOK_DIR/stamps-chain"
+_prev="$HOOK_DIR/projA/.clavain/intercore.db"
+for _i in $(seq 1 14); do ln -sfn "$_prev" "$HOOK_DIR/chain$_i"; _prev="$HOOK_DIR/chain$_i"; done
+ln -sfn "$HOOK_DIR/loopB" "$HOOK_DIR/loopA"; ln -sfn "$HOOK_DIR/loopA" "$HOOK_DIR/loopB"
+t_chain() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-chain" HOOK_BIN="$HOOK_DIR/count-ic"
+  for _db in "$HOOK_DIR/chain14" "$HOOK_DIR/projA/.clavain/intercore.db" "$HOOK_DIR/chain7" "$HOOK_DIR/loopA"; do
+    INTERCORE_DB="$_db" hook_raw projA
+  done; }
+run_ok "hook: a long symlink chain and a symlink loop must not fail the caller" t_chain 2> "$HOOK_DIR/chain.err"
+[[ "$(ncalls "$HOOK_DIR/count-calls")" == 1 ]] || fail "hook: a 14-link chain must share the target's stamp and a loop must skip, got $(ncalls "$HOOK_DIR/count-calls") prunes"
+[[ ! -s "$HOOK_DIR/chain.err" ]] || fail "hook: symlink chains must stay quiet: $(head -c 200 "$HOOK_DIR/chain.err")"
+pass "hook resolves long symlink chains and skips a loop"
+
 
 echo ""
 if [[ "$SKIPPED" -gt 0 ]]; then
