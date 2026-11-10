@@ -94,6 +94,16 @@ const interruptGrace = 50 * time.Millisecond
 // close ends the Querier: it refuses every later call, cancels every context
 // handed out, then waits for the calls still running to return. It reports how
 // many calls were still running when it began, i.e. how many it interrupted.
+//
+// Known limit: the SQLite driver delivers one interrupt per call, and SQLite
+// drops an interrupt that lands before it has started the statement. The grace
+// below makes that window very unlikely but cannot close it, and the driver has
+// no way to interrupt again. A hook that breaks its contract by returning with
+// an unbounded query still running, and that also loses that race, can hold the
+// admission connection until the query ends. Keeping a statement pinned open on
+// the connection would make the interrupt sticky, but it would also make any
+// later query of a well-behaved hook fail after one of its own timeouts, which
+// is the worse trade. Hooks must not return with a query running.
 func (h *hookQuerier) close() (interrupted int) {
 	h.mu.Lock()
 	h.closed = true
