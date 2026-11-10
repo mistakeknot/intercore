@@ -39,6 +39,9 @@ Subcommands:
   table   [--phase=<p>]                             Show full routing table
   record  --agent=<a> --model=<m> --rule=<r> ...    Record a routing decision
   list    [--agent=<a>] [--model=<m>] [--limit=N]   List routing decisions
+  prune   [--older-than=30d] [--archive-dir=<dir>|--no-archive] [--dry-run] [--vacuum]
+                                                    Archive and delete routing decisions older than the window
+  restore <archive.jsonl.gz|dir>...                 Re-insert archived routing decisions (undo a prune)
 
 Exit codes (decide): 0 decision, 1 no-eligible-model, 3 malformed-input, 4 constraint-violation.
 On a non-zero exit the caller MUST halt; it MUST NOT fall back to a native model knob.
@@ -81,6 +84,10 @@ On a non-zero exit the caller MUST halt; it MUST NOT fall back to a native model
 		return cmdRouteRecord(ctx, args[1:])
 	case "list":
 		return cmdRouteList(ctx, args[1:])
+	case "prune":
+		return cmdRoutePrune(ctx, args[1:])
+	case "restore":
+		return cmdRouteRestore(ctx, args[1:])
 	default:
 		slog.Error("route: unknown subcommand", "subcommand", args[0])
 		return 3

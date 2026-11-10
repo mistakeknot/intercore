@@ -1548,6 +1548,301 @@ pass "events record rejects unsupported source"
 echo "  Events record tests passed"
 
 echo ""
+echo "=== routing retention hook (intercore_cleanup_stale) ==="
+# Uses the real ic built above, so the hook is held to ic's own database rules
+# (an explicit --db must be under the current directory; discovery may use an ancestor).
+HOOK_DIR="$TEST_DIR/hook"
+mkdir -p "$HOOK_DIR/projA/sub" "$HOOK_DIR/projB" "$HOOK_DIR/stamps"
+# Each project gets its own database through an explicit --db: a bare `ic init` would
+# discover an ancestor .clavain (for example one left in /tmp) and share it.
+mkdir -p "$HOOK_DIR/projA/.clavain" "$HOOK_DIR/projB/.clavain"
+(cd "$HOOK_DIR/projA" && "$IC_BIN" --db=.clavain/intercore.db init >/dev/null) || fail "hook: ic init projA"
+(cd "$HOOK_DIR/projB" && "$IC_BIN" --db=.clavain/intercore.db init >/dev/null) || fail "hook: ic init projB"
+hook_run() { # $1=dir relative to the hook dir; INTERCORE_DB and others come from the caller
+    ( cd "$HOOK_DIR/$1" && source "$SCRIPT_DIR/lib-intercore.sh" \
+      && INTERCORE_BIN="${HOOK_BIN:-$IC_BIN}" && intercore_available() { return 0; } \
+      && INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps" intercore_cleanup_stale )
+}
+stamps() { find "$HOOK_DIR/stamps" -name 'routing-prune-*.stamp' | wc -l | tr -d ' '; }
+( unset INTERCORE_DB
+  hook_run projA/sub
+  [[ "$(stamps)" == 1 ]] || fail "hook: a prune from a project subdirectory must succeed (ic discovers the ancestor db), stamps=$(stamps)"
+  hook_run projA
+  [[ "$(stamps)" == 1 ]] || fail "hook: the same database must share one stamp, stamps=$(stamps)"
+  hook_run projB
+  [[ "$(stamps)" == 2 ]] || fail "hook: another project must prune on its own, stamps=$(stamps)"
+) || exit 1
+pass "hook prunes with ic's own database discovery, once a day per database"
+find "$HOOK_DIR/stamps" -name '*.stamp' -delete
+( export INTERCORE_DB=.clavain/intercore.db
+  hook_run projA; hook_run projB
+  [[ "$(stamps)" == 2 ]] || fail "hook: relative INTERCORE_DB in two projects must give two stamps, stamps=$(stamps)"
+) || exit 1
+pass "hook keys the stamp by the resolved database path"
+find "$HOOK_DIR/stamps" -name '*.stamp' -delete
+printf '#!/bin/bash\nexit 1\n' > "$HOOK_DIR/failing-ic"; chmod +x "$HOOK_DIR/failing-ic"
+( unset INTERCORE_DB; HOOK_BIN="$HOOK_DIR/failing-ic" hook_run projA )
+[[ "$(stamps)" == 0 ]] || fail "hook: a failed prune must leave no success stamp, stamps=$(stamps)"
+( unset INTERCORE_DB; HOOK_BIN="$HOOK_DIR/failing-ic" hook_run projA )
+[[ "$(stamps)" == 0 ]] || fail "hook: a prune that failed a moment ago must back off, not stamp"
+touch -d '2 hours ago' "$HOOK_DIR"/stamps/*.failed
+( unset INTERCORE_DB; hook_run projA )
+[[ "$(stamps)" == 1 ]] || fail "hook: once the failure back-off has passed the prune must be retried, stamps=$(stamps)"
+[[ -z "$(find "$HOOK_DIR/stamps" -name '*.failed')" ]] || fail "hook: a successful prune must clear the failure marker"
+find "$HOOK_DIR/stamps" -name 'routing-prune-*' -delete
+pass "hook backs off after a failed prune and retries once the back-off has passed"
+( unset INTERCORE_DB; INTERCORE_ROUTING_RETENTION=off hook_run projA )
+[[ "$(stamps)" == 0 ]] || fail "hook: =off must not prune, stamps=$(stamps)"
+pass "hook skips the prune when INTERCORE_ROUTING_RETENTION=off"
+( unset INTERCORE_DB; hook_run projA )
+touch -d '2 days ago' "$HOOK_DIR"/stamps/*.stamp
+( unset INTERCORE_DB; hook_run projA )
+[[ "$(find "$HOOK_DIR/stamps" -name '*.stamp' -mmin +1440 | wc -l | tr -d ' ')" == 0 ]] || fail "hook: a day-old stamp must allow a prune and be refreshed"
+pass "hook prunes again after a day"
+
+# Effect and throttle, not just a stamp: seed a real decision, let it age past a
+# one-second window, and count how many times the hook really invokes `route prune`.
+find "$HOOK_DIR/stamps" -name '*.stamp' -delete
+printf '#!/bin/bash\n[[ "$*" == *"route prune"* ]] && echo x >> "%s/prune-calls"\nexec "%s" "$@"\n' "$HOOK_DIR" "$IC_BIN" > "$HOOK_DIR/counting-ic"
+chmod +x "$HOOK_DIR/counting-ic"
+(cd "$HOOK_DIR/projA" && "$IC_BIN" --db=.clavain/intercore.db route record --agent=hook-test --model=hook-test-model --rule=hook-test >/dev/null) || fail "hook: seed a routing decision"
+sleep 2
+( unset INTERCORE_DB; export INTERCORE_ROUTING_RETENTION=1s HOOK_BIN="$HOOK_DIR/counting-ic"
+  hook_run projA; hook_run projA; hook_run projA )
+PRUNE_CALLS=$(wc -l < "$HOOK_DIR/prune-calls" 2>/dev/null | tr -d ' ')
+[[ "$PRUNE_CALLS" == 1 ]] || fail "hook: three runs inside a day must invoke route prune exactly once, got ${PRUNE_CALLS:-0}"
+[[ -z "$(cd "$HOOK_DIR/projA" && "$IC_BIN" --db=.clavain/intercore.db route list --json | grep hook-test-model)" ]] || fail "hook: the expired decision must be pruned from the database"
+ls "$HOOK_DIR"/projA/.clavain/routing-archive/*.jsonl.gz >/dev/null 2>&1 || fail "hook: the pruned decision must be archived"
+[[ "$(gzip -dc "$HOOK_DIR"/projA/.clavain/routing-archive/*.jsonl.gz | grep -c hook-test-model)" == 1 ]] || fail "hook: the archive must hold the pruned decision"
+pass "hook archives and deletes an expired decision, and prunes once per day"
+
+# --- Hardening of the stop-hook retention block (review of the Clavain twin). ---
+# The hook runs under the strictest caller policy (set -euo pipefail, as session-handoff.sh
+# does) and must never abort the caller, hang it, or prune more than once an hour.
+hook_raw() { # $1=dir under the hook dir; env (stamp dir, timeout, HOOK_BIN) comes from the caller
+    ( cd "$HOOK_DIR/$1" && set -euo pipefail && source "$SCRIPT_DIR/lib-intercore.sh" \
+      && INTERCORE_BIN="${HOOK_BIN:-$IC_BIN}" && intercore_available() { return 0; } \
+      && intercore_cleanup_stale )
+}
+# run_ok MESSAGE CMD...: run CMD in a subshell as a plain statement, so errexit set inside it
+# is live (inside `cmd || fail` bash would silently disable it); fail unless it exits 0.
+run_ok() {
+    local msg="$1" rc; shift
+    set +e; ( "$@" ); rc=$?; set -e
+    [[ "$rc" == 0 ]] || fail "$msg (exit $rc)"
+}
+# Control: the harness above really aborts on a failing command under set -e.
+errexit_probe() { ( set -euo pipefail; false; echo survived ); }
+set +e; PROBE_OUT="$(errexit_probe)"; set -e
+[[ "$PROBE_OUT" != *survived* ]] || fail "hook tests: run_ok does not keep errexit live"
+fake_ic() { # $1=file $2=calls-file $3=shell snippet run after logging the call
+    printf '#!/bin/bash\n[[ "$*" == *"route prune"* ]] || exit 0\necho x >> "%s"\n%s\n' "$2" "$3" > "$1"
+    chmod +x "$1"
+}
+ncalls() { if [[ -e "$1" ]]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+PROJA_DB="$HOOK_DIR/projA/.clavain/intercore.db"
+PROJA_KEY="$( source "$SCRIPT_DIR/lib-intercore.sh"; _intercore_routing_prune_key "$PROJA_DB" )"
+[[ "$PROJA_KEY" =~ ^[0-9a-f]{32}$ ]] || fail "hook tests: the stamp key must be a sha256 prefix, got '$PROJA_KEY'"
+
+# 1. No HOME and no XDG_STATE_HOME: skip quietly, never "unbound variable".
+fake_ic "$HOOK_DIR/nohome-ic" "$HOOK_DIR/nohome-calls" 'exit 0'
+t_nohome() { unset HOME XDG_STATE_HOME INTERCORE_ROUTING_PRUNE_STAMP_DIR INTERCORE_DB
+  HOOK_BIN="$HOOK_DIR/nohome-ic" hook_raw projA; }
+run_ok "hook: HOME and XDG_STATE_HOME unset under set -u must not abort the caller" t_nohome
+[[ ! -e "$HOOK_DIR/nohome-calls" ]] || fail "hook: with nowhere to keep a stamp the hook must skip the prune, not run it unthrottled"
+t_remote() { set -euo pipefail; unset HOME; source "$SCRIPT_DIR/lib-intercore.sh"; if intercore_remote_authority; then exit 3; fi; }
+run_ok "hook: intercore_remote_authority with HOME unset under set -u must report not-remote, not abort" t_remote
+pass "hook survives HOME unset under set -u and skips the prune"
+
+# 4. Failing or missing hash tools must not abort an errexit caller, and must skip the prune.
+TOOLBIN_NOHASH="$HOOK_DIR/toolbin-nohash"; mkdir -p "$TOOLBIN_NOHASH"
+for _t in cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN_NOHASH/$_t"; done
+t_hash() { # $1 = exit status of the hash tools (installed but failing), or "missing" for none on PATH
+  unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-hash"
+  HOOK_BIN="$HOOK_DIR/nohome-ic"
+  if [[ "$1" == missing ]]; then PATH="$TOOLBIN_NOHASH"; ! command -v sha256sum >/dev/null && ! command -v shasum >/dev/null && ! command -v cksum >/dev/null || return 9
+  else eval "sha256sum() { cat >/dev/null; return $1; }; shasum() { cat >/dev/null; return $1; }; cksum() { cat >/dev/null; return $1; }"; fi
+  hook_raw projA; }
+run_ok "hook: failing hash tools must not abort an errexit caller" t_hash 1
+run_ok "hook: missing hash tools must not abort an errexit caller" t_hash missing
+[[ ! -e "$HOOK_DIR/nohome-calls" ]] || fail "hook: without a stamp key the hook must skip the prune"
+pass "hook skips quietly when no hash tool works"
+
+# 4b. Where only cksum exists the hook still prunes, once a day, under a "ck" key.
+TOOLBIN_CKSUM="$HOOK_DIR/toolbin-cksum"; mkdir -p "$TOOLBIN_CKSUM"
+for _t in cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN_CKSUM/$_t"; done
+fake_ic "$HOOK_DIR/ck-ic" "$HOOK_DIR/ck-calls" 'exit 0'
+t_cksum_only() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-ck" HOOK_BIN="$HOOK_DIR/ck-ic"
+  PATH="$TOOLBIN_CKSUM"; ! command -v sha256sum >/dev/null && ! command -v shasum >/dev/null || return 9
+  hook_raw projA; hook_raw projA; }
+run_ok "hook: a machine with only cksum must not fail the caller" t_cksum_only
+[[ "$(ncalls "$HOOK_DIR/ck-calls")" == 1 ]] || fail "hook: with only cksum the prune must run once, got $(ncalls "$HOOK_DIR/ck-calls")"
+[[ -n "$(find "$HOOK_DIR/stamps-ck" -name 'routing-prune-ck[0-9]*.stamp')" ]] || fail "hook: the cksum fallback must stamp under a ck-prefixed key"
+pass "hook falls back to a cksum stamp key where no sha256 tool exists"
+
+# 2. A prune that ignores SIGTERM is still cut off, and is not retried on the next stop.
+fake_ic "$HOOK_DIR/stubborn-ic" "$HOOK_DIR/stubborn-calls" "trap '' TERM; sleep 30"
+t_slow() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_TIMEOUT=1 INTERCORE_ROUTING_PRUNE_STAMP_DIR="$1"
+  HOOK_BIN="$HOOK_DIR/stubborn-ic"; hook_raw projA; }
+SECONDS=0
+run_ok "hook: a timed-out prune must not fail the caller" t_slow "$HOOK_DIR/stamps-slow" 2> "$HOOK_DIR/slow.err"
+[[ ! -s "$HOOK_DIR/slow.err" ]] || fail "hook: a prune that had to be SIGKILLed must leave the caller's stderr empty: $(head -c 200 "$HOOK_DIR/slow.err")"
+(( SECONDS < 15 )) || fail "hook: a 30s prune that ignores SIGTERM must be killed by the timeout, took ${SECONDS}s"
+[[ "$(find "$HOOK_DIR/stamps-slow" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 0 ]] || fail "hook: a timed-out prune must not leave a success stamp"
+run_ok "hook: second stop after a timeout" t_slow "$HOOK_DIR/stamps-slow"
+[[ "$(ncalls "$HOOK_DIR/stubborn-calls")" == 1 ]] || fail "hook: a failed prune must back off, not run again on the next stop (calls=$(ncalls "$HOOK_DIR/stubborn-calls"))"
+pass "hook kills a slow, SIGTERM-ignoring prune and backs off after it"
+
+# 2b. Same bound when the machine has neither timeout nor gtimeout (stock macOS).
+TOOLBIN="$HOOK_DIR/toolbin"; mkdir -p "$TOOLBIN"
+for _t in sha256sum shasum cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; do
+  [[ -n "$(command -v "$_t")" ]] && ln -sf "$(command -v "$_t")" "$TOOLBIN/$_t"; done
+t_notimeout() { PATH="$TOOLBIN"; ! command -v timeout >/dev/null && ! command -v gtimeout >/dev/null && t_slow "$1"; }
+rm -f "$HOOK_DIR/stubborn-calls"
+SECONDS=0
+run_ok "hook: without timeout/gtimeout a slow prune must still return" t_notimeout "$HOOK_DIR/stamps-slow2" 2> "$HOOK_DIR/slow2.err"
+[[ ! -s "$HOOK_DIR/slow2.err" ]] || fail "hook: the watchdog fallback must leave the caller's stderr empty: $(head -c 200 "$HOOK_DIR/slow2.err")"
+(( SECONDS < 15 )) || fail "hook: the no-timeout-binary fallback must still cut off a SIGTERM-ignoring prune, took ${SECONDS}s"
+[[ "$(ncalls "$HOOK_DIR/stubborn-calls")" == 1 ]] || fail "hook: the fallback must have started the prune once"
+pass "hook bounds a slow prune even without a timeout binary"
+
+# 3. Two simultaneous stops prune once.
+fake_ic "$HOOK_DIR/race-ic" "$HOOK_DIR/race-calls" 'sleep 2; exit 0'
+( unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-race" HOOK_BIN="$HOOK_DIR/race-ic"
+  hook_raw projA & hook_raw projA & wait )
+[[ "$(ncalls "$HOOK_DIR/race-calls")" == 1 ]] || fail "hook: two simultaneous stops must prune once, got $(ncalls "$HOOK_DIR/race-calls")"
+[[ "$(find "$HOOK_DIR/stamps-race" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 1 ]] || fail "hook: the winning prune must leave one stamp"
+[[ -z "$(find "$HOOK_DIR/stamps-race" -name '*.lock.*' 2>/dev/null)" ]] || fail "hook: the lock must be released after the prune"
+pass "hook prunes once for two simultaneous stops and releases its lock"
+
+# 3d. Two databases must never share a stamp. The key was once a 32-bit cksum of the path;
+# these two distinct paths both give cksum 1385912073 (found by search; the hook does not
+# need a database at either path because ic is a stub here).
+COLL_A=/d/yHNUYCtcsG; COLL_B=/d/YJilpPhrT0
+[[ "$COLL_A" != "$COLL_B" && "$(printf '%s' "$COLL_A" | cksum | cut -d' ' -f1)" == "$(printf '%s' "$COLL_B" | cksum | cut -d' ' -f1)" ]] \
+    || fail "hook tests: the collision fixture no longer collides under cksum"
+fake_ic "$HOOK_DIR/coll-ic" "$HOOK_DIR/coll-calls" 'exit 0'
+t_collide() { export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-coll" HOOK_BIN="$HOOK_DIR/coll-ic"
+  INTERCORE_DB="$COLL_A" hook_raw projA; INTERCORE_DB="$COLL_B" hook_raw projA; }
+run_ok "hook: two databases with equal path checksums must not fail the caller" t_collide
+[[ "$(ncalls "$HOOK_DIR/coll-calls")" == 2 ]] || fail "hook: a database whose path checksum equals another's must still prune on its own, got $(ncalls "$HOOK_DIR/coll-calls") prunes"
+[[ "$(find "$HOOK_DIR/stamps-coll" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 2 ]] || fail "hook: two databases must leave two stamps"
+t_collide
+[[ "$(ncalls "$HOOK_DIR/coll-calls")" == 2 ]] || fail "hook: a stamped database must not prune again the same day, got $(ncalls "$HOOK_DIR/coll-calls") prunes"
+pass "hook keeps separate stamps for databases whose path checksums collide"
+
+# 3e. A failed prune is retried hourly, not on the next stop: no sooner than an hour after the
+# attempt, and by the first stop after that. A success is then stamped for a day.
+fake_ic "$HOOK_DIR/retry-ic" "$HOOK_DIR/retry-calls" 'exit 1'
+RETRY_DIR="$HOOK_DIR/stamps-retry"
+t_retry() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$RETRY_DIR" HOOK_BIN="${1:-$HOOK_DIR/retry-ic}"; hook_raw projA; }
+retry_calls() { [[ "$(ncalls "$HOOK_DIR/retry-calls")" == "$2" ]] || fail "hook: $1: expected $2 prune attempts, got $(ncalls "$HOOK_DIR/retry-calls")"; }
+run_ok "hook: a failing prune must not fail the caller" t_retry
+retry_calls "the first failed attempt" 1
+run_ok "hook: next stop after a failure" t_retry
+retry_calls "the stop right after a failure must not retry" 1
+touch -d '30 minutes ago' "$RETRY_DIR"/*.failed
+run_ok "hook: stop 30 minutes after a failure" t_retry
+retry_calls "a stop 30 minutes after a failure must not retry" 1
+touch -d '90 minutes ago' "$RETRY_DIR"/*.failed
+run_ok "hook: stop 90 minutes after a failure" t_retry
+retry_calls "the first stop more than an hour after a failure must retry" 2
+run_ok "hook: stop right after the retry" t_retry
+retry_calls "a stop right after the retry must not retry again" 2
+[[ "$(find "$RETRY_DIR" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 0 ]] || fail "hook: failed prunes must leave no success stamp"
+touch -d '90 minutes ago' "$RETRY_DIR"/*.failed
+fake_ic "$HOOK_DIR/retry-ok-ic" "$HOOK_DIR/retry-calls" 'exit 0'
+run_ok "hook: successful retry" t_retry "$HOOK_DIR/retry-ok-ic"
+retry_calls "the retry that succeeds" 3
+touch -d '90 minutes ago' "$RETRY_DIR"/*.stamp
+run_ok "hook: stop an hour after a success" t_retry "$HOOK_DIR/retry-ok-ic"
+retry_calls "a stop 90 minutes after a success must not prune again (daily)" 3
+touch -d '25 hours ago' "$RETRY_DIR"/*.stamp
+run_ok "hook: stop a day after a success" t_retry "$HOOK_DIR/retry-ok-ic"
+retry_calls "a stop more than a day after a success must prune" 4
+pass "hook retries a failed prune hourly (not on the next stop) and a successful one daily"
+
+# A lock held in the current hour blocks a prune; one a killed hook left in an earlier hour does not.
+# The hook's clock is fixed (mid-hour) so no real hour boundary can fall inside the test.
+FIXED_NOW=$(( ( $(command date +%s) / 3600 ) * 3600 + 1800 )); LOCK_HOUR=$(( FIXED_NOW / 3600 ))
+LOCKD="$HOOK_DIR/stamps-lock"; LK="$LOCKD/routing-prune-$PROJA_KEY.lock"
+t_lock() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$LOCKD" HOOK_BIN="$HOOK_DIR/race-ic"
+  date() { if [[ "$*" == "+%s" ]]; then echo "$FIXED_NOW"; else command date "$@"; fi; }; hook_raw projA; }
+lock_case() { # $1=message $2=lock hour offset $3=lock age ("" = fresh) $4=expected prunes
+    rm -f "$HOOK_DIR/race-calls"; rm -rf "$LOCKD"; mkdir -p "$LK.$((LOCK_HOUR + $2))"
+    [[ -z "$3" ]] || touch -d "$3" "$LK.$((LOCK_HOUR + $2))"
+    run_ok "hook: $1 must not fail the caller" t_lock
+    [[ "$(ncalls "$HOOK_DIR/race-calls")" == "$4" ]] || fail "hook: $1: expected $4 prunes, got $(ncalls "$HOOK_DIR/race-calls")"
+}
+lock_case "a lock held this hour" 0 "" 0
+lock_case "a fresh lock of the previous hour (stop on the other side of the boundary)" -1 "" 0
+lock_case "a fresh lock of the next hour (stop on the other side of the boundary)" 1 "" 0
+lock_case "an old lock of the previous hour (killed hook)" -1 "30 minutes ago" 1
+lock_case "a lock abandoned three hours ago" -3 "3 hours ago" 1
+[[ -z "$(find "$LOCKD" -name '*.lock.*' 2>/dev/null)" ]] || fail "hook: a lock abandoned for hours must be swept and our own released"
+pass "hook honours a live or adjacent-hour lock and ignores and sweeps an abandoned one"
+
+# Two stops that read the clock on either side of an hour boundary, started together,
+# repeatedly: never more than one prune per round (a round may also skip both and retry later).
+fake_ic "$HOOK_DIR/bound-ic" "$HOOK_DIR/bound-calls" 'sleep 1; exit 0'
+t_side() { # $1=clock, $2=stamp dir
+  unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$2" HOOK_BIN="$HOOK_DIR/bound-ic" CLOCK="$1"
+  date() { if [[ "$*" == "+%s" ]]; then echo "$CLOCK"; else command date "$@"; fi; }; hook_raw projA; }
+for _round in 1 2 3 4 5 6; do
+    rm -f "$HOOK_DIR/bound-calls"; rm -rf "$HOOK_DIR/stamps-bound"
+    ( t_side "$FIXED_NOW" "$HOOK_DIR/stamps-bound" & t_side "$(( FIXED_NOW + 1800 ))" "$HOOK_DIR/stamps-bound" & wait )
+    [[ "$(ncalls "$HOOK_DIR/bound-calls")" -le 1 ]] || fail "hook: two stops on either side of an hour boundary pruned twice (round $_round)"
+done
+pass "hook never prunes twice for stops either side of an hour boundary"
+
+# 3b. An unwritable stamp directory skips the prune; it does not prune on every stop.
+: > "$HOOK_DIR/not-a-dir"
+fake_ic "$HOOK_DIR/count-ic" "$HOOK_DIR/count-calls" 'exit 0'
+t_unwritable() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/not-a-dir/state" HOOK_BIN="$HOOK_DIR/count-ic"
+  hook_raw projA; hook_raw projA; }
+run_ok "hook: an unwritable stamp dir must not fail the caller" t_unwritable
+[[ "$(ncalls "$HOOK_DIR/count-calls")" == 0 ]] || fail "hook: an unwritable stamp dir must skip the prune, got $(ncalls "$HOOK_DIR/count-calls") prunes"
+pass "hook skips the prune when the stamp directory is unwritable"
+
+# 3c. A stamp that cannot be written after the lock is taken (here the stamp path is an
+# expired directory) must neither repeat the prune on the next stop nor print anything.
+rm -f "$HOOK_DIR/count-calls"; rm -rf "$HOOK_DIR/stamps-nostamp"
+mkdir -p "$HOOK_DIR/stamps-nostamp/routing-prune-$PROJA_KEY.stamp"
+touch -d '3 days ago' "$HOOK_DIR/stamps-nostamp/routing-prune-$PROJA_KEY.stamp"
+t_nostamp() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-nostamp" HOOK_BIN="$HOOK_DIR/count-ic"
+  hook_raw projA; hook_raw projA; hook_raw projA; }
+run_ok "hook: a stamp that cannot be written must not fail the caller" t_nostamp 2> "$HOOK_DIR/nostamp.err"
+[[ "$(ncalls "$HOOK_DIR/count-calls")" == 1 ]] || fail "hook: a stamp that cannot be written must not allow a prune on every stop, got $(ncalls "$HOOK_DIR/count-calls")"
+[[ ! -s "$HOOK_DIR/nostamp.err" ]] || fail "hook: a stamp that cannot be written must stay quiet: $(head -c 200 "$HOOK_DIR/nostamp.err")"
+pass "hook backs off and stays quiet when the stamp cannot be written"
+
+# Equivalent spellings of one database share one stamp, and an octal-looking timeout is fine.
+rm -f "$HOOK_DIR/count-calls"; rm -rf "$HOOK_DIR/stamps-alias"; ln -sfn "$HOOK_DIR/projA/.clavain" "$HOOK_DIR/linkA"; ln -sfn "$HOOK_DIR/projA/.clavain/intercore.db" "$HOOK_DIR/dblink"; ln -sfn dblink "$HOOK_DIR/dblink2"
+t_alias() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-alias" HOOK_BIN="$HOOK_DIR/count-ic" INTERCORE_ROUTING_PRUNE_TIMEOUT=08
+  for _db in .clavain/intercore.db ./.clavain/intercore.db ../projA/.clavain/intercore.db "$HOOK_DIR/projA/.clavain/intercore.db" "$HOOK_DIR/linkA/intercore.db" "$HOOK_DIR/dblink" "$HOOK_DIR/dblink2"; do
+    INTERCORE_DB="$_db" hook_raw projA
+  done; }
+run_ok "hook: path aliases and an octal-looking timeout must not fail the caller" t_alias 2> "$HOOK_DIR/alias.err"
+[[ "$(ncalls "$HOOK_DIR/count-calls")" == 1 ]] || fail "hook: spellings of one database must share one stamp, got $(ncalls "$HOOK_DIR/count-calls") prunes"
+[[ ! -s "$HOOK_DIR/alias.err" ]] || fail "hook: INTERCORE_ROUTING_PRUNE_TIMEOUT=08 must stay quiet: $(head -c 200 "$HOOK_DIR/alias.err")"
+pass "hook shares one stamp across equivalent database paths"
+
+# A long symlink chain still resolves to the target's stamp; a symlink loop skips the prune.
+rm -f "$HOOK_DIR/count-calls"; rm -rf "$HOOK_DIR/stamps-chain"
+_prev="$HOOK_DIR/projA/.clavain/intercore.db"
+for _i in $(seq 1 14); do ln -sfn "$_prev" "$HOOK_DIR/chain$_i"; _prev="$HOOK_DIR/chain$_i"; done
+ln -sfn "$HOOK_DIR/loopB" "$HOOK_DIR/loopA"; ln -sfn "$HOOK_DIR/loopA" "$HOOK_DIR/loopB"
+t_chain() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-chain" HOOK_BIN="$HOOK_DIR/count-ic"
+  for _db in "$HOOK_DIR/chain14" "$HOOK_DIR/projA/.clavain/intercore.db" "$HOOK_DIR/chain7" "$HOOK_DIR/loopA"; do
+    INTERCORE_DB="$_db" hook_raw projA
+  done; }
+run_ok "hook: a long symlink chain and a symlink loop must not fail the caller" t_chain 2> "$HOOK_DIR/chain.err"
+[[ "$(ncalls "$HOOK_DIR/count-calls")" == 1 ]] || fail "hook: a 14-link chain must share the target's stamp and a loop must skip, got $(ncalls "$HOOK_DIR/count-calls") prunes"
+[[ ! -s "$HOOK_DIR/chain.err" ]] || fail "hook: symlink chains must stay quiet: $(head -c 200 "$HOOK_DIR/chain.err")"
+pass "hook resolves long symlink chains and skips a loop"
+
+
+echo ""
 if [[ "$SKIPPED" -gt 0 ]]; then
     echo "All integration tests passed ($SKIPPED check(s) SKIPPED: set CLAVAIN_DIR to run them)."
 else
