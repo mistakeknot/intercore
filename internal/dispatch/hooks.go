@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 )
 
 // Querier is the database access an OnAdmitted hook gets. It is backed by the
@@ -43,89 +43,139 @@ type admissionQuerier = Querier
 // it cannot hold the connection through cleanup, whatever context the hook
 // passed.
 type hookQuerier struct {
-	conn      *sql.Conn
-	mu        sync.Mutex
-	closed    bool
-	cancels   []context.CancelFunc
-	running   int       // calls between begin and done
-	lastBegin time.Time // when the latest call began
-	active    sync.WaitGroup
+	conn     *sql.Conn
+	mu       sync.Mutex
+	closed   bool
+	poisoned bool // a call was cancelled or interrupted; see finish
+	cancels  []context.CancelFunc
+	running  int // calls between begin and finish
+	active   sync.WaitGroup
 }
 
+// errHookPoisoned is what a Querier answers once one of its calls was
+// cancelled or interrupted. See finish for why every later call is refused.
+var errHookPoisoned = errors.New("dispatch: an earlier query of this hook was cancelled or interrupted, so the admission transaction can no longer be trusted; the hook must return an error")
+
 // begin registers one call. It returns the context to run it under and the
-// function to call when it has finished. Once closed, the context is already
-// cancelled, so the call fails without running.
-func (h *hookQuerier) begin(ctx context.Context) (context.Context, func()) {
+// function to call, with the call's error, when it has finished. Once closed or
+// poisoned, the context is already cancelled, so the call fails without running.
+func (h *hookQuerier) begin(ctx context.Context) (context.Context, func(error), bool) {
 	bound, cancel := context.WithCancel(ctx)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.closed {
+	if h.closed || h.poisoned {
 		cancel()
-		return bound, func() {}
+		return bound, func(error) {}, false
 	}
 	h.cancels = append(h.cancels, cancel)
 	h.running++
-	h.lastBegin = time.Now()
 	h.active.Add(1)
-	return bound, func() {
-		h.mu.Lock()
-		h.running--
-		h.mu.Unlock()
-		h.active.Done()
+	return bound, func(err error) { h.finish(bound, err) }, true
+}
+
+// finish ends one call. A call whose context ended, or that failed as
+// interrupted, may have had SQLite interrupt it, and SQLite answers an
+// interrupted INSERT, UPDATE or DELETE inside a transaction by rolling the
+// whole transaction back. Every later statement would then run in autocommit
+// mode and persist outside the admission transaction. The same interrupt also
+// stays pending on the connection until the pin is released (see pinConn), so
+// later statements would fail at random. So the first such call poisons the
+// Querier: every later call is refused and the hook is refused even if it
+// returns nil. An interrupt can only be delivered while the call's context is
+// done, so checking the context here never misses one; it may refuse a hook
+// whose context ended just after its query completed, which is the safe side.
+func (h *hookQuerier) finish(bound context.Context, err error) {
+	h.mu.Lock()
+	if bound.Err() != nil || wasInterrupted(err) {
+		h.poisoned = true
 	}
+	h.running--
+	h.mu.Unlock()
+	h.active.Done()
 }
 
 func (h *hookQuerier) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	bound, done := h.begin(ctx)
-	defer done()
-	return h.conn.ExecContext(bound, query, args...)
+	bound, finish, ok := h.begin(ctx)
+	if !ok {
+		return nil, errHookPoisonedOrClosed(h)
+	}
+	res, err := h.conn.ExecContext(bound, query, args...)
+	finish(err)
+	return res, err
 }
 
 func (h *hookQuerier) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	bound, done := h.begin(ctx)
-	defer done()
-	return h.conn.QueryRowContext(bound, query, args...)
+	bound, finish, _ := h.begin(ctx)
+	row := h.conn.QueryRowContext(bound, query, args...)
+	finish(nil)
+	return row
 }
 
-// interruptGrace is how long a call gets to start in the driver before close
-// interrupts it.
-const interruptGrace = 50 * time.Millisecond
+// errHookPoisonedOrClosed names why a call was refused without running.
+func errHookPoisonedOrClosed(h *hookQuerier) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.poisoned && !h.closed {
+		return errHookPoisoned
+	}
+	return context.Canceled
+}
+
+// wasInterrupted reports a driver error that is, or follows from, an interrupt.
+func wasInterrupted(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(err.Error(), "interrupted")
+}
 
 // close ends the Querier: it refuses every later call, cancels every context
 // handed out, then waits for the calls still running to return. It reports how
 // many calls were still running when it began, i.e. how many it interrupted.
 //
-// Known limit: the SQLite driver delivers one interrupt per call, and SQLite
-// drops an interrupt that lands before it has started the statement. The grace
-// below makes that window very unlikely but cannot close it, and the driver has
-// no way to interrupt again. A hook that breaks its contract by returning with
-// an unbounded query still running, and that also loses that race, can hold the
-// admission connection until the query ends. Keeping a statement pinned open on
-// the connection would make the interrupt sticky, but it would also make any
-// later query of a well-behaved hook fail after one of its own timeouts, which
-// is the worse trade. Hooks must not return with a query running.
+// The wait always ends because the connection is pinned (see pinConn): the
+// driver delivers one interrupt per call, and SQLite drops an interrupt that
+// lands before it has started the statement, but with a statement held open the
+// interrupt stays pending until every statement the hook started has ended.
 func (h *hookQuerier) close() (interrupted int) {
 	h.mu.Lock()
 	h.closed = true
 	interrupted = h.running
 	cancels := h.cancels
 	h.cancels = nil
-	lastBegin := h.lastBegin
 	h.mu.Unlock()
-	if interrupted > 0 {
-		// The driver's interrupt is lost when it lands before SQLite has started
-		// the statement, and the statement then runs to the end on its own. Let
-		// every call that is still running get that far first. Only a hook that
-		// returned with a query running pays this wait, and that is an error.
-		if wait := interruptGrace - time.Since(lastBegin); wait > 0 {
-			time.Sleep(wait)
-		}
-	}
 	for _, cancel := range cancels {
 		cancel()
 	}
 	h.active.Wait()
 	return interrupted
+}
+
+// pinSQL is a query that returns more than one row, so it stays active after
+// its first row has been read.
+const pinSQL = `WITH RECURSIVE pin(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM pin LIMIT 3) SELECT x FROM pin`
+
+// pinConn keeps one statement active on the connection, until the returned
+// function is called. SQLite clears a pending interrupt when a statement starts
+// while none is active, and the driver sends only one interrupt per call, so an
+// interrupt that arrives between the driver arming it and SQLite starting the
+// statement is lost and an unbounded hook query then runs to the end with
+// nothing able to stop it. While one statement is active, the interrupt stays
+// pending and every statement started meanwhile ends at once. The pin runs under
+// no context, so nothing interrupts it, and it must be released before admission
+// commits or rolls back.
+func pinConn(ctx context.Context, conn *sql.Conn) (release func(), err error) {
+	rows, err := conn.QueryContext(context.WithoutCancel(ctx), pinSQL)
+	if err != nil {
+		return nil, fmt.Errorf("dispatch: pin the admission connection: %w", err)
+	}
+	if !rows.Next() {
+		err := rows.Err()
+		rows.Close()
+		return nil, fmt.Errorf("dispatch: pin the admission connection: no row (%v)", err)
+	}
+	return func() { rows.Close() }, nil
 }
 
 // reservedEnv are the identity variables Spawn sets itself after admission.
@@ -206,8 +256,16 @@ func validateStrictExecutor(path string) error {
 // admission transaction itself: SQLite rolls an explicit transaction back when
 // it interrupts an INSERT, UPDATE or DELETE inside it. Whether the write was
 // cut short or finished just in time would then depend on timing, so this
-// reports it as an error and admission never commits.
+// reports it as an error and admission never commits. The same holds for a
+// hook that returns nil after one of its queries was cancelled (see
+// hookQuerier.finish), and the connection is pinned for the hook's lifetime so
+// that interrupting a call can never be lost (see pinConn).
 func runAdmittedHook(ctx context.Context, conn *sql.Conn, hook func(context.Context, Querier, string) error, id string) error {
+	release, err := pinConn(ctx, conn)
+	if err != nil {
+		return err
+	}
+	defer release() // runs after the Querier is closed
 	hookCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	q := &hookQuerier{conn: conn}
@@ -217,7 +275,7 @@ func runAdmittedHook(ctx context.Context, conn *sql.Conn, hook func(context.Cont
 			q.close()
 		}
 	}()
-	err := hook(hookCtx, q, id)
+	err = hook(hookCtx, q, id)
 	closed = true
 	interrupted := q.close()
 	if err != nil {
@@ -225,6 +283,9 @@ func runAdmittedHook(ctx context.Context, conn *sql.Conn, hook func(context.Cont
 	}
 	if interrupted > 0 {
 		return fmt.Errorf("hook returned while %d of its queries were still running; they were interrupted", interrupted)
+	}
+	if q.poisoned {
+		return errHookPoisoned
 	}
 	return nil
 }

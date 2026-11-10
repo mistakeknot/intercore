@@ -819,3 +819,151 @@ func TestNonStrictBehaviourUnchanged(t *testing.T) {
 		t.Fatal("the existing env fallback no longer works")
 	}
 }
+
+// slowQuery runs for several seconds unless something interrupts it.
+const slowQuery = `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c LIMIT 5000000) SELECT sum(x) FROM c`
+
+func hookTx(t *testing.T) (*Store, *sql.Conn) {
+	t.Helper()
+	store := testStore(t)
+	hookProbeTable(t, store)
+	conn, err := store.db.Conn(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if _, err := conn.ExecContext(context.Background(), "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	return store, conn
+}
+
+// The driver sends one interrupt per call, and SQLite drops an interrupt that
+// arrives before it has started the statement. A call is cancelled while the
+// driver is still binding a very large parameter, after it has armed the
+// interrupt and before SQLite has started the statement, so its one interrupt
+// lands in that gap. Without the pin the statement then runs to the end and the
+// shutdown waits for it; with the pin the interrupt stays pending and the
+// statement ends at once.
+func TestOnAdmittedLostInterruptCannotHoldTheShutdown(t *testing.T) {
+	_, conn := hookTx(t)
+	ctx := context.Background()
+	big := make([]byte, 96<<20)
+	query := strings.Replace(slowQuery, "SELECT sum(x)", "SELECT length(?1), sum(x)", 1)
+	// Binding cannot be interrupted and takes a while, longer under the race
+	// detector. Time it once, so that waiting for the bind is told apart from
+	// waiting for the query that follows it.
+	t0 := time.Now()
+	if _, err := conn.ExecContext(ctx, "SELECT length(?1)", big); err != nil {
+		t.Fatal(err)
+	}
+	limit := 3*time.Since(t0) + time.Second
+	for i := 0; i < 5; i++ {
+		var wg sync.WaitGroup
+		hook := func(_ context.Context, q Querier, _ string) error {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _ = q.ExecContext(context.Background(), query, big)
+			}()
+			waitRunning(t, q, 1)
+			return nil
+		}
+		start := time.Now()
+		err := runAdmittedHook(ctx, conn, hook, "d")
+		wg.Wait()
+		if d := time.Since(start); d > limit {
+			t.Fatalf("iteration %d: the shutdown waited %v (limit %v) for a query whose interrupt was lost", i, d, limit)
+		}
+		if err == nil || !strings.Contains(err.Error(), "still running") {
+			t.Fatalf("iteration %d: got %v, want a refusal", i, err)
+		}
+	}
+	// The pin is gone: the connection is clean and ordinary statements run.
+	var n int
+	if err := conn.QueryRowContext(ctx, "SELECT 1").Scan(&n); err != nil || n != 1 {
+		t.Fatalf("a statement after the hook: %v", err)
+	}
+}
+
+// A query the hook cancels itself may already have been interrupted, and SQLite
+// then ends the transaction, so a later write would persist outside it. Every
+// later call is refused and the hook is refused even if it returns nil.
+func TestOnAdmittedCancelledWriteRefusesLaterCalls(t *testing.T) {
+	store, conn := hookTx(t)
+	ctx := context.Background()
+	var laterErr, laterRowErr error
+	hook := func(hctx context.Context, q Querier, _ string) error {
+		short, cancel := context.WithTimeout(hctx, 50*time.Millisecond)
+		defer cancel()
+		if _, err := q.ExecContext(short, foreverInsert); err == nil {
+			t.Error("the cancelled write reported success")
+		}
+		_, laterErr = q.ExecContext(hctx, `INSERT INTO hook_probe(job, dispatch_id, epoch) VALUES ('leak', 'd', 1)`)
+		var n int
+		laterRowErr = q.QueryRowContext(hctx, "SELECT 1").Scan(&n)
+		return nil
+	}
+	err := runAdmittedHook(ctx, conn, hook, "d")
+	if !errors.Is(err, errHookPoisoned) {
+		t.Fatalf("a hook that returned nil after a cancelled write got %v", err)
+	}
+	if !errors.Is(laterErr, errHookPoisoned) {
+		t.Fatalf("a write after the cancelled one got %v", laterErr)
+	}
+	if laterRowErr == nil {
+		t.Fatal("a query after the cancelled write ran")
+	}
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil && !errNoTransaction(err) {
+		t.Fatal(err)
+	}
+	conn.Close()
+	var leaked int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM hook_probe`).Scan(&leaked); err != nil || leaked != 0 {
+		t.Fatalf("%d rows persisted outside the admission transaction, %v", leaked, err)
+	}
+}
+
+// The query-row path poisons the Querier the same way.
+func TestOnAdmittedCancelledQueryRowRefusesLaterCalls(t *testing.T) {
+	_, conn := hookTx(t)
+	var laterErr error
+	hook := func(hctx context.Context, q Querier, _ string) error {
+		gone, cancel := context.WithCancel(hctx)
+		cancel()
+		var n int
+		if err := q.QueryRowContext(gone, "SELECT 1").Scan(&n); err == nil {
+			t.Error("a query under a cancelled context returned a row")
+		}
+		_, laterErr = q.ExecContext(hctx, `INSERT INTO hook_probe(job, dispatch_id, epoch) VALUES ('leak', 'd', 1)`)
+		return nil
+	}
+	if err := runAdmittedHook(context.Background(), conn, hook, "d"); !errors.Is(err, errHookPoisoned) {
+		t.Fatalf("got %v", err)
+	}
+	if !errors.Is(laterErr, errHookPoisoned) {
+		t.Fatalf("a call after the cancelled query got %v", laterErr)
+	}
+}
+
+// A hook that never cancels anything is unaffected, and the pin is released
+// before admission commits: the commit succeeds and keeps the hook's write.
+func TestOnAdmittedPinIsReleasedBeforeCommit(t *testing.T) {
+	store, conn := hookTx(t)
+	ctx := context.Background()
+	hook := func(hctx context.Context, q Querier, _ string) error {
+		_, err := q.ExecContext(hctx, `INSERT INTO hook_probe(job, dispatch_id, epoch) VALUES ('ok', 'd', 1)`)
+		return err
+	}
+	if err := runAdmittedHook(ctx, conn, hook, "d"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		t.Fatalf("commit after the hook: %v", err)
+	}
+	conn.Close()
+	var n int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM hook_probe`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("%d rows after commit, %v", n, err)
+	}
+}
