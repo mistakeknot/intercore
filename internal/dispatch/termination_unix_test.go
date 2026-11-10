@@ -204,3 +204,42 @@ func TestReviewV2TerminationUsesSurvivingGroupWitness(t *testing.T) {
 		t.Fatal("known descendant survived its leader")
 	}
 }
+
+// TestTerminateRecordedProcessUntilAbandonsAfterSigterm: a stop signal during
+// the graceful wait returns ErrTerminationAbandoned promptly, after SIGTERM was
+// sent and without SIGKILL (the SIGTERM-ignoring leader stays alive). A
+// control with a nil stop would wait out the escalation delay instead.
+func TestTerminateRecordedProcessUntilAbandonsAfterSigterm(t *testing.T) {
+	cmd := exec.Command("sh", "-c", `trap '' TERM; while :; do sleep 0.05; done`)
+	cmd.SysProcAttr = platformSysProcAttr()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = cmd.Wait() }()
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) })
+	time.Sleep(100 * time.Millisecond)
+	identity, err := readProcessIdentity(cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := make(chan struct{})
+	res := make(chan error, 1)
+	begin := time.Now()
+	go func() { res <- terminateRecordedProcessUntil(identity, stop) }()
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+	select {
+	case err := <-res:
+		if err != ErrTerminationAbandoned {
+			t.Fatalf("got %v, want ErrTerminationAbandoned", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("termination did not abandon after stop")
+	}
+	if took := time.Since(begin); took > 2*time.Second {
+		t.Fatalf("abandon took %v", took)
+	}
+	if err := syscall.Kill(-cmd.Process.Pid, 0); err != nil {
+		t.Fatalf("the SIGTERM-ignoring group should survive an abandoned termination: %v", err)
+	}
+}

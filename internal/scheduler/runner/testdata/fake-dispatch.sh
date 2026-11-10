@@ -12,7 +12,9 @@
 #   sleep <n>          write <out>.started, run for n seconds, then ok
 #   spawn-child        leave a live descendant (sleep 300, pid in <out>.child), then ok
 #   setsid-clear-env   like spawn-child, but the descendant has its own session and no environment
-#   fork-storm         write <out>.started, then fork descendants (up to 500) until signalled
+#   fork-storm         write <out>.started, then fork descendants (up to 500), then idle until signalled
+#   fail-then-noverdict <class>
+#                      attempt 1 behaves as "receipt <class>"; any later attempt as "noverdict"
 # Every invocation appends one line to $FAKE_LOG when it is set, so a test can
 # count how many times the executor ran.
 out=""; pf=""
@@ -67,10 +69,20 @@ case "$mode" in
   fork-storm)
     n=0
     while :; do
-      ( exec sleep 300 >/dev/null 2>&1 </dev/null ) &
-      n=$((n + 1))
-      [ "$n" -eq 20 ] && : > "$out.started"
-      [ "$n" -lt 500 ] || sleep 0.1
+      if [ "$n" -lt 500 ]; then
+        ( exec sleep 300 >/dev/null 2>&1 </dev/null ) &
+        n=$((n + 1))
+        [ "$n" -eq 20 ] && : > "$out.started"
+      else
+        sleep 0.1
+      fi
     done ;;
+  fail-then-noverdict)
+    if [ "${IC_SCHEDULER_ATTEMPT:-}" = "1" ]; then
+      echo "x" > "$out"; verdict fail "fake fail"
+      printf '{"attempt_id":"%s","failure_class":"%s"}\n' "${IC_DISPATCH_ID:-}" "$arg" > "$out.receipt.json"
+      exit 7
+    fi
+    echo "done" > "$out"; exit 0 ;;
   *) echo "fake-dispatch: unknown mode '$mode'" >&2; exit 64 ;;
 esac

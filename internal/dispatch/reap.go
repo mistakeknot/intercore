@@ -64,7 +64,7 @@ func StopByRun(ctx context.Context, store *Store, runID string) (int64, error) {
 		if d.IsTerminal() {
 			continue
 		}
-		err = interruptDispatch(ctx, store, d, StatusCancelled, "run "+runID+" rolled back")
+		err = interruptDispatch(ctx, store, d, StatusCancelled, "run "+runID+" rolled back", nil)
 		switch {
 		case err == nil, IsSpawnRejection(err):
 			// A rejection means ownership could not be proven; the row was

@@ -209,6 +209,70 @@ func (e *engine) heartbeat(errs *int) error {
 	return nil
 }
 
+// keepAlive heartbeats on its own goroutine until the returned stop is called.
+// Extinction runs on the main loop and can take up to ExtinctionBound; the loop's
+// own heartbeat ticker cannot fire meanwhile, and a bound longer than the
+// staleness window would let a live runner look dead. A superseded epoch or
+// repeated failures are reported through the fatal channel, as the loop would.
+func (e *engine) keepAlive() (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		t := time.NewTicker(e.o.HeartbeatEvery)
+		defer t.Stop()
+		errs := 0
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				if err := e.heartbeat(&errs); err != nil {
+					select {
+					case e.fatal <- err:
+					default:
+					}
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-finished
+	}
+}
+
+// track runs f on a goroutine that run joins before it returns, so a signal or
+// query it makes never lands after the database is closed. It reports false and
+// runs nothing once the runner is closing.
+func (e *engine) track(f func()) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.closing {
+		return false
+	}
+	e.reapers.Add(1)
+	go func() {
+		defer e.reapers.Done()
+		f()
+	}()
+	return true
+}
+
+// dropUnusedCgroup removes the attempt's cgroup directory when launch returns
+// before any process was started in it. rmdir fails on a populated cgroup, so a
+// worker that did start is never disturbed; the completion step still owns
+// extinction for those.
+func (e *engine) dropUnusedCgroup(path string) {
+	if e.cg == nil || path == "" {
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		e.logf("remove unused attempt cgroup %s: %v", path, err)
+	}
+}
+
 // drainAndStop stops claiming, lets in-flight jobs finish for DrainTimeout
 // (completing and heartbeating the whole time), then marks the runner stopped.
 // Children still running at the deadline are left to the next runner's
@@ -451,6 +515,10 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 		return e.store.SetAttemptPaths(ctx, c, plan.outputFile, containment, cgPath)
 	}, func(a *scheduler.AttemptRow) bool { return a.OutputFile == plan.outputFile }); err != nil {
 		if errors.Is(err, errAborted) {
+			// stopping with the claim still ours and nothing started: the empty
+			// directory is not worth keeping. A lost claim is left to the new owner,
+			// whose attempt may reuse the same directory name.
+			e.dropUnusedCgroup(cgPath)
 			return
 		}
 		e.lost(token)
@@ -510,6 +578,9 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 	if err := e.persist("marker", token, func() (bool, error) {
 		return e.store.RecordLaunchResult(ctx, c, result)
 	}, func(a *scheduler.AttemptRow) bool { return a.LaunchResult == result }); err != nil {
+		if res == nil && errors.Is(err, errAborted) {
+			e.dropUnusedCgroup(cgPath)
+		}
 		if res != nil {
 			// The process runs but the row is not ours or we are stopping:
 			// reap it so no zombie is left, and let recovery decide the rest.
@@ -551,7 +622,7 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 	}
 	go e.wait(c, gen, res)
 	if killAfterWait {
-		go func() { _ = dispatch.Kill(ctx, e.ds, res.ID) }()
+		e.track(func() { _ = dispatch.KillUntil(ctx, e.ds, res.ID, e.abort) })
 	}
 	e.fl.Advance(token, gen, StageWaiting)
 }
@@ -745,7 +816,10 @@ func (e *engine) complete(it Item) error {
 		if e.cg == nil {
 			return fmt.Errorf("attempt %s is contained in %s but this runner runs without containment", it.Token, a.CgroupPath)
 		}
-		if err := e.cg.extinct(a.CgroupPath); err != nil {
+		stopBeat := e.keepAlive()
+		err := e.cg.extinct(a.CgroupPath)
+		stopBeat()
+		if err != nil {
 			if errors.Is(err, errSurvivorUnknown) {
 				marker := "survivor_unknown:" + a.DispatchID
 				if _, serr := e.store.SetRetryBlocked(ctx, c, marker, e.o.Now()); serr != nil {
