@@ -108,17 +108,19 @@ func (m *Migrator) applyBaseline(ctx context.Context) (int, error) {
 			return 0, fmt.Errorf("apply baseline %s: %w", mig.Name, err)
 		}
 
-		// Set version to max available — baseline includes the full schema,
-		// so no additive migrations should run after it.
-		targetVersion := m.MaxVersion()
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", targetVersion)); err != nil {
+		// The baseline is the schema at its own version, not at the latest:
+		// the additive migrations after it still have to run, so a fresh
+		// database gets every table and column they add.
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", mig.Version)); err != nil {
 			tx.Rollback()
-			return 0, fmt.Errorf("set version %d: %w", targetVersion, err)
+			return 0, fmt.Errorf("set version %d: %w", mig.Version, err)
 		}
 		if err := tx.Commit(); err != nil {
 			return 0, fmt.Errorf("commit baseline: %w", err)
 		}
-		return 1, nil
+		// A database created a moment ago has nothing to back up.
+		more, err := m.applySteps(ctx, mig.Version)
+		return 1 + more, err
 	}
 	return 0, fmt.Errorf("no baseline migration found")
 }
@@ -139,7 +141,11 @@ func (m *Migrator) applyAdditive(ctx context.Context, currentVersion int) (int, 
 	if err := m.db.backupBeforeMigrate(ctx, currentVersion); err != nil {
 		return 0, err
 	}
+	return m.applySteps(ctx, currentVersion)
+}
 
+// applySteps applies every additive migration above currentVersion in order.
+func (m *Migrator) applySteps(ctx context.Context, currentVersion int) (int, error) {
 	applied := 0
 	for _, mig := range m.migrations {
 		if mig.Baseline || mig.Version <= currentVersion {

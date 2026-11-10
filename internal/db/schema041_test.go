@@ -827,3 +827,39 @@ func TestConcurrentBackupsGetDistinctFiles(t *testing.T) {
 		}
 	}
 }
+
+// A database first created through the file Migrator must carry every table
+// and column the additive migrations add, and match one created by Migrate.
+func TestMigratorFreshInstallMatchesMigrate(t *testing.T) {
+	ctx := context.Background()
+	fresh, _ := tempDB(t)
+	if err := fresh.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	viaMigrator, path := tempDB(t)
+	m, err := NewMigrator(viaMigrator)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Run(ctx); err != nil {
+		t.Fatalf("Migrator.Run: %v", err)
+	}
+	if v, err := viaMigrator.SchemaVersion(); err != nil || v != currentSchemaVersion {
+		t.Fatalf("schema version = %d (%v), want %d", v, err, currentSchemaVersion)
+	}
+	if n := len(backupsOf(t, path)); n != 0 {
+		t.Errorf("a fresh install wrote %d backups, want none", n)
+	}
+	for _, table := range []string{"scheduler_jobs", "scheduler_runner", "scheduler_job_attempts"} {
+		want := tableColumns(t, fresh, table)
+		if got := tableColumns(t, viaMigrator, table); len(want) == 0 || strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s via Migrator.Run differs from Migrate:\n got %v\nwant %v", table, got, want)
+		}
+	}
+	assertShape041(t, viaMigrator)
+	assertSchema040Objects(t, viaMigrator.db)
+	var applied int
+	if err := viaMigrator.db.QueryRow(`SELECT count(*) FROM scheduler_runner WHERE id = 1`).Scan(&applied); err != nil || applied != 1 {
+		t.Errorf("scheduler_runner seed row = %d (%v)", applied, err)
+	}
+}
