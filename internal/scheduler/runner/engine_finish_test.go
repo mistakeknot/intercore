@@ -662,6 +662,12 @@ func TestReaperTerminationEndsWithTheRunner(t *testing.T) {
 		return r.raw.QueryRow(`SELECT COALESCE(pid,0) FROM dispatches WHERE id = ?`, id).Scan(&pid) == nil && pid > 1
 	})
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	// The stubborn executor writes <out>.started after it installed its SIGTERM
+	// handler; a pid alone does not say the handler is in place.
+	until(t, "the executor to ignore SIGTERM", func() bool {
+		m, _ := filepath.Glob(filepath.Join(r.dir, "out-s*.started"))
+		return len(m) > 0
+	})
 	if err := dispatch.Collect(context.Background(), dispatch.New(r.raw, nil), id); err != nil {
 		t.Fatal(err)
 	}
@@ -677,9 +683,10 @@ func TestReaperTerminationEndsWithTheRunner(t *testing.T) {
 	if took := time.Since(started); took > 2*time.Second {
 		t.Fatalf("drain took %s with a 100ms deadline", took)
 	}
-	until(t, "the reaper's termination to end with the runner", func() bool {
-		return goroutinesIn("reapTerminalDispatch") == 0 && goroutinesIn("terminateRecordedProcessUntil") == 0
-	})
+	// Run joined the reaper: nothing of it is left the moment Run has returned.
+	if n := goroutinesIn("reapTerminalDispatch") + goroutinesIn("terminateRecordedProcessUntil"); n != 0 {
+		t.Fatalf("%d reaper goroutines still running after Run returned", n)
+	}
 	// The old code kept waiting and SIGKILLed the child about five seconds after
 	// SIGTERM. Wait past that point: the runner must not have escalated.
 	time.Sleep(6 * time.Second)

@@ -60,6 +60,12 @@ func terminateRecordedProcessUntil(identity processIdentity, stop <-chan struct{
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
+	// stop and the timer can both be ready on the last pass; stop wins.
+	select {
+	case <-stop:
+		return ErrTerminationAbandoned
+	default:
+	}
 	if !owned() {
 		return fmt.Errorf("process group ownership lost before escalation")
 	}

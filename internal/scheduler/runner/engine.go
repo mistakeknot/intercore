@@ -44,6 +44,8 @@ type engine struct {
 	backoff map[string]backoffState // completing entries that failed a step
 	killed  map[string]bool         // cancelling tokens whose dispatch was signalled
 	killing map[string]bool         // cancelling tokens with a signal in progress
+	reapers sync.WaitGroup          // running reapTerminalDispatch goroutines
+	closing bool                    // run is returning: no new reapers (guarded by mu)
 
 	stopping atomic.Bool
 	abort    chan struct{}
@@ -126,7 +128,16 @@ func (e *engine) lost(token string) {
 
 // run is the main loop. It returns nil after a clean drain, or an *ExitError.
 func (e *engine) run(ctx context.Context) error {
-	defer close(e.abort)
+	defer func() {
+		close(e.abort)
+		// A reaper stops within one polling step of abort: its termination wait
+		// is abort-aware and it opens no transaction. Joining it means no reaper
+		// signal or query happens after run returns and the database is closed.
+		e.mu.Lock()
+		e.closing = true
+		e.mu.Unlock()
+		e.reapers.Wait()
+	}()
 	if h := e.o.hooks.onInFlight; h != nil {
 		h(e.fl)
 	}
@@ -478,7 +489,15 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 // whether or not the entry is still ours, so the repair pass can see it.
 func (e *engine) wait(c *scheduler.Claim, gen uint64, res *dispatch.SpawnResult) {
 	exited := make(chan struct{})
-	go e.reapTerminalDispatch(res, exited)
+	e.mu.Lock()
+	if !e.closing {
+		e.reapers.Add(1)
+		go func() {
+			defer e.reapers.Done()
+			e.reapTerminalDispatch(res, exited)
+		}()
+	}
+	e.mu.Unlock()
 	_ = res.Cmd.Wait()
 	close(exited)
 	ctx := context.Background()
