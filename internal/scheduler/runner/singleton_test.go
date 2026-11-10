@@ -127,7 +127,7 @@ func waitHeartbeat(t *testing.T, store *scheduler.Store) {
 
 func TestRunBumpsEpochHeartbeatsAndDrains(t *testing.T) {
 	path, store, _ := newQueue(t)
-	r := start(t, Options{DB: path, HeartbeatEvery: 5 * time.Millisecond, Now: tickingClock()})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: 5 * time.Millisecond, Now: tickingClock()})
 	ctx := context.Background()
 	row, err := store.ReadRunner(ctx)
 	if err != nil || row.Epoch != r.epoch || row.State != "running" || row.PID != os.Getpid() || row.DBPath == "" || row.DBIdentity == "" || row.NetNS == 0 {
@@ -170,7 +170,7 @@ func TestRunClaimsNothingWhilePaused(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Millisecond})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: time.Millisecond})
 	waitHeartbeat(t, store) // the loop has run; the job is still untouched
 	r.cancel()
 	<-r.done
@@ -183,7 +183,7 @@ func TestRunClaimsNothingWhilePaused(t *testing.T) {
 // A superseded runner exits 3. The control: before the epoch moves, it keeps running.
 func TestRunSupersededExits3(t *testing.T) {
 	path, store, raw := newQueue(t)
-	r := start(t, Options{DB: path, HeartbeatEvery: 2 * time.Millisecond, Now: tickingClock()})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: 2 * time.Millisecond, Now: tickingClock()})
 	waitHeartbeat(t, store)
 	select {
 	case <-r.done:
@@ -206,13 +206,13 @@ func TestRunSupersededExits3(t *testing.T) {
 // I7 / A4 in process: a second runner on the same DB exits 3 naming the holder.
 func TestSecondRunnerExits3NamingHolder(t *testing.T) {
 	path, store, _ := newQueue(t)
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: time.Hour})
 	alias := filepath.Join(t.TempDir(), "alias")
 	if err := os.Symlink(filepath.Dir(path), alias); err != nil {
 		t.Fatal(err)
 	}
 	for _, p := range []string{path, filepath.Join(alias, "q.db")} {
-		err := Run(context.Background(), Options{DB: p, LockWait: time.Second, RetryEvery: time.Millisecond})
+		err := Run(context.Background(), Options{NoContainment: true, DB: p, LockWait: time.Second, RetryEvery: time.Millisecond})
 		if exitCode(err) != ExitSuperseded || !strings.Contains(err.Error(), "pid "+itoa(os.Getpid())) {
 			t.Fatalf("second runner via %s: %v", p, err)
 		}
@@ -232,7 +232,7 @@ func TestSquatterExits1(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sq.Close()
-	err = Run(context.Background(), Options{DB: path, LockWait: 50 * time.Millisecond, RetryEvery: 5 * time.Millisecond})
+	err = Run(context.Background(), Options{NoContainment: true, DB: path, LockWait: 50 * time.Millisecond, RetryEvery: 5 * time.Millisecond})
 	if exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "queue lock held by another process") {
 		t.Fatalf("got %v", err)
 	}
@@ -255,7 +255,7 @@ func TestHardlinkedDBRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := store.ReadRunner(context.Background())
-	err := Run(context.Background(), Options{DB: path, LockWait: 20 * time.Millisecond})
+	err := Run(context.Background(), Options{NoContainment: true, DB: path, LockWait: 20 * time.Millisecond})
 	if exitCode(err) != ExitRefused || !errors.Is(err, ErrRefused) {
 		t.Fatalf("got %v", err)
 	}
@@ -269,18 +269,18 @@ func TestHardlinkedDBRefused(t *testing.T) {
 func TestRebindFlow(t *testing.T) {
 	path, store, raw := newQueue(t)
 	ctx := context.Background()
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: time.Hour})
 	r.cancel()
 	<-r.done
 	// Make the recorded identity belong to another database.
 	if _, err := raw.ExecContext(ctx, `UPDATE scheduler_runner SET db_identity = '1:2', boot_id = 'dead-boot' WHERE id = 1`); err != nil {
 		t.Fatal(err)
 	}
-	err := Run(ctx, Options{DB: path, LockWait: 20 * time.Millisecond})
+	err := Run(ctx, Options{NoContainment: true, DB: path, LockWait: 20 * time.Millisecond})
 	if exitCode(err) != ExitRefused || !errors.Is(err, scheduler.ErrIdentityMismatch) {
 		t.Fatalf("without --rebind-db: %v", err)
 	}
-	err = Run(ctx, Options{DB: path, Rebind: true, LockWait: 20 * time.Millisecond})
+	err = Run(ctx, Options{NoContainment: true, DB: path, Rebind: true, LockWait: 20 * time.Millisecond})
 	if exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "--confirm-old-runner-dead") {
 		t.Fatalf("rebind without confirmation: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestRebindFlow(t *testing.T) {
 	if row.DBIdentity != "1:2" {
 		t.Fatal("a refused rebind rewrote the identity")
 	}
-	r2 := start(t, Options{DB: path, Rebind: true, ConfirmOldRunnerDead: true, HeartbeatEvery: time.Hour})
+	r2 := start(t, Options{NoContainment: true, DB: path, Rebind: true, ConfirmOldRunnerDead: true, HeartbeatEvery: time.Hour})
 	row, _ = store.ReadRunner(ctx)
 	if row.DBIdentity == "1:2" || row.Epoch != r2.epoch {
 		t.Fatalf("row after rebind %+v", row)
@@ -319,14 +319,14 @@ func TestRebindRefusesPresentRunner(t *testing.T) {
 		t.Fatal(err)
 	}
 	syscall.Kill(cmd.Process.Pid, syscall.SIGSTOP) // a stopped process counts as present
-	err = Run(ctx, Options{DB: path, Rebind: true, ConfirmOldRunnerDead: true, LockWait: 20 * time.Millisecond})
+	err = Run(ctx, Options{NoContainment: true, DB: path, Rebind: true, ConfirmOldRunnerDead: true, LockWait: 20 * time.Millisecond})
 	if exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "still present") {
 		t.Fatalf("got %v", err)
 	}
 	// Control: once the process is gone, the same rebind goes through.
 	cmd.Process.Kill()
 	cmd.Wait()
-	r := start(t, Options{DB: path, Rebind: true, ConfirmOldRunnerDead: true, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: path, Rebind: true, ConfirmOldRunnerDead: true, HeartbeatEvery: time.Hour})
 	if r.epoch == 0 {
 		t.Fatal("no epoch")
 	}
@@ -361,7 +361,7 @@ func TestStoppedSubmitterDoesNotBlockRunner(t *testing.T) {
 	if !held {
 		t.Fatal("control failed: the helper holds no descriptor on the DB")
 	}
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: time.Hour})
 	if r.epoch < 2 {
 		t.Fatalf("epoch %d", r.epoch)
 	}
@@ -396,7 +396,7 @@ func TestHelperHoldDB(t *testing.T) {
 // because the singleton row would still say "running".
 func TestDrainFailureIsReported(t *testing.T) {
 	path, store, raw := newQueue(t)
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 100 * time.Millisecond})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 100 * time.Millisecond})
 	ctx := context.Background()
 	conn, err := raw.Conn(ctx)
 	if err != nil {
@@ -423,7 +423,7 @@ func TestDrainWithoutBlockerIsClean(t *testing.T) {
 	path, store, _ := newQueue(t)
 	// Nothing blocks the write here, so a generous timeout costs no time and
 	// keeps a loaded machine from tripping the drain deadline.
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 30 * time.Second})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 30 * time.Second})
 	r.cancel()
 	<-r.done
 	if r.err != nil {
@@ -437,7 +437,7 @@ func TestDrainWithoutBlockerIsClean(t *testing.T) {
 // P2: a superseded runner has nothing to write and still exits cleanly.
 func TestDrainWhenSupersededIsClean(t *testing.T) {
 	path, _, raw := newQueue(t)
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: path, HeartbeatEvery: time.Hour})
 	if _, err := raw.Exec(`UPDATE scheduler_runner SET epoch = epoch + 1`); err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +487,7 @@ func TestSwapDuringStartupIsRefused(t *testing.T) {
 			before, _ := store.ReadRunner(context.Background())
 			var fired atomic.Int32
 			swap := func() { fired.Add(1); replaceWithCopy(t, raw, path) }
-			o := Options{DB: path, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+			o := Options{NoContainment: true, DB: path, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
 			switch point {
 			case "beforeOpen":
 				o.hooks.beforeOpen = swap
@@ -530,7 +530,7 @@ func TestSwapToSymlinkIntoLiveDirRefused(t *testing.T) {
 		t.Fatal(err)
 	}
 	liveEpoch := epochAt(t, live)
-	o := Options{DB: path, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o := Options{NoContainment: true, DB: path, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
 	o.hooks.afterOpen = func() {
 		if err := os.Remove(path); err != nil {
 			t.Error(err)
@@ -552,7 +552,7 @@ func TestSwapToSymlinkIntoLiveDirRefused(t *testing.T) {
 func TestStartupHooksFireWithoutSwap(t *testing.T) {
 	path, _, _ := newQueue(t)
 	var order []string
-	o := Options{DB: path, HeartbeatEvery: time.Hour}
+	o := Options{NoContainment: true, DB: path, HeartbeatEvery: time.Hour}
 	o.hooks.beforeOpen = func() { order = append(order, "beforeOpen") }
 	o.hooks.afterOpen = func() { order = append(order, "afterOpen") }
 	o.hooks.afterLocks = func() { order = append(order, "afterLocks") }
@@ -614,7 +614,7 @@ func TestSwapAndRestoreBindsSQLiteToLockedFile(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o := Options{NoContainment: true, DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
 	o.hooks.beforeOpen = swap
 	o.hooks.afterOpen = restore
 	err := Run(context.Background(), o)
@@ -634,7 +634,7 @@ func TestSwapAndRestoreBindsSQLiteToLockedFile(t *testing.T) {
 func TestSQLiteBindingAcceptsUntouchedFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a := newClosedQueue(t, t.TempDir(), "a.db")
-	o := Options{DB: a, HeartbeatEvery: time.Hour}
+	o := Options{NoContainment: true, DB: a, HeartbeatEvery: time.Hour}
 	o.hooks.beforeOpen = func() {}
 	o.hooks.afterOpen = func() {}
 	r := start(t, o)
@@ -649,7 +649,7 @@ func TestVanishedDBIsNotRecreated(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
 	a := newClosedQueue(t, dir, "a.db")
-	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o := Options{NoContainment: true, DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
 	o.hooks.beforeOpen = func() {
 		for _, suffix := range []string{"", "-wal", "-shm"} {
 			if err := os.Remove(a + suffix); err != nil && !os.IsNotExist(err) {
@@ -719,7 +719,7 @@ func TestInheritedDescriptorDoesNotStandInForSQLite(t *testing.T) {
 	}
 	defer inherited.Close()
 
-	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o := Options{NoContainment: true, DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
 	o.hooks.beforeOpen = func() {
 		if err := os.Rename(a, aside); err != nil {
 			t.Error(err)
@@ -761,7 +761,7 @@ func TestInheritedDescriptorControlStartsNormally(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer inherited.Close()
-	r := start(t, Options{DB: a, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: a, HeartbeatEvery: time.Hour})
 	if r.epoch < 2 {
 		t.Fatalf("epoch %d", r.epoch)
 	}
@@ -781,7 +781,7 @@ func TestRunRefusesADescriptorAlreadyOpenOnTheDatabase(t *testing.T) {
 	defer inherited.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
 	defer cancel()
-	err = Run(ctx, Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour})
+	err = Run(ctx, Options{NoContainment: true, DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour})
 	if err == nil || exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "already has") {
 		t.Fatalf("got %v", err)
 	}
@@ -796,7 +796,7 @@ func TestStrictPreopenRuleAllowsAFreshProcessState(t *testing.T) {
 	strictPreopen(t)
 	t.Setenv("HOME", t.TempDir())
 	a := newClosedQueue(t, t.TempDir(), "a.db")
-	r := start(t, Options{DB: a, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: a, HeartbeatEvery: time.Hour})
 	if r.epoch < 2 {
 		t.Fatalf("epoch %d", r.epoch)
 	}
@@ -812,7 +812,7 @@ func TestSwappedInDatabaseKeepsItsJournalMode(t *testing.T) {
 	setRollbackJournal(t, b)
 	aside := filepath.Join(dir, "a.orig")
 
-	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o := Options{NoContainment: true, DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
 	o.hooks.beforeOpen = func() {
 		if err := os.Rename(a, aside); err != nil {
 			t.Error(err)
@@ -836,7 +836,7 @@ func TestVerifiedRollbackDatabaseIsSwitchedToWAL(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a := newClosedQueue(t, t.TempDir(), "a.db")
 	setRollbackJournal(t, a)
-	r := start(t, Options{DB: a, HeartbeatEvery: time.Hour})
+	r := start(t, Options{NoContainment: true, DB: a, HeartbeatEvery: time.Hour})
 	if r.epoch < 2 {
 		t.Fatalf("epoch %d", r.epoch)
 	}

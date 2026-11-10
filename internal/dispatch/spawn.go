@@ -195,12 +195,18 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 			return nil, fmt.Errorf("spawn: strict executor: %w", err)
 		}
 	}
+	seam(ctx, "after_link_before_start", id)
+	if err := startFault(ctx); err != nil {
+		_, _ = store.Terminalize(ctx, id, spawnFailed(fmt.Sprintf("start: %v", err)))
+		return nil, fmt.Errorf("spawn: start process: %w", err)
+	}
 	if err := cmd.Start(); err != nil {
 		_, _ = store.Terminalize(ctx, id, spawnFailed(fmt.Sprintf("start: %v", err)))
 		return nil, fmt.Errorf("spawn: start process: %w", err)
 	}
 
 	pid := cmd.Process.Pid
+	seam(ctx, "after_start_before_identity", id)
 	identity, err := store.recordProcessIdentity(ctx, id, pid)
 	if err != nil {
 		// No wait/reaper has started, so this is still our unreaped child and its

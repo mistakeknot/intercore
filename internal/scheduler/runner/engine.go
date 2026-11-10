@@ -39,6 +39,9 @@ type engine struct {
 	sqlDB *sql.DB
 	epoch int64
 	fl    *InFlight
+	cg    *cgroupMgr // nil with --no-containment
+
+	dropOnce atomic.Bool // the drop_entry fault fires once
 
 	mu      sync.Mutex
 	backoff map[string]backoffState // completing entries that failed a step
@@ -58,8 +61,9 @@ type backoffState struct {
 	delay time.Duration
 }
 
-func newEngine(o Options, store *scheduler.Store, sqlDB *sql.DB, epoch int64) *engine {
+func newEngine(o Options, store *scheduler.Store, sqlDB *sql.DB, epoch int64, cg *cgroupMgr) *engine {
 	return &engine{
+		cg:      cg,
 		o:       o,
 		store:   store,
 		ds:      dispatch.New(sqlDB, nil),
@@ -84,6 +88,18 @@ func (e *engine) inj(kind string) error {
 		return h(kind)
 	}
 	return nil
+}
+
+// barrier is a named pause point for the tests (barrier.go); it does nothing
+// unless a hook is installed. The drop_entry fault also loses the map entry
+// here, once, to simulate a lost entry for the repair pass.
+func (e *engine) barrier(point, token string) {
+	if h := e.o.hooks.barrier; h != nil {
+		h(point, token)
+	}
+	if e.o.hooks.dropEntryAt == point && e.dropOnce.CompareAndSwap(false, true) {
+		e.fl.Drop(token)
+	}
 }
 
 func (e *engine) signal() {
@@ -405,8 +421,28 @@ func (e *engine) persist(kind, token string, write func() (bool, error), done fu
 func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 	ctx := context.Background()
 	token := c.Token
+	e.barrier("after_claim", token)
+
+	// The attempt's cgroup is created right after the claim and recorded before
+	// the worker starts, so extinction reads the stored path. A cgroup that
+	// cannot be created is a counted pre-start failure: nothing is started.
+	containment, cgPath := "none", ""
+	var cgFile *os.File
+	var cgErr error
+	if e.cg != nil {
+		containment = "cgroup"
+		if cgPath, cgFile, cgErr = e.cg.create(c.JobID, c.AttemptNo); cgErr != nil {
+			e.logf("job %s: create attempt cgroup: %v", c.JobID, cgErr)
+			containment, cgPath, cgFile = "none", "", nil
+		}
+	}
+	defer func() {
+		if cgFile != nil {
+			cgFile.Close()
+		}
+	}()
 	if err := e.persist("marker", token, func() (bool, error) {
-		return e.store.SetAttemptPaths(ctx, c, plan.outputFile, "none", "")
+		return e.store.SetAttemptPaths(ctx, c, plan.outputFile, containment, cgPath)
 	}, func(a *scheduler.AttemptRow) bool { return a.OutputFile == plan.outputFile }); err != nil {
 		if errors.Is(err, errAborted) {
 			return
@@ -420,14 +456,36 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 
 	opts := plan.opts
 	opts.StrictExecutor = true
+	if cgFile != nil {
+		opts.CgroupFD = int(cgFile.Fd())
+	}
 	opts.ExtraEnv = map[string]string{
 		"IC_SCHEDULER_JOB_ID":  c.JobID,
 		"IC_SCHEDULER_ATTEMPT": strconv.Itoa(c.AttemptNo),
 	}
 	opts.OnAdmitted = func(ctx context.Context, q dispatch.Querier, id string) error {
-		return scheduler.LinkTx(ctx, q, c, id, e.o.Now())
+		if err := scheduler.LinkTx(ctx, q, c, id, e.o.Now()); err != nil {
+			return err
+		}
+		e.barrier("in_link_before_commit", token)
+		return nil
 	}
-	res, serr := dispatch.Spawn(ctx, e.ds, opts)
+	sctx := dispatch.WithSeam(ctx, func(point, _ string) { e.barrier(point, token) })
+	if f := e.o.hooks.startFault; f != nil {
+		sctx = dispatch.WithStartFault(sctx, f)
+	}
+	var (
+		res  *dispatch.SpawnResult
+		serr error
+	)
+	if cgErr != nil {
+		serr = fmt.Errorf("attempt cgroup: %w", cgErr)
+	} else {
+		res, serr = dispatch.Spawn(sctx, e.ds, opts)
+	}
+	if res != nil {
+		e.barrier("after_identity_before_running_cas", token)
+	}
 
 	result := scheduler.LaunchStarted
 	var rej *dispatch.SpawnRejection
@@ -462,6 +520,7 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 	if h := e.o.hooks.afterLaunchPersist; h != nil {
 		h(token, result)
 	}
+	e.barrier("after_launch_result_commit", token)
 	if result != scheduler.LaunchStarted {
 		e.fl.Advance(token, gen, StageCompleting)
 		e.signal()
@@ -470,10 +529,13 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 
 	// started: exactly one waiter owns the process from here, whatever
 	// happens to the stage transition.
+	killAfterWait := false
 	if err := e.retry("marker", func() error { return e.store.MarkRunning(ctx, c, e.o.Now()) }); err != nil {
 		switch {
 		case errors.Is(err, scheduler.ErrCancelled):
-			_ = dispatch.Kill(ctx, e.ds, res.ID)
+			// Kill waits for the process to exit and only the waiter started
+			// below reaps it, so the kill runs after the waiter exists.
+			killAfterWait = true
 		case errors.Is(err, scheduler.ErrLostClaim):
 			e.checkEpoch()
 		case errors.Is(err, errAborted):
@@ -482,6 +544,9 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 		}
 	}
 	go e.wait(c, gen, res)
+	if killAfterWait {
+		go func() { _ = dispatch.Kill(ctx, e.ds, res.ID) }()
+	}
 	e.fl.Advance(token, gen, StageWaiting)
 }
 
@@ -513,6 +578,7 @@ func (e *engine) wait(c *scheduler.Claim, gen uint64, res *dispatch.SpawnResult)
 	if h := e.o.hooks.afterExitBeforeEvidence; h != nil {
 		h(c.Token)
 	}
+	e.barrier("after_exit_before_evidence", c.Token)
 	e.fl.Advance(c.Token, gen, StageCompleting)
 	e.signal()
 }
@@ -664,6 +730,26 @@ func (e *engine) complete(it Item) error {
 		return err
 	}
 
+	// Step 1 of the pipeline: no process of the attempt may outlive the
+	// finalize or a retry, so the attempt's cgroup is killed and proven empty
+	// before anything is written. Failing to prove it leaves the job in flight
+	// and blocks its retry; the step is repeated under backoff and the job is
+	// never terminalized on a guess.
+	if a.Containment == "cgroup" && a.CgroupPath != "" {
+		if e.cg == nil {
+			return fmt.Errorf("attempt %s is contained in %s but this runner runs without containment", it.Token, a.CgroupPath)
+		}
+		if err := e.cg.extinct(a.CgroupPath); err != nil {
+			if errors.Is(err, errSurvivorUnknown) {
+				marker := "survivor_unknown:" + a.DispatchID
+				if _, serr := e.store.SetRetryBlocked(ctx, c, marker, e.o.Now()); serr != nil {
+					e.logf("completing %s: set retry_blocked: %v", it.Token, serr)
+				}
+			}
+			return err
+		}
+	}
+
 	if a.EvidenceClass == "" {
 		if err := e.inj("evidence"); err != nil {
 			return err
@@ -687,6 +773,7 @@ func (e *engine) complete(it Item) error {
 	if h := e.o.hooks.afterEvidenceBeforeCollect; h != nil {
 		h(it.Token)
 	}
+	e.barrier("after_evidence_before_collect", it.Token)
 	if !e.stillOwned(it) {
 		return nil
 	}
@@ -741,7 +828,7 @@ func (e *engine) complete(it Item) error {
 	if class != scheduler.ClassOK {
 		fp.Error = fmt.Sprintf("attempt ended %s (launch_result=%s)", class, a.LaunchResult)
 	}
-	if a.LaunchResult == scheduler.LaunchStarted {
+	if a.LaunchResult == scheduler.LaunchStarted && a.Containment != "cgroup" {
 		// Without containment a started job may have left descendants: a
 		// post-start retry is blocked until someone confirms none survive.
 		job, err := e.store.Get(ctx, a.JobID)
@@ -753,13 +840,15 @@ func (e *engine) complete(it Item) error {
 			fp.RetryBlocked = "survivor_unknown:" + a.DispatchID
 		}
 	}
+	e.barrier("after_collect_before_finalize", it.Token)
 	if !e.stillOwned(it) {
 		return nil
 	}
 	if err := e.inj("finalize"); err != nil {
 		return err
 	}
-	if _, err := e.store.Finalize(ctx, c, fp); err != nil {
+	fctx := scheduler.WithSeam(ctx, func(point string) { e.barrier(point, it.Token) })
+	if _, err := e.store.Finalize(fctx, c, fp); err != nil {
 		if errors.Is(err, scheduler.ErrLostClaim) {
 			e.checkEpoch()
 			e.fl.Remove(it.Token, it.Gen)
@@ -767,7 +856,14 @@ func (e *engine) complete(it Item) error {
 		}
 		return err
 	}
+	e.barrier("after_finalize_commit", it.Token)
 	e.fl.Remove(it.Token, it.Gen)
+	// The attempt is final and its cgroup is empty: remove the directory.
+	if a.Containment == "cgroup" && a.CgroupPath != "" && e.cg != nil {
+		if err := e.cg.remove(a.CgroupPath); err != nil {
+			e.logf("job %s: remove attempt cgroup %s: %v", a.JobID, a.CgroupPath, err)
+		}
+	}
 	return nil
 }
 
@@ -824,5 +920,8 @@ func (e *engine) repairStep() {
 	if n > 0 {
 		e.logf("repair: re-inserted %d completing entr(ies)", n)
 		e.signal()
+	}
+	if h := e.o.hooks.repairPass; h != nil {
+		h()
 	}
 }

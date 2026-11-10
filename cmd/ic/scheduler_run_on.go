@@ -26,7 +26,8 @@ import (
 func cmdSchedulerRun(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
 	if bad := f.Unknown("rebind-db", "confirm-old-runner-dead", "lock-wait", "heartbeat-interval",
-		"dispatch-sh", "max-concurrent", "drain-timeout", "tick"); len(bad) > 0 {
+		"dispatch-sh", "max-concurrent", "drain-timeout", "tick", "no-containment", "cgroup-dir",
+		"extinction-bound", "repair-interval"); len(bad) > 0 {
 		fmt.Fprintf(os.Stderr, "ic: scheduler run: unknown flag --%s\n", bad[0])
 		return runner.ExitRefused
 	}
@@ -48,6 +49,16 @@ func cmdSchedulerRun(ctx context.Context, args []string) int {
 	tick, err := f.Duration("tick", time.Second)
 	if err != nil || tick <= 0 {
 		fmt.Fprintf(os.Stderr, "ic: scheduler run: invalid --tick\n")
+		return runner.ExitRefused
+	}
+	extBound, err := f.Duration("extinction-bound", 10*time.Second)
+	if err != nil || extBound <= 0 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler run: invalid --extinction-bound\n")
+		return runner.ExitRefused
+	}
+	repairEvery, err := f.Duration("repair-interval", 30*time.Second)
+	if err != nil || repairEvery <= 0 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler run: invalid --repair-interval\n")
 		return runner.ExitRefused
 	}
 	maxConc, err := f.Int("max-concurrent", 2)
@@ -76,6 +87,10 @@ func cmdSchedulerRun(ctx context.Context, args []string) int {
 		MaxConcurrent:        maxConc,
 		DrainTimeout:         drainTimeout,
 		Tick:                 tick,
+		RepairEvery:          repairEvery,
+		NoContainment:        f.Bool("no-containment"),
+		CgroupDir:            f.String("cgroup-dir", ""),
+		ExtinctionBound:      extBound,
 		Stderr:               os.Stderr,
 	})
 	if err == nil {
