@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -348,9 +350,55 @@ func TestRepairWithLiveDescendantRunsExtinction(t *testing.T) {
 func TestExtinctionEndsDescendantThatEscapedSessionAndEnv(t *testing.T) {
 	r, o := containRig(t)
 	r.job("x", "setsid-clear-env")
+	// Positive control, taken once the worker has exited and before extinction:
+	// the descendant is alive, has a session of its own, no environment, and
+	// sits in the attempt's cgroup. Without this the test could pass because
+	// the recorded pid was never the long-lived descendant.
+	var seen atomic.Value
+	o.hooks.barrier = func(p, token string) {
+		if p != "after_exit_before_evidence" || seen.Load() != nil {
+			return
+		}
+		b, err := os.ReadFile(r.outputOf("x") + ".child")
+		if err != nil {
+			seen.Store("no child file: " + err.Error())
+			return
+		}
+		pid := strings.TrimSpace(string(b))
+		// $! names the env process that is about to exec setsid and then sleep;
+		// wait until it has become the sleep, in its own session.
+		var st []byte
+		for i := 0; i < 500; i++ {
+			st, err = os.ReadFile("/proc/" + pid + "/stat")
+			if err != nil || strings.HasPrefix(string(st[strings.IndexByte(string(st), '(')+1:]), "sleep)") {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if err != nil {
+			seen.Store("descendant " + pid + " is not alive before extinction: " + err.Error())
+			return
+		}
+		f := strings.Fields(string(st[strings.LastIndexByte(string(st), ')')+2:]))
+		env, _ := os.ReadFile("/proc/" + pid + "/environ")
+		cg, _ := os.ReadFile("/proc/" + pid + "/cgroup")
+		switch {
+		case len(f) < 4 || f[3] != pid:
+			seen.Store("descendant " + pid + " is not its own session leader: " + string(st))
+		case len(env) != 0:
+			seen.Store("descendant " + pid + " kept an environment")
+		case !strings.Contains(string(cg), "/attempt-x-1"):
+			seen.Store("descendant " + pid + " is not in the attempt cgroup: " + string(cg))
+		default:
+			seen.Store("ok")
+		}
+	}
 	run := start(t, o)
 	r.waitStatus("x", scheduler.StatusCompleted)
 	run.stop(t)
+	if v, _ := seen.Load().(string); v != "ok" {
+		t.Fatalf("positive control failed: %q", v)
+	}
 	b, err := os.ReadFile(r.outputOf("x") + ".child")
 	if err != nil {
 		t.Fatal(err)
@@ -428,7 +476,12 @@ func TestExtinctionTimeoutBlocksRetryAndDoesNotTerminalize(t *testing.T) {
 		}
 		return 0
 	}
-	r.job("x", "ok", func(j *scheduler.SpawnJob) { j.MaxRetries = 3; j.Idempotent = true })
+	// A failing job that its policy would retry at once: only retry_blocked
+	// can keep it from running again.
+	r.job("x", "receipt agent_failed", func(j *scheduler.SpawnJob) {
+		j.Idempotent = true
+		j.RetryPolicy = `{"max_attempts":5,"backoff":{"base_s":1,"factor":1,"max_s":1,"jitter":0},"retry_on":["agent_failed"]}`
+	})
 	run := start(t, o)
 
 	until(t, "retry_blocked to be set", func() bool {
@@ -442,8 +495,16 @@ func TestExtinctionTimeoutBlocksRetryAndDoesNotTerminalize(t *testing.T) {
 	if r.attempts("x") != 1 {
 		t.Fatalf("attempts = %d: the job was retried before the cgroup was proven empty", r.attempts("x"))
 	}
-	// Once extinction is proven the job finalizes, and the block stays for an operator.
-	until(t, "the job to finalize after extinction is proven", func() bool { return r.get("x").IsTerminal() })
+	// Once extinction is proven the retry is held, not run: the job returns to
+	// pending with the marker kept, and stays at one attempt and one execution.
+	until(t, "the job to return to pending after extinction is proven", func() bool {
+		j := r.get("x")
+		if j.IsTerminal() {
+			t.Fatalf("job ended %s/%s instead of returning to pending", j.Status, r.outcome("x"))
+		}
+		return j.Status == scheduler.StatusPending
+	})
+	time.Sleep(1500 * time.Millisecond) // past the 1 s backoff: a retry the marker failed to hold would be claimed by now
 	run.stop(t)
 	if r.attempts("x") != 1 || r.runs() != 1 {
 		t.Fatalf("attempts=%d runs=%d: a blocked job was retried", r.attempts("x"), r.runs())
@@ -452,5 +513,63 @@ func TestExtinctionTimeoutBlocksRetryAndDoesNotTerminalize(t *testing.T) {
 	_ = r.raw.QueryRow(`SELECT retry_blocked FROM scheduler_jobs WHERE id = 'x'`).Scan(&rb)
 	if rb == nil || !strings.HasPrefix(*rb, "survivor_unknown:") {
 		t.Fatalf("the retry block was lost: %v", rb)
+	}
+}
+
+// Two job IDs that sanitize to the same text must not share a cgroup: one
+// job's extinction would kill the other job's live worker.
+func TestAttemptDirNamesAreInjective(t *testing.T) {
+	ids := []string{"a/b", "a_b", "a b", "a:b", "ab", "a-b", "a~b", strings.Repeat("x", 80), strings.Repeat("x", 81), "é", "_"}
+	seen := map[string]string{}
+	for _, id := range ids {
+		for _, n := range []int{1, 2, 11} {
+			name := attemptDirName(id, n)
+			if len(name) > 200 || strings.ContainsAny(name, "/ \x00") {
+				t.Fatalf("%q attempt %d: unusable cgroup name %q", id, n, name)
+			}
+			key := id + "#" + strconv.Itoa(n)
+			if prev, dup := seen[name]; dup {
+				t.Fatalf("%s and %s share the cgroup name %q", prev, key, name)
+			}
+			seen[name] = key
+		}
+	}
+	if got := attemptDirName("g", 1); got != "attempt-g-1" {
+		t.Fatalf("a safe job ID keeps its readable name, got %q", got)
+	}
+}
+
+// An attempt cgroup that still holds a process is never reused, an empty
+// leftover is.
+func TestCreateRefusesBusyCgroupReusesEmpty(t *testing.T) {
+	_, o := containRig(t)
+	m := &cgroupMgr{root: o.CgroupDir}
+	p, f, err := m.create("reuse", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	p2, f2, err := m.create("reuse", 1)
+	if err != nil {
+		t.Fatalf("an empty leftover directory must be reusable: %v", err)
+	}
+	f2.Close()
+	if p2 != p {
+		t.Fatalf("paths differ: %s %s", p, p2)
+	}
+	cmd := exec.Command("sleep", "60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true}
+	fd, err := os.Open(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fd.Close()
+	cmd.SysProcAttr.CgroupFD = int(fd.Fd())
+	if err := cmd.Start(); err != nil {
+		t.Skipf("cannot start a process into %s: %v", p, err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait(); _ = os.Remove(p) }()
+	if _, _, err := m.create("reuse", 1); !errors.Is(err, errCgroupBusy) {
+		t.Fatalf("a populated attempt cgroup was reused: %v", err)
 	}
 }

@@ -3,6 +3,8 @@
 package runner
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -98,17 +100,43 @@ func (m *cgroupMgr) release() {
 	_ = os.Remove(m.leaf)
 }
 
+// attemptDirName names the attempt's cgroup. A job ID made only of safe
+// characters (and short) is used as is; any other ID is sanitized, truncated
+// and tagged "~<hash of the full ID>". Safe IDs never contain "~", so two
+// different job IDs never share a directory, which would let one job's
+// extinction kill another job's live worker.
 func attemptDirName(jobID string, attemptNo int) string {
-	return "attempt-" + unsafeName.ReplaceAllString(jobID, "_") + "-" + strconv.Itoa(attemptNo)
+	id := unsafeName.ReplaceAllString(jobID, "_")
+	if id != jobID || len(id) > 64 {
+		sum := sha256.Sum256([]byte(jobID))
+		if len(id) > 64 {
+			id = id[:64]
+		}
+		id += "~" + hex.EncodeToString(sum[:8])
+	}
+	return "attempt-" + id + "-" + strconv.Itoa(attemptNo)
 }
+
+var errCgroupBusy = errors.New("attempt cgroup already has live processes")
 
 // create makes the attempt's cgroup and returns its path and an open directory
 // descriptor for CgroupFD. The caller closes the descriptor after Spawn. An
-// existing directory (a retry of the same attempt's marker) is reused.
+// existing directory is reused only when it is empty (a leftover of a path that
+// never reached finalize, or of a restored database); one that still holds
+// processes is refused, and the caller starts the job without containment.
 func (m *cgroupMgr) create(jobID string, attemptNo int) (string, *os.File, error) {
 	p := filepath.Join(m.root, attemptDirName(jobID, attemptNo))
-	if err := os.Mkdir(p, 0o755); err != nil && !errors.Is(err, os.ErrExist) {
-		return "", nil, err
+	if err := os.Mkdir(p, 0o755); err != nil {
+		if !errors.Is(err, os.ErrExist) {
+			return "", nil, err
+		}
+		busy, perr := populated(p)
+		if perr != nil {
+			return "", nil, perr
+		}
+		if busy {
+			return "", nil, fmt.Errorf("%s: %w", p, errCgroupBusy)
+		}
 	}
 	f, err := os.OpenFile(p, os.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
