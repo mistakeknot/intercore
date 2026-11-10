@@ -556,6 +556,45 @@ func TestCLIRunnerLiveness(t *testing.T) {
 	}
 }
 
+// The probe is read-only. A missing database is an error and is not created;
+// a rollback-journal database keeps its journal mode.
+func TestCLIRunnerProbeIsReadOnly(t *testing.T) {
+	e := newEnv(t)
+
+	_, se, code := e.ic("--db=missing.db", "scheduler", "runner")
+	if code != 2 {
+		t.Fatalf("probe of a missing database: exit %d (%s), want 2", code, se)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
+		if _, err := os.Lstat(filepath.Join(e.cwd, "missing.db"+suffix)); err == nil {
+			t.Fatalf("the probe created missing.db%s", suffix)
+		}
+	}
+
+	path := e.newDB("q.db")
+	raw, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mode string
+	if err := raw.QueryRow("PRAGMA journal_mode = DELETE").Scan(&mode); err != nil || mode != "delete" {
+		t.Fatalf("could not set the rollback journal: %q, %v", mode, err)
+	}
+	raw.Close()
+
+	if w := e.runnerWord("2s"); w != "absent" {
+		t.Fatalf("probe of a rollback-journal database: %s, want absent", w)
+	}
+	raw, err = sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if err := raw.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil || mode != "delete" {
+		t.Fatalf("the probe changed the journal mode to %q (%v)", mode, err)
+	}
+}
+
 // TestExecLinesHandlesSplitCalls is the parser's own check, with no runner: a
 // call that strace split across two lines counts once when it succeeded and
 // never when it failed, and a failed or unrelated call never counts.

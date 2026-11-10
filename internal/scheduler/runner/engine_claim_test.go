@@ -279,6 +279,18 @@ func TestClaimTimeChecksFailAsConfigError(t *testing.T) {
 			so, _ := json.Marshal(map[string]any{"AgentType": "codex", "PromptFile": prompt(r, "bad"), "Decision": map[string]any{"RequestedRole": "x"}})
 			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = string(so) })
 		}},
+		{"governed null role key", reasonGoverned, func(r *rig, o *Options) {
+			so := `{"AgentType":"codex","PromptFile":"` + prompt(r, "bad") + `","role":null}`
+			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = so })
+		}},
+		{"governed beats malformed fields", reasonGoverned, func(r *rig, o *Options) {
+			so := `{"Role":"validation","TimeoutSec":"invalid"}`
+			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = so })
+		}},
+		{"run and scope ids disagree", reasonBadSpawnOpts, func(r *rig, o *Options) {
+			so, _ := json.Marshal(map[string]any{"AgentType": "codex", "PromptFile": prompt(r, "bad"), "RunID": "a", "ScopeID": "b"})
+			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = string(so) })
+		}},
 		{"unparseable spawn opts", reasonBadSpawnOpts, func(r *rig, o *Options) {
 			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = "{not json" })
 		}},
@@ -408,5 +420,22 @@ func TestPauseSurvivesRunnerRestart(t *testing.T) {
 	second.stop(t)
 	if r.runs() != 1 {
 		t.Fatalf("runs = %d", r.runs())
+	}
+}
+
+// A plain job queued by an older client carries `"Decision":null`; it is not
+// governed and must run. This is the control for the governed cases above: the
+// governed check keys on a non-null decision, not on the key's presence.
+func TestNullDecisionPlainJobRuns(t *testing.T) {
+	r := newRig(t)
+	r.job("plain", "ok", func(j *scheduler.SpawnJob) {
+		so := `{"Decision":null,"AgentType":"codex","PromptFile":"` + filepath.Join(r.dir, "plain.prompt") + `"}`
+		j.SpawnOpts = so
+	})
+	run := start(t, r.opts())
+	r.waitStatus("plain", scheduler.StatusCompleted)
+	run.stop(t)
+	if n := r.runs(); n != 1 {
+		t.Fatalf("executor runs = %d", n)
 	}
 }

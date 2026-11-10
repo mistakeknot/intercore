@@ -8,6 +8,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -570,4 +572,85 @@ func TestDrainTimeoutLeavesChildrenRunning(t *testing.T) {
 	if r.get("h").Status != scheduler.StatusRunning {
 		t.Fatalf("job is %s", r.get("h").Status)
 	}
+}
+
+// A cancelling job whose executor ignores SIGTERM makes dispatch.Kill wait
+// seconds before it escalates. That wait must not hold the main loop: the drain
+// deadline is honoured, and the runner stops long before Kill would return.
+func TestCancelOfStubbornChildDoesNotBlockDrainDeadline(t *testing.T) {
+	r := newRig(t)
+	r.job("s", "stubborn")
+	o := r.opts()
+	o.DrainTimeout = 200 * time.Millisecond
+	run := start(t, o)
+	r.waitStatus("s", scheduler.StatusRunning)
+	var pid int
+	until(t, "a pid", func() bool {
+		_ = r.raw.QueryRow(`SELECT COALESCE(pid,0) FROM dispatches WHERE id = ?`, r.dispatchOf("s")).Scan(&pid)
+		return pid > 1
+	})
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	if _, err := r.store.CancelJob(context.Background(), "s", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	// Wait until the slow kill is demonstrably in progress.
+	until(t, "the kill to be in progress", func() bool { return goroutinesIn("terminateRecordedProcess") > 0 })
+
+	started := time.Now()
+	run.cancel()
+	select {
+	case <-run.done:
+	case <-time.After(waitFor):
+		t.Fatal("the runner did not stop")
+	}
+	if took := time.Since(started); took > 2*time.Second {
+		t.Fatalf("drain took %s with a 200ms deadline: the cancel signal blocked the main loop", took)
+	}
+	if run.err != nil {
+		t.Fatal(run.err)
+	}
+	// The signal still ends the child: SIGKILL follows the unanswered SIGTERM.
+	until(t, "the stubborn child to be killed", func() bool { return syscall.Kill(pid, 0) != nil })
+}
+
+// The terminal-dispatch reaper ends with the runner. A child that outlives a
+// drain timeout must not leave a goroutine polling a closed database.
+func TestReaperEndsWithTheRunner(t *testing.T) {
+	r := newRig(t)
+	r.job("h", "hang")
+	o := r.opts()
+	o.DrainTimeout = 100 * time.Millisecond
+	run := start(t, o)
+	r.waitStatus("h", scheduler.StatusRunning)
+	var pid int
+	until(t, "a pid", func() bool {
+		_ = r.raw.QueryRow(`SELECT COALESCE(pid,0) FROM dispatches WHERE id = ?`, r.dispatchOf("h")).Scan(&pid)
+		return pid > 1
+	})
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	until(t, "the reaper to be running", func() bool { return goroutinesIn("reapTerminalDispatch") > 0 })
+	run.cancel()
+	select {
+	case <-run.done:
+	case <-time.After(waitFor):
+		t.Fatal("the runner did not stop")
+	}
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("the child is gone, so the test proves nothing: %v", err)
+	}
+	until(t, "the reaper goroutine to exit while its child still runs", func() bool {
+		return goroutinesIn("reapTerminalDispatch") == 0
+	})
+}
+
+func goroutinesIn(name string) int {
+	buf := make([]byte, 1<<20)
+	buf = buf[:runtime.Stack(buf, true)]
+	n := 0
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, name) {
+			n++
+		}
+	}
+	return n
 }

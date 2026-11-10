@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/mistakeknot/intercore/internal/dispatch"
@@ -47,18 +48,30 @@ var sidecars = []string{"", ".verdict", ".summary", ".receipt.json"}
 func (e *engine) checkJob(job *scheduler.SpawnJob) (*plannedLaunch, string) {
 	var opts dispatch.SpawnOptions
 	if s := strings.TrimSpace(job.SpawnOpts); s != "" {
-		if err := json.Unmarshal([]byte(s), &opts); err != nil {
-			return nil, fmt.Sprintf("%s: %v", reasonBadSpawnOpts, err)
-		}
+		// Governed rejection comes first and looks at key presence, so a
+		// governed job is never reported as a malformed one. A "role" key
+		// is governed even when null (SpawnOptions has no such field, so
+		// only a governed writer emits it). A "decision" key is governed
+		// unless it is null: older clients serialize `"Decision":null`
+		// for every plain job.
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(s), &raw); err != nil {
 			return nil, fmt.Sprintf("%s: %v", reasonBadSpawnOpts, err)
 		}
-		for k, v := range raw {
+		keys := make([]string, 0, len(raw))
+		for k := range raw {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
 			lk := strings.ToLower(k)
-			if (lk == "decision" || lk == "role") && strings.TrimSpace(string(v)) != "null" {
+			isNull := strings.TrimSpace(string(raw[k])) == "null"
+			if lk == "role" || (lk == "decision" && !isNull) {
 				return nil, fmt.Sprintf("%s: spawn_opts carries %q; governed dispatch is not supported by this runner", reasonGoverned, k)
 			}
+		}
+		if err := json.Unmarshal([]byte(s), &opts); err != nil {
+			return nil, fmt.Sprintf("%s: %v", reasonBadSpawnOpts, err)
 		}
 	}
 	if opts.Decision != nil {
@@ -101,5 +114,13 @@ func (e *engine) checkJob(job *scheduler.SpawnJob) (*plannedLaunch, string) {
 	opts.ProjectDir = dir
 	opts.OutputFile = out
 	opts.DispatchSH = sh
+	// Validate exactly what the launch will run, so a configuration Spawn
+	// would reject is a config error with no attempt, not a counted prestart
+	// failure.
+	chk := opts
+	chk.StrictExecutor = true
+	if err := chk.Validate(); err != nil {
+		return nil, fmt.Sprintf("%s: %v", reasonBadSpawnOpts, err)
+	}
 	return &plannedLaunch{opts: opts, projectDir: dir, outputFile: out}, ""
 }

@@ -7,6 +7,7 @@
 #   receipt <class>    like fail, plus a bound receipt with that failure_class
 #   gate <file>        write <out>.started, wait until <file> exists, then ok
 #   hang               write <out>.started and wait until signalled
+#   stubborn           like hang, but ignores SIGTERM (only SIGKILL ends it)
 #   noverdict          exit 0 without a verdict (collect infers a failure)
 # Every invocation appends one line to $FAKE_LOG when it is set, so a test can
 # count how many times the executor ran.
@@ -37,6 +38,10 @@ case "$mode" in
     while [ ! -e "$arg" ]; do sleep 0.02; done
     echo "done" > "$out"; verdict pass ok; exit 0 ;;
   hang)
+    : > "$out.started"
+    while :; do sleep 0.05; done ;;
+  stubborn)
+    trap '' TERM INT
     : > "$out.started"
     while :; do sleep 0.05; done ;;
   noverdict) echo "done" > "$out"; exit 0 ;;

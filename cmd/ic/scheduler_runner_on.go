@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mistakeknot/intercore/internal/cli"
+	"github.com/mistakeknot/intercore/internal/db"
 	"github.com/mistakeknot/intercore/internal/scheduler"
 	"github.com/mistakeknot/intercore/internal/scheduler/runner"
 )
@@ -31,12 +32,28 @@ func cmdSchedulerRunner(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "ic: scheduler runner: invalid --stale-after\n")
 		return 3
 	}
-	d, err := openDB()
+	// Read-only probe: the database must already exist (a missing path is an
+	// error, never a new empty file), the persistent journal mode is left as
+	// it is, and the connection refuses writes.
+	path, err := resolveDBPath()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
+		return 2
+	}
+	d, err := db.OpenExisting(path, flagTimeout)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
 		return 2
 	}
 	defer d.Close()
+	if _, err := d.SqlDB().ExecContext(ctx, "PRAGMA query_only = ON"); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
+		return 2
+	}
+	if err := d.CheckSchemaVersion(); err != nil {
+		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
+		return 2
+	}
 
 	st, err := runner.Probe(ctx, scheduler.NewStore(d.SqlDB()), time.Now(), stale)
 	if err != nil {

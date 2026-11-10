@@ -43,6 +43,7 @@ type engine struct {
 	mu      sync.Mutex
 	backoff map[string]backoffState // completing entries that failed a step
 	killed  map[string]bool         // cancelling tokens whose dispatch was signalled
+	killing map[string]bool         // cancelling tokens with a signal in progress
 
 	stopping atomic.Bool
 	abort    chan struct{}
@@ -65,6 +66,7 @@ func newEngine(o Options, store *scheduler.Store, sqlDB *sql.DB, epoch int64) *e
 		fl:      NewInFlight(),
 		backoff: map[string]backoffState{},
 		killed:  map[string]bool{},
+		killing: map[string]bool{},
 		abort:   make(chan struct{}),
 		fatal:   make(chan error, 1),
 		wake:    make(chan struct{}, 1),
@@ -502,13 +504,17 @@ func (e *engine) wait(c *scheduler.Claim, gen uint64, res *dispatch.SpawnResult)
 // live child for ever and hold its concurrency slot. The runner started this
 // child and has not yet waited on it, so the identity captured at spawn is
 // still its own and Terminate cannot hit a reused pid. It stops when the
-// waiter sees the exit.
+// waiter sees the exit, or when the runner itself returns.
 func (e *engine) reapTerminalDispatch(res *dispatch.SpawnResult, exited <-chan struct{}) {
 	t := time.NewTicker(e.o.Tick)
 	defer t.Stop()
 	for {
 		select {
 		case <-exited:
+			return
+		case <-e.abort:
+			// The runner is returning and closes its database. The child
+			// is left to the next runner's recovery, as at a drain timeout.
 			return
 		case <-t.C:
 		}
@@ -523,7 +529,10 @@ func (e *engine) reapTerminalDispatch(res *dispatch.SpawnResult, exited <-chan s
 }
 
 // cancelStep signals the dispatch of every cancelling job this epoch owns. The
-// waiter then sees the exit and the job completes as cancelled.
+// waiter then sees the exit and the job completes as cancelled. Killing can
+// wait seconds for a process that ignores SIGTERM, so each signal runs in its
+// own goroutine: the main loop keeps heartbeating, completing and honouring
+// the drain deadline meanwhile. At most one signal per token is in progress.
 func (e *engine) cancelStep() {
 	ctx := context.Background()
 	cl, err := e.store.CancellingClaims(ctx, e.epoch)
@@ -533,23 +542,40 @@ func (e *engine) cancelStep() {
 	}
 	for _, c := range cl {
 		e.mu.Lock()
-		done := e.killed[c.Token]
+		skip := e.killed[c.Token] || e.killing[c.Token]
+		if !skip {
+			e.killing[c.Token] = true
+		}
 		e.mu.Unlock()
-		if done {
+		if skip {
 			continue
 		}
 		a, err := e.store.AttemptByToken(ctx, c.Token)
 		if err != nil || a.DispatchID == "" {
+			e.clearKilling(c.Token, false)
 			continue
 		}
-		if err := dispatch.Kill(ctx, e.ds, a.DispatchID); err != nil {
-			e.logf("job %s: cancel: %v", c.JobID, err)
-			continue
-		}
-		e.mu.Lock()
-		e.killed[c.Token] = true
-		e.mu.Unlock()
+		go func(c scheduler.CancellingClaim, dispatchID string) {
+			err := dispatch.Kill(context.Background(), e.ds, dispatchID)
+			select {
+			case <-e.abort: // the runner has returned; its database is closed
+			default:
+				if err != nil {
+					e.logf("job %s: cancel: %v", c.JobID, err)
+				}
+			}
+			e.clearKilling(c.Token, err == nil)
+		}(c, a.DispatchID)
 	}
+}
+
+func (e *engine) clearKilling(token string, signalled bool) {
+	e.mu.Lock()
+	delete(e.killing, token)
+	if signalled {
+		e.killed[token] = true
+	}
+	e.mu.Unlock()
 }
 
 // completeStep runs the completing stage of every due entry, in token order.
