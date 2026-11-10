@@ -125,7 +125,7 @@ func Run(ctx context.Context, o Options) error {
 	}
 	host, _ := os.Hostname()
 	id := scheduler.RunnerIdentity{
-		RunnerID: runnerID, PID: os.Getpid(), PIDStartTime: startTime, BootID: BootID(),
+		RunnerID: runnerID, PID: os.Getpid(), PIDStartTime: startTime, BootID: o.bootID(),
 		Host: host, Version: o.Version,
 		DBPath: info.Canonical, DBIdentity: info.Identity(), NetNS: netns, UID: os.Getuid(),
 	}
@@ -146,7 +146,12 @@ func Run(ctx context.Context, o Options) error {
 	if o.OnReady != nil {
 		o.OnReady(epoch)
 	}
-	return newEngine(o, store, d.SqlDB(), epoch, cg).run(ctx)
+	eng := newEngine(o, store, d.SqlDB(), epoch, cg)
+	if !o.Rebind {
+		// The boot the previous runner recorded; --rebind-db keeps no such claim.
+		eng.priorBoot = row.BootID
+	}
+	return eng.run(ctx)
 }
 
 // verifyBinding makes the preflight verdict, the lock and the recorded
@@ -199,7 +204,7 @@ func acquireDBLock(ctx context.Context, store *scheduler.Store, canonical string
 		case lerr == nil:
 			return f, nil
 		case errors.Is(lerr, ErrHeld):
-			if err := holderCheck(ctx, store, canonical); err != nil {
+			if err := holderCheck(ctx, store, canonical, o.bootID()); err != nil {
 				return nil, err
 			}
 		default:
@@ -225,7 +230,7 @@ func acquireQueueLock(ctx context.Context, store *scheduler.Store, canonical, qu
 		case lerr == nil:
 			return ln, nil
 		case errors.Is(lerr, ErrHeld):
-			if err := holderCheck(ctx, store, canonical); err != nil {
+			if err := holderCheck(ctx, store, canonical, o.bootID()); err != nil {
 				return nil, err
 			}
 		default:
@@ -243,13 +248,13 @@ func acquireQueueLock(ctx context.Context, store *scheduler.Store, canonical, qu
 }
 
 // holderCheck exits 3 when the singleton's recorded runner is verified alive.
-func holderCheck(ctx context.Context, store *scheduler.Store, canonical string) error {
+func holderCheck(ctx context.Context, store *scheduler.Store, canonical, boot string) error {
 	row, err := store.ReadRunner(ctx)
 	if err != nil {
 		return nil // cannot verify; the caller keeps retrying
 	}
 	h := Holder{PID: row.PID, StartTime: row.PIDStartTime, BootID: row.BootID}
-	if row.State != "stopped" && h.Present(BootID(), ReadStat) {
+	if row.State != "stopped" && h.Present(boot, ReadStat) {
 		return exitf(ExitSuperseded, "another runner (pid %d) holds %s", row.PID, canonical)
 	}
 	return nil
