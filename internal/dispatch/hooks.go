@@ -18,7 +18,8 @@ import (
 // with the dispatch row. The hook must use only this Querier: the store holds
 // the only connection (SetMaxOpenConns(1)), so any nested Store call would
 // block until the transaction ends, and the hook must never COMMIT or
-// ROLLBACK.
+// ROLLBACK. The context the hook receives ends when the hook returns, so a
+// query result must be read (or closed) before the hook returns.
 type Querier interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
@@ -105,4 +106,14 @@ func validateStrictExecutor(path string) error {
 		return &InputError{"strict executor requires an absolute dispatch_sh path"}
 	}
 	return nil
+}
+
+// runAdmittedHook calls the hook with a context that admission cancels as soon
+// as the hook returns or panics. A query the hook left unscanned keeps the
+// owned connection busy until its context ends; cancelling here releases it
+// so the deferred connection close cannot wait on a row nobody will read.
+func runAdmittedHook(ctx context.Context, conn *sql.Conn, hook func(context.Context, Querier, string) error, id string) error {
+	hookCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	return hook(hookCtx, hookQuerier{conn}, id)
 }

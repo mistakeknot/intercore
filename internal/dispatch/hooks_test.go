@@ -231,6 +231,57 @@ func TestOnAdmittedPanicDoesNotLeaveTransactionOpen(t *testing.T) {
 	}
 }
 
+// A hook may issue a query and leave the row unscanned, then fail or panic.
+// An open row holds the owned connection, so admission cleanup must not wait
+// on it forever: the next spawn on the single-connection store must work.
+func TestOnAdmittedUnscannedRowDoesNotWedgeAdmission(t *testing.T) {
+	cases := map[string]func(context.Context, Querier, string) error{
+		"error": func(ctx context.Context, q Querier, _ string) error {
+			_ = q.QueryRowContext(ctx, "SELECT 1")
+			return errors.New("hook failed")
+		},
+		"panic": func(ctx context.Context, q Querier, _ string) error {
+			_ = q.QueryRowContext(ctx, "SELECT 1")
+			panic("boom")
+		},
+		"success": func(ctx context.Context, q Querier, _ string) error {
+			_ = q.QueryRowContext(ctx, "SELECT 1")
+			return nil
+		},
+	}
+	for name, hook := range cases {
+		t.Run(name, func(t *testing.T) {
+			store, f := testStore(t), newHookFixture(t)
+			f.opts.OnAdmitted = hook
+			// A caller context with no short deadline: only admission's own
+			// cleanup can free the connection, so a stall is the bug.
+			run := func() (err error) {
+				defer func() { _ = recover() }()
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				r, err := Spawn(ctx, store, f.opts)
+				if r != nil {
+					_ = r.Cmd.Wait()
+				}
+				return err
+			}
+			start := time.Now()
+			_ = run()
+			if d := time.Since(start); d > 3*time.Second {
+				t.Fatalf("admission stalled %v on an unscanned hook row", d)
+			}
+			f.opts.OnAdmitted = nil
+			start = time.Now()
+			if err := run(); err != nil {
+				t.Fatalf("spawn after the hook: %v", err)
+			}
+			if d := time.Since(start); d > 3*time.Second {
+				t.Fatalf("next spawn stalled %v", d)
+			}
+		})
+	}
+}
+
 func TestOnAdmittedNotCalledWhenAdmissionRejects(t *testing.T) {
 	store, f := testStore(t), newHookFixture(t)
 	called := false

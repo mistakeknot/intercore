@@ -220,7 +220,7 @@ func (s *Store) admit(ctx context.Context, d *Dispatch, opts SpawnOptions) (stri
 	// error (or panic) leaves committed == false, so the deferred ROLLBACK
 	// removes the dispatch row and anything the hook wrote.
 	if opts.OnAdmitted != nil {
-		if err := opts.OnAdmitted(ctx, hookQuerier{conn}, id); err != nil {
+		if err := runAdmittedHook(ctx, conn, opts.OnAdmitted, id); err != nil {
 			return "", fmt.Errorf("admission hook: %w", err)
 		}
 	}
