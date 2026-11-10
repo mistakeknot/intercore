@@ -199,8 +199,8 @@ func TestAttemptRunsInItsOwnCgroup(t *testing.T) {
 	if containment != "cgroup" || cg == "" {
 		t.Fatalf("containment=%q cgroup_path=%q", containment, cg)
 	}
-	if filepath.Dir(cg) != o.CgroupDir || !strings.HasPrefix(filepath.Base(cg), "attempt-g-1") {
-		t.Fatalf("cgroup_path %s is not <subtree>/attempt-g-1", cg)
+	if filepath.Dir(cg) != o.CgroupDir || !strings.HasPrefix(filepath.Base(cg), "attempt-q") || !strings.HasSuffix(cg, "-g-1") {
+		t.Fatalf("cgroup_path %s is not <subtree>/attempt-<queue>-g-1", cg)
 	}
 	pid := r.pidOf("g")
 	procs, err := os.ReadFile(filepath.Join(cg, "cgroup.procs"))
@@ -387,7 +387,7 @@ func TestExtinctionEndsDescendantThatEscapedSessionAndEnv(t *testing.T) {
 			seen.Store("descendant " + pid + " is not its own session leader: " + string(st))
 		case len(env) != 0:
 			seen.Store("descendant " + pid + " kept an environment")
-		case !strings.Contains(string(cg), "/attempt-x-1"):
+		case !strings.Contains(string(cg), "/attempt-q") || !strings.HasSuffix(strings.TrimSpace(string(cg)), "-x-1"):
 			seen.Store("descendant " + pid + " is not in the attempt cgroup: " + string(cg))
 		default:
 			seen.Store("ok")
@@ -520,21 +520,27 @@ func TestExtinctionTimeoutBlocksRetryAndDoesNotTerminalize(t *testing.T) {
 // job's extinction would kill the other job's live worker.
 func TestAttemptDirNamesAreInjective(t *testing.T) {
 	ids := []string{"a/b", "a_b", "a b", "a:b", "ab", "a-b", "a~b", strings.Repeat("x", 80), strings.Repeat("x", 81), "é", "_"}
-	seen := map[string]string{}
-	for _, id := range ids {
-		for _, n := range []int{1, 2, 11} {
-			name := attemptDirName(id, n)
-			if len(name) > 200 || strings.ContainsAny(name, "/ \x00") {
-				t.Fatalf("%q attempt %d: unusable cgroup name %q", id, n, name)
+	// One runner uses one namespace; "" is a bare manager, and the two queue
+	// namespaces share a subtree, so no name may repeat across them.
+	for _, nss := range [][]string{{""}, {"q00000001", "q00000002"}} {
+		seen := map[string]string{}
+		for _, ns := range nss {
+			for _, id := range ids {
+				for _, n := range []int{1, 2, 11} {
+					name := attemptDirName(ns, id, n)
+					if len(name) > 200 || strings.ContainsAny(name, "/ \x00") {
+						t.Fatalf("%q attempt %d: unusable cgroup name %q", id, n, name)
+					}
+					key := ns + "/" + id + "#" + strconv.Itoa(n)
+					if prev, dup := seen[name]; dup {
+						t.Fatalf("%s and %s share the cgroup name %q", prev, key, name)
+					}
+					seen[name] = key
+				}
 			}
-			key := id + "#" + strconv.Itoa(n)
-			if prev, dup := seen[name]; dup {
-				t.Fatalf("%s and %s share the cgroup name %q", prev, key, name)
-			}
-			seen[name] = key
 		}
 	}
-	if got := attemptDirName("g", 1); got != "attempt-g-1" {
+	if got := attemptDirName("", "g", 1); got != "attempt-g-1" {
 		t.Fatalf("a safe job ID keeps its readable name, got %q", got)
 	}
 }
@@ -571,5 +577,83 @@ func TestCreateRefusesBusyCgroupReusesEmpty(t *testing.T) {
 	defer func() { _ = cmd.Process.Kill(); _, _ = cmd.Process.Wait(); _ = os.Remove(p) }()
 	if _, _, err := m.create("reuse", 1); !errors.Is(err, errCgroupBusy) {
 		t.Fatalf("a populated attempt cgroup was reused: %v", err)
+	}
+}
+
+// Two queues that share a delegated subtree never name the same attempt
+// directory, even for the same job ID and attempt number.
+func TestQueuesSharingASubtreeGetDistinctAttemptCgroups(t *testing.T) {
+	_, o := containRig(t)
+	a := &cgroupMgr{root: o.CgroupDir}
+	b := &cgroupMgr{root: o.CgroupDir}
+	a.setQueue("queue-A")
+	b.setQueue("queue-B")
+	pa, fa, err := a.create("same", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fa.Close()
+	defer os.Remove(pa)
+	pb, fb, err := b.create("same", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fb.Close()
+	defer os.Remove(pb)
+	if pa == pb {
+		t.Fatalf("queues A and B share the attempt cgroup %s", pa)
+	}
+}
+
+// An attempt cgroup that already holds a process when the attempt starts (a
+// restored snapshot whose worker outlived the old runner) is recorded with its
+// path, nothing is started, and the completion step kills the leftover and
+// proves the cgroup empty before the job is finalized.
+func TestBusyAttemptCgroupIsKilledAndProvenBeforeFinalize(t *testing.T) {
+	r, o := containRig(t)
+	row, err := r.store.ReadRunner(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := &cgroupMgr{root: o.CgroupDir}
+	m.setQueue(row.QueueID)
+	p, f, err := m.create("b", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(p)
+	cmd := exec.Command("sleep", "60")
+	cmd.SysProcAttr = &syscall.SysProcAttr{UseCgroupFD: true, CgroupFD: int(f.Fd())}
+	if err := cmd.Start(); err != nil {
+		f.Close()
+		t.Skipf("cannot start a process into %s: %v", p, err)
+	}
+	f.Close()
+	gone := make(chan struct{})
+	go func() { _ = cmd.Wait(); close(gone) }()
+	defer func() { _ = cmd.Process.Kill() }()
+
+	r.job("b", "ok")
+	run := start(t, o)
+	until(t, "the job to become terminal", func() bool { return r.get("b").IsTerminal() })
+	run.stop(t)
+
+	select {
+	case <-gone:
+	default:
+		t.Fatal("the leftover process of the busy attempt cgroup is still alive")
+	}
+	if r.runs() != 0 {
+		t.Fatalf("the executor ran %d times although the attempt cgroup was busy", r.runs())
+	}
+	containment, cg := r.attemptPaths("b")
+	if containment != "cgroup" || cg != p {
+		t.Fatalf("containment=%q cgroup_path=%q, want cgroup %q", containment, cg, p)
+	}
+	if got := r.outcome("b"); got != "prestart" {
+		t.Fatalf("outcome = %q, want prestart", got)
+	}
+	if pop, err := populated(p); err != nil || pop {
+		t.Fatalf("the busy cgroup was not proven empty (populated=%v err=%v)", pop, err)
 	}
 }

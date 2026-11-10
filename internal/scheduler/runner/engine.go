@@ -433,7 +433,13 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 		containment = "cgroup"
 		if cgPath, cgFile, cgErr = e.cg.create(c.JobID, c.AttemptNo); cgErr != nil {
 			e.logf("job %s: create attempt cgroup: %v", c.JobID, cgErr)
-			containment, cgPath, cgFile = "none", "", nil
+			cgFile = nil
+			if !errors.Is(cgErr, errCgroupBusy) {
+				containment, cgPath = "none", ""
+			}
+			// A busy cgroup keeps its path: nothing is started, and the
+			// completion step kills the leftover processes and proves the
+			// cgroup empty before the job is finalized or retried.
 		}
 	}
 	defer func() {

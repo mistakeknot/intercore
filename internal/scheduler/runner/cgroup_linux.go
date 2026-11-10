@@ -36,6 +36,18 @@ type cgroupMgr struct {
 	orig  string // the cgroup the runner started in, restored on release
 	bound time.Duration
 	delay func() time.Duration // test seam: holds back the populated 0 observation
+	ns    string               // queue namespace of the attempt directories, set by setQueue
+}
+
+// setQueue namespaces the attempt directories by the queue's identity. Two
+// queues that share a delegated subtree then never name the same attempt
+// directory, so one queue's extinction cannot kill the other queue's worker.
+// Within a queue the queue lock admits one runner, which makes the runner the
+// only owner of its queue's attempt directories (an empty directory seen at
+// create time is a leftover of this queue, not another runner's live attempt).
+func (m *cgroupMgr) setQueue(queueID string) {
+	sum := sha256.Sum256([]byte(queueID))
+	m.ns = "q" + hex.EncodeToString(sum[:4])
 }
 
 // ownCgroupDir returns the filesystem path of the cgroup this process is in.
@@ -105,7 +117,7 @@ func (m *cgroupMgr) release() {
 // and tagged "~<hash of the full ID>". Safe IDs never contain "~", so two
 // different job IDs never share a directory, which would let one job's
 // extinction kill another job's live worker.
-func attemptDirName(jobID string, attemptNo int) string {
+func attemptDirName(ns, jobID string, attemptNo int) string {
 	id := unsafeName.ReplaceAllString(jobID, "_")
 	if id != jobID || len(id) > 64 {
 		sum := sha256.Sum256([]byte(jobID))
@@ -113,6 +125,10 @@ func attemptDirName(jobID string, attemptNo int) string {
 			id = id[:64]
 		}
 		id += "~" + hex.EncodeToString(sum[:8])
+	}
+	if ns != "" {
+		// ns has a fixed width, so (ns, id) pairs never share a name.
+		id = ns + "-" + id
 	}
 	return "attempt-" + id + "-" + strconv.Itoa(attemptNo)
 }
@@ -123,9 +139,11 @@ var errCgroupBusy = errors.New("attempt cgroup already has live processes")
 // descriptor for CgroupFD. The caller closes the descriptor after Spawn. An
 // existing directory is reused only when it is empty (a leftover of a path that
 // never reached finalize, or of a restored database); one that still holds
-// processes is refused, and the caller starts the job without containment.
+// processes is refused with errCgroupBusy, and its path is still returned so
+// the caller can record it and have the completion step kill and prove it empty
+// before anything else runs for the job.
 func (m *cgroupMgr) create(jobID string, attemptNo int) (string, *os.File, error) {
-	p := filepath.Join(m.root, attemptDirName(jobID, attemptNo))
+	p := filepath.Join(m.root, attemptDirName(m.ns, jobID, attemptNo))
 	if err := os.Mkdir(p, 0o755); err != nil {
 		if !errors.Is(err, os.ErrExist) {
 			return "", nil, err
@@ -135,7 +153,7 @@ func (m *cgroupMgr) create(jobID string, attemptNo int) (string, *os.File, error
 			return "", nil, perr
 		}
 		if busy {
-			return "", nil, fmt.Errorf("%s: %w", p, errCgroupBusy)
+			return p, nil, fmt.Errorf("%s: %w", p, errCgroupBusy)
 		}
 	}
 	f, err := os.OpenFile(p, os.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)

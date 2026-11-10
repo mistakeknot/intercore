@@ -115,6 +115,10 @@ func Run(ctx context.Context, o Options) error {
 		return exitf(ExitRefused, "%w", err)
 	}
 
+	if cg != nil {
+		cg.setQueue(row.QueueID)
+	}
+
 	runnerID, err := randomID()
 	if err != nil {
 		return exitf(ExitRefused, "runner id: %w", err)
