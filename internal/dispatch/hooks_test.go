@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -332,18 +333,38 @@ func TestOnAdmittedUnscannedRowDoesNotWedgeAdmission(t *testing.T) {
 	}
 }
 
-// A hook that stashes its Querier and calls it after returning must fail at
-// once, not touch the connection admission has moved on with.
-func TestOnAdmittedQuerierIsDeadAfterTheHookReturns(t *testing.T) {
-	store, f := testStore(t), newHookFixture(t)
-	var kept Querier
-	f.opts.OnAdmitted = func(_ context.Context, q Querier, _ string) error { kept = q; return nil }
-	if _, err := spawnAndWait(t, store, f.opts); err != nil {
+// A hook that stashes its Querier and calls it the moment the hook returns,
+// while the connection is still open and admission is about to commit or roll
+// back, must not be able to run SQL: it would persist outside the transaction.
+func TestOnAdmittedQuerierIsDeadTheMomentTheHookReturns(t *testing.T) {
+	store := testStore(t)
+	hookProbeTable(t, store)
+	ctx := context.Background()
+	conn, err := store.db.Conn(ctx)
+	if err != nil {
 		t.Fatal(err)
 	}
-	var n int
-	if err := kept.QueryRowContext(context.Background(), "SELECT 1").Scan(&n); err == nil {
-		t.Fatal("a stashed Querier still ran a query after the hook returned")
+	for i := 0; i < 500; i++ {
+		var kept Querier
+		hook := func(_ context.Context, q Querier, _ string) error { kept = q; return nil }
+		if err := runAdmittedHook(ctx, conn, hook, "d"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := kept.ExecContext(ctx, `INSERT INTO hook_probe(job, dispatch_id, epoch) VALUES (?, 'late', 1)`, fmt.Sprint("j", i)); err == nil {
+			t.Fatalf("iteration %d: a retained Querier executed SQL after the hook returned", i)
+		}
+		var n int
+		if err := kept.QueryRowContext(ctx, "SELECT 1").Scan(&n); err == nil {
+			t.Fatalf("iteration %d: a retained Querier ran a query after the hook returned", i)
+		}
+	}
+	// The store has one connection: release ours before using the store.
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var rows int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM hook_probe`).Scan(&rows); err != nil || rows != 0 {
+		t.Fatalf("%d late rows persisted (err %v)", rows, err)
 	}
 }
 

@@ -41,6 +41,12 @@ type hookQuerier struct {
 
 func (h hookQuerier) bind(ctx context.Context) context.Context {
 	bound, cancel := context.WithCancel(ctx)
+	if h.life.Err() != nil {
+		// AfterFunc runs asynchronously, so an ended lifetime must cancel
+		// here: a retained Querier cannot win a race against cleanup.
+		cancel()
+		return bound
+	}
 	context.AfterFunc(h.life, cancel)
 	return bound
 }
