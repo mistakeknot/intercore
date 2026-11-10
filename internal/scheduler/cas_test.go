@@ -1263,6 +1263,38 @@ func TestRecoverQuarantineHonoursCommittedCancel(t *testing.T) {
 	}
 }
 
+// A quarantine that asked to keep a cancelling job (KeepCancelling) is refused
+// inside the transaction with ErrCancelPending and changes nothing; the same
+// quarantine on a job that is not cancelling still succeeds.
+func TestRecoverQuarantineKeepCancellingRefusesACommittedCancel(t *testing.T) {
+	f := newFx(t)
+	f.job("kc", nil)
+	f.running("kc", 1)
+	f.setEpoch(2)
+	if _, err := f.s.CancelJob(f.ctx, "kc", f.now); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.s.Recover(f.ctx, RecoverParams{JobID: "kc", Epoch: 2, Action: ActQuarantine, Reason: "runner_inconsistent", Now: f.now, KeepCancelling: true})
+	if !errors.Is(err, ErrCancelPending) {
+		t.Fatalf("err = %v, want ErrCancelPending", err)
+	}
+	if st := f.status("kc"); st != StatusCancelling {
+		t.Fatalf("status = %s, want cancelling (unchanged)", st)
+	}
+	if j := f.get("kc"); j.ClaimToken == "" {
+		t.Fatalf("refusal cleared the claim: %+v", j)
+	}
+
+	g := newFx(t)
+	g.job("kq", nil)
+	g.running("kq", 1)
+	g.setEpoch(2)
+	res, err := g.s.Recover(g.ctx, RecoverParams{JobID: "kq", Epoch: 2, Action: ActQuarantine, Reason: "runner_inconsistent", Now: g.now, KeepCancelling: true})
+	if err != nil || res.Status != StatusQuarantined {
+		t.Fatalf("non-cancelling job: res %+v err %v", res, err)
+	}
+}
+
 // Recover accepts the timeout class a dispatch can end with.
 func TestRecoverFinalizeAcceptsTimeout(t *testing.T) {
 	f := newFx(t)

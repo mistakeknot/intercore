@@ -266,20 +266,19 @@ func (e *engine) recoverUnlinked(ctx context.Context, c *scheduler.Claim, a *sch
 
 // quarantineRow parks a row that must not be touched further.
 func (e *engine) quarantineRow(ctx context.Context, a *scheduler.AttemptRow, reason string, cause error) error {
-	if a.JobStatus == scheduler.StatusCancelling {
-		// The store turns a quarantine of a cancelling job into a finished
-		// cancel. With no proof that the worker is gone that would close a
-		// job whose process may still run, so the row stays in flight and the
-		// pass retries it under backoff.
-		return fmt.Errorf("%s: %v: a cancelling job is left in flight until its attempt is proven gone", reason, cause)
-	}
-	e.logf("recovery: job %s quarantined %s: %v", a.JobID, reason, cause)
 	_, err := e.store.Recover(ctx, scheduler.RecoverParams{
 		JobID: a.JobID, Epoch: e.epoch, Action: scheduler.ActQuarantine, Reason: reason, Now: e.o.Now(),
+		// Only a cgroup-path mismatch gets here, so nothing proves the worker
+		// is gone: a job that is cancelling (or turns so before the store
+		// reads it) must stay in flight instead of being closed as cancelled.
+		KeepCancelling: true,
 	})
 	if errors.Is(err, scheduler.ErrLostClaim) {
 		e.checkEpoch()
 		return nil
+	}
+	if err == nil {
+		e.logf("recovery: job %s quarantined %s: %v", a.JobID, reason, cause)
 	}
 	return err
 }

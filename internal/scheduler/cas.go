@@ -24,6 +24,9 @@ import (
 var (
 	// ErrLostClaim: the epoch, the token or the status no longer matches.
 	ErrLostClaim = errors.New("scheduler: claim lost")
+	// ErrCancelPending is returned by a quarantine that asked not to finish a
+	// cancel (RecoverParams.KeepCancelling) when the job is cancelling.
+	ErrCancelPending = errors.New("scheduler: job is cancelling, its cancel is not finished without proof the worker is gone")
 	// ErrCancelled: the job is cancelling; the runner must stop and finalize.
 	ErrCancelled = errors.New("scheduler: job cancelled")
 	// ErrAlreadyTerminal: the job already ended.
@@ -82,8 +85,12 @@ type RecoverParams struct {
 	Class        string // ActFinalize: the outcome class
 	Reason       string // ActQuarantine: the reason
 	RetryBlocked string
-	Now          time.Time
-	Rand         func() float64
+	// KeepCancelling makes ActQuarantine fail with ErrCancelPending, inside
+	// the transaction, when the job is cancelling, instead of finishing the
+	// cancel. Recovery sets it when it has no proof the worker is gone.
+	KeepCancelling bool
+	Now            time.Time
+	Rand           func() float64
 }
 
 // CancelResult reports what CancelJob did.
@@ -581,6 +588,9 @@ func quarantine(ctx context.Context, tx execer, p RecoverParams, st *jobState, r
 	// A cancel that committed after the decision was made wins: the row is
 	// already cancelling, and parking it as quarantined would drop the cancel.
 	if st.status == StatusCancelling {
+		if p.KeepCancelling {
+			return nil, ErrCancelPending
+		}
 		return finish(ctx, tx, p.JobID, st, ClassCancelled, "", p.RetryBlocked, p.Now, p.Rand, p.Epoch)
 	}
 	blocked := p.RetryBlocked

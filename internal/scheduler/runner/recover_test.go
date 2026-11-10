@@ -508,17 +508,24 @@ func TestRecoverySurvivorInCgroupIsKilledAndProven(t *testing.T) {
 // for the attempt (a different --cgroup-dir, or a damaged value) nothing is
 // signalled and the row is quarantined runner_inconsistent.
 func TestRecoveryCgroupPathMismatchQuarantinesWithoutSignal(t *testing.T) {
-	mismatchCase(t, false)
+	mismatchCase(t, "")
 }
 
 // A cancelling job with a mismatched cgroup path must not be finished as
 // cancelled: the store would turn the quarantine into a closed cancel while
 // the worker may still run. The row stays in flight and nothing is signalled.
 func TestRecoveryCgroupPathMismatchKeepsCancellingInFlight(t *testing.T) {
-	mismatchCase(t, true)
+	mismatchCase(t, "before")
 }
 
-func mismatchCase(t *testing.T, cancelling bool) {
+// The cancel commits after recovery read the job and before the store acts:
+// the refusal must come from inside the store transaction.
+func TestRecoveryCgroupPathMismatchCancelRacingTheQuarantine(t *testing.T) {
+	mismatchCase(t, "during")
+}
+
+func mismatchCase(t *testing.T, cancel string) {
+	cancelling := cancel != ""
 	r, o := containRig(t)
 	ep := r.firstEpoch(o, "boot-A")
 	c := r.claim("x", ep)
@@ -553,9 +560,21 @@ func mismatchCase(t *testing.T, cancelling bool) {
 	r.launchAs(c, scheduler.LaunchStarted)
 	r.linked(c, "spawned", 0)
 	r.paths(c, "cgroup", foreign)
-	if cancelling {
+	switch cancel {
+	case "before":
 		if _, err := r.store.CancelJob(context.Background(), "x", time.Now()); err != nil {
 			t.Fatal(err)
+		}
+	case "during":
+		var once sync.Once
+		o.hooks.recoverRow = func(token, step string) {
+			if strings.HasPrefix(step, "row") {
+				once.Do(func() {
+					if _, err := r.store.CancelJob(context.Background(), "x", time.Now()); err != nil {
+						t.Error(err)
+					}
+				})
+			}
 		}
 	}
 
