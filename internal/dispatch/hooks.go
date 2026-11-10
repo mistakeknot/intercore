@@ -19,7 +19,8 @@ import (
 // the only connection (SetMaxOpenConns(1)), so any nested Store call would
 // block until the transaction ends, and the hook must never COMMIT or
 // ROLLBACK. The context the hook receives ends when the hook returns, so a
-// query result must be read (or closed) before the hook returns.
+// query result must be read before the hook returns, whatever context the
+// hook passes to it.
 type Querier interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
@@ -29,15 +30,27 @@ type Querier interface {
 type admissionQuerier = Querier
 
 // hookQuerier narrows the admission connection to Querier, so a hook cannot
-// recover the *sql.Conn by type assertion.
-type hookQuerier struct{ conn *sql.Conn }
+// recover the *sql.Conn by type assertion. Every call is bound to life, the
+// hook's lifetime: whatever context the hook passes, the query ends when the
+// hook returns, and a call made after that fails at once. That keeps a row
+// the hook left unscanned from holding the connection through cleanup.
+type hookQuerier struct {
+	conn *sql.Conn
+	life context.Context
+}
+
+func (h hookQuerier) bind(ctx context.Context) context.Context {
+	bound, cancel := context.WithCancel(ctx)
+	context.AfterFunc(h.life, cancel)
+	return bound
+}
 
 func (h hookQuerier) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return h.conn.ExecContext(ctx, query, args...)
+	return h.conn.ExecContext(h.bind(ctx), query, args...)
 }
 
 func (h hookQuerier) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return h.conn.QueryRowContext(ctx, query, args...)
+	return h.conn.QueryRowContext(h.bind(ctx), query, args...)
 }
 
 // reservedEnv are the identity variables Spawn sets itself after admission.
@@ -115,5 +128,5 @@ func validateStrictExecutor(path string) error {
 func runAdmittedHook(ctx context.Context, conn *sql.Conn, hook func(context.Context, Querier, string) error, id string) error {
 	hookCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	return hook(hookCtx, hookQuerier{conn}, id)
+	return hook(hookCtx, hookQuerier{conn: conn, life: hookCtx}, id)
 }

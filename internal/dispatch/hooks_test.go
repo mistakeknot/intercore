@@ -235,50 +235,115 @@ func TestOnAdmittedPanicDoesNotLeaveTransactionOpen(t *testing.T) {
 // An open row holds the owned connection, so admission cleanup must not wait
 // on it forever: the next spawn on the single-connection store must work.
 func TestOnAdmittedUnscannedRowDoesNotWedgeAdmission(t *testing.T) {
-	cases := map[string]func(context.Context, Querier, string) error{
-		"error": func(ctx context.Context, q Querier, _ string) error {
-			_ = q.QueryRowContext(ctx, "SELECT 1")
-			return errors.New("hook failed")
-		},
-		"panic": func(ctx context.Context, q Querier, _ string) error {
-			_ = q.QueryRowContext(ctx, "SELECT 1")
-			panic("boom")
-		},
-		"success": func(ctx context.Context, q Querier, _ string) error {
-			_ = q.QueryRowContext(ctx, "SELECT 1")
-			return nil
-		},
-	}
-	for name, hook := range cases {
-		t.Run(name, func(t *testing.T) {
-			store, f := testStore(t), newHookFixture(t)
-			f.opts.OnAdmitted = hook
-			// A caller context with no short deadline: only admission's own
-			// cleanup can free the connection, so a stall is the bug.
-			run := func() (err error) {
-				defer func() { _ = recover() }()
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				r, err := Spawn(ctx, store, f.opts)
-				if r != nil {
-					_ = r.Cmd.Wait()
-				}
+	sentinel := errors.New("hook failed")
+	// Each hook leaves a row unscanned, one on the hook's own context and one
+	// on a context of its own, which the hook's lifetime must still end.
+	for _, own := range []bool{false, true} {
+		queryCtx := func(ctx context.Context) context.Context {
+			if own {
+				return context.Background()
+			}
+			return ctx
+		}
+		cases := []struct {
+			name       string
+			hook       func(context.Context, Querier, string) error
+			wantErr    error
+			wantPanic  bool
+			wantCommit bool
+		}{
+			{"error", func(ctx context.Context, q Querier, _ string) error {
+				_ = q.QueryRowContext(queryCtx(ctx), "SELECT 1")
+				return sentinel
+			}, sentinel, false, false},
+			{"panic", func(ctx context.Context, q Querier, _ string) error {
+				_ = q.QueryRowContext(queryCtx(ctx), "SELECT 1")
+				panic("boom")
+			}, nil, true, false},
+			{"success", func(ctx context.Context, q Querier, id string) error {
+				_ = q.QueryRowContext(queryCtx(ctx), "SELECT 1")
+				_, err := q.ExecContext(queryCtx(ctx), `INSERT INTO hook_probe(job, dispatch_id, epoch) VALUES ('j1', ?, 7)`, id)
 				return err
+			}, nil, false, true},
+		}
+		for _, c := range cases {
+			name := c.name
+			if own {
+				name += "/own-context"
 			}
-			start := time.Now()
-			_ = run()
-			if d := time.Since(start); d > 3*time.Second {
-				t.Fatalf("admission stalled %v on an unscanned hook row", d)
-			}
-			f.opts.OnAdmitted = nil
-			start = time.Now()
-			if err := run(); err != nil {
-				t.Fatalf("spawn after the hook: %v", err)
-			}
-			if d := time.Since(start); d > 3*time.Second {
-				t.Fatalf("next spawn stalled %v", d)
-			}
-		})
+			t.Run(name, func(t *testing.T) {
+				store, f := testStore(t), newHookFixture(t)
+				hookProbeTable(t, store)
+				f.opts.OnAdmitted = c.hook
+				// No short deadline: only admission's own cleanup can free the
+				// connection, so a stall is the bug.
+				run := func() (r *SpawnResult, err error, panicked bool) {
+					defer func() {
+						if recover() != nil {
+							panicked = true
+						}
+					}()
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					r, err = Spawn(ctx, store, f.opts)
+					if r != nil {
+						_ = r.Cmd.Wait()
+					}
+					return r, err, false
+				}
+				start := time.Now()
+				r, err, panicked := run()
+				if d := time.Since(start); d > 3*time.Second {
+					t.Fatalf("admission stalled %v on an unscanned hook row", d)
+				}
+				if panicked != c.wantPanic {
+					t.Fatalf("panicked = %v, want %v", panicked, c.wantPanic)
+				}
+				if c.wantErr != nil && !errors.Is(err, c.wantErr) {
+					t.Fatalf("err = %v, want %v", err, c.wantErr)
+				}
+				if c.wantCommit {
+					if err != nil || r == nil {
+						t.Fatalf("Spawn = %v, %v; want a committed spawn", r, err)
+					}
+					if !f.ran() {
+						t.Fatal("worker did not start after a successful hook")
+					}
+					var got string
+					if err := store.db.QueryRow(`SELECT dispatch_id FROM hook_probe WHERE job='j1'`).Scan(&got); err != nil || got != r.ID {
+						t.Fatalf("hook write = %q, %v; want %q", got, err, r.ID)
+					}
+					if n := dispatchCount(t, store); n != 1 {
+						t.Fatalf("%d dispatch rows, want 1", n)
+					}
+				} else if n := dispatchCount(t, store); n != 0 || f.ran() {
+					t.Fatalf("%d dispatch rows, ran=%v after a failed hook", n, f.ran())
+				}
+				f.opts.OnAdmitted = nil
+				start = time.Now()
+				if _, err, _ := run(); err != nil {
+					t.Fatalf("spawn after the hook: %v", err)
+				}
+				if d := time.Since(start); d > 3*time.Second {
+					t.Fatalf("next spawn stalled %v", d)
+				}
+			})
+		}
+	}
+}
+
+// A hook that stashes its Querier and calls it after returning must fail at
+// once, not touch the connection admission has moved on with.
+func TestOnAdmittedQuerierIsDeadAfterTheHookReturns(t *testing.T) {
+	store, f := testStore(t), newHookFixture(t)
+	var kept Querier
+	f.opts.OnAdmitted = func(_ context.Context, q Querier, _ string) error { kept = q; return nil }
+	if _, err := spawnAndWait(t, store, f.opts); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := kept.QueryRowContext(context.Background(), "SELECT 1").Scan(&n); err == nil {
+		t.Fatal("a stashed Querier still ran a query after the hook returned")
 	}
 }
 
