@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,11 @@ type engine struct {
 	epoch int64
 	fl    *InFlight
 	cg    *cgroupMgr // nil with --no-containment
+
+	// priorBoot is the boot id the previous runner recorded ("" when there was
+	// none, or with --rebind-db). It differing from this boot is the reboot
+	// shortcut of the recovery pass.
+	priorBoot string
 
 	dropOnce atomic.Bool // the drop_entry fault fires once
 
@@ -92,13 +98,13 @@ func (e *engine) inj(kind string) error {
 
 // barrier is a named pause point for the tests (barrier.go); it does nothing
 // unless a hook is installed. The drop_entry fault also loses the map entry
-// here, once, to simulate a lost entry for the repair pass.
+// here, once, before the barrier blocks, to simulate a lost entry for the repair pass.
 func (e *engine) barrier(point, token string) {
-	if h := e.o.hooks.barrier; h != nil {
-		h(point, token)
-	}
 	if e.o.hooks.dropEntryAt == point && e.dropOnce.CompareAndSwap(false, true) {
 		e.fl.Drop(token)
+	}
+	if h := e.o.hooks.barrier; h != nil {
+		h(point, token)
 	}
 }
 
@@ -163,6 +169,9 @@ func (e *engine) run(ctx context.Context) error {
 	defer hb.Stop()
 	hbErrs := 0
 	nextRepair := time.Now().Add(e.o.RepairEvery)
+	// Prior-epoch recovery runs before the first claim, then on its own cadence.
+	e.recoveryPass()
+	nextRecover := time.Now().Add(e.o.RecoverEvery)
 	for {
 		select {
 		case <-ctx.Done():
@@ -181,6 +190,10 @@ func (e *engine) run(ctx context.Context) error {
 			if !time.Now().Before(nextRepair) {
 				e.repairStep()
 				nextRepair = time.Now().Add(e.o.RepairEvery)
+			}
+			if !time.Now().Before(nextRecover) {
+				e.recoveryPass()
+				nextRecover = time.Now().Add(e.o.RecoverEvery)
 			}
 			e.claimStep()
 		}
@@ -787,9 +800,9 @@ func (e *engine) stillOwned(it Item) bool {
 	return ok && g == it.Gen && st == StageCompleting
 }
 
-// complete runs the evidence pipeline for one entry: evidence (write-once),
-// Collect, Classify, Finalize. It returns nil when the entry is gone or
-// finalized, and an error to be retried otherwise.
+// complete runs the evidence pipeline for one entry of the in-flight map and
+// returns nil when the entry is gone or finalized, and an error to be retried
+// otherwise.
 func (e *engine) complete(it Item) error {
 	ctx := context.Background()
 	c, err := e.store.ClaimFor(ctx, it.Token, e.epoch)
@@ -806,30 +819,55 @@ func (e *engine) complete(it Item) error {
 	if err != nil {
 		return err
 	}
+	switch err := e.pipeline(ctx, c, a, func() bool { return e.stillOwned(it) }, false); {
+	case err == nil:
+		e.fl.Remove(it.Token, it.Gen)
+		return nil
+	case errors.Is(err, errPipelineLost):
+		e.lost(it.Token)
+		return nil
+	case errors.Is(err, errPipelineDeferred):
+		return nil
+	case errors.Is(err, scheduler.ErrLostClaim):
+		e.checkEpoch()
+		e.fl.Remove(it.Token, it.Gen)
+		return nil
+	default:
+		return err
+	}
+}
 
+var (
+	// errPipelineLost: the write-once evidence write lost to a writer that left
+	// no evidence behind; the row is not ours any more.
+	errPipelineLost = errors.New("pipeline: row is not ours")
+	// errPipelineDeferred: the caller no longer owns the entry (it moved on or
+	// was dropped while the pipeline ran); nothing was finalized.
+	errPipelineDeferred = errors.New("pipeline: entry no longer owned")
+)
+
+// pipeline is the one evidence pipeline (plan section 5, f), shared by the
+// waiter path and the recovery path: extinction of the attempt's cgroup, the
+// write-once evidence, Collect only while the dispatch is not terminal, the
+// pure classification, and the finalize. owned (nil: always) is asked at the
+// two points where a waiter entry can have been dropped; it returns
+// errPipelineDeferred when the entry is not ours any more. The error is
+// scheduler.ErrLostClaim when the finalize found another writer first.
+func (e *engine) pipeline(ctx context.Context, c *scheduler.Claim, a *scheduler.AttemptRow, owned func() bool, noSurvivors bool) error {
+	token := c.Token
+	if owned == nil {
+		owned = func() bool { return true }
+	}
 	// Step 1 of the pipeline: no process of the attempt may outlive the
 	// finalize or a retry, so the attempt's cgroup is killed and proven empty
 	// before anything is written. Failing to prove it leaves the job in flight
 	// and blocks its retry; the step is repeated under backoff and the job is
 	// never terminalized on a guess.
-	if a.Containment == "cgroup" && a.CgroupPath != "" {
-		if e.cg == nil {
-			return fmt.Errorf("attempt %s is contained in %s but this runner runs without containment", it.Token, a.CgroupPath)
-		}
-		stopBeat := e.keepAlive()
-		err := e.cg.extinct(a.CgroupPath)
-		stopBeat()
-		if err != nil {
-			if errors.Is(err, errSurvivorUnknown) {
-				marker := "survivor_unknown:" + a.DispatchID
-				if _, serr := e.store.SetRetryBlocked(ctx, c, marker, e.o.Now()); serr != nil {
-					e.logf("completing %s: set retry_blocked: %v", it.Token, serr)
-				}
-			}
-			return err
-		}
+	if _, err := e.extinguish(ctx, c, a); err != nil {
+		return err
 	}
 
+	var err error
 	if a.EvidenceClass == "" {
 		if err := e.inj("evidence"); err != nil {
 			return err
@@ -841,34 +879,42 @@ func (e *engine) complete(it Item) error {
 		}
 		if !ok {
 			// write-once: another writer (or an earlier try) already set it
-			if a, err = e.store.AttemptByToken(ctx, it.Token); err != nil {
+			if a, err = e.store.AttemptByToken(ctx, token); err != nil {
 				return err
 			}
 			if a.EvidenceClass == "" {
-				e.lost(it.Token)
-				return nil
+				return errPipelineLost
 			}
 		}
 	}
 	if h := e.o.hooks.afterEvidenceBeforeCollect; h != nil {
-		h(it.Token)
+		h(token)
 	}
-	e.barrier("after_evidence_before_collect", it.Token)
-	if !e.stillOwned(it) {
-		return nil
+	e.barrier("after_evidence_before_collect", token)
+	if !owned() {
+		return errPipelineDeferred
 	}
 
+	// Collect only while the dispatch is non-terminal: a terminal record is
+	// already final, and an absent one (pruned) has nothing to collect.
 	if a.DispatchID != "" {
 		if err := e.inj("collect"); err != nil {
 			return err
 		}
-		if err := dispatch.Collect(ctx, e.ds, a.DispatchID); err != nil {
-			return fmt.Errorf("collect %s: %w", a.DispatchID, err)
+		d, err := e.ds.Get(ctx, a.DispatchID)
+		switch {
+		case err == nil && !d.IsTerminal():
+			if err := dispatch.Collect(ctx, e.ds, a.DispatchID); err != nil {
+				return fmt.Errorf("collect %s: %w", a.DispatchID, err)
+			}
+		case err == nil, errors.Is(err, dispatch.ErrNotFound):
+		default:
+			return err
 		}
 	}
 	// Read the row again after Collect: the cancel flag and the evidence are
 	// what Classify needs, and both can change while we collect.
-	if a, err = e.store.AttemptByToken(ctx, it.Token); err != nil {
+	if a, err = e.store.AttemptByToken(ctx, token); err != nil {
 		return err
 	}
 	ev := Evidence{
@@ -908,7 +954,7 @@ func (e *engine) complete(it Item) error {
 	if class != scheduler.ClassOK {
 		fp.Error = fmt.Sprintf("attempt ended %s (launch_result=%s)", class, a.LaunchResult)
 	}
-	if a.LaunchResult == scheduler.LaunchStarted && a.Containment != "cgroup" {
+	if a.LaunchResult == scheduler.LaunchStarted && a.Containment != "cgroup" && !noSurvivors {
 		// Without containment a started job may have left descendants: a
 		// post-start retry is blocked until someone confirms none survive.
 		job, err := e.store.Get(ctx, a.JobID)
@@ -920,24 +966,18 @@ func (e *engine) complete(it Item) error {
 			fp.RetryBlocked = "survivor_unknown:" + a.DispatchID
 		}
 	}
-	e.barrier("after_collect_before_finalize", it.Token)
-	if !e.stillOwned(it) {
-		return nil
+	e.barrier("after_collect_before_finalize", token)
+	if !owned() {
+		return errPipelineDeferred
 	}
 	if err := e.inj("finalize"); err != nil {
 		return err
 	}
-	fctx := scheduler.WithSeam(ctx, func(point string) { e.barrier(point, it.Token) })
+	fctx := scheduler.WithSeam(ctx, func(point string) { e.barrier(point, token) })
 	if _, err := e.store.Finalize(fctx, c, fp); err != nil {
-		if errors.Is(err, scheduler.ErrLostClaim) {
-			e.checkEpoch()
-			e.fl.Remove(it.Token, it.Gen)
-			return nil
-		}
 		return err
 	}
-	e.barrier("after_finalize_commit", it.Token)
-	e.fl.Remove(it.Token, it.Gen)
+	e.barrier("after_finalize_commit", token)
 	// The attempt is final and its cgroup is empty: remove the directory.
 	if a.Containment == "cgroup" && a.CgroupPath != "" && e.cg != nil {
 		if err := e.cg.remove(a.CgroupPath); err != nil {
@@ -945,6 +985,42 @@ func (e *engine) complete(it Item) error {
 		}
 	}
 	return nil
+}
+
+// errCgroupPath: the cgroup path recorded for an attempt is not the one this
+// runner derives for it, so it is never signalled or removed (a restored or
+// edited database must not point cgroup.kill at some other directory).
+var errCgroupPath = errors.New("recorded attempt cgroup path is not this runner's path for the attempt")
+
+// extinguish is step 1 of the pipeline: for a contained attempt it kills the
+// attempt's cgroup and proves it empty, and returns how many processes
+// cgroup.procs held before the kill. An attempt without a recorded cgroup has
+// nothing to prove here. A survivor that cannot be proven gone blocks the retry
+// of the job (retry_blocked) and is returned as errSurvivorUnknown.
+func (e *engine) extinguish(ctx context.Context, c *scheduler.Claim, a *scheduler.AttemptRow) (int, error) {
+	if a.Containment != "cgroup" || a.CgroupPath == "" {
+		return 0, nil
+	}
+	if e.cg == nil {
+		return 0, fmt.Errorf("attempt %s is contained in %s but this runner runs without containment", c.Token, a.CgroupPath)
+	}
+	if want := e.cg.pathFor(a.JobID, a.AttemptNo); filepath.Clean(a.CgroupPath) != want {
+		return 0, fmt.Errorf("%w: recorded %q, derived %q", errCgroupPath, a.CgroupPath, want)
+	}
+	n, _ := procCount(a.CgroupPath)
+	stopBeat := e.keepAlive()
+	err := e.cg.extinct(a.CgroupPath)
+	stopBeat()
+	if err != nil {
+		if errors.Is(err, errSurvivorUnknown) {
+			marker := "survivor_unknown:" + a.DispatchID
+			if _, serr := e.store.SetRetryBlocked(ctx, c, marker, e.o.Now()); serr != nil {
+				e.logf("completing %s: set retry_blocked: %v", c.Token, serr)
+			}
+		}
+		return n, err
+	}
+	return n, nil
 }
 
 // repairStep cross-checks the map against the database (plan section 5.6).

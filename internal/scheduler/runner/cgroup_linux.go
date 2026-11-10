@@ -266,3 +266,30 @@ func (m *cgroupMgr) remove(dir string) error {
 	}
 	return err
 }
+
+// pathFor is the directory this runner would create for (job, attempt) in its
+// queue. A recorded cgroup path of an older epoch is acted on only when it
+// equals this exact recomputation: the path in the database is data, and a
+// damaged or foreign value must never become a cgroup.kill target.
+func (m *cgroupMgr) pathFor(jobID string, attemptNo int) string {
+	return filepath.Join(m.root, attemptDirName(m.ns, jobID, attemptNo))
+}
+
+// procCount is the number of processes currently in the cgroup (lines of
+// cgroup.procs). A missing directory holds none.
+func procCount(dir string) (int, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "cgroup.procs"))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n, nil
+}

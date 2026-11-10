@@ -132,6 +132,9 @@ type env struct {
 	bin  string
 	home string
 	cwd  string
+	// cgroupDir, when set, makes tracedRunner run contained in that delegated
+	// cgroup v2 subtree instead of with --no-containment.
+	cgroupDir string
 }
 
 func newEnv(t *testing.T) *env {
