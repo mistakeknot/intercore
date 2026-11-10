@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	sqlite "modernc.org/sqlite"
 )
 
 // Querier is the database access an OnAdmitted hook gets. It is backed by the
@@ -126,9 +128,20 @@ func wasInterrupted(err error) bool {
 	if err == nil {
 		return false
 	}
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
-		strings.Contains(err.Error(), "interrupted")
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// SQLite's own interrupt result code, not its message text: a statement can
+	// fail with any message, and one containing the word "interrupted" must not
+	// poison the hook. The driver sends an interrupt only after a call's context
+	// is done, and finish checks that too, so no delivered interrupt is missed.
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code()&0xff == sqliteInterrupt
 }
+
+// sqliteInterrupt is SQLITE_INTERRUPT, the primary result code of a statement
+// ended by sqlite3_interrupt.
+const sqliteInterrupt = 9
 
 // close ends the Querier: it refuses every later call, cancels every context
 // handed out, then waits for the calls still running to return. It reports how
@@ -166,6 +179,9 @@ const pinSQL = `WITH RECURSIVE pin(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM pin
 // no context, so nothing interrupts it, and it must be released before admission
 // commits or rolls back.
 func pinConn(ctx context.Context, conn *sql.Conn) (release func(), err error) {
+	if !pinEnabled {
+		return func() {}, nil
+	}
 	rows, err := conn.QueryContext(context.WithoutCancel(ctx), pinSQL)
 	if err != nil {
 		return nil, fmt.Errorf("dispatch: pin the admission connection: %w", err)

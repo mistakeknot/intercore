@@ -839,41 +839,60 @@ func hookTx(t *testing.T) (*Store, *sql.Conn) {
 }
 
 // The driver sends one interrupt per call, and SQLite drops an interrupt that
-// arrives before it has started the statement. A call is cancelled while the
-// driver is still binding a very large parameter, after it has armed the
-// interrupt and before SQLite has started the statement, so its one interrupt
-// lands in that gap. Without the pin the statement then runs to the end and the
-// shutdown waits for it; with the pin the interrupt stays pending and the
-// statement ends at once.
+// arrives before it has started the statement. A call is cancelled after the
+// driver has armed its interrupt and before SQLite has started the statement,
+// so its one interrupt lands in that gap. The call is a two-statement script,
+// and the driver prepares the second statement after it has armed. The seam
+// (hooks_seam_test.go) holds the call there, in the planning of the second
+// statement, with channels and no timing, and releases it only once the
+// interrupt has reached the connection. Without the pin the statement
+// then runs to the end; with the pin the interrupt stays pending and the
+// statement ends before it reads a row. Build with -tags nopin for the control.
 func TestOnAdmittedLostInterruptCannotHoldTheShutdown(t *testing.T) {
+	registerSeamModule(t)
 	_, conn := hookTx(t)
 	ctx := context.Background()
-	big := make([]byte, 96<<20)
-	query := strings.Replace(slowQuery, "SELECT sum(x)", "SELECT length(?1), sum(x)", 1)
-	// Binding cannot be interrupted and takes a while, longer under the race
-	// detector. Time it once, so that waiting for the bind is told apart from
-	// waiting for the query that follows it.
-	t0 := time.Now()
-	if _, err := conn.ExecContext(ctx, "SELECT length(?1)", big); err != nil {
+	if _, err := conn.ExecContext(ctx, "CREATE VIRTUAL TABLE temp.seam USING seamgate"); err != nil {
 		t.Fatal(err)
 	}
-	limit := 3*time.Since(t0) + time.Second
+	var raw interface{ IsValid() bool }
+	if err := conn.Raw(func(dc any) error {
+		var ok bool
+		raw, ok = dc.(interface{ IsValid() bool })
+		if !ok {
+			return fmt.Errorf("driver connection %T cannot report an interrupt", dc)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 5; i++ {
+		s := &seamState{entered: make(chan struct{}), delivered: func() bool { return !raw.IsValid() }}
+		setSeam(s)
+		var callErr error
 		var wg sync.WaitGroup
 		hook := func(_ context.Context, q Querier, _ string) error {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				_, _ = q.ExecContext(context.Background(), query, big)
+				_, callErr = q.ExecContext(context.Background(), "SELECT 1; SELECT count(*) FROM temp.seam")
 			}()
-			waitRunning(t, q, 1)
+			<-s.entered // the driver is armed and the statement not yet stepped
 			return nil
 		}
-		start := time.Now()
 		err := runAdmittedHook(ctx, conn, hook, "d")
 		wg.Wait()
-		if d := time.Since(start); d > limit {
-			t.Fatalf("iteration %d: the shutdown waited %v (limit %v) for a query whose interrupt was lost", i, d, limit)
+		setSeam(nil)
+		if v := s.waitErr.Load(); v != nil {
+			t.Fatalf("iteration %d: %v", i, v)
+		}
+		if callErr == nil || !wasInterrupted(callErr) {
+			t.Fatalf("iteration %d: the call returned %v, want a cancellation", i, callErr)
+		}
+		// The driver reports the cancellation whether or not SQLite honoured the
+		// interrupt, so the scan itself is the evidence: it must not have run.
+		if n := s.scanSteps.Load(); n != 0 {
+			t.Fatalf("iteration %d: the cancelled statement still made %d scan calls: its interrupt was lost", i, n)
 		}
 		if err == nil || !strings.Contains(err.Error(), "still running") {
 			t.Fatalf("iteration %d: got %v, want a refusal", i, err)
@@ -965,5 +984,34 @@ func TestOnAdmittedPinIsReleasedBeforeCommit(t *testing.T) {
 	var n int
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM hook_probe`).Scan(&n); err != nil || n != 1 {
 		t.Fatalf("%d rows after commit, %v", n, err)
+	}
+}
+
+// An SQL error whose text happens to say "interrupted" is an ordinary error:
+// it must neither poison the Querier nor be taken for an interrupt.
+func TestOnAdmittedErrorTextIsNotAnInterrupt(t *testing.T) {
+	_, conn := hookTx(t)
+	ctx := context.Background()
+	var firstErr, laterErr error
+	hook := func(hctx context.Context, q Querier, _ string) error {
+		_, firstErr = q.ExecContext(hctx, `SELECT * FROM "interrupted"`) // no such table
+		var n int
+		laterErr = q.QueryRowContext(hctx, "SELECT 1").Scan(&n)
+		return nil
+	}
+	if err := runAdmittedHook(ctx, conn, hook, "d"); err != nil {
+		t.Fatalf("a hook whose query failed with ordinary text was refused: %v", err)
+	}
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "interrupted") {
+		t.Fatalf("the probe query did not fail with the expected text: %v", firstErr)
+	}
+	if wasInterrupted(firstErr) {
+		t.Fatalf("an ordinary error was taken for an interrupt: %v", firstErr)
+	}
+	if laterErr != nil {
+		t.Fatalf("a later call was refused after an ordinary error: %v", laterErr)
+	}
+	if !wasInterrupted(context.Canceled) || !wasInterrupted(fmt.Errorf("x: %w", context.DeadlineExceeded)) {
+		t.Fatal("a context error is not taken for an interrupt")
 	}
 }
