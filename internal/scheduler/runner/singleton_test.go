@@ -404,7 +404,9 @@ func TestDrainFailureIsReported(t *testing.T) {
 // P2 control: with no blocker the same drain is clean and the row says stopped.
 func TestDrainWithoutBlockerIsClean(t *testing.T) {
 	path, store, _ := newQueue(t)
-	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 100 * time.Millisecond})
+	// Nothing blocks the write here, so a generous timeout costs no time and
+	// keeps a loaded machine from tripping the drain deadline.
+	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 30 * time.Second})
 	r.cancel()
 	<-r.done
 	if r.err != nil {
@@ -599,7 +601,7 @@ func TestSwapAndRestoreBindsSQLiteToLockedFile(t *testing.T) {
 	o.hooks.beforeOpen = swap
 	o.hooks.afterOpen = restore
 	err := Run(context.Background(), o)
-	if exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "SQLite did not open the locked file") {
+	if exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "database file changed during startup") {
 		t.Fatalf("got %v", err)
 	}
 	if got := epochAt(t, b); got != epochB {
@@ -646,5 +648,145 @@ func TestVanishedDBIsNotRecreated(t *testing.T) {
 		if _, err := os.Stat(a + suffix); err == nil {
 			t.Fatalf("the open recreated %s", a+suffix)
 		}
+	}
+}
+
+// journalMode reads a database's persistent journal mode without changing it.
+func journalMode(t *testing.T, path string) string {
+	t.Helper()
+	d, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	var m string
+	if err := d.QueryRow(`PRAGMA journal_mode`).Scan(&m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// setRollbackJournal puts a closed, migrated database into rollback-journal mode.
+func setRollbackJournal(t *testing.T, path string) {
+	t.Helper()
+	d, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m string
+	if err := d.QueryRow(`PRAGMA journal_mode = DELETE`).Scan(&m); err != nil || m != "delete" {
+		t.Fatalf("journal_mode: %q %v", m, err)
+	}
+	d.Close()
+	if got := journalMode(t, path); got != "delete" {
+		t.Fatalf("setup: journal mode %q", got)
+	}
+}
+
+// P1 (round 3): a descriptor on the locked inode that was already open before
+// SQLite opened must not count as SQLite's own. Same swap-and-restore as above,
+// with such a descriptor held for the whole run.
+func TestInheritedDescriptorDoesNotStandInForSQLite(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	a := newClosedQueue(t, dir, "a.db")
+	b := newClosedQueue(t, dir, "b.db")
+	aside := filepath.Join(dir, "a.orig")
+	epochA, epochB := epochAt(t, a), epochAt(t, b)
+
+	inherited, err := os.Open(a) // an unrelated descriptor on A
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inherited.Close()
+
+	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o.hooks.beforeOpen = func() {
+		if err := os.Rename(a, aside); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(b, a); err != nil {
+			t.Error(err)
+		}
+	}
+	o.hooks.afterOpen = func() {
+		if err := os.Remove(a); err != nil {
+			t.Error(err)
+		}
+		if err := os.Rename(aside, a); err != nil {
+			t.Error(err)
+		}
+	}
+	// A bounded context: if the check wrongly accepts, Run would heartbeat
+	// forever, so the test must fail instead of hanging.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	err = Run(ctx, o)
+	if err == nil || exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "database file changed during startup") {
+		t.Fatalf("got %v", err)
+	}
+	if got := epochAt(t, b); got != epochB {
+		t.Fatalf("the other database was written: epoch %d, was %d", got, epochB)
+	}
+	if got := epochAt(t, a); got != epochA {
+		t.Fatalf("the original was written: epoch %d, was %d", got, epochA)
+	}
+}
+
+// Control: the same inherited descriptor with no swap starts normally.
+func TestInheritedDescriptorControlStartsNormally(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := newClosedQueue(t, t.TempDir(), "a.db")
+	inherited, err := os.Open(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inherited.Close()
+	r := start(t, Options{DB: a, HeartbeatEvery: time.Hour})
+	if r.epoch < 2 {
+		t.Fatalf("epoch %d", r.epoch)
+	}
+}
+
+// P2 (round 3): opening the wrong file must not change its persistent state.
+// A rollback-journal database swapped in at the open stays in rollback mode.
+func TestSwappedInDatabaseKeepsItsJournalMode(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	a := newClosedQueue(t, dir, "a.db")
+	b := newClosedQueue(t, dir, "b.db")
+	setRollbackJournal(t, b)
+	aside := filepath.Join(dir, "a.orig")
+
+	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o.hooks.beforeOpen = func() {
+		if err := os.Rename(a, aside); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(b, a); err != nil {
+			t.Error(err)
+		}
+	}
+	err := Run(context.Background(), o)
+	if exitCode(err) != ExitRefused {
+		t.Fatalf("got %v", err)
+	}
+	if got := journalMode(t, b); got != "delete" {
+		t.Fatalf("the swapped-in database was switched to %q before the binding check", got)
+	}
+}
+
+// Control: a runner that does start on a rollback-journal database that it
+// verified switches it to WAL, as before.
+func TestVerifiedRollbackDatabaseIsSwitchedToWAL(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := newClosedQueue(t, t.TempDir(), "a.db")
+	setRollbackJournal(t, a)
+	r := start(t, Options{DB: a, HeartbeatEvery: time.Hour})
+	if r.epoch < 2 {
+		t.Fatalf("epoch %d", r.epoch)
+	}
+	if got := journalMode(t, a); got != "wal" {
+		t.Fatalf("journal mode %q", got)
 	}
 }

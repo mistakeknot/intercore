@@ -37,3 +37,40 @@ func TestOpenExistingDoesNotCreate(t *testing.T) {
 	}
 	e.Close()
 }
+
+// OpenExisting changes no persistent state: a rollback-journal database stays
+// in rollback mode until EnableWAL is called, so a runner that opened the wrong
+// file has not altered it.
+func TestOpenExistingKeepsJournalModeUntilEnableWAL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "q.db")
+	d, err := Open(path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SqlDB().Exec("PRAGMA journal_mode = DELETE"); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+
+	mode := func(db *DB) string {
+		var m string
+		if err := db.SqlDB().QueryRow("PRAGMA journal_mode").Scan(&m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	e, err := OpenExisting(path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mode(e); got != "delete" {
+		t.Fatalf("OpenExisting changed the journal mode to %q", got)
+	}
+	if err := e.EnableWAL(); err != nil {
+		t.Fatal(err)
+	}
+	if got := mode(e); got != "wal" {
+		t.Fatalf("after EnableWAL: %q", got)
+	}
+	e.Close()
+}

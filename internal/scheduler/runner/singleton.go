@@ -43,6 +43,10 @@ func Run(ctx context.Context, o Options) error {
 	if o.hooks.beforeOpen != nil {
 		o.hooks.beforeOpen()
 	}
+	fdsBefore, err := snapshotFDs()
+	if err != nil {
+		return exitf(ExitRefused, "cannot inspect open descriptors to bind SQLite to the locked database: %w", err)
+	}
 	d, err := db.OpenExisting(info.Canonical, o.BusyTimeout)
 	if err != nil {
 		return exitf(ExitRefused, "open %s: %w", info.Canonical, err)
@@ -68,8 +72,13 @@ func Run(ctx context.Context, o Options) error {
 	if o.hooks.afterLocks != nil {
 		o.hooks.afterLocks()
 	}
-	if err := verifyBinding(info, dbLock, o); err != nil {
+	if err := verifyBinding(info, dbLock, fdsBefore, o); err != nil {
 		return err
+	}
+	// Only now is the connection known to be on the locked file, so only now
+	// may anything change the file's persistent state.
+	if err := d.EnableWAL(); err != nil {
+		return exitf(ExitRefused, "enable WAL on %s: %w", info.Canonical, err)
 	}
 
 	// Re-read after the locks: the row may have changed while we waited.
@@ -115,7 +124,7 @@ func Run(ctx context.Context, o Options) error {
 // descriptor must be the inode Preflight checked, and a second Preflight now
 // must resolve to the same canonical path and inode. A swap after this check
 // cannot matter: SQLite and the lock hold descriptors on the original inode.
-func verifyBinding(info PathInfo, lock *os.File, o Options) error {
+func verifyBinding(info PathInfo, lock *os.File, fdsBefore map[string]fdID, o Options) error {
 	st, err := lock.Stat()
 	if err != nil {
 		return exitf(ExitRefused, "stat database lock descriptor: %w", err)
@@ -127,7 +136,7 @@ func verifyBinding(info PathInfo, lock *os.File, o Options) error {
 	if uint64(sys.Dev) != info.Dev || uint64(sys.Ino) != info.Ino {
 		return exitf(ExitRefused, "database file changed during startup: %s was %s, the locked file is %d:%d", info.Canonical, info.Identity(), uint64(sys.Dev), uint64(sys.Ino))
 	}
-	if err := sqliteOnLockedFile(info, lock); err != nil {
+	if err := sqliteOnLockedFile(info, lock, fdsBefore); err != nil {
 		return err
 	}
 	again, err := Preflight(o.DB, o.AllowLive)
@@ -279,30 +288,89 @@ func heartbeatLoop(ctx context.Context, store *scheduler.Store, epoch int64, o O
 	}
 }
 
+type fdID struct {
+	dev, ino uint64
+	reg      bool   // a regular file
+	target   string // what /proc/self/fd/N points at
+}
+
+// snapshotFDs records what every open descriptor of this process refers to.
+func snapshotFDs() (map[string]fdID, error) {
+	ents, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]fdID, len(ents))
+	for _, e := range ents {
+		var st syscall.Stat_t
+		if err := syscall.Stat("/proc/self/fd/"+e.Name(), &st); err != nil {
+			continue // the directory handle used for this listing, or a socket
+		}
+		target, _ := os.Readlink("/proc/self/fd/" + e.Name())
+		m[e.Name()] = fdID{uint64(st.Dev), uint64(st.Ino), st.Mode&syscall.S_IFMT == syscall.S_IFREG, target}
+	}
+	return m, nil
+}
+
+func (a fdID) sameFile(b fdID) bool { return a.dev == b.dev && a.ino == b.ino }
+
 // sqliteOnLockedFile checks that the SQLite connection holds the locked inode.
-// The connection opens the path itself, so it can land on a different file than
+// SQLite resolves the path on its own, so it can land on a different file than
 // the one preflight checked and the lock holds (a rename or symlink swap between
 // those steps); the lock-descriptor and path checks cannot see that. The
-// connection is single and already used by now, so a descriptor on the locked
-// inode other than the lock's own can only be SQLite's. The caller's reads have
-// forced the connection open before this runs.
-func sqliteOnLockedFile(info PathInfo, lock *os.File) error {
-	ents, err := os.ReadDir("/proc/self/fd")
+// descriptors that SQLite opened are the ones that appeared after the snapshot
+// taken just before the open, so a descriptor that was already open on the
+// locked inode (inherited, or from any other part of the process) cannot stand
+// in for a new one. The lock descriptor is excluded by number. The caller's
+// reads have forced the single connection open before this runs.
+//
+// One case has no new descriptor on the locked inode: SQLite reuses a
+// descriptor that an earlier connection to the same file left pending close in
+// this process. It does so only when stat() of the path matches that
+// descriptor's inode, and then it never resolves the path again, so the reuse
+// binds the connection to the locked inode. That case is accepted only when
+// SQLite opened nothing on any other regular file except the sidecar files of
+// the canonical path: a connection that landed on another database would show
+// up as a new descriptor on that file.
+//
+// A connection that the pool later reopens would resolve the path again. That
+// cannot let this runner act on another database: every write it makes is
+// guarded by its epoch, which no other file carries.
+func sqliteOnLockedFile(info PathInfo, lock *os.File, before map[string]fdID) error {
+	after, err := snapshotFDs()
 	if err != nil {
 		return exitf(ExitRefused, "cannot inspect open descriptors to bind SQLite to the locked database: %w", err)
 	}
 	own := strconv.FormatUint(uint64(lock.Fd()), 10)
-	for _, e := range ents {
-		if e.Name() == own {
+	want := fdID{dev: info.Dev, ino: info.Ino}
+	reusable := false
+	for name, id := range after {
+		if name == own {
 			continue
 		}
-		var st syscall.Stat_t
-		if err := syscall.Stat("/proc/self/fd/"+e.Name(), &st); err != nil {
-			continue // the directory handle used for this listing, or a closed descriptor
-		}
-		if uint64(st.Dev) == info.Dev && uint64(st.Ino) == info.Ino {
+		prev, existed := before[name]
+		fresh := !existed || !prev.sameFile(id) // a rename changes the target, not the file
+		switch {
+		case id.sameFile(want) && fresh:
 			return nil
+		case id.sameFile(want):
+			reusable = true
+		case fresh && id.reg && !isSidecar(id.target, info.Canonical):
+			return exitf(ExitRefused, "database file changed during startup: SQLite opened %s, not the locked file %s (%s)",
+				id.target, info.Canonical, info.Identity())
 		}
 	}
+	if reusable {
+		return nil
+	}
 	return exitf(ExitRefused, "database file changed during startup: SQLite did not open the locked file %s (%s)", info.Canonical, info.Identity())
+}
+
+func isSidecar(target, canonical string) bool {
+	for _, suf := range []string{"-wal", "-shm", "-journal"} {
+		if target == canonical+suf {
+			return true
+		}
+	}
+	return false
 }

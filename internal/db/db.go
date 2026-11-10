@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,17 +38,26 @@ type DB struct {
 
 // Open opens or creates an intercore database at path.
 func Open(path string, busyTimeout time.Duration) (*DB, error) {
-	return open(path, busyTimeout, "")
+	return open(path, busyTimeout, false)
 }
 
-// OpenExisting is Open for a database that must already exist: SQLite is asked
-// for read-write access without the create flag, so a file that has vanished is
-// an error and nothing is created in its place.
+// OpenExisting is Open for a database that must already exist and that the
+// caller has not yet verified is the file it meant to open. SQLite is asked for
+// read-write access without the create flag, so a vanished file is an error and
+// nothing is created in its place. Nothing here changes the persistent journal
+// mode: the caller runs EnableWAL once it has checked which file it holds.
 func OpenExisting(path string, busyTimeout time.Duration) (*DB, error) {
-	return open(path, busyTimeout, "mode=rw&")
+	return open(path, busyTimeout, true)
 }
 
-func open(path string, busyTimeout time.Duration, uriMode string) (*DB, error) {
+// EnableWAL switches the database to write-ahead logging, which Open does on
+// every open. It is a no-op on a database that is already in WAL mode.
+func (d *DB) EnableWAL() error {
+	_, err := d.db.Exec("PRAGMA journal_mode = WAL")
+	return err
+}
+
+func open(path string, busyTimeout time.Duration, existing bool) (*DB, error) {
 	// Symlink check on parent directory
 	dir := filepath.Dir(path)
 	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -87,8 +97,11 @@ func open(path string, busyTimeout time.Duration, uriMode string) (*DB, error) {
 	// project dir opens "intercore.db" and would become file://intercore.db,
 	// rejected as "invalid uri authority". This keeps the DSN shape and escapes
 	// only the path.
-	dsn := fmt.Sprintf("file:%s?"+uriMode+"_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d&_pragma=foreign_keys%%3D1",
-		(&url.URL{Path: path}).EscapedPath(), busyTimeout.Milliseconds())
+	query := "_pragma=journal_mode%3DWAL&_pragma=busy_timeout%3D" + strconv.FormatInt(busyTimeout.Milliseconds(), 10) + "&_pragma=foreign_keys%3D1"
+	if existing {
+		query = "mode=rw&_pragma=busy_timeout%3D" + strconv.FormatInt(busyTimeout.Milliseconds(), 10) + "&_pragma=foreign_keys%3D1"
+	}
+	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() + "?" + query
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
@@ -103,9 +116,11 @@ func open(path string, busyTimeout time.Duration, uriMode string) (*DB, error) {
 		sqlDB.Close()
 		return nil, fmt.Errorf("open: set busy_timeout: %w", err)
 	}
-	if _, err := sqlDB.Exec("PRAGMA journal_mode = WAL"); err != nil {
-		sqlDB.Close()
-		return nil, fmt.Errorf("open: set WAL: %w", err)
+	if !existing {
+		if _, err := sqlDB.Exec("PRAGMA journal_mode = WAL"); err != nil {
+			sqlDB.Close()
+			return nil, fmt.Errorf("open: set WAL: %w", err)
+		}
 	}
 	if _, err := sqlDB.Exec("PRAGMA foreign_keys = ON"); err != nil {
 		sqlDB.Close()
