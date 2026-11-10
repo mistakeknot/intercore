@@ -17,7 +17,7 @@ import (
 
 func cmdScheduler(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		slog.Error("scheduler: missing subcommand", "expected", "status, submit, stats, pause, resume, list, cancel, requeue, unblock, prune")
+		slog.Error("scheduler: missing subcommand", "expected", "status, submit, stats, pause, resume, list, cancel, requeue, unblock, prune, run")
 		return 3
 	}
 
@@ -42,6 +42,8 @@ func cmdScheduler(ctx context.Context, args []string) int {
 		return cmdSchedulerUnblock(ctx, args[1:])
 	case "prune":
 		return cmdSchedulerPrune(ctx, args[1:])
+	case "run":
+		return cmdSchedulerRun(ctx, args[1:])
 	default:
 		slog.Error("scheduler: unknown subcommand", "subcommand", args[0])
 		return 3

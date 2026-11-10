@@ -441,7 +441,7 @@ func (s *Store) Finalize(ctx context.Context, c *Claim, p FinalizeParams) (*Fina
 
 var quarantineReasons = map[string]bool{
 	ReasonRunnerInconsistent: true, ReasonSurvivorUnknown: true,
-	ReasonLegacyUnknown: true, ReasonLegacyRunning: true,
+	ReasonLegacyUnknown: true, ReasonLegacyRunning: true, ReasonRebindUnknown: true,
 }
 
 // Recover applies one recovery decision to an in-flight row left by an older
