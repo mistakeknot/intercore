@@ -1719,6 +1719,19 @@ lock_case "a lock abandoned three hours ago" -3 "3 hours ago" 1
 [[ -z "$(find "$LOCKD" -name '*.lock.*' 2>/dev/null)" ]] || fail "hook: a lock abandoned for hours must be swept and our own released"
 pass "hook honours a live or adjacent-hour lock and ignores and sweeps an abandoned one"
 
+# Two stops that read the clock on either side of an hour boundary, started together,
+# repeatedly: never more than one prune per round (a round may also skip both and retry later).
+fake_ic "$HOOK_DIR/bound-ic" "$HOOK_DIR/bound-calls" 'sleep 1; exit 0'
+t_side() { # $1=clock, $2=stamp dir
+  unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$2" HOOK_BIN="$HOOK_DIR/bound-ic" CLOCK="$1"
+  date() { if [[ "$*" == "+%s" ]]; then echo "$CLOCK"; else command date "$@"; fi; }; hook_raw projA; }
+for _round in 1 2 3 4 5 6; do
+    rm -f "$HOOK_DIR/bound-calls"; rm -rf "$HOOK_DIR/stamps-bound"
+    ( t_side "$FIXED_NOW" "$HOOK_DIR/stamps-bound" & t_side "$(( FIXED_NOW + 1800 ))" "$HOOK_DIR/stamps-bound" & wait )
+    [[ "$(ncalls "$HOOK_DIR/bound-calls")" -le 1 ]] || fail "hook: two stops on either side of an hour boundary pruned twice (round $_round)"
+done
+pass "hook never prunes twice for stops either side of an hour boundary"
+
 # 3b. An unwritable stamp directory skips the prune; it does not prune on every stop.
 : > "$HOOK_DIR/not-a-dir"
 fake_ic "$HOOK_DIR/count-ic" "$HOOK_DIR/count-calls" 'exit 0'

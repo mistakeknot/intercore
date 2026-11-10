@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +20,8 @@ import (
 func parseRetention(v string) (time.Duration, error) {
 	if strings.HasSuffix(v, "d") {
 		n, err := strconv.Atoi(strings.TrimSuffix(v, "d"))
-		if err != nil || n <= 0 {
+		// A count past what a Duration holds would wrap to a short window and delete recent rows.
+		if err != nil || n <= 0 || int64(n) > int64(math.MaxInt64/(24*time.Hour)) {
 			return 0, fmt.Errorf("invalid retention %q: want a positive number of days like 30d", v)
 		}
 		return time.Duration(n) * 24 * time.Hour, nil

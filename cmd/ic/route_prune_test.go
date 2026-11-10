@@ -19,7 +19,11 @@ func TestParseRetention(t *testing.T) {
 			t.Errorf("parseRetention(%q) = %v, %v; want %v", in, got, err, want)
 		}
 	}
-	for _, in := range []string{"", "0d", "-3d", "d", "abc", "0", "-1h", "1.5d"} {
+	// The largest whole number of days a Duration holds is 106751; one more wrapped to ~25 minutes.
+	if got, err := parseRetention("106751d"); err != nil || got != 106751*24*time.Hour {
+		t.Errorf("parseRetention(106751d) = %v, %v", got, err)
+	}
+	for _, in := range []string{"", "0d", "-3d", "d", "abc", "0", "-1h", "1.5d", "106752d", "213504d", "9223372036854775807d"} {
 		if _, err := parseRetention(in); err == nil {
 			t.Errorf("parseRetention(%q) accepted", in)
 		}
