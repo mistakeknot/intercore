@@ -98,15 +98,17 @@ func (s *Store) Reap(ctx context.Context, lease time.Duration) (*ReapResult, err
 	}
 	result := &ReapResult{}
 	for _, d := range active {
-		if err := s.reapOne(ctx, d, lease, result); err != nil {
+		if err := s.reapOne(ctx, d, lease, true, result); err != nil {
 			return result, err
 		}
 	}
 	return result, nil
 }
 
-// ReapDispatch applies Reap to a single dispatch.
-func (s *Store) ReapDispatch(ctx context.Context, id string, lease time.Duration) (*ReapResult, error) {
+// ReapDispatch collects one dispatch whose process has exited. Unlike Reap it
+// never releases a reservation: a read of a single row must not rewrite a row
+// that has no process.
+func (s *Store) ReapDispatch(ctx context.Context, id string) (*ReapResult, error) {
 	d, err := s.Get(ctx, id)
 	if err != nil {
 		return nil, err
@@ -115,10 +117,10 @@ func (s *Store) ReapDispatch(ctx context.Context, id string, lease time.Duration
 	if d.IsTerminal() {
 		return result, nil
 	}
-	return result, s.reapOne(ctx, d, lease, result)
+	return result, s.reapOne(ctx, d, 0, false, result)
 }
 
-func (s *Store) reapOne(ctx context.Context, d *Dispatch, lease time.Duration, result *ReapResult) error {
+func (s *Store) reapOne(ctx context.Context, d *Dispatch, lease time.Duration, releaseReservations bool, result *ReapResult) error {
 	if supervised, err := isSupervised(ctx, s.db, d.ID); err != nil {
 		return err
 	} else if supervised {
@@ -129,7 +131,7 @@ func (s *Store) reapOne(ctx context.Context, d *Dispatch, lease time.Duration, r
 	}
 
 	if d.PID == nil {
-		if d.Status != StatusSpawned || time.Since(time.Unix(d.CreatedAt, 0)) < lease {
+		if !releaseReservations || d.Status != StatusSpawned || time.Since(time.Unix(d.CreatedAt, 0)) < lease {
 			return nil
 		}
 		reason := "reservation never started a process"

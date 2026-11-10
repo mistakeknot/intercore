@@ -79,9 +79,11 @@ worker at expiry.
 Dead agents and abandoned reservations do not stay active. `dispatch status <id>`,
 `dispatch list --active` and `dispatch reconcile` (no id) record the outcome of an
 unsupervised dispatch whose process has exited, as `poll` does, proved by its
-birth identity and never by the bare PID. They also cancel a `spawned` row that
-never started a process once it is older than the lease (default 10 minutes;
-`dispatch reconcile --lease=<dur>` overrides it), which frees the cap slot it held.
+birth identity and never by the bare PID. `dispatch list --active` and
+`dispatch reconcile` also cancel a `spawned` row that never started a process once
+it is older than the lease (default 10 minutes; `dispatch reconcile --lease=<dur>`
+overrides it), which frees the cap slot it held. `dispatch status <id>` never
+rewrites a row that has no process.
 `dispatch retry` creates exactly such a reservation row, and the caller must start
 the process inside the lease. Supervised dispatches are never touched: their
 supervisor is the only writer of their outcome.

@@ -360,7 +360,7 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 
 	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
 	// A crashed agent must not read as running: record its outcome first.
-	if _, err := store.ReapDispatch(ctx, args[0], 0); err != nil && !errors.Is(err, dispatch.ErrNotFound) {
+	if _, err := store.ReapDispatch(ctx, args[0]); err != nil && !errors.Is(err, dispatch.ErrNotFound) {
 		slog.Warn("dispatch status: reap failed", "id", args[0], "error", err)
 	}
 	disp, err := store.Get(ctx, args[0])
