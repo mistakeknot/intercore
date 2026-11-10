@@ -15,7 +15,7 @@ bash test-integration.sh         # Full CLI integration test
 ### DB Corruption
 ```bash
 ic health                        # Diagnose
-cp .clavain/intercore.db.backup-* .clavain/intercore.db  # Restore latest backup
+cp .clavain/intercore.db.backup-<from>-<stamp>.db .clavain/intercore.db  # Restore a chosen backup (pick the newest by stamp)
 ic health                        # Verify
 ```
 

@@ -455,10 +455,75 @@ CREATE TABLE IF NOT EXISTS scheduler_jobs (
     created_at  INTEGER NOT NULL,
     started_at  INTEGER,
     completed_at INTEGER,
+    -- v41: runner state (see migrations/041_scheduler_runner.sql)
+    idempotency_key TEXT,
+    not_before      INTEGER NOT NULL DEFAULT 0,
+    attempt_seq     INTEGER NOT NULL DEFAULT 0,
+    crash_requeues  INTEGER NOT NULL DEFAULT 0,
+    claim_token     TEXT,
+    lease_epoch     INTEGER,
+    retry_policy    TEXT,
+    idempotent      INTEGER NOT NULL DEFAULT 0,
+    outcome_class   TEXT,
+    output_base     TEXT,
+    project_dir     TEXT,
+    retry_blocked   TEXT,
+    updated_at      INTEGER,
     FOREIGN KEY (dispatch_id) REFERENCES dispatches(id)
 );
 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_status ON scheduler_jobs(status);
 CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_session ON scheduler_jobs(session_name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduler_jobs_idempotency
+    ON scheduler_jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_scheduler_jobs_claim
+    ON scheduler_jobs(status, not_before, priority, created_at);
+
+-- v41: scheduler runner singleton and per-attempt history
+CREATE TABLE IF NOT EXISTS scheduler_runner (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    epoch         INTEGER NOT NULL DEFAULT 1,
+    runner_id     TEXT,
+    pid           INTEGER,
+    pid_starttime INTEGER,
+    boot_id       TEXT,
+    host          TEXT,
+    started_at    INTEGER,
+    heartbeat_at  INTEGER,
+    version       TEXT,
+    state         TEXT NOT NULL DEFAULT 'stopped' CHECK (state IN ('running','draining','stopped')),
+    db_identity   TEXT,
+    db_path       TEXT,
+    queue_id      TEXT NOT NULL,
+    uid           INTEGER,
+    net_ns        INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS scheduler_job_attempts (
+    job_id              TEXT NOT NULL REFERENCES scheduler_jobs(id) ON DELETE CASCADE,
+    attempt_no          INTEGER NOT NULL,
+    claim_token         TEXT NOT NULL,
+    lease_epoch         INTEGER NOT NULL DEFAULT 0,
+    dispatch_id         TEXT REFERENCES dispatches(id) ON DELETE SET NULL,
+    linked_at           INTEGER,
+    output_file         TEXT,
+    cgroup_path         TEXT,
+    containment         TEXT NOT NULL DEFAULT 'none' CHECK (containment IN ('cgroup','none')),
+    claimed_at          INTEGER NOT NULL,
+    launch_result       TEXT CHECK (launch_result IS NULL OR launch_result IN ('rejected','hook_aborted','spawn_error','started')),
+    exited_at           INTEGER,
+    ended_at            INTEGER,
+    evidence_class      TEXT,
+    evidence_sha256     TEXT,
+    evidence_source     TEXT,
+    outcome_class       TEXT,
+    counts_toward_limit INTEGER NOT NULL DEFAULT 1 CHECK (counts_toward_limit IN (0,1)),
+    legacy              INTEGER NOT NULL DEFAULT 0 CHECK (legacy IN (0,1)),
+    error_msg           TEXT,
+    PRIMARY KEY (job_id, attempt_no),
+    UNIQUE (claim_token)
+);
+CREATE INDEX IF NOT EXISTS idx_scheduler_job_attempts_dispatch
+    ON scheduler_job_attempts(dispatch_id) WHERE dispatch_id IS NOT NULL;
 
 -- v25: canonical landed-change entity
 CREATE TABLE IF NOT EXISTS landed_changes (

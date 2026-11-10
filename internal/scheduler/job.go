@@ -47,6 +47,11 @@ const (
 	StatusFailed    JobStatus = "failed"    // Failed with error
 	StatusCancelled JobStatus = "cancelled" // Cancelled by user/system
 	StatusRetrying  JobStatus = "retrying"  // Failed but will retry
+
+	// Runner states (migration 041). They are not terminal.
+	StatusLaunching   JobStatus = "launching"   // Claimed by a runner; dispatch not yet running
+	StatusCancelling  JobStatus = "cancelling"  // Cancel requested for an in-flight job
+	StatusQuarantined JobStatus = "quarantined" // Needs an operator: requeue or cancel
 )
 
 // SpawnJob represents a single spawn operation in the scheduler queue.
@@ -110,6 +115,34 @@ type SpawnJob struct {
 
 	// Metadata contains additional context for the job.
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
+
+	// Runner fields (migration 041). The store owns them: only the CAS
+	// methods in cas.go change them after Create.
+
+	// IdempotencyKey de-duplicates submits; empty means none.
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
+	// NotBefore is the earliest time the job may be claimed; zero means now.
+	NotBefore time.Time `json:"not_before,omitempty"`
+	// AttemptSeq is the number of claims so far. It never decreases.
+	AttemptSeq int `json:"attempt_seq"`
+	// CrashRequeues counts excused runner crashes (capped at 3).
+	CrashRequeues int `json:"crash_requeues"`
+	// ClaimToken is the live claim's token; empty when not in flight.
+	ClaimToken string `json:"claim_token,omitempty"`
+	// LeaseEpoch is the runner epoch that holds the claim; nil when not in flight.
+	LeaseEpoch *int64 `json:"lease_epoch,omitempty"`
+	// RetryPolicy is the JSON retry policy; empty means the default.
+	RetryPolicy string `json:"retry_policy,omitempty"`
+	// Idempotent says a non-prestart failure may be retried.
+	Idempotent bool `json:"idempotent,omitempty"`
+	// OutcomeClass is the classified outcome of the last attempt or quarantine reason.
+	OutcomeClass string `json:"outcome_class,omitempty"`
+	// OutputBase is the absolute base path for attempt output files.
+	OutputBase string `json:"output_base,omitempty"`
+	// RetryBlocked is non-empty while an unresolved survivor blocks claims.
+	RetryBlocked string `json:"retry_blocked,omitempty"`
+	// UpdatedAt is the last time the store changed the row.
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
 
 	// Callback is called when the job completes (success or failure).
 	Callback func(*SpawnJob) `json:"-"`
@@ -284,6 +317,22 @@ func (j *SpawnJob) Clone() *SpawnJob {
 		RetryDelay:  j.RetryDelay,
 		BatchID:     j.BatchID,
 		ParentJobID: j.ParentJobID,
+
+		IdempotencyKey: j.IdempotencyKey,
+		NotBefore:      j.NotBefore,
+		AttemptSeq:     j.AttemptSeq,
+		CrashRequeues:  j.CrashRequeues,
+		ClaimToken:     j.ClaimToken,
+		RetryPolicy:    j.RetryPolicy,
+		Idempotent:     j.Idempotent,
+		OutcomeClass:   j.OutcomeClass,
+		OutputBase:     j.OutputBase,
+		RetryBlocked:   j.RetryBlocked,
+		UpdatedAt:      j.UpdatedAt,
+	}
+	if j.LeaseEpoch != nil {
+		e := *j.LeaseEpoch
+		clone.LeaseEpoch = &e
 	}
 
 	if j.Metadata != nil {

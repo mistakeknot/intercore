@@ -124,6 +124,22 @@ func (m *Migrator) applyBaseline(ctx context.Context) (int, error) {
 }
 
 func (m *Migrator) applyAdditive(ctx context.Context, currentVersion int) (int, error) {
+	pending := false
+	for _, mig := range m.migrations {
+		if !mig.Baseline && mig.Version > currentVersion {
+			pending = true
+			break
+		}
+	}
+	if !pending {
+		return 0, nil
+	}
+	// Every migration run starts from a verified backup; a failed backup
+	// leaves the database unmigrated.
+	if err := m.db.backupBeforeMigrate(ctx, currentVersion); err != nil {
+		return 0, err
+	}
+
 	applied := 0
 	for _, mig := range m.migrations {
 		if mig.Baseline || mig.Version <= currentVersion {
@@ -134,12 +150,17 @@ func (m *Migrator) applyAdditive(ctx context.Context, currentVersion int) (int, 
 			return applied, fmt.Errorf("begin migration %s: %w", mig.Name, err)
 		}
 
-		if _, err := tx.ExecContext(ctx, mig.SQL); err != nil {
-			// ALTER TABLE ADD COLUMN may fail with "duplicate column" if a prior
-			// partial run added it. Tolerate this for idempotency.
-			if !isDuplicateColumnError(err) {
-				tx.Rollback()
-				return applied, fmt.Errorf("apply migration %s: %w", mig.Name, err)
+		// Chunked files run one chunk at a time so a duplicate-column error in
+		// one ALTER does not skip the rest of the file. A plain file is one
+		// chunk, as before.
+		for _, c := range splitChunks(mig.SQL) {
+			if _, err := tx.ExecContext(ctx, c.SQL); err != nil {
+				// ALTER TABLE ADD COLUMN may fail with "duplicate column" if a
+				// prior partial run added it. Tolerate this for idempotency.
+				if !isDuplicateColumnError(err) {
+					tx.Rollback()
+					return applied, fmt.Errorf("apply migration %s: %w", mig.Name, err)
+				}
 			}
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", mig.Version)); err != nil {

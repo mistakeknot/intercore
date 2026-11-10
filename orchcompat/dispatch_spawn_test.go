@@ -50,7 +50,7 @@ func TestDispatchSpawnRoleScheduled(t *testing.T) {
 	db := filepath.Join(s.cwd, "t.db")
 	g := newGolden(t, "dispatch-spawn-role-scheduled")
 
-	initText, initRes := s.run(runcase{Label: "init", Args: []string{"--db=" + db, "init"}, WantFiles: []string{"created work/t.db", "created work/t.db.backup-<STAMP>"}})
+	initText, initRes := s.run(runcase{Label: "init", Args: []string{"--db=" + db, "init"}, WantFiles: []string{"created work/t.db", "created work/t.db.backup-<STAMP>.db"}})
 	g.add(initText)
 	if initRes.Code != 0 {
 		t.Fatalf("init failed: %d %s", initRes.Code, initRes.Stderr)

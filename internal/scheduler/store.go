@@ -18,11 +18,28 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
-// Create inserts a new scheduler job record.
+// jobColumns is the column list every read uses; scanJob matches its order.
+const jobColumns = `id, status, priority, agent_type, session_name, batch_id, dispatch_id, spawn_opts,
+	max_retries, retry_count, error_msg, created_at, started_at, completed_at,
+	idempotency_key, not_before, attempt_seq, crash_requeues, claim_token, lease_epoch,
+	retry_policy, idempotent, outcome_class, output_base, project_dir, retry_blocked, updated_at`
+
+// Create inserts a new scheduler job record. It stamps updated_at, which also
+// marks the row as already normalized for migration 041's data chunks.
 func (s *Store) Create(ctx context.Context, job *SpawnJob) error {
+	updated := job.UpdatedAt
+	if updated.IsZero() {
+		updated = time.Now()
+	}
+	var notBefore int64
+	if !job.NotBefore.IsZero() {
+		notBefore = job.NotBefore.Unix()
+	}
 	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO scheduler_jobs (id, status, priority, agent_type, session_name, batch_id, dispatch_id, spawn_opts, max_retries, retry_count, error_msg, created_at, started_at, completed_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO scheduler_jobs (id, status, priority, agent_type, session_name, batch_id, dispatch_id, spawn_opts,
+			max_retries, retry_count, error_msg, created_at, started_at, completed_at,
+			idempotency_key, not_before, retry_policy, idempotent, output_base, project_dir, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID,
 		string(job.Status),
 		int(job.Priority),
@@ -37,6 +54,13 @@ func (s *Store) Create(ctx context.Context, job *SpawnJob) error {
 		job.CreatedAt.Unix(),
 		nullUnix(job.StartedAt),
 		nullUnix(job.CompletedAt),
+		nullString(job.IdempotencyKey),
+		notBefore,
+		nullString(job.RetryPolicy),
+		boolInt(job.Idempotent),
+		nullString(job.OutputBase),
+		nullString(job.ProjectDir),
+		updated.Unix(),
 	)
 	if err != nil {
 		return fmt.Errorf("store.create: %w", err)
@@ -44,31 +68,10 @@ func (s *Store) Create(ctx context.Context, job *SpawnJob) error {
 	return nil
 }
 
-// Get retrieves a job by ID.
+// Get retrieves a job by ID. A missing job returns sql.ErrNoRows.
 func (s *Store) Get(ctx context.Context, id string) (*SpawnJob, error) {
-	row := s.db.QueryRowContext(ctx,
-		`SELECT id, status, priority, agent_type, session_name, batch_id, dispatch_id, spawn_opts, max_retries, retry_count, error_msg, created_at, started_at, completed_at
-		 FROM scheduler_jobs WHERE id = ?`, id)
-
+	row := s.db.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM scheduler_jobs WHERE id = ?`, id)
 	return scanJob(row)
-}
-
-// Update updates status, dispatch_id, retry_count, error_msg, started_at, and completed_at.
-func (s *Store) Update(ctx context.Context, job *SpawnJob) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE scheduler_jobs SET status=?, dispatch_id=?, retry_count=?, error_msg=?, started_at=?, completed_at=? WHERE id=?`,
-		string(job.Status),
-		nullString(job.DispatchID),
-		job.RetryCount,
-		nullString(job.Error),
-		nullUnix(job.StartedAt),
-		nullUnix(job.CompletedAt),
-		job.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("store.update: %w", err)
-	}
-	return nil
 }
 
 // List returns jobs matching the given status filter (empty = all).
@@ -77,12 +80,10 @@ func (s *Store) List(ctx context.Context, status string, limit int) ([]*SpawnJob
 	var args []any
 
 	if status != "" {
-		query = `SELECT id, status, priority, agent_type, session_name, batch_id, dispatch_id, spawn_opts, max_retries, retry_count, error_msg, created_at, started_at, completed_at
-		         FROM scheduler_jobs WHERE status = ? ORDER BY created_at DESC LIMIT ?`
+		query = `SELECT ` + jobColumns + ` FROM scheduler_jobs WHERE status = ? ORDER BY created_at DESC LIMIT ?`
 		args = []any{status, limit}
 	} else {
-		query = `SELECT id, status, priority, agent_type, session_name, batch_id, dispatch_id, spawn_opts, max_retries, retry_count, error_msg, created_at, started_at, completed_at
-		         FROM scheduler_jobs ORDER BY created_at DESC LIMIT ?`
+		query = `SELECT ` + jobColumns + ` FROM scheduler_jobs ORDER BY created_at DESC LIMIT ?`
 		args = []any{limit}
 	}
 
@@ -94,7 +95,7 @@ func (s *Store) List(ctx context.Context, status string, limit int) ([]*SpawnJob
 
 	var jobs []*SpawnJob
 	for rows.Next() {
-		job, err := scanJobFromRows(rows)
+		job, err := scanJob(rows)
 		if err != nil {
 			return nil, fmt.Errorf("store.list: scan: %w", err)
 		}
@@ -102,36 +103,6 @@ func (s *Store) List(ctx context.Context, status string, limit int) ([]*SpawnJob
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("store.list: rows: %w", err)
-	}
-	return jobs, nil
-}
-
-// RecoverPending returns all jobs in pending or running status (for crash recovery).
-func (s *Store) RecoverPending(ctx context.Context) ([]*SpawnJob, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, status, priority, agent_type, session_name, batch_id, dispatch_id, spawn_opts, max_retries, retry_count, error_msg, created_at, started_at, completed_at
-		 FROM scheduler_jobs WHERE status IN ('pending', 'running', 'scheduled', 'retrying')
-		 ORDER BY priority ASC, created_at ASC`)
-	if err != nil {
-		return nil, fmt.Errorf("store.recover: %w", err)
-	}
-	defer rows.Close()
-
-	var jobs []*SpawnJob
-	for rows.Next() {
-		job, err := scanJobFromRows(rows)
-		if err != nil {
-			return nil, fmt.Errorf("store.recover: scan: %w", err)
-		}
-		// Reset running jobs to pending (they were interrupted).
-		if job.Status == StatusRunning || job.Status == StatusScheduled {
-			job.Status = StatusPending
-			job.StartedAt = time.Time{}
-		}
-		jobs = append(jobs, job)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store.recover: rows: %w", err)
 	}
 	return jobs, nil
 }
@@ -172,19 +143,35 @@ func (s *Store) Prune(ctx context.Context, olderThan time.Duration) (int64, erro
 	return result.RowsAffected()
 }
 
-// scanJob scans a single row into a SpawnJob.
-func scanJob(row *sql.Row) (*SpawnJob, error) {
+// rowScanner is satisfied by *sql.Row and *sql.Rows.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanJob scans one row selected with jobColumns into a SpawnJob.
+func scanJob(row rowScanner) (*SpawnJob, error) {
 	var (
-		j           SpawnJob
-		status      string
-		priority    int
-		sessionName sql.NullString
-		batchID     sql.NullString
-		dispatchID  sql.NullString
-		errorMsg    sql.NullString
-		createdAt   int64
-		startedAt   sql.NullInt64
-		completedAt sql.NullInt64
+		j              SpawnJob
+		status         string
+		priority       int
+		sessionName    sql.NullString
+		batchID        sql.NullString
+		dispatchID     sql.NullString
+		errorMsg       sql.NullString
+		createdAt      int64
+		startedAt      sql.NullInt64
+		completedAt    sql.NullInt64
+		idempotencyKey sql.NullString
+		notBefore      int64
+		claimToken     sql.NullString
+		leaseEpoch     sql.NullInt64
+		retryPolicy    sql.NullString
+		idempotent     int
+		outcomeClass   sql.NullString
+		outputBase     sql.NullString
+		projectDir     sql.NullString
+		retryBlocked   sql.NullString
+		updatedAt      sql.NullInt64
 	)
 
 	err := row.Scan(
@@ -192,6 +179,8 @@ func scanJob(row *sql.Row) (*SpawnJob, error) {
 		&sessionName, &batchID, &dispatchID, &j.SpawnOpts,
 		&j.MaxRetries, &j.RetryCount, &errorMsg,
 		&createdAt, &startedAt, &completedAt,
+		&idempotencyKey, &notBefore, &j.AttemptSeq, &j.CrashRequeues, &claimToken, &leaseEpoch,
+		&retryPolicy, &idempotent, &outcomeClass, &outputBase, &projectDir, &retryBlocked, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -215,53 +204,33 @@ func scanJob(row *sql.Row) (*SpawnJob, error) {
 	if completedAt.Valid {
 		j.CompletedAt = time.Unix(completedAt.Int64, 0)
 	}
+	j.IdempotencyKey = idempotencyKey.String
+	if notBefore > 0 {
+		j.NotBefore = time.Unix(notBefore, 0)
+	}
+	j.ClaimToken = claimToken.String
+	if leaseEpoch.Valid {
+		e := leaseEpoch.Int64
+		j.LeaseEpoch = &e
+	}
+	j.RetryPolicy = retryPolicy.String
+	j.Idempotent = idempotent != 0
+	j.OutcomeClass = outcomeClass.String
+	j.OutputBase = outputBase.String
+	j.ProjectDir = projectDir.String
+	j.RetryBlocked = retryBlocked.String
+	if updatedAt.Valid {
+		j.UpdatedAt = time.Unix(updatedAt.Int64, 0)
+	}
 
 	return &j, nil
 }
 
-// scanJobFromRows scans from *sql.Rows.
-func scanJobFromRows(rows *sql.Rows) (*SpawnJob, error) {
-	var (
-		j           SpawnJob
-		status      string
-		priority    int
-		sessionName sql.NullString
-		batchID     sql.NullString
-		dispatchID  sql.NullString
-		errorMsg    sql.NullString
-		createdAt   int64
-		startedAt   sql.NullInt64
-		completedAt sql.NullInt64
-	)
-
-	err := rows.Scan(
-		&j.ID, &status, &priority, &j.AgentType,
-		&sessionName, &batchID, &dispatchID, &j.SpawnOpts,
-		&j.MaxRetries, &j.RetryCount, &errorMsg,
-		&createdAt, &startedAt, &completedAt,
-	)
-	if err != nil {
-		return nil, err
+func boolInt(b bool) int {
+	if b {
+		return 1
 	}
-
-	j.Type = JobTypeDispatch
-	j.ctx, j.cancel = context.WithCancel(context.Background())
-	j.Metadata = make(map[string]interface{})
-	j.Status = JobStatus(status)
-	j.Priority = JobPriority(priority)
-	j.SessionName = sessionName.String
-	j.BatchID = batchID.String
-	j.DispatchID = dispatchID.String
-	j.Error = errorMsg.String
-	j.CreatedAt = time.Unix(createdAt, 0)
-	if startedAt.Valid {
-		j.StartedAt = time.Unix(startedAt.Int64, 0)
-	}
-	if completedAt.Valid {
-		j.CompletedAt = time.Unix(completedAt.Int64, 0)
-	}
-
-	return &j, nil
+	return 0
 }
 
 func nullString(s string) sql.NullString {
