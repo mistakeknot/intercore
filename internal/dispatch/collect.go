@@ -168,7 +168,7 @@ func Wait(ctx context.Context, store *Store, id string, pollInterval, timeout ti
 		if latest.IsTerminal() {
 			return latest, nil
 		}
-		if err := interruptDispatch(cleanup, store, latest, StatusTimeout, "timeout waiting for dispatch"); err != nil && !errors.Is(err, ErrStaleStatus) && !IsSpawnRejection(err) {
+		if err := interruptDispatch(cleanup, store, latest, StatusTimeout, "timeout waiting for dispatch", nil); err != nil && !errors.Is(err, ErrStaleStatus) && !IsSpawnRejection(err) {
 			return nil, err
 		}
 		return store.Get(cleanup, id)
@@ -197,6 +197,14 @@ func Wait(ctx context.Context, store *Store, id string, pollInterval, timeout ti
 
 // Kill sends SIGTERM then SIGKILL to a dispatch's process.
 func Kill(ctx context.Context, store *Store, id string) error {
+	return KillUntil(ctx, store, id, nil)
+}
+
+// KillUntil is Kill that stops waiting for a graceful exit when stop closes. The
+// SIGTERM has been sent by then, no SIGKILL follows, and nothing is written to
+// the dispatch: the caller gets ErrTerminationAbandoned and the dispatch is left
+// as it was found. A nil stop behaves as Kill.
+func KillUntil(ctx context.Context, store *Store, id string, stop <-chan struct{}) error {
 	d, err := store.Get(ctx, id)
 	if err != nil {
 		return err
@@ -208,10 +216,10 @@ func Kill(ctx context.Context, store *Store, id string) error {
 	if d.PID == nil {
 		reason = "no PID to kill"
 	}
-	return interruptDispatch(ctx, store, d, StatusCancelled, reason)
+	return interruptDispatch(ctx, store, d, StatusCancelled, reason, stop)
 }
 
-func interruptDispatch(ctx context.Context, store *Store, d *Dispatch, status, reason string) error {
+func interruptDispatch(ctx context.Context, store *Store, d *Dispatch, status, reason string, stop <-chan struct{}) error {
 	// Signalling a supervised worker behind its supervisor's back would leave the
 	// supervisor recording an outcome nobody asked it for.
 	if supervised, err := isSupervised(ctx, store.db, d.ID); err != nil {
@@ -231,8 +239,11 @@ func interruptDispatch(ctx context.Context, store *Store, d *Dispatch, status, r
 				return Collect(ctx, store, d.ID)
 			}
 			if err == nil {
-				err = terminateRecordedProcess(identity)
+				err = terminateRecordedProcessUntil(identity, stop)
 			}
+		}
+		if errors.Is(err, ErrTerminationAbandoned) {
+			return err
 		}
 		if err != nil {
 			// Missing legacy proof, failed inspection, or lost membership is not permission

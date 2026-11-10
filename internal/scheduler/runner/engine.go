@@ -622,7 +622,7 @@ func (e *engine) launch(c *scheduler.Claim, gen uint64, plan *plannedLaunch) {
 	}
 	go e.wait(c, gen, res)
 	if killAfterWait {
-		e.track(func() { _ = dispatch.Kill(ctx, e.ds, res.ID) })
+		e.track(func() { _ = dispatch.KillUntil(ctx, e.ds, res.ID, e.abort) })
 	}
 	e.fl.Advance(token, gen, StageWaiting)
 }

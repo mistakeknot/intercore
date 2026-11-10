@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -153,5 +154,59 @@ func TestCancelAtMarkRunningKillsTheStartedProcess(t *testing.T) {
 	run.stop(t)
 	if !cancelled.Load() {
 		t.Fatal("the cancel hook never ran")
+	}
+}
+
+// TestShutdownAbandonsAKillWaitingOnAStubbornProcess: a cancel kill is in
+// flight against an executor that ignores SIGTERM (the graceful wait is five
+// seconds) when the runner is stopped. The kill is joined by run but
+// abort-aware, so the shutdown returns promptly instead of holding for the
+// escalation delay. The process is left alive for recovery, not terminalized.
+func TestShutdownAbandonsAKillWaitingOnAStubbornProcess(t *testing.T) {
+	r, o := containRig(t)
+	o.DrainTimeout = 200 * time.Millisecond
+	var cancelled atomic.Bool
+	o.hooks.afterLaunchPersist = func(token, result string) {
+		if result == scheduler.LaunchStarted && cancelled.CompareAndSwap(false, true) {
+			r.cancel(r.jobOfToken(token))
+		}
+	}
+	r.job("s", "stubborn")
+	run := start(t, o)
+	until(t, "the cancel hook", func() bool { return cancelled.Load() })
+	pid := r.pidOf("s")
+	// The survivor is the point of this test, so it empties its own cgroup
+	// before the rig's no-survivor check runs (cleanups run last-in first).
+	t.Cleanup(func() {
+		_ = syscall.Kill(-pid, syscall.SIGKILL)
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+		dirs, _ := filepath.Glob(filepath.Join(o.CgroupDir, "attempt-*"))
+		for _, d := range dirs {
+			_ = os.WriteFile(filepath.Join(d, "cgroup.kill"), []byte("1"), 0o644)
+			for i := 0; i < 500; i++ {
+				if pop, _ := populated(d); !pop {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+	})
+	// Let the kill send its SIGTERM and enter the graceful wait.
+	time.Sleep(500 * time.Millisecond)
+	begin := time.Now()
+	run.stop(t)
+	if took := time.Since(begin); took > 2500*time.Millisecond {
+		t.Fatalf("shutdown held %v by an in-flight kill (graceful wait is 5s)", took)
+	}
+	if gone(pid) {
+		t.Fatal("the stubborn process should survive an abandoned kill")
+	}
+	var st string
+	if err := r.raw.QueryRow(`SELECT status FROM dispatches WHERE id = ?`, r.dispatchOf("s")).Scan(&st); err != nil {
+		t.Fatal(err)
+	}
+	switch st {
+	case "completed", "failed", "timeout", "cancelled":
+		t.Fatalf("abandoned kill terminalized the dispatch as %q", st)
 	}
 }
