@@ -1700,19 +1700,24 @@ fake_ic "$HOOK_DIR/race-ic" "$HOOK_DIR/race-calls" 'sleep 2; exit 0'
 pass "hook prunes once for two simultaneous stops and releases its lock"
 
 # A lock held in the current hour blocks a prune; one a killed hook left in an earlier hour does not.
-t_lock() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-lock" HOOK_BIN="$HOOK_DIR/race-ic"; hook_raw projA; }
-rm -f "$HOOK_DIR/race-calls"; rm -rf "$HOOK_DIR/stamps-lock"
-LOCK_HOUR=$(( $(date +%s) / 3600 ))
-mkdir -p "$HOOK_DIR/stamps-lock/routing-prune-$PROJA_KEY.lock.$LOCK_HOUR"
-run_ok "hook: a held lock must skip quietly" t_lock
-[[ "$(ncalls "$HOOK_DIR/race-calls")" == 0 ]] || fail "hook: a lock held this hour must skip the prune"
-rmdir "$HOOK_DIR/stamps-lock/routing-prune-$PROJA_KEY.lock.$LOCK_HOUR"
-mkdir -p "$HOOK_DIR/stamps-lock/routing-prune-$PROJA_KEY.lock.$((LOCK_HOUR - 3))"
-touch -d '3 hours ago' "$HOOK_DIR/stamps-lock/routing-prune-$PROJA_KEY.lock.$((LOCK_HOUR - 3))"
-run_ok "hook: an old abandoned lock must not break the hook" t_lock
-[[ "$(ncalls "$HOOK_DIR/race-calls")" == 1 ]] || fail "hook: a lock abandoned in an earlier hour must not block the prune"
-[[ -z "$(find "$HOOK_DIR/stamps-lock" -name '*.lock.*' 2>/dev/null)" ]] || fail "hook: a lock abandoned for hours must be swept"
-pass "hook honours a live lock and ignores and sweeps an abandoned one"
+# The hook's clock is fixed (mid-hour) so no real hour boundary can fall inside the test.
+FIXED_NOW=$(( ( $(command date +%s) / 3600 ) * 3600 + 1800 )); LOCK_HOUR=$(( FIXED_NOW / 3600 ))
+LOCKD="$HOOK_DIR/stamps-lock"; LK="$LOCKD/routing-prune-$PROJA_KEY.lock"
+t_lock() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$LOCKD" HOOK_BIN="$HOOK_DIR/race-ic"
+  date() { if [[ "$*" == "+%s" ]]; then echo "$FIXED_NOW"; else command date "$@"; fi; }; hook_raw projA; }
+lock_case() { # $1=message $2=lock hour offset $3=lock age ("" = fresh) $4=expected prunes
+    rm -f "$HOOK_DIR/race-calls"; rm -rf "$LOCKD"; mkdir -p "$LK.$((LOCK_HOUR + $2))"
+    [[ -z "$3" ]] || touch -d "$3" "$LK.$((LOCK_HOUR + $2))"
+    run_ok "hook: $1 must not fail the caller" t_lock
+    [[ "$(ncalls "$HOOK_DIR/race-calls")" == "$4" ]] || fail "hook: $1: expected $4 prunes, got $(ncalls "$HOOK_DIR/race-calls")"
+}
+lock_case "a lock held this hour" 0 "" 0
+lock_case "a fresh lock of the previous hour (stop on the other side of the boundary)" -1 "" 0
+lock_case "a fresh lock of the next hour (stop on the other side of the boundary)" 1 "" 0
+lock_case "an old lock of the previous hour (killed hook)" -1 "30 minutes ago" 1
+lock_case "a lock abandoned three hours ago" -3 "3 hours ago" 1
+[[ -z "$(find "$LOCKD" -name '*.lock.*' 2>/dev/null)" ]] || fail "hook: a lock abandoned for hours must be swept and our own released"
+pass "hook honours a live or adjacent-hour lock and ignores and sweeps an abandoned one"
 
 # 3b. An unwritable stamp directory skips the prune; it does not prune on every stop.
 : > "$HOOK_DIR/not-a-dir"

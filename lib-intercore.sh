@@ -179,7 +179,9 @@ intercore_cleanup_stale() {
     #  - no usable state directory or key (no HOME, an unwritable directory, no
     #    cksum or date) means skip, never prune unthrottled;
     #  - a mkdir lock named for the current hour admits one of several
-    #    simultaneous stops; the rest skip. A lock a killed hook leaves behind
+    #    simultaneous stops; the rest skip, as does a stop that finds a lock of
+    #    the adjacent hour younger than ten minutes (clock read across an hour
+    #    boundary). A lock a killed hook leaves behind
     #    expires with its hour (it is never "reclaimed", so no stop can take
     #    over a live one) and is swept once it is two hours old;
     #  - before pruning, a ".failed" marker is written. It backs the next try
@@ -235,6 +237,15 @@ intercore_cleanup_stale() {
         _intercore_routing_prune_due "$stamp" || return 0
         mkdir -p "$state_dir" 2>/dev/null || return 0
         mkdir "$lock" 2>/dev/null || return 0
+        # A stop that read the clock on the other side of an hour boundary holds a
+        # different lock. Each takes its own lock first, then looks for a fresh
+        # neighbour: at least one of two such stops sees the other and skips.
+        for t in $(( hour - 1 )) $(( hour + 1 )); do
+            if [[ -n "$(find "$state_dir/routing-prune-$key.lock.$t" -maxdepth 0 -mmin -10 2>/dev/null)" ]]; then
+                rmdir "$lock" 2>/dev/null || true
+                return 0
+            fi
+        done
         # Sweep locks from killed hooks of earlier hours (a prune is bounded to seconds).
         find "$state_dir" -maxdepth 1 -name 'routing-prune-*.lock.*' -mmin +120 -exec rmdir {} + >/dev/null 2>&1 || true
         # Re-check under the lock, then record the attempt before making it: if the
