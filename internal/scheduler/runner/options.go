@@ -45,6 +45,14 @@ type Options struct {
 
 	// OnReady runs once the epoch is bumped and the runner is live. Test seam.
 	OnReady func(epoch int64)
+
+	// hooks are in-package test seams for races that need a deterministic
+	// interleaving; they exist only in files built under icsched_test.
+	hooks struct {
+		beforeOpen func() // after preflight, before SQLite opens the file
+		afterOpen  func() // after SQLite opens the file, before the locks
+		afterLocks func() // after both locks, before the binding check
+	}
 }
 
 func (o *Options) defaults() {

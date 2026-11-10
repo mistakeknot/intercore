@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"syscall"
 	"time"
 
 	"github.com/mistakeknot/intercore/internal/db"
@@ -38,6 +39,9 @@ func Run(ctx context.Context, o Options) error {
 		return &ExitError{Code: ExitRefused, Err: fmt.Errorf("read own start time: %w", err)}
 	}
 
+	if o.hooks.beforeOpen != nil {
+		o.hooks.beforeOpen()
+	}
 	d, err := db.Open(info.Canonical, o.BusyTimeout)
 	if err != nil {
 		return exitf(ExitRefused, "open %s: %w", info.Canonical, err)
@@ -49,6 +53,9 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return exitf(ExitRefused, "%w", err)
 	}
+	if o.hooks.afterOpen != nil {
+		o.hooks.afterOpen()
+	}
 
 	// Both locks are taken before anything is written, and never released.
 	dbLock, queueLock, err := acquireLocks(ctx, store, info.Canonical, row.QueueID, o)
@@ -57,6 +64,12 @@ func Run(ctx context.Context, o Options) error {
 	}
 	defer queueLock.Close()
 	defer dbLock.Close()
+	if o.hooks.afterLocks != nil {
+		o.hooks.afterLocks()
+	}
+	if err := verifyBinding(info, dbLock, o); err != nil {
+		return err
+	}
 
 	// Re-read after the locks: the row may have changed while we waited.
 	row, err = store.ReadRunner(ctx)
@@ -92,6 +105,35 @@ func Run(ctx context.Context, o Options) error {
 		o.OnReady(epoch)
 	}
 	return heartbeatLoop(ctx, store, epoch, o)
+}
+
+// verifyBinding makes the preflight verdict, the lock and the recorded
+// identity refer to one file. The path is resolved separately by Preflight,
+// by SQLite and by LockDB, so a swap between them could leave the lock on one
+// inode and the connection on another, or skip the live-DB refusal. The lock
+// descriptor must be the inode Preflight checked, and a second Preflight now
+// must resolve to the same canonical path and inode. A swap after this check
+// cannot matter: SQLite and the lock hold descriptors on the original inode.
+func verifyBinding(info PathInfo, lock *os.File, o Options) error {
+	st, err := lock.Stat()
+	if err != nil {
+		return exitf(ExitRefused, "stat database lock descriptor: %w", err)
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return exitf(ExitRefused, "stat database lock descriptor: unsupported platform")
+	}
+	if uint64(sys.Dev) != info.Dev || uint64(sys.Ino) != info.Ino {
+		return exitf(ExitRefused, "database file changed during startup: %s was %s, the locked file is %d:%d", info.Canonical, info.Identity(), uint64(sys.Dev), uint64(sys.Ino))
+	}
+	again, err := Preflight(o.DB, o.AllowLive)
+	if err != nil {
+		return &ExitError{Code: ExitRefused, Err: err}
+	}
+	if again.Canonical != info.Canonical || again.Identity() != info.Identity() {
+		return exitf(ExitRefused, "database file changed during startup: %s (%s) now resolves to %s (%s)", info.Canonical, info.Identity(), again.Canonical, again.Identity())
+	}
+	return nil
 }
 
 func randomID() (string, error) {
@@ -187,6 +229,22 @@ func rebind(ctx context.Context, store *scheduler.Store, row *scheduler.RunnerRo
 	return res.Epoch, nil
 }
 
+// drain marks the row draining and then stopped, on a fresh context because
+// the run context is already cancelled. A false result means another runner
+// already owns the row, so there is nothing to write. An error means the
+// singleton still says "running" although this runner is leaving, so it is
+// reported and the exit is not clean.
+func drain(store *scheduler.Store, epoch int64, o Options) error {
+	dctx, cancel := context.WithTimeout(context.Background(), o.BusyTimeout)
+	defer cancel()
+	for _, state := range []string{"draining", "stopped"} {
+		if _, err := store.SetRunnerState(dctx, epoch, state); err != nil {
+			return exitf(ExitRefused, "drain: could not mark the runner %s; the singleton row still says running: %w", state, err)
+		}
+	}
+	return nil
+}
+
 // heartbeatLoop refreshes heartbeat_at until ctx is cancelled (a clean drain)
 // or the epoch is no longer ours (exit 3).
 func heartbeatLoop(ctx context.Context, store *scheduler.Store, epoch int64, o Options) error {
@@ -198,11 +256,7 @@ func heartbeatLoop(ctx context.Context, store *scheduler.Store, epoch int64, o O
 		case <-ctx.Done():
 			// A drain with nothing in flight: mark the row and stop. A false
 			// result means we were already superseded; nothing to write.
-			dctx, cancel := context.WithTimeout(context.Background(), o.BusyTimeout)
-			defer cancel()
-			store.SetRunnerState(dctx, epoch, "draining")
-			store.SetRunnerState(dctx, epoch, "stopped")
-			return nil
+			return drain(store, epoch, o)
 		case <-t.C:
 			ok, err := store.Heartbeat(ctx, epoch, o.Now())
 			switch {

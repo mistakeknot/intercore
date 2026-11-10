@@ -374,3 +374,174 @@ func TestHelperHoldDB(t *testing.T) {
 	os.Stdout.WriteString("HELD\n")
 	time.Sleep(time.Minute)
 }
+
+// P2: a SIGTERM drain that cannot write "stopped" must not report a clean exit,
+// because the singleton row would still say "running".
+func TestDrainFailureIsReported(t *testing.T) {
+	path, store, raw := newQueue(t)
+	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 100 * time.Millisecond})
+	ctx := context.Background()
+	conn, err := raw.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `BEGIN IMMEDIATE`); err != nil {
+		t.Fatal(err)
+	}
+	r.cancel()
+	<-r.done
+	conn.ExecContext(ctx, `ROLLBACK`)
+	conn.Close() // the pool has one connection; the reads below need it back
+	if exitCode(r.err) != ExitRefused {
+		t.Fatalf("drain that could not write returned %v, want exit %d", r.err, ExitRefused)
+	}
+	row, err := store.ReadRunner(ctx)
+	if err != nil || row.State != "running" {
+		t.Fatalf("row %+v %v", row, err)
+	}
+}
+
+// P2 control: with no blocker the same drain is clean and the row says stopped.
+func TestDrainWithoutBlockerIsClean(t *testing.T) {
+	path, store, _ := newQueue(t)
+	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour, BusyTimeout: 100 * time.Millisecond})
+	r.cancel()
+	<-r.done
+	if r.err != nil {
+		t.Fatalf("clean drain returned %v", r.err)
+	}
+	if row, _ := store.ReadRunner(context.Background()); row.State != "stopped" {
+		t.Fatalf("state %q", row.State)
+	}
+}
+
+// P2: a superseded runner has nothing to write and still exits cleanly.
+func TestDrainWhenSupersededIsClean(t *testing.T) {
+	path, _, raw := newQueue(t)
+	r := start(t, Options{DB: path, HeartbeatEvery: time.Hour})
+	if _, err := raw.Exec(`UPDATE scheduler_runner SET epoch = epoch + 1`); err != nil {
+		t.Fatal(err)
+	}
+	r.cancel()
+	<-r.done
+	if r.err != nil {
+		t.Fatalf("superseded drain returned %v", r.err)
+	}
+}
+
+// replaceWithCopy swaps the file at path for a byte-for-byte copy with a new
+// inode, after emptying the WAL so the copy is complete.
+func replaceWithCopy(t *testing.T, raw *sql.DB, path string) {
+	t.Helper()
+	if _, err := raw.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	tmp := filepath.Join(filepath.Dir(path), "copy.db")
+	if _, err := raw.Exec(`VACUUM INTO ?`, tmp); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func epochAt(t *testing.T, path string) int64 {
+	t.Helper()
+	d, err := db.Open(path, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	row, err := scheduler.NewStore(d.SqlDB()).ReadRunner(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return row.Epoch
+}
+
+// P1: the file preflight checked, the file SQLite opened and the file the
+// lock holds must be one inode. Each swap point must be refused with no write.
+func TestSwapDuringStartupIsRefused(t *testing.T) {
+	for _, point := range []string{"beforeOpen", "afterOpen", "afterLocks"} {
+		t.Run(point, func(t *testing.T) {
+			path, store, raw := newQueue(t)
+			before, _ := store.ReadRunner(context.Background())
+			var fired atomic.Int32
+			swap := func() { fired.Add(1); replaceWithCopy(t, raw, path) }
+			o := Options{DB: path, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+			switch point {
+			case "beforeOpen":
+				o.hooks.beforeOpen = swap
+			case "afterOpen":
+				o.hooks.afterOpen = swap
+			case "afterLocks":
+				o.hooks.afterLocks = swap
+			}
+			err := Run(context.Background(), o)
+			if fired.Load() != 1 {
+				t.Fatalf("hook fired %d times", fired.Load())
+			}
+			if exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "changed during startup") {
+				t.Fatalf("got %v", err)
+			}
+			if got := epochAt(t, path); got != before.Epoch {
+				t.Fatalf("epoch of the replacement file is %d, was %d", got, before.Epoch)
+			}
+			if row, _ := store.ReadRunner(context.Background()); row.Epoch != before.Epoch {
+				t.Fatalf("epoch of the original file is %d, was %d", row.Epoch, before.Epoch)
+			}
+		})
+	}
+}
+
+// P1: swapping the database for a symlink into the live directory after the
+// preflight must not let the runner act on the live file.
+func TestSwapToSymlinkIntoLiveDirRefused(t *testing.T) {
+	path, _, raw := newQueue(t)
+	home := os.Getenv("HOME")
+	liveDir := filepath.Join(home, ".clavain")
+	if err := os.MkdirAll(liveDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	live := filepath.Join(liveDir, "intercore.db")
+	if _, err := raw.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`VACUUM INTO ?`, live); err != nil {
+		t.Fatal(err)
+	}
+	liveEpoch := epochAt(t, live)
+	o := Options{DB: path, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o.hooks.afterOpen = func() {
+		if err := os.Remove(path); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(live, path); err != nil {
+			t.Error(err)
+		}
+	}
+	err := Run(context.Background(), o)
+	if exitCode(err) != ExitRefused {
+		t.Fatalf("got %v", err)
+	}
+	if got := epochAt(t, live); got != liveEpoch {
+		t.Fatalf("the live-directory database was written: epoch %d, was %d", got, liveEpoch)
+	}
+}
+
+// P1 control: the hooks run in an ordinary startup and nothing is refused.
+func TestStartupHooksFireWithoutSwap(t *testing.T) {
+	path, _, _ := newQueue(t)
+	var order []string
+	o := Options{DB: path, HeartbeatEvery: time.Hour}
+	o.hooks.beforeOpen = func() { order = append(order, "beforeOpen") }
+	o.hooks.afterOpen = func() { order = append(order, "afterOpen") }
+	o.hooks.afterLocks = func() { order = append(order, "afterLocks") }
+	r := start(t, o)
+	if strings.Join(order, ",") != "beforeOpen,afterOpen,afterLocks" {
+		t.Fatalf("hook order %v", order)
+	}
+	if r.epoch < 2 {
+		t.Fatalf("epoch %d", r.epoch)
+	}
+}
