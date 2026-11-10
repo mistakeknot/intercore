@@ -326,7 +326,9 @@ func TestCLIRecoveryLostEntryWhileLinkedExits5(t *testing.T) {
 			r.e.addJob(r.path, "j1", "sleep 5")
 			p, bar := r.heldAt("after_link_before_start", "drop_entry:after_link_before_start")
 			if release {
-				bar.release()
+				// The repair pass may stop the runner before this release
+				// lands; either order must end in exit 5.
+				bar.tryRelease(2 * time.Second)
 			}
 			if code := p.waitExit(t); code != 5 {
 				t.Fatalf("runner exit %d, want 5: %s", code, p.stderr())
@@ -580,15 +582,22 @@ func TestCLIRecoveryKillMatrix(t *testing.T) {
 				}
 			}},
 		{name: "b4_alive_descendant", point: "after_start_before_identity", mode: "spawn-child", status: "failed", outcome: "indeterminate", attempt: 1, execs: 1,
+			// The descendant must exist and be alive before the restart, or
+			// the extinction assertion below would pass without checking it.
+			prepare: func(r *rec) {
+				for i := 0; i < 500 && r.liveChild() == 0; i++ {
+					time.Sleep(10 * time.Millisecond)
+				}
+				if r.liveChild() == 0 {
+					r.t.Fatalf("the executor never started a live descendant")
+				}
+			},
 			check: func(r *rec) {
-				child := 0
-				for _, f := range r.childFiles() {
-					b, _ := os.ReadFile(f)
-					child, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+				child := r.recordedChild()
+				if child <= 0 {
+					r.t.Fatalf("no descendant pid recorded")
 				}
-				if child > 0 {
-					waitProcGone(r.t, child, "the executor's descendant")
-				}
+				waitProcGone(r.t, child, "the executor's descendant")
 			}},
 		{name: "b4_dead", point: "after_start_before_identity", mode: "sleep 20", status: "failed", outcome: "indeterminate", attempt: 1, execs: 1,
 			prepare: func(r *rec) {
@@ -654,6 +663,26 @@ func TestCLIRecoveryKillMatrix(t *testing.T) {
 			r.stop(p)
 		})
 	}
+}
+
+// recordedChild is the PID the spawn-child mode wrote, or 0.
+func (r *rec) recordedChild() int {
+	child := 0
+	for _, f := range r.childFiles() {
+		b, _ := os.ReadFile(f)
+		if n, _ := strconv.Atoi(strings.TrimSpace(string(b))); n > 0 {
+			child = n
+		}
+	}
+	return child
+}
+
+// liveChild is the recorded descendant's PID when that process exists.
+func (r *rec) liveChild() int {
+	if c := r.recordedChild(); c > 0 && !procGone(c) {
+		return c
+	}
+	return 0
 }
 
 // childFiles lists the "<output>.child" files the spawn-child mode writes.

@@ -379,6 +379,34 @@ func TestRecoveryBootChangeShortcut(t *testing.T) {
 	}
 }
 
+// An unreadable boot id on this runner is not a reboot: the shortcut would
+// skip the survivor proof after an ordinary same-boot crash.
+func TestRecoveryUnknownBootIDIsNotAReboot(t *testing.T) {
+	r := newRig(t)
+	o := r.opts()
+	ep := r.firstEpoch(o, "boot-A")
+	c := r.claim("x", ep)
+	r.launchAs(c, scheduler.LaunchStarted)
+	pid := sleeper(t)
+	did := r.linked(c, "running", pid)
+	r.paths(c, "none", "")
+	if err := r.store.MarkRunning(context.Background(), c, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	o.hooks.bootID = func() string { return "" }
+	var got snap
+	r.recovered(o, "", func() { got = r.snap("x") })
+	if got.Status != "running" || got.Token != c.Token {
+		t.Fatalf("job %+v, want left running under its claim", got)
+	}
+	if st, _, _ := r.dispatchRow(did); st != "running" {
+		t.Fatalf("dispatch %q, want untouched", st)
+	}
+	if !alive(pid) {
+		t.Fatal("a process was signalled")
+	}
+}
+
 // Row 8 with no recorded PID and a fallback attempt (no cgroup), and the legacy
 // row, are left for slice 4d: logged, untouched.
 func TestRecoveryFallbackAndLegacyRowsAreSkipped(t *testing.T) {
@@ -480,6 +508,17 @@ func TestRecoverySurvivorInCgroupIsKilledAndProven(t *testing.T) {
 // for the attempt (a different --cgroup-dir, or a damaged value) nothing is
 // signalled and the row is quarantined runner_inconsistent.
 func TestRecoveryCgroupPathMismatchQuarantinesWithoutSignal(t *testing.T) {
+	mismatchCase(t, false)
+}
+
+// A cancelling job with a mismatched cgroup path must not be finished as
+// cancelled: the store would turn the quarantine into a closed cancel while
+// the worker may still run. The row stays in flight and nothing is signalled.
+func TestRecoveryCgroupPathMismatchKeepsCancellingInFlight(t *testing.T) {
+	mismatchCase(t, true)
+}
+
+func mismatchCase(t *testing.T, cancelling bool) {
 	r, o := containRig(t)
 	ep := r.firstEpoch(o, "boot-A")
 	c := r.claim("x", ep)
@@ -514,10 +553,19 @@ func TestRecoveryCgroupPathMismatchQuarantinesWithoutSignal(t *testing.T) {
 	r.launchAs(c, scheduler.LaunchStarted)
 	r.linked(c, "spawned", 0)
 	r.paths(c, "cgroup", foreign)
+	if cancelling {
+		if _, err := r.store.CancelJob(context.Background(), "x", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	var got snap
 	r.recovered(o, "boot-A", func() { got = r.snap("x") })
-	if got.Status != "quarantined" || got.Outcome != scheduler.ReasonRunnerInconsistent {
+	if cancelling {
+		if got.Status != "cancelling" || got.Token != c.Token {
+			t.Fatalf("job %+v, want cancelling and still claimed by %s", got, c.Token)
+		}
+	} else if got.Status != "quarantined" || got.Outcome != scheduler.ReasonRunnerInconsistent {
 		t.Fatalf("job %+v, want quarantined runner_inconsistent", got)
 	}
 	if !alive(cmd.Process.Pid) {

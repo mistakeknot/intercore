@@ -83,6 +83,31 @@ func (b *barrier) release() {
 	}
 }
 
+// tryRelease is release for a runner that may already have exited (the
+// fail-stop can win the race against the release): it reports whether the
+// runner was still reading the FIFO and never fails the test.
+func (b *barrier) tryRelease(limit time.Duration) bool {
+	done := make(chan error, 1)
+	go func() {
+		f, err := os.OpenFile(b.fifo, os.O_WRONLY, 0)
+		if err == nil {
+			f.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err == nil
+	case <-time.After(limit):
+		// No reader: open the read end so the blocked writer returns.
+		if f, err := os.OpenFile(b.fifo, os.O_RDONLY|syscall.O_NONBLOCK, 0); err == nil {
+			<-done
+			f.Close()
+		}
+		return false
+	}
+}
+
 // vacuumCopy writes a VACUUM INTO copy of src to dst: a new inode with the same
 // queue_id, leaving src and its sidecars untouched.
 func vacuumCopy(t *testing.T, src, dst string) {
