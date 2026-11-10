@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -365,6 +366,57 @@ func TestOnAdmittedQuerierIsDeadTheMomentTheHookReturns(t *testing.T) {
 	var rows int
 	if err := store.db.QueryRow(`SELECT COUNT(*) FROM hook_probe`).Scan(&rows); err != nil || rows != 0 {
 		t.Fatalf("%d late rows persisted (err %v)", rows, err)
+	}
+}
+
+// A goroutine the hook started may still be writing when the hook returns.
+// Admission then rolls back (or commits); a write landing after that would
+// persist outside the transaction. Once the hook returns, no hook SQL may run,
+// so after the rollback nothing the hook wrote can exist.
+func TestOnAdmittedGoroutineCannotWriteAfterTheHookReturns(t *testing.T) {
+	store := testStore(t)
+	hookProbeTable(t, store)
+	ctx := context.Background()
+	conn, err := store.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for i := 0; i < 200; i++ {
+		if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		started := make(chan struct{})
+		hook := func(_ context.Context, q Querier, _ string) error {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				close(started)
+				for n := 0; ; n++ {
+					job := fmt.Sprintf("j%d-%d", i, n)
+					if _, err := q.ExecContext(context.Background(), `INSERT INTO hook_probe(job, dispatch_id, epoch) VALUES (?, 'g', 1)`, job); err != nil {
+						return
+					}
+				}
+			}()
+			<-started
+			return nil
+		}
+		if err := runAdmittedHook(ctx, conn, hook, "d"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+			t.Fatal(err)
+		}
+		wg.Wait()
+		var n int
+		if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM hook_probe`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != 0 {
+			t.Fatalf("iteration %d: %d hook rows survived the rollback", i, n)
+		}
 	}
 }
 

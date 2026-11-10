@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Querier is the database access an OnAdmitted hook gets. It is backed by the
@@ -30,33 +31,54 @@ type Querier interface {
 type admissionQuerier = Querier
 
 // hookQuerier narrows the admission connection to Querier, so a hook cannot
-// recover the *sql.Conn by type assertion. Every call is bound to life, the
-// hook's lifetime: whatever context the hook passes, the query ends when the
-// hook returns, and a call made after that fails at once. That keeps a row
-// the hook left unscanned from holding the connection through cleanup.
+// recover the *sql.Conn by type assertion, and it bounds the Querier to the
+// hook's lifetime. Each call runs under mu and re-checks closed inside it, so
+// close (which takes mu) waits out a call already in flight and no SQL can
+// start once it returns: a hook goroutine or a retained Querier cannot write
+// after admission commits or rolls back. close also cancels, synchronously,
+// every context it handed out, so a row the hook left unscanned cannot hold
+// the connection through cleanup, whatever context the hook passed.
 type hookQuerier struct {
-	conn *sql.Conn
-	life context.Context
+	conn    *sql.Conn
+	mu      sync.Mutex
+	closed  bool
+	cancels []context.CancelFunc
 }
 
-func (h hookQuerier) bind(ctx context.Context) context.Context {
+// bind returns the context for one call. Callers hold mu. Once closed, the
+// returned context is already cancelled, so the call fails without running.
+func (h *hookQuerier) bind(ctx context.Context) context.Context {
 	bound, cancel := context.WithCancel(ctx)
-	if h.life.Err() != nil {
-		// AfterFunc runs asynchronously, so an ended lifetime must cancel
-		// here: a retained Querier cannot win a race against cleanup.
+	if h.closed {
 		cancel()
 		return bound
 	}
-	context.AfterFunc(h.life, cancel)
+	h.cancels = append(h.cancels, cancel)
 	return bound
 }
 
-func (h hookQuerier) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (h *hookQuerier) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	return h.conn.ExecContext(h.bind(ctx), query, args...)
 }
 
-func (h hookQuerier) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+func (h *hookQuerier) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	return h.conn.QueryRowContext(h.bind(ctx), query, args...)
+}
+
+// close ends the Querier: it waits for an in-flight call, refuses every later
+// one and cancels every context handed out.
+func (h *hookQuerier) close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	for _, cancel := range h.cancels {
+		cancel()
+	}
+	h.cancels = nil
 }
 
 // reservedEnv are the identity variables Spawn sets itself after admission.
@@ -127,12 +149,14 @@ func validateStrictExecutor(path string) error {
 	return nil
 }
 
-// runAdmittedHook calls the hook with a context that admission cancels as soon
-// as the hook returns or panics. A query the hook left unscanned keeps the
-// owned connection busy until its context ends; cancelling here releases it
-// so the deferred connection close cannot wait on a row nobody will read.
+// runAdmittedHook calls the hook with a Querier and a context that both end
+// when the hook returns or panics. The Querier is closed before this returns,
+// so nothing the hook started can touch the connection once admission goes on
+// to commit or roll back.
 func runAdmittedHook(ctx context.Context, conn *sql.Conn, hook func(context.Context, Querier, string) error, id string) error {
 	hookCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	return hook(hookCtx, hookQuerier{conn: conn, life: hookCtx}, id)
+	q := &hookQuerier{conn: conn}
+	defer q.close()
+	return hook(hookCtx, q, id)
 }
