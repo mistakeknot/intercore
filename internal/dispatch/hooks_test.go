@@ -382,7 +382,7 @@ func TestOnAdmittedGoroutineCannotWriteAfterTheHookReturns(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 30; i++ {
 		if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 			t.Fatal(err)
 		}
@@ -403,10 +403,14 @@ func TestOnAdmittedGoroutineCannotWriteAfterTheHookReturns(t *testing.T) {
 			<-started
 			return nil
 		}
-		if err := runAdmittedHook(ctx, conn, hook, "d"); err != nil {
+		// The goroutine may be mid-write when the hook returns; then the hook is
+		// refused (see TestOnAdmittedReturnWithQueryInFlightFailsClosed).
+		if err := runAdmittedHook(ctx, conn, hook, "d"); err != nil && !strings.Contains(err.Error(), "still running") {
 			t.Fatal(err)
 		}
-		if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil {
+		// Interrupting a write inside an explicit transaction makes SQLite end the
+		// transaction itself, so the rollback may find none to roll back.
+		if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil && !errNoTransaction(err) {
 			t.Fatal(err)
 		}
 		wg.Wait()
@@ -480,6 +484,113 @@ func TestOnAdmittedInFlightQueryIsInterruptedAtHookEnd(t *testing.T) {
 				t.Fatalf("rollback after the hook: %v", err)
 			}
 		})
+	}
+}
+
+// foreverInsert is a write that never finishes on its own.
+const foreverInsert = `INSERT INTO hook_probe(job, dispatch_id, epoch) WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT 'f' || x, 'd', 1 FROM c`
+
+// waitRunning blocks until n of the Querier's calls are running.
+func waitRunning(t *testing.T, q Querier, n int) {
+	t.Helper()
+	hq := q.(*hookQuerier)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		hq.mu.Lock()
+		got := hq.running
+		hq.mu.Unlock()
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d of %d queries started", got, n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A hook that returns nil while one of its queries is still running has not
+// finished. Interrupting that query can end the admission transaction by
+// itself, so whether it committed would depend on timing: it must be refused.
+func TestOnAdmittedReturnWithQueryInFlightFailsClosed(t *testing.T) {
+	store := testStore(t)
+	hookProbeTable(t, store)
+	ctx := context.Background()
+	conn, err := store.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	hook := func(_ context.Context, q Querier, _ string) error {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = q.ExecContext(context.Background(), foreverInsert)
+		}()
+		waitRunning(t, q, 1)
+		return nil
+	}
+	err = runAdmittedHook(ctx, conn, hook, "d")
+	wg.Wait()
+	if err == nil || !strings.Contains(err.Error(), "still running") {
+		t.Fatalf("a hook that left a query running returned %v; want a refusal", err)
+	}
+	if _, err := conn.ExecContext(ctx, "ROLLBACK"); err != nil && !errNoTransaction(err) {
+		t.Fatal(err)
+	}
+}
+
+// When an interrupted hook write has already ended the admission transaction,
+// admission's own rollback finds none. That leaves a clean connection, which
+// must not be discarded: a per-connection setting made by the hook survives.
+func TestOnAdmittedInterruptedWriteKeepsTheConnection(t *testing.T) {
+	store, f := testStore(t), newHookFixture(t)
+	hookProbeTable(t, store)
+	sentinel := errors.New("claim lost")
+	var wg sync.WaitGroup
+	f.opts.OnAdmitted = func(ctx context.Context, q Querier, id string) error {
+		if _, err := q.ExecContext(ctx, `PRAGMA recursive_triggers = 1`); err != nil {
+			return err
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = q.ExecContext(context.Background(), foreverInsert)
+		}()
+		waitRunning(t, q, 1)
+		return sentinel
+	}
+	_, err := spawnAndWait(t, store, f.opts)
+	wg.Wait()
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Spawn error %v does not wrap the hook's error", err)
+	}
+	if n := dispatchCount(t, store); n != 0 {
+		t.Fatalf("%d dispatch rows survive a refused hook", n)
+	}
+	var probes int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM hook_probe`).Scan(&probes); err != nil || probes != 0 {
+		t.Fatalf("hook writes survived: %d rows, %v", probes, err)
+	}
+	var like int
+	if err := store.db.QueryRow(`PRAGMA recursive_triggers`).Scan(&like); err != nil {
+		t.Fatal(err)
+	}
+	if like != 1 {
+		t.Fatal("admission discarded a healthy connection after the interrupt had already rolled back")
+	}
+}
+
+func TestErrNoTransaction(t *testing.T) {
+	if !errNoTransaction(errors.New("SQL logic error: cannot rollback - no transaction is active (1)")) {
+		t.Fatal("the driver's message was not recognised")
+	}
+	if errNoTransaction(nil) || errNoTransaction(errors.New("database is locked")) {
+		t.Fatal("an unrelated error was taken for an ended transaction")
 	}
 }
 

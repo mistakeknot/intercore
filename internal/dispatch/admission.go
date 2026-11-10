@@ -120,7 +120,9 @@ func (s *Store) admit(ctx context.Context, d *Dispatch, opts SpawnOptions) (stri
 			// an open transaction to the pool if cleanup itself fails.
 			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if _, err := conn.ExecContext(cleanup, "ROLLBACK"); err != nil {
+			// An interrupted hook write can already have rolled the transaction
+			// back; that leaves the connection clean, so it is not discarded.
+			if _, err := conn.ExecContext(cleanup, "ROLLBACK"); err != nil && !errNoTransaction(err) {
 				_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 			}
 		}

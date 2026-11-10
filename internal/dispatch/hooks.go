@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Querier is the database access an OnAdmitted hook gets. It is backed by the
@@ -42,11 +43,13 @@ type admissionQuerier = Querier
 // it cannot hold the connection through cleanup, whatever context the hook
 // passed.
 type hookQuerier struct {
-	conn    *sql.Conn
-	mu      sync.Mutex
-	closed  bool
-	cancels []context.CancelFunc
-	active  sync.WaitGroup
+	conn      *sql.Conn
+	mu        sync.Mutex
+	closed    bool
+	cancels   []context.CancelFunc
+	running   int       // calls between begin and done
+	lastBegin time.Time // when the latest call began
+	active    sync.WaitGroup
 }
 
 // begin registers one call. It returns the context to run it under and the
@@ -61,8 +64,15 @@ func (h *hookQuerier) begin(ctx context.Context) (context.Context, func()) {
 		return bound, func() {}
 	}
 	h.cancels = append(h.cancels, cancel)
+	h.running++
+	h.lastBegin = time.Now()
 	h.active.Add(1)
-	return bound, h.active.Done
+	return bound, func() {
+		h.mu.Lock()
+		h.running--
+		h.mu.Unlock()
+		h.active.Done()
+	}
 }
 
 func (h *hookQuerier) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
@@ -77,18 +87,35 @@ func (h *hookQuerier) QueryRowContext(ctx context.Context, query string, args ..
 	return h.conn.QueryRowContext(bound, query, args...)
 }
 
+// interruptGrace is how long a call gets to start in the driver before close
+// interrupts it.
+const interruptGrace = 50 * time.Millisecond
+
 // close ends the Querier: it refuses every later call, cancels every context
-// handed out, then waits for the calls still running to return.
-func (h *hookQuerier) close() {
+// handed out, then waits for the calls still running to return. It reports how
+// many calls were still running when it began, i.e. how many it interrupted.
+func (h *hookQuerier) close() (interrupted int) {
 	h.mu.Lock()
 	h.closed = true
+	interrupted = h.running
 	cancels := h.cancels
 	h.cancels = nil
+	lastBegin := h.lastBegin
 	h.mu.Unlock()
+	if interrupted > 0 {
+		// The driver's interrupt is lost when it lands before SQLite has started
+		// the statement, and the statement then runs to the end on its own. Let
+		// every call that is still running get that far first. Only a hook that
+		// returned with a query running pays this wait, and that is an error.
+		if wait := interruptGrace - time.Since(lastBegin); wait > 0 {
+			time.Sleep(wait)
+		}
+	}
 	for _, cancel := range cancels {
 		cancel()
 	}
 	h.active.Wait()
+	return interrupted
 }
 
 // reservedEnv are the identity variables Spawn sets itself after admission.
@@ -163,10 +190,38 @@ func validateStrictExecutor(path string) error {
 // when the hook returns or panics. The Querier is closed before this returns,
 // so nothing the hook started can touch the connection once admission goes on
 // to commit or roll back.
+//
+// A hook that returns nil while one of its calls is still running has not
+// finished its work, and the interrupt that ends the call can end the
+// admission transaction itself: SQLite rolls an explicit transaction back when
+// it interrupts an INSERT, UPDATE or DELETE inside it. Whether the write was
+// cut short or finished just in time would then depend on timing, so this
+// reports it as an error and admission never commits.
 func runAdmittedHook(ctx context.Context, conn *sql.Conn, hook func(context.Context, Querier, string) error, id string) error {
 	hookCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	q := &hookQuerier{conn: conn}
-	defer q.close()
-	return hook(hookCtx, q, id)
+	closed := false
+	defer func() {
+		if !closed { // the hook panicked
+			q.close()
+		}
+	}()
+	err := hook(hookCtx, q, id)
+	closed = true
+	interrupted := q.close()
+	if err != nil {
+		return err
+	}
+	if interrupted > 0 {
+		return fmt.Errorf("hook returned while %d of its queries were still running; they were interrupted", interrupted)
+	}
+	return nil
+}
+
+// errNoTransaction reports SQLite's answer to ROLLBACK when no transaction is
+// open. The connection is then already clean: an interrupted write inside an
+// explicit transaction rolls the whole transaction back by itself.
+func errNoTransaction(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no transaction is active")
 }
