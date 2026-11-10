@@ -85,8 +85,8 @@ func TestMigrateFromV39AddsDispatchTerminalRecords(t *testing.T) {
 	if err := d.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate from 39: %v", err)
 	}
-	if v, err := d.SchemaVersion(); err != nil || v != 40 {
-		t.Fatalf("schema version = %d (%v), want 40", v, err)
+	if v, err := d.SchemaVersion(); err != nil || v != currentSchemaVersion {
+		t.Fatalf("schema version = %d (%v), want %d", v, err, currentSchemaVersion)
 	}
 	assertSchema040Objects(t, d.db)
 }

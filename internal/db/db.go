@@ -20,8 +20,8 @@ import (
 var schemaDDL string
 
 const (
-	currentSchemaVersion = 40
-	maxSchemaVersion     = 40
+	currentSchemaVersion = 41
+	maxSchemaVersion     = 41
 )
 
 var (
@@ -130,14 +130,18 @@ func (d *DB) SchemaVersion() (int, error) {
 	return v, err
 }
 
-// Migrate applies the schema DDL if needed.
-// Creates a timestamped backup before any migration attempt.
+// Migrate applies the schema DDL if needed. When a migration will run on a
+// non-empty database it first writes a verified VACUUM INTO backup
+// (<db>.backup-<from-version>-<timestamp>.db) and refuses to migrate if that
+// backup or its verification fails.
 func (d *DB) Migrate(ctx context.Context) error {
-	// Create backup before migration if DB file exists
-	if info, err := os.Stat(d.path); err == nil && info.Size() > 0 {
-		backupPath := fmt.Sprintf("%s.backup-%s", d.path, time.Now().Format("20060102-150405"))
-		if err := copyFile(d.path, backupPath); err != nil {
-			return fmt.Errorf("migrate: backup failed: %w", err)
+	// Cheap pre-check outside the lock: a current database needs no backup.
+	// The version is re-read inside the transaction below.
+	if v, err := d.SchemaVersion(); err == nil && v >= currentSchemaVersion {
+		return nil
+	} else if err == nil {
+		if err := d.backupBeforeMigrate(ctx, v); err != nil {
+			return err
 		}
 	}
 
@@ -582,9 +586,24 @@ func (d *DB) Migrate(ctx context.Context) error {
 		}
 	}
 
+	// v40 → v41: scheduler runner state. The ALTER chunks add columns to an
+	// existing scheduler_jobs; the schema DDL below creates the new tables and
+	// indexes; the data chunks then normalize legacy rows.
+	if currentVersion < 41 {
+		if err := applyMigration041Alters(ctx, tx); err != nil {
+			return err
+		}
+	}
+
 	// Apply schema DDL
 	if _, err := tx.ExecContext(ctx, schemaDDL); err != nil {
 		return fmt.Errorf("migrate: apply schema: %w", err)
+	}
+
+	if currentVersion < 41 {
+		if err := applyMigration041Data(ctx, tx); err != nil {
+			return err
+		}
 	}
 
 	// Set user_version inside same transaction

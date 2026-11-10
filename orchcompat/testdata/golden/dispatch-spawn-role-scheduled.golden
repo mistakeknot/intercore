@@ -1,9 +1,9 @@
 === init
 $ ic --db=<SANDBOX>/work/t.db init
 exit: 0
-files: created work/t.db, created work/t.db.backup-<STAMP>
+files: created work/t.db, created work/t.db.backup-<STAMP>.db
 --- stdout
-initialized <SANDBOX>/work/t.db (schema v40)
+initialized <SANDBOX>/work/t.db (schema v41)
 --- stderr
 
 

@@ -235,6 +235,7 @@ Commands:
   dispatch kill <id>            Kill a dispatch
   dispatch prune --older-than=<dur>  Prune old dispatches
   dispatch retry <id> [--escalate] [--chain-key=K]  Retry (or escalate) a failed dispatch
+  dispatch reconcile [--lease=<dur>]  Record dead agents, release abandoned reservations
   run create --project=<dir> --goal=<text> [--metadata=JSON] [opts]  Create a run
   run create --projects=<p1>,<p2> --goal=<text>    Create portfolio run
   run status <id>               Show run details
@@ -307,7 +308,9 @@ Commands:
   scheduler list [--status=<s>] [--limit=N]  List jobs
   scheduler pause               Pause the scheduler
   scheduler resume              Resume the scheduler
-  scheduler cancel <job-id>     Cancel a job
+  scheduler cancel <job-id> [--force]  Cancel a job (--force also kills a running dispatch)
+  scheduler requeue <job-id> --confirm-not-running  Return a quarantined job to pending
+  scheduler unblock <job-id> --confirm-not-running  Clear a job's retry block
   scheduler prune [--older-than=<dur>]  Prune finished jobs (default 24h)
   coordination reserve --owner=<o> --scope=<s> --pattern=<p> [--type=<t>] [--exclusive] [--ttl=<sec>] [--reason=<s>] [--dispatch=<id>] [--run=<id>]  Reserve files
   coordination release <id>     Release a reservation (or --owner=<o> --scope=<s>)

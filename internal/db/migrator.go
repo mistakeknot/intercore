@@ -108,22 +108,44 @@ func (m *Migrator) applyBaseline(ctx context.Context) (int, error) {
 			return 0, fmt.Errorf("apply baseline %s: %w", mig.Name, err)
 		}
 
-		// Set version to max available — baseline includes the full schema,
-		// so no additive migrations should run after it.
-		targetVersion := m.MaxVersion()
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", targetVersion)); err != nil {
+		// The baseline is the schema at its own version, not at the latest:
+		// the additive migrations after it still have to run, so a fresh
+		// database gets every table and column they add.
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", mig.Version)); err != nil {
 			tx.Rollback()
-			return 0, fmt.Errorf("set version %d: %w", targetVersion, err)
+			return 0, fmt.Errorf("set version %d: %w", mig.Version, err)
 		}
 		if err := tx.Commit(); err != nil {
 			return 0, fmt.Errorf("commit baseline: %w", err)
 		}
-		return 1, nil
+		// A database created a moment ago has nothing to back up.
+		more, err := m.applySteps(ctx, mig.Version)
+		return 1 + more, err
 	}
 	return 0, fmt.Errorf("no baseline migration found")
 }
 
 func (m *Migrator) applyAdditive(ctx context.Context, currentVersion int) (int, error) {
+	pending := false
+	for _, mig := range m.migrations {
+		if !mig.Baseline && mig.Version > currentVersion {
+			pending = true
+			break
+		}
+	}
+	if !pending {
+		return 0, nil
+	}
+	// Every migration run starts from a verified backup; a failed backup
+	// leaves the database unmigrated.
+	if err := m.db.backupBeforeMigrate(ctx, currentVersion); err != nil {
+		return 0, err
+	}
+	return m.applySteps(ctx, currentVersion)
+}
+
+// applySteps applies every additive migration above currentVersion in order.
+func (m *Migrator) applySteps(ctx context.Context, currentVersion int) (int, error) {
 	applied := 0
 	for _, mig := range m.migrations {
 		if mig.Baseline || mig.Version <= currentVersion {
@@ -134,12 +156,17 @@ func (m *Migrator) applyAdditive(ctx context.Context, currentVersion int) (int, 
 			return applied, fmt.Errorf("begin migration %s: %w", mig.Name, err)
 		}
 
-		if _, err := tx.ExecContext(ctx, mig.SQL); err != nil {
-			// ALTER TABLE ADD COLUMN may fail with "duplicate column" if a prior
-			// partial run added it. Tolerate this for idempotency.
-			if !isDuplicateColumnError(err) {
-				tx.Rollback()
-				return applied, fmt.Errorf("apply migration %s: %w", mig.Name, err)
+		// Chunked files run one chunk at a time so a duplicate-column error in
+		// one ALTER does not skip the rest of the file. A plain file is one
+		// chunk, as before.
+		for _, c := range splitChunks(mig.SQL) {
+			if _, err := tx.ExecContext(ctx, c.SQL); err != nil {
+				// ALTER TABLE ADD COLUMN may fail with "duplicate column" if a
+				// prior partial run added it. Tolerate this for idempotency.
+				if !isDuplicateColumnError(err) {
+					tx.Rollback()
+					return applied, fmt.Errorf("apply migration %s: %w", mig.Name, err)
+				}
 			}
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", mig.Version)); err != nil {

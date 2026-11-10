@@ -23,7 +23,7 @@ Name and scope components reject `/`, `\`, `..`, empty, `.`. Resolved path must 
 - `busy_timeout` set to prevent immediate `SQLITE_BUSY`
 - `modernc.org/sqlite` does NOT support CTE + UPDATE RETURNING -- use direct `UPDATE ... RETURNING`
 - Transaction isolation varies by operation (see `internal/` package docs for specifics)
-- Pre-migration backup created automatically (`.backup-YYYYMMDD-HHMMSS`)
+- Pre-migration backup created automatically (`<db>.backup-<fromVersion>-YYYYMMDD-HHMMSS.db`, a `VACUUM INTO` copy verified before the migration runs; none when the database is already current)
 - Schema version inside transaction prevents TOCTOU
 - `CREATE TABLE IF NOT EXISTS` makes migration idempotent
 

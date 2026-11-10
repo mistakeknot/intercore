@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -15,7 +17,7 @@ import (
 
 func cmdScheduler(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		slog.Error("scheduler: missing subcommand", "expected", "status, submit, stats, pause, resume, list, prune")
+		slog.Error("scheduler: missing subcommand", "expected", "status, submit, stats, pause, resume, list, cancel, requeue, unblock, prune")
 		return 3
 	}
 
@@ -34,6 +36,10 @@ func cmdScheduler(ctx context.Context, args []string) int {
 		return cmdSchedulerResume(ctx)
 	case "cancel":
 		return cmdSchedulerCancel(ctx, args[1:])
+	case "requeue":
+		return cmdSchedulerRequeue(ctx, args[1:])
+	case "unblock":
+		return cmdSchedulerUnblock(ctx, args[1:])
 	case "prune":
 		return cmdSchedulerPrune(ctx, args[1:])
 	default:
@@ -268,10 +274,13 @@ func cmdSchedulerResume(ctx context.Context) int {
 }
 
 func cmdSchedulerCancel(ctx context.Context, args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: usage: ic scheduler cancel <job-id>\n")
+	f := cli.ParseFlags(args)
+	if len(f.Positionals) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: usage: ic scheduler cancel <job-id> [--force]\n")
 		return 3
 	}
+	id := f.Positionals[0]
+	force := f.Bool("force")
 
 	d, err := openDB()
 	if err != nil {
@@ -281,25 +290,117 @@ func cmdSchedulerCancel(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := scheduler.NewStore(d.SqlDB())
-	job, err := store.Get(ctx, args[0])
+	job, err := store.Get(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		slog.Error("scheduler cancel: no such job", "id", id)
+		return 1
+	}
 	if err != nil {
-		slog.Error("scheduler cancel failed", "error", err)
-		return 1
-	}
-
-	if job.Status == scheduler.StatusCompleted || job.Status == scheduler.StatusFailed || job.Status == scheduler.StatusCancelled {
-		slog.Error("scheduler cancel: job already in terminal state", "status", job.Status)
-		return 1
-	}
-
-	job.Status = scheduler.StatusCancelled
-	job.CompletedAt = time.Now()
-	if err := store.Update(ctx, job); err != nil {
 		slog.Error("scheduler cancel failed", "error", err)
 		return 2
 	}
 
-	fmt.Printf("Cancelled: %s\n", job.ID)
+	res, err := store.CancelJob(ctx, id, time.Now())
+	switch {
+	case errors.Is(err, scheduler.ErrAlreadyTerminal):
+		slog.Error("scheduler cancel: job already in terminal state", "status", job.Status)
+		return 1
+	case errors.Is(err, scheduler.ErrNotFound):
+		slog.Error("scheduler cancel: no such job", "id", id)
+		return 1
+	case err != nil:
+		slog.Error("scheduler cancel failed", "error", err)
+		return 2
+	}
+
+	if res.InFlight {
+		fmt.Printf("Cancelling: %s\n", id)
+		if !schedulerRunnerLive(ctx, d.SqlDB()) {
+			fmt.Fprintf(os.Stderr, "ic: scheduler cancel: warning: no live runner will finish this cancel; the job stays cancelling until one recovers it\n")
+		}
+	} else {
+		fmt.Printf("Cancelled: %s\n", id)
+	}
+	// --force kills the dispatch the cancel transaction saw (a quarantined
+	// job's dispatch may still be live). A dispatch read before the cancel
+	// committed could be stale: the job may have been linked since.
+	if force && res.DispatchID != "" {
+		dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
+		if err := dispatch.Kill(ctx, dStore, res.DispatchID); err != nil {
+			slog.Error("scheduler cancel: kill dispatch failed", "dispatch", res.DispatchID, "error", err)
+			return 2
+		}
+		fmt.Printf("Killed dispatch: %s\n", res.DispatchID)
+	}
+	return 0
+}
+
+// schedulerRunnerLive reports whether a runner heartbeat is recent. No runner
+// exists until a later slice adds one, so this is false on every database today.
+func schedulerRunnerLive(ctx context.Context, sqlDB *sql.DB) bool {
+	var n int
+	err := sqlDB.QueryRowContext(ctx,
+		`SELECT count(*) FROM scheduler_runner WHERE id = 1 AND state = 'running' AND heartbeat_at >= unixepoch() - 120`).Scan(&n)
+	return err == nil && n > 0
+}
+
+func cmdSchedulerRequeue(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	if len(f.Positionals) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler requeue: usage: ic scheduler requeue <job-id> --confirm-not-running\n")
+		return 3
+	}
+	d, err := openDB()
+	if err != nil {
+		slog.Error("scheduler requeue failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	id := f.Positionals[0]
+	err = scheduler.NewStore(d.SqlDB()).Requeue(ctx, id, f.Bool("confirm-not-running"), time.Now())
+	switch {
+	case errors.Is(err, scheduler.ErrConfirmRequired):
+		fmt.Fprintf(os.Stderr, "ic: scheduler requeue: pass --confirm-not-running once you have checked that no worker of %s is running\n", id)
+		return 3
+	case errors.Is(err, scheduler.ErrNotFound), errors.Is(err, scheduler.ErrNotQuarantined):
+		slog.Error("scheduler requeue", "id", id, "error", err)
+		return 1
+	case err != nil:
+		slog.Error("scheduler requeue failed", "error", err)
+		return 2
+	}
+	fmt.Printf("Requeued: %s\n", id)
+	return 0
+}
+
+func cmdSchedulerUnblock(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	if len(f.Positionals) < 1 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler unblock: usage: ic scheduler unblock <job-id> --confirm-not-running\n")
+		return 3
+	}
+	d, err := openDB()
+	if err != nil {
+		slog.Error("scheduler unblock failed", "error", err)
+		return 2
+	}
+	defer d.Close()
+
+	id := f.Positionals[0]
+	err = scheduler.NewStore(d.SqlDB()).Unblock(ctx, id, f.Bool("confirm-not-running"))
+	switch {
+	case errors.Is(err, scheduler.ErrConfirmRequired):
+		fmt.Fprintf(os.Stderr, "ic: scheduler unblock: pass --confirm-not-running once you have checked that no worker of %s is running\n", id)
+		return 3
+	case errors.Is(err, scheduler.ErrNotFound), errors.Is(err, scheduler.ErrNotBlocked):
+		slog.Error("scheduler unblock", "id", id, "error", err)
+		return 1
+	case err != nil:
+		slog.Error("scheduler unblock failed", "error", err)
+		return 2
+	}
+	fmt.Printf("Unblocked: %s\n", id)
 	return 0
 }
 

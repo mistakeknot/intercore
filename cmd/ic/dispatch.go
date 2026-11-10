@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/mistakeknot/intercore/internal/budget"
 	"github.com/mistakeknot/intercore/internal/cli"
@@ -45,7 +47,7 @@ func dispatchMutationError(operation string, err error) int {
 
 func cmdDispatch(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		slog.Error("dispatch: missing subcommand", "expected", "spawn, status, list, poll, wait, kill, prune, tokens, retry")
+		slog.Error("dispatch: missing subcommand", "expected", "spawn, status, list, poll, wait, kill, prune, tokens, retry, reconcile")
 		return 3
 	}
 
@@ -69,6 +71,9 @@ func cmdDispatch(ctx context.Context, args []string) int {
 	case "retry":
 		return cmdDispatchRetry(ctx, args[1:])
 	case "reconcile":
+		if len(args) == 1 || (len(args) == 2 && strings.HasPrefix(args[1], "--")) {
+			return cmdDispatchReconcileSweep(ctx, args[1:])
+		}
 		if len(args) != 2 {
 			return 3
 		}
@@ -297,6 +302,49 @@ func cmdDispatchSpawn(ctx context.Context, args []string) int {
 	return 0
 }
 
+// cmdDispatchReconcileSweep records the outcome of every unsupervised active
+// dispatch whose process has exited, and releases reservations that never
+// started a process. It signals nothing.
+func cmdDispatchReconcileSweep(ctx context.Context, args []string) int {
+	f := cli.ParseFlags(args)
+	lease := dispatch.DefaultReservationLease
+	if raw := f.String("lease", ""); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed <= 0 {
+			slog.Error("dispatch reconcile: --lease must be a positive duration", "value", raw)
+			return 3
+		}
+		lease = parsed
+	}
+	d, err := openDB()
+	if err != nil {
+		slog.Error("dispatch reconcile", "error", err)
+		return 2
+	}
+	defer d.Close()
+	result, err := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB())).Reap(ctx, lease)
+	if result == nil {
+		result = &dispatch.ReapResult{}
+	}
+	if flagJSON {
+		collected, released := result.Collected, result.Released
+		if collected == nil {
+			collected = []string{}
+		}
+		if released == nil {
+			released = []string{}
+		}
+		json.NewEncoder(os.Stdout).Encode(map[string]interface{}{"collected": collected, "released": released})
+	} else {
+		fmt.Printf("collected=%d released=%d\n", len(result.Collected), len(result.Released))
+	}
+	if err != nil {
+		slog.Error("dispatch reconcile", "error", err)
+		return 2
+	}
+	return 0
+}
+
 func cmdDispatchStatus(ctx context.Context, args []string) int {
 	if len(args) < 1 {
 		fmt.Fprintf(os.Stderr, "ic: dispatch status: usage: ic dispatch status <id>\n")
@@ -311,6 +359,10 @@ func cmdDispatchStatus(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
+	// A crashed agent must not read as running: record its outcome first.
+	if _, err := store.ReapDispatch(ctx, args[0]); err != nil && !errors.Is(err, dispatch.ErrNotFound) {
+		slog.Warn("dispatch status: reap failed", "id", args[0], "error", err)
+	}
 	disp, err := store.Get(ctx, args[0])
 	if err != nil {
 		if err == dispatch.ErrNotFound {
@@ -345,6 +397,11 @@ func cmdDispatchList(ctx context.Context, args []string) int {
 	var dispatches []*dispatch.Dispatch
 
 	if activeOnly {
+		// Dead agents and abandoned reservations are not active; settle them
+		// before listing so the list is true and their cap slots are free.
+		if _, rerr := store.Reap(ctx, 0); rerr != nil {
+			slog.Warn("dispatch list: reap failed", "error", rerr)
+		}
 		dispatches, err = store.ListActive(ctx)
 	} else {
 		dispatches, err = store.List(ctx, scopeFilter)

@@ -59,6 +59,10 @@ var (
 	errTerminalCASMissed    = errors.New("dispatch became terminal during the write")
 )
 
+// ErrPreconditionFailed reports that a Terminal's precondition no longer held
+// when the write transaction read the row, so nothing was written.
+var ErrPreconditionFailed = errors.New("dispatch no longer meets the terminal write's precondition")
+
 func supervisedWriter(source string) bool {
 	switch source {
 	case TerminalSourceSupervisor, TerminalSourceReconcile, TerminalSourceSpool:
@@ -95,6 +99,12 @@ type Terminal struct {
 	Reason string
 	// Fields are dispatch columns written with the status; see allowedUpdateCols.
 	Fields UpdateFields
+	// ReservationCutoff, when nonzero, makes the write conditional on the row
+	// still being an abandoned reservation: status spawned, no pid, and created
+	// at or before this Unix time. The check runs inside the write transaction,
+	// so a spawn that records its process first wins and nothing is written
+	// (ErrPreconditionFailed).
+	ReservationCutoff int64
 
 	ExitCode           *int
 	ExitSignal         string
@@ -224,10 +234,12 @@ func terminalizeTx(ctx context.Context, q querier, id string, t Terminal, trace 
 		attempt              int
 		scopeID              sql.NullString
 		requested, effective sql.NullString
+		pid                  sql.NullInt64
+		createdAt            int64
 	)
 	err := q.QueryRowContext(ctx,
-		"SELECT status, retry_count, scope_id, parent_dispatch_id, sandbox_spec, sandbox_effective FROM dispatches WHERE id = ?",
-		id).Scan(&prev, &attempt, &scopeID, &parentID, &requested, &effective)
+		"SELECT status, retry_count, scope_id, parent_dispatch_id, sandbox_spec, sandbox_effective, pid, created_at FROM dispatches WHERE id = ?",
+		id).Scan(&prev, &attempt, &scopeID, &parentID, &requested, &effective, &pid, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, "", ErrNotFound
 	}
@@ -240,6 +252,9 @@ func terminalizeTx(ctx context.Context, q querier, id string, t Terminal, trace 
 			return nil, prev, err
 		}
 		return existing, prev, ErrAlreadyTerminal
+	}
+	if t.ReservationCutoff != 0 && (prev != StatusSpawned || pid.Valid || createdAt > t.ReservationCutoff) {
+		return nil, prev, ErrPreconditionFailed
 	}
 	if !supervisedWriter(t.Source) {
 		supervised, err := isSupervised(ctx, q, id)
