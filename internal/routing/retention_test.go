@@ -420,7 +420,7 @@ func TestPruneThenRestoreRoundTripsEveryColumn(t *testing.T) {
 	sdb, _ := retentionDB(t)
 	dir := t.TempDir()
 	ctx := context.Background()
-	// Spans three UTC months; small batches give several gzip members per file.
+	// Spans three UTC months; small batches give several archive files per month.
 	var want []Decision
 	store := NewDecisionStore(sdb)
 	for i, d := range []float64{150, 149, 120, 119, 118, 100, 99, 75, 61, 45} {

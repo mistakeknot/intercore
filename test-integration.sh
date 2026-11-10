@@ -1639,7 +1639,8 @@ fake_ic() { # $1=file $2=calls-file $3=shell snippet run after logging the call
 }
 ncalls() { if [[ -e "$1" ]]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
 PROJA_DB="$HOOK_DIR/projA/.clavain/intercore.db"
-PROJA_KEY="$(printf '%s' "$PROJA_DB" | cksum | cut -d' ' -f1)"
+PROJA_KEY="$( source "$SCRIPT_DIR/lib-intercore.sh"; _intercore_routing_prune_key "$PROJA_DB" )"
+[[ "$PROJA_KEY" =~ ^[0-9a-f]{32}$ ]] || fail "hook tests: the stamp key must be a sha256 prefix, got '$PROJA_KEY'"
 
 # 1. No HOME and no XDG_STATE_HOME: skip quietly, never "unbound variable".
 fake_ic "$HOOK_DIR/nohome-ic" "$HOOK_DIR/nohome-calls" 'exit 0'
@@ -1651,19 +1652,31 @@ t_remote() { set -euo pipefail; unset HOME; source "$SCRIPT_DIR/lib-intercore.sh
 run_ok "hook: intercore_remote_authority with HOME unset under set -u must report not-remote, not abort" t_remote
 pass "hook survives HOME unset under set -u and skips the prune"
 
-# 4. A failing or missing cksum must not abort an errexit caller, and must skip the prune.
-TOOLBIN_NOCKSUM="$HOOK_DIR/toolbin-nocksum"; mkdir -p "$TOOLBIN_NOCKSUM"
-for _t in cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN_NOCKSUM/$_t"; done
-t_cksum() { # $1 = exit status of a cksum that is installed, or "missing" for none on PATH
-  unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-cksum"
+# 4. Failing or missing hash tools must not abort an errexit caller, and must skip the prune.
+TOOLBIN_NOHASH="$HOOK_DIR/toolbin-nohash"; mkdir -p "$TOOLBIN_NOHASH"
+for _t in cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN_NOHASH/$_t"; done
+t_hash() { # $1 = exit status of the hash tools (installed but failing), or "missing" for none on PATH
+  unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-hash"
   HOOK_BIN="$HOOK_DIR/nohome-ic"
-  if [[ "$1" == missing ]]; then PATH="$TOOLBIN_NOCKSUM"; ! command -v cksum >/dev/null || return 9
-  else eval "cksum() { cat >/dev/null; return $1; }"; fi
+  if [[ "$1" == missing ]]; then PATH="$TOOLBIN_NOHASH"; ! command -v sha256sum >/dev/null && ! command -v shasum >/dev/null && ! command -v cksum >/dev/null || return 9
+  else eval "sha256sum() { cat >/dev/null; return $1; }; shasum() { cat >/dev/null; return $1; }; cksum() { cat >/dev/null; return $1; }"; fi
   hook_raw projA; }
-run_ok "hook: a failing cksum must not abort an errexit caller" t_cksum 1
-run_ok "hook: a missing cksum must not abort an errexit caller" t_cksum missing
+run_ok "hook: failing hash tools must not abort an errexit caller" t_hash 1
+run_ok "hook: missing hash tools must not abort an errexit caller" t_hash missing
 [[ ! -e "$HOOK_DIR/nohome-calls" ]] || fail "hook: without a stamp key the hook must skip the prune"
-pass "hook skips quietly when cksum fails"
+pass "hook skips quietly when no hash tool works"
+
+# 4b. Where only cksum exists the hook still prunes, once a day, under a "ck" key.
+TOOLBIN_CKSUM="$HOOK_DIR/toolbin-cksum"; mkdir -p "$TOOLBIN_CKSUM"
+for _t in cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN_CKSUM/$_t"; done
+fake_ic "$HOOK_DIR/ck-ic" "$HOOK_DIR/ck-calls" 'exit 0'
+t_cksum_only() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-ck" HOOK_BIN="$HOOK_DIR/ck-ic"
+  PATH="$TOOLBIN_CKSUM"; ! command -v sha256sum >/dev/null && ! command -v shasum >/dev/null || return 9
+  hook_raw projA; hook_raw projA; }
+run_ok "hook: a machine with only cksum must not fail the caller" t_cksum_only
+[[ "$(ncalls "$HOOK_DIR/ck-calls")" == 1 ]] || fail "hook: with only cksum the prune must run once, got $(ncalls "$HOOK_DIR/ck-calls")"
+[[ -n "$(find "$HOOK_DIR/stamps-ck" -name 'routing-prune-ck[0-9]*.stamp')" ]] || fail "hook: the cksum fallback must stamp under a ck-prefixed key"
+pass "hook falls back to a cksum stamp key where no sha256 tool exists"
 
 # 2. A prune that ignores SIGTERM is still cut off, and is not retried on the next stop.
 fake_ic "$HOOK_DIR/stubborn-ic" "$HOOK_DIR/stubborn-calls" "trap '' TERM; sleep 30"
@@ -1680,7 +1693,7 @@ pass "hook kills a slow, SIGTERM-ignoring prune and backs off after it"
 
 # 2b. Same bound when the machine has neither timeout nor gtimeout (stock macOS).
 TOOLBIN="$HOOK_DIR/toolbin"; mkdir -p "$TOOLBIN"
-for _t in cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN/$_t"; done
+for _t in sha256sum cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN/$_t"; done
 t_notimeout() { PATH="$TOOLBIN"; ! command -v timeout >/dev/null && ! command -v gtimeout >/dev/null && t_slow "$1"; }
 rm -f "$HOOK_DIR/stubborn-calls"
 SECONDS=0
@@ -1698,6 +1711,53 @@ fake_ic "$HOOK_DIR/race-ic" "$HOOK_DIR/race-calls" 'sleep 2; exit 0'
 [[ "$(find "$HOOK_DIR/stamps-race" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 1 ]] || fail "hook: the winning prune must leave one stamp"
 [[ -z "$(find "$HOOK_DIR/stamps-race" -name '*.lock.*' 2>/dev/null)" ]] || fail "hook: the lock must be released after the prune"
 pass "hook prunes once for two simultaneous stops and releases its lock"
+
+# 3d. Two databases must never share a stamp. The key was once a 32-bit cksum of the path;
+# these two distinct paths both give cksum 1385912073 (found by search; the hook does not
+# need a database at either path because ic is a stub here).
+COLL_A=/d/yHNUYCtcsG; COLL_B=/d/YJilpPhrT0
+[[ "$COLL_A" != "$COLL_B" && "$(printf '%s' "$COLL_A" | cksum | cut -d' ' -f1)" == "$(printf '%s' "$COLL_B" | cksum | cut -d' ' -f1)" ]] \
+    || fail "hook tests: the collision fixture no longer collides under cksum"
+fake_ic "$HOOK_DIR/coll-ic" "$HOOK_DIR/coll-calls" 'exit 0'
+t_collide() { export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-coll" HOOK_BIN="$HOOK_DIR/coll-ic"
+  INTERCORE_DB="$COLL_A" hook_raw projA; INTERCORE_DB="$COLL_B" hook_raw projA; }
+run_ok "hook: two databases with equal path checksums must not fail the caller" t_collide
+[[ "$(ncalls "$HOOK_DIR/coll-calls")" == 2 ]] || fail "hook: a database whose path checksum equals another's must still prune on its own, got $(ncalls "$HOOK_DIR/coll-calls") prunes"
+[[ "$(find "$HOOK_DIR/stamps-coll" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 2 ]] || fail "hook: two databases must leave two stamps"
+t_collide
+[[ "$(ncalls "$HOOK_DIR/coll-calls")" == 2 ]] || fail "hook: a stamped database must not prune again the same day, got $(ncalls "$HOOK_DIR/coll-calls") prunes"
+pass "hook keeps separate stamps for databases whose path checksums collide"
+
+# 3e. A failed prune is retried hourly, not on the next stop: no sooner than an hour after the
+# attempt, and by the first stop after that. A success is then stamped for a day.
+fake_ic "$HOOK_DIR/retry-ic" "$HOOK_DIR/retry-calls" 'exit 1'
+RETRY_DIR="$HOOK_DIR/stamps-retry"
+t_retry() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$RETRY_DIR" HOOK_BIN="${1:-$HOOK_DIR/retry-ic}"; hook_raw projA; }
+retry_calls() { [[ "$(ncalls "$HOOK_DIR/retry-calls")" == "$2" ]] || fail "hook: $1: expected $2 prune attempts, got $(ncalls "$HOOK_DIR/retry-calls")"; }
+run_ok "hook: a failing prune must not fail the caller" t_retry
+retry_calls "the first failed attempt" 1
+run_ok "hook: next stop after a failure" t_retry
+retry_calls "the stop right after a failure must not retry" 1
+touch -d '30 minutes ago' "$RETRY_DIR"/*.failed
+run_ok "hook: stop 30 minutes after a failure" t_retry
+retry_calls "a stop 30 minutes after a failure must not retry" 1
+touch -d '90 minutes ago' "$RETRY_DIR"/*.failed
+run_ok "hook: stop 90 minutes after a failure" t_retry
+retry_calls "the first stop more than an hour after a failure must retry" 2
+run_ok "hook: stop right after the retry" t_retry
+retry_calls "a stop right after the retry must not retry again" 2
+[[ "$(find "$RETRY_DIR" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 0 ]] || fail "hook: failed prunes must leave no success stamp"
+touch -d '90 minutes ago' "$RETRY_DIR"/*.failed
+fake_ic "$HOOK_DIR/retry-ok-ic" "$HOOK_DIR/retry-calls" 'exit 0'
+run_ok "hook: successful retry" t_retry "$HOOK_DIR/retry-ok-ic"
+retry_calls "the retry that succeeds" 3
+touch -d '90 minutes ago' "$RETRY_DIR"/*.stamp
+run_ok "hook: stop an hour after a success" t_retry "$HOOK_DIR/retry-ok-ic"
+retry_calls "a stop 90 minutes after a success must not prune again (daily)" 3
+touch -d '25 hours ago' "$RETRY_DIR"/*.stamp
+run_ok "hook: stop a day after a success" t_retry "$HOOK_DIR/retry-ok-ic"
+retry_calls "a stop more than a day after a success must prune" 4
+pass "hook retries a failed prune hourly (not on the next stop) and a successful one daily"
 
 # A lock held in the current hour blocks a prune; one a killed hook left in an earlier hour does not.
 # The hook's clock is fixed (mid-hour) so no real hour boundary can fall inside the test.

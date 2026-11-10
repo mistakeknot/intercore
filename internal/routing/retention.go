@@ -39,8 +39,8 @@ import (
 // (ErrSchemaVersionTooNew), which would break the hooks still running one. So
 // rows are visited in id order with decided_at tested on every row. That reads
 // the context payloads (decided_at is stored after them) and costs about a second
-// on a 100 MB table, which is why the hook runs the prune once a day, not on
-// every stop. It makes no assumption that timestamps rise with ids.
+// on a 100 MB table, which is why the hook runs the prune once a day after a
+// success, not on every stop. It makes no assumption that timestamps rise with ids.
 
 // DefaultRetention is the retention window for `ic route prune` when none is given.
 // Rationale: October 2026 added 19,834 rows and 98 MB, so 30 days holds the table
