@@ -1693,7 +1693,8 @@ pass "hook kills a slow, SIGTERM-ignoring prune and backs off after it"
 
 # 2b. Same bound when the machine has neither timeout nor gtimeout (stock macOS).
 TOOLBIN="$HOOK_DIR/toolbin"; mkdir -p "$TOOLBIN"
-for _t in sha256sum cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN/$_t"; done
+for _t in sha256sum shasum cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; do
+  [[ -n "$(command -v "$_t")" ]] && ln -sf "$(command -v "$_t")" "$TOOLBIN/$_t"; done
 t_notimeout() { PATH="$TOOLBIN"; ! command -v timeout >/dev/null && ! command -v gtimeout >/dev/null && t_slow "$1"; }
 rm -f "$HOOK_DIR/stubborn-calls"
 SECONDS=0
