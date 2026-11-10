@@ -46,7 +46,9 @@ func TestMain(m *testing.M) {
 		main()
 		os.Exit(0)
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	cleanupBuiltIC()
+	os.Exit(code)
 }
 
 // goldenCase is one reader-facing command. Args use placeholders that are

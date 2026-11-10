@@ -37,6 +37,7 @@ const (
 	ReasonSurvivorUnknown    = "survivor_unknown"
 	ReasonLegacyUnknown      = "legacy_unknown"
 	ReasonLegacyRunning      = "legacy_running"
+	ReasonRebindUnknown      = "rebind_unknown"
 )
 
 // MaxCrashRequeues caps excused runner crashes per job.
