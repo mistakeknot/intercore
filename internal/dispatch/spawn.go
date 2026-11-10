@@ -36,6 +36,26 @@ type SpawnOptions struct {
 	Policy           *SpawnPolicy               // optional: spawn policy to enforce
 	BudgetQuerier    BudgetQuerier              // optional additional veto; never replaces persisted budget admission
 	retry            bool                       // internal retry admission preserves the original spawn depth
+
+	// Launch controls for the scheduler runner. They are process-local, never
+	// serialized (json:"-"), so a persisted spawn_opts document cannot set them,
+	// and the zero values leave Spawn's behaviour unchanged.
+
+	// OnAdmitted runs inside the admission transaction, after the dispatch ID
+	// exists and before COMMIT. An error rolls the dispatch row back, and no
+	// process starts. The hook may use only the Querier it is given.
+	OnAdmitted func(ctx context.Context, q Querier, dispatchID string) error `json:"-"`
+	// ExtraEnv is added to the worker's environment. It cannot set the dispatch
+	// identity variables.
+	ExtraEnv map[string]string `json:"-"`
+	// StrictExecutor runs exactly DispatchSH (absolute, required): no
+	// CLAVAIN_DISPATCH_SH, no monorepo search, no bare codex fallback. Spawn
+	// re-checks the path just before Start; a failure is spawn_failed.
+	StrictExecutor bool `json:"-"`
+	// CgroupFD, when nonzero, is an open cgroup v2 directory descriptor the
+	// worker is started into (Linux only). The caller keeps it open until Spawn
+	// returns.
+	CgroupFD int `json:"-"`
 }
 
 // SpawnResult holds the result of a spawn operation.
@@ -152,8 +172,19 @@ func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, 
 	if d.ScopeID != nil {
 		runID = *d.ScopeID
 	}
-	cmd.Env = append(os.Environ(), "IC_RUN_ID="+runID, "IC_DISPATCH_ID="+id,
+	// ExtraEnv comes before the identity variables, which are reserved anyway.
+	cmd.Env = append(os.Environ(), extraEnvList(opts.ExtraEnv)...)
+	cmd.Env = append(cmd.Env, "IC_RUN_ID="+runID, "IC_DISPATCH_ID="+id,
 		"CLAVAIN_DISPATCH_ID="+id, "IC_DISPATCH_ATTEMPT="+fmt.Sprint(d.RetryCount), "IC_PROMPT_HASH="+promptHash)
+	if opts.StrictExecutor {
+		// Re-checked immediately before Start. The residual window between this
+		// check and bash opening the file ends in exit 127, never in another
+		// executor.
+		if err := checkStrictExecutor(opts.DispatchSH); err != nil {
+			_, _ = store.Terminalize(ctx, id, spawnFailed(fmt.Sprintf("strict executor: %v", err)))
+			return nil, fmt.Errorf("spawn: strict executor: %w", err)
+		}
+	}
 	if err := cmd.Start(); err != nil {
 		_, _ = store.Terminalize(ctx, id, spawnFailed(fmt.Sprintf("start: %v", err)))
 		return nil, fmt.Errorf("spawn: start process: %w", err)
@@ -227,7 +258,15 @@ func validateReasoningDecision(d *routing.ReasoningDecision) error {
 
 // buildCmd constructs the exec.Cmd for the agent.
 func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
-	dispatchSH := resolveDispatchSH(opts.DispatchSH)
+	var dispatchSH string
+	if opts.StrictExecutor {
+		dispatchSH = resolveStrictDispatchSH(opts.DispatchSH)
+		if dispatchSH == "" {
+			return nil, fmt.Errorf("strict executor requires an explicit dispatch.sh path")
+		}
+	} else {
+		dispatchSH = resolveDispatchSH(opts.DispatchSH)
+	}
 
 	var cmd *exec.Cmd
 	if dispatchSH != "" {
@@ -275,6 +314,9 @@ func buildCmd(opts SpawnOptions, outputFile string) (*exec.Cmd, error) {
 
 	// New process group for clean signal propagation
 	cmd.SysProcAttr = platformSysProcAttr()
+	if opts.CgroupFD != 0 {
+		applyCgroupFD(cmd.SysProcAttr, opts.CgroupFD)
+	}
 
 	// Detach stdin, let stdout/stderr go to /dev/null
 	// (dispatch.sh handles its own output redirection)

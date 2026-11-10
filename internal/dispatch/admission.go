@@ -30,6 +30,20 @@ func (o SpawnOptions) Validate() error {
 	if o.RunID != "" && o.ScopeID != "" && o.RunID != o.ScopeID {
 		return &InputError{"run_id and scope_id must match"}
 	}
+	if err := validateExtraEnv(o.ExtraEnv); err != nil {
+		return err
+	}
+	if o.StrictExecutor {
+		if err := validateStrictExecutor(o.DispatchSH); err != nil {
+			return err
+		}
+	}
+	if o.CgroupFD < 0 {
+		return &InputError{"cgroup_fd must not be negative"}
+	}
+	if o.CgroupFD != 0 && !cgroupFDSupported {
+		return &InputError{"cgroup_fd is supported only on Linux"}
+	}
 	if o.Policy != nil {
 		p := o.Policy
 		if p.MaxActivePerRun < 0 || p.MaxActiveGlobal < 0 || p.MaxAgentsPerRun < 0 || p.MaxSpawnDepth < 0 {
@@ -40,11 +54,6 @@ func (o SpawnOptions) Validate() error {
 		}
 	}
 	return nil
-}
-
-type admissionQuerier interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 // admit reserves a dispatch slot before process creation. BEGIN IMMEDIATE is
@@ -111,7 +120,9 @@ func (s *Store) admit(ctx context.Context, d *Dispatch, opts SpawnOptions) (stri
 			// an open transaction to the pool if cleanup itself fails.
 			cleanup, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if _, err := conn.ExecContext(cleanup, "ROLLBACK"); err != nil {
+			// An interrupted hook write can already have rolled the transaction
+			// back; that leaves the connection clean, so it is not discarded.
+			if _, err := conn.ExecContext(cleanup, "ROLLBACK"); err != nil && !errNoTransaction(err) {
 				_ = conn.Raw(func(any) error { return driver.ErrBadConn })
 			}
 		}
@@ -206,6 +217,14 @@ func (s *Store) admit(ctx context.Context, d *Dispatch, opts SpawnOptions) (stri
 	id, err := createDispatch(ctx, conn, d)
 	if err != nil {
 		return "", err
+	}
+	// The hook sees the generated ID inside the still-open transaction. Its
+	// error (or panic) leaves committed == false, so the deferred ROLLBACK
+	// removes the dispatch row and anything the hook wrote.
+	if opts.OnAdmitted != nil {
+		if err := runAdmittedHook(ctx, conn, opts.OnAdmitted, id); err != nil {
+			return "", fmt.Errorf("admission hook: %w", err)
+		}
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return "", fmt.Errorf("commit admission: %w", err)
