@@ -545,3 +545,106 @@ func TestStartupHooksFireWithoutSwap(t *testing.T) {
 		t.Fatalf("epoch %d", r.epoch)
 	}
 }
+
+// newClosedQueue makes a migrated database and closes every handle on it, so
+// that no descriptor of this test process points at it.
+func newClosedQueue(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	d, err := db.Open(path, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SqlDB().Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// P1 (round 2): SQLite resolves the path on its own. If it is pointed at a
+// second database for the open and the original is put back before the locks,
+// the preflight, the lock descriptor and the final path check all see the
+// original while the epoch would be written to the other file.
+func TestSwapAndRestoreBindsSQLiteToLockedFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	a := newClosedQueue(t, dir, "a.db")
+	b := newClosedQueue(t, dir, "b.db")
+	aside := filepath.Join(dir, "a.orig")
+	epochA, epochB := epochAt(t, a), epochAt(t, b)
+
+	swap := func() {
+		if err := os.Rename(a, aside); err != nil {
+			t.Error(err)
+		}
+		if err := os.Symlink(b, a); err != nil {
+			t.Error(err)
+		}
+	}
+	restore := func() {
+		if err := os.Remove(a); err != nil {
+			t.Error(err)
+		}
+		if err := os.Rename(aside, a); err != nil {
+			t.Error(err)
+		}
+	}
+	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o.hooks.beforeOpen = swap
+	o.hooks.afterOpen = restore
+	err := Run(context.Background(), o)
+	if exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "SQLite did not open the locked file") {
+		t.Fatalf("got %v", err)
+	}
+	if got := epochAt(t, b); got != epochB {
+		t.Fatalf("the other database was written: epoch %d, was %d", got, epochB)
+	}
+	if got := epochAt(t, a); got != epochA {
+		t.Fatalf("the original was written: epoch %d, was %d", got, epochA)
+	}
+}
+
+// Control: the same two hooks that do not swap anything start normally, so the
+// refusal above comes from the swap and not from the check misfiring.
+func TestSQLiteBindingAcceptsUntouchedFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a := newClosedQueue(t, t.TempDir(), "a.db")
+	o := Options{DB: a, HeartbeatEvery: time.Hour}
+	o.hooks.beforeOpen = func() {}
+	o.hooks.afterOpen = func() {}
+	r := start(t, o)
+	if r.epoch < 2 {
+		t.Fatalf("epoch %d", r.epoch)
+	}
+}
+
+// P2 (round 2): a database that disappears after preflight is an error and is
+// not recreated by the open.
+func TestVanishedDBIsNotRecreated(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	a := newClosedQueue(t, dir, "a.db")
+	o := Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour}
+	o.hooks.beforeOpen = func() {
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			if err := os.Remove(a + suffix); err != nil && !os.IsNotExist(err) {
+				t.Error(err)
+			}
+		}
+	}
+	err := Run(context.Background(), o)
+	if exitCode(err) != ExitRefused {
+		t.Fatalf("got %v", err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if _, err := os.Stat(a + suffix); err == nil {
+			t.Fatalf("the open recreated %s", a+suffix)
+		}
+	}
+}

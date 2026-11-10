@@ -37,6 +37,17 @@ type DB struct {
 
 // Open opens or creates an intercore database at path.
 func Open(path string, busyTimeout time.Duration) (*DB, error) {
+	return open(path, busyTimeout, "")
+}
+
+// OpenExisting is Open for a database that must already exist: SQLite is asked
+// for read-write access without the create flag, so a file that has vanished is
+// an error and nothing is created in its place.
+func OpenExisting(path string, busyTimeout time.Duration) (*DB, error) {
+	return open(path, busyTimeout, "mode=rw&")
+}
+
+func open(path string, busyTimeout time.Duration, uriMode string) (*DB, error) {
 	// Symlink check on parent directory
 	dir := filepath.Dir(path)
 	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -76,7 +87,7 @@ func Open(path string, busyTimeout time.Duration) (*DB, error) {
 	// project dir opens "intercore.db" and would become file://intercore.db,
 	// rejected as "invalid uri authority". This keeps the DSN shape and escapes
 	// only the path.
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d&_pragma=foreign_keys%%3D1",
+	dsn := fmt.Sprintf("file:%s?"+uriMode+"_pragma=journal_mode%%3DWAL&_pragma=busy_timeout%%3D%d&_pragma=foreign_keys%%3D1",
 		(&url.URL{Path: path}).EscapedPath(), busyTimeout.Milliseconds())
 	sqlDB, err := sql.Open("sqlite", dsn)
 	if err != nil {

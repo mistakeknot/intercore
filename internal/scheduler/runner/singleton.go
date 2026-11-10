@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -42,7 +43,7 @@ func Run(ctx context.Context, o Options) error {
 	if o.hooks.beforeOpen != nil {
 		o.hooks.beforeOpen()
 	}
-	d, err := db.Open(info.Canonical, o.BusyTimeout)
+	d, err := db.OpenExisting(info.Canonical, o.BusyTimeout)
 	if err != nil {
 		return exitf(ExitRefused, "open %s: %w", info.Canonical, err)
 	}
@@ -125,6 +126,9 @@ func verifyBinding(info PathInfo, lock *os.File, o Options) error {
 	}
 	if uint64(sys.Dev) != info.Dev || uint64(sys.Ino) != info.Ino {
 		return exitf(ExitRefused, "database file changed during startup: %s was %s, the locked file is %d:%d", info.Canonical, info.Identity(), uint64(sys.Dev), uint64(sys.Ino))
+	}
+	if err := sqliteOnLockedFile(info, lock); err != nil {
+		return err
 	}
 	again, err := Preflight(o.DB, o.AllowLive)
 	if err != nil {
@@ -273,4 +277,32 @@ func heartbeatLoop(ctx context.Context, store *scheduler.Store, epoch int64, o O
 			}
 		}
 	}
+}
+
+// sqliteOnLockedFile checks that the SQLite connection holds the locked inode.
+// The connection opens the path itself, so it can land on a different file than
+// the one preflight checked and the lock holds (a rename or symlink swap between
+// those steps); the lock-descriptor and path checks cannot see that. The
+// connection is single and already used by now, so a descriptor on the locked
+// inode other than the lock's own can only be SQLite's. The caller's reads have
+// forced the connection open before this runs.
+func sqliteOnLockedFile(info PathInfo, lock *os.File) error {
+	ents, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return exitf(ExitRefused, "cannot inspect open descriptors to bind SQLite to the locked database: %w", err)
+	}
+	own := strconv.FormatUint(uint64(lock.Fd()), 10)
+	for _, e := range ents {
+		if e.Name() == own {
+			continue
+		}
+		var st syscall.Stat_t
+		if err := syscall.Stat("/proc/self/fd/"+e.Name(), &st); err != nil {
+			continue // the directory handle used for this listing, or a closed descriptor
+		}
+		if uint64(st.Dev) == info.Dev && uint64(st.Ino) == info.Ino {
+			return nil
+		}
+	}
+	return exitf(ExitRefused, "database file changed during startup: SQLite did not open the locked file %s (%s)", info.Canonical, info.Identity())
 }
