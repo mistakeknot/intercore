@@ -568,6 +568,11 @@ func recoverFinalize(ctx context.Context, tx execer, p RecoverParams, st *jobSta
 // quarantine parks the job for an operator and keeps its claim state and open
 // attempt, which are the evidence requeue and cancel work from.
 func quarantine(ctx context.Context, tx execer, p RecoverParams, st *jobState, reason string) (*FinalizeResult, error) {
+	// A cancel that committed after the decision was made wins: the row is
+	// already cancelling, and parking it as quarantined would drop the cancel.
+	if st.status == StatusCancelling {
+		return finish(ctx, tx, p.JobID, st, ClassCancelled, "", p.RetryBlocked, p.Now, p.Rand, p.Epoch)
+	}
 	blocked := p.RetryBlocked
 	if blocked == "" {
 		blocked = st.blocked

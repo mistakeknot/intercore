@@ -1232,6 +1232,37 @@ func TestRecoverLegacyHonoursCancelOverEveryClass(t *testing.T) {
 	}
 }
 
+// A cancel that committed after the recovery decision was made wins over a
+// quarantine decision too, for every quarantine reason and for both live-process
+// and legacy rows; the cancelling status is not overwritten with quarantined.
+func TestRecoverQuarantineHonoursCommittedCancel(t *testing.T) {
+	for _, legacy := range []bool{false, true} {
+		for reason := range quarantineReasons {
+			f := newFx(t)
+			f.job("qc", nil)
+			c := f.running("qc", 1)
+			if legacy {
+				f.exec(`UPDATE scheduler_job_attempts SET legacy=1 WHERE claim_token=?`, c.Token)
+			}
+			if _, err := f.s.CancelJob(f.ctx, "qc", f.now); err != nil {
+				t.Fatal(err)
+			}
+			f.setEpoch(2)
+			res, err := f.s.Recover(f.ctx, RecoverParams{JobID: "qc", Epoch: 2, Action: ActQuarantine, Reason: reason, Now: f.now})
+			if err != nil {
+				t.Fatalf("legacy=%v %s: %v", legacy, reason, err)
+			}
+			j := f.get("qc")
+			if res.Status != StatusCancelled || j.Status != StatusCancelled || j.OutcomeClass != ClassCancelled || j.ClaimToken != "" {
+				t.Errorf("legacy=%v %s: res %+v job %+v", legacy, reason, res, j)
+			}
+			if v := f.attemptStr("qc", 1, "outcome_class"); v.String != ClassCancelled {
+				t.Errorf("legacy=%v %s: attempt outcome = %v, want cancelled", legacy, reason, v)
+			}
+		}
+	}
+}
+
 // Recover accepts the timeout class a dispatch can end with.
 func TestRecoverFinalizeAcceptsTimeout(t *testing.T) {
 	f := newFx(t)
