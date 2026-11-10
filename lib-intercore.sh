@@ -20,6 +20,7 @@ INTERCORE_WARNED=false
 # means local automatic consumers must not open shared state, even when a
 # binary was cached earlier in the shell. Removing it is an explicit rebind.
 intercore_remote_authority() {
+    [[ -n "${HOME:-}" ]] || return 1
     [[ -e "$HOME/.config/clavain/remote-shared-state" || -L "$HOME/.config/clavain/remote-shared-state" ]]
 }
 
@@ -150,6 +151,14 @@ intercore_state_delete_all() {
     done < <("$INTERCORE_BIN" state list "$key" 2>/dev/null || true)
 }
 
+# _intercore_routing_prune_due — 0 when the routing prune stamp ($1) is absent or
+# a day old and no recent failure ($1.failed, under an hour old) is backing it off.
+_intercore_routing_prune_due() {
+    local stamp="$1"
+    [[ ! -e "$stamp" || -n "$(find "$stamp" -mmin +1440 2>/dev/null)" ]] || return 1
+    [[ ! -e "$stamp.failed" || -n "$(find "$stamp.failed" -mmin +60 2>/dev/null)" ]] || return 1
+}
+
 # intercore_cleanup_stale — prune old sentinels and old routing decisions.
 # Called ONCE per stop cycle from session-handoff.sh only — not from every hook.
 intercore_cleanup_stale() {
@@ -163,12 +172,21 @@ intercore_cleanup_stale() {
     # against $PWD, else the nearest .clavain/intercore.db above $PWD, as ic
     # finds it) so one project's run does not starve another's; ic itself is
     # called as the other helpers here call it (--db only when INTERCORE_DB is
-    # set), so its own discovery rules apply. The stamp is touched only after a
-    # successful prune, so a failure is retried on the next stop.
+    # set), so its own discovery rules apply.
+    # This runs in a Stop hook, so it must never abort, hang or repeat:
+    #  - no usable stamp directory or key (no HOME, an unwritable directory, no
+    #    cksum) means skip, never prune unthrottled;
+    #  - a mkdir lock beside the stamp lets one of several simultaneous stops
+    #    prune; the others skip (a lock left by a killed hook is reclaimed after
+    #    an hour);
+    #  - the prune is cut off after INTERCORE_ROUTING_PRUNE_TIMEOUT seconds
+    #    (default 20; `timeout`/`gtimeout` when present, else a bash watchdog);
+    #  - success writes the day stamp; failure or timeout writes a ".failed"
+    #    stamp that backs the next try off for an hour.
     # INTERCORE_ROUTING_RETENTION=<N>d|<duration> sets the window (default 30d);
     # =off skips it. An `ic` without `route prune` fails harmlessly here.
     if [[ "${INTERCORE_ROUTING_RETENTION:-30d}" != "off" ]]; then
-        local db_path="${INTERCORE_DB:-}" d
+        local db_path="${INTERCORE_DB:-}" d state_dir key stamp lock secs tbin rc=0
         if [[ -n "$db_path" ]]; then
             [[ "$db_path" == /* ]] || db_path="$PWD/$db_path"
         else
@@ -179,15 +197,50 @@ intercore_cleanup_stale() {
                 d="$(dirname "$d")"
             done
         fi
-        local key stamp
-        key="$(printf '%s' "${db_path:-$PWD}" | cksum | cut -d' ' -f1)"
-        stamp="${INTERCORE_ROUTING_PRUNE_STAMP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/intercore}/routing-prune-$key.stamp"
-        if [[ ! -e "$stamp" ]] || [[ -n "$(find "$stamp" -mmin +1440 2>/dev/null)" ]]; then
-            if "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1; then
-                { mkdir -p "$(dirname "$stamp")" && : > "$stamp"; } 2>/dev/null || true
+        state_dir="${INTERCORE_ROUTING_PRUNE_STAMP_DIR:-}"
+        if [[ -z "$state_dir" ]]; then
+            if [[ -n "${XDG_STATE_HOME:-}" ]]; then state_dir="$XDG_STATE_HOME/intercore"
+            elif [[ -n "${HOME:-}" ]]; then state_dir="$HOME/.local/state/intercore"
             fi
         fi
+        [[ -n "$state_dir" ]] || return 0
+        key="$(printf '%s' "${db_path:-$PWD}" | cksum 2>/dev/null | cut -d' ' -f1 2>/dev/null)" || key=""
+        [[ "$key" =~ ^[0-9]+$ ]] || return 0
+        stamp="$state_dir/routing-prune-$key.stamp"
+        lock="$state_dir/routing-prune-$key.lock"
+        _intercore_routing_prune_due "$stamp" || return 0
+        mkdir -p "$state_dir" 2>/dev/null || return 0
+        if ! mkdir "$lock" 2>/dev/null; then
+            # Held by a live stop, or abandoned by a killed hook (older than an hour).
+            [[ -n "$(find "$lock" -maxdepth 0 -mmin +60 2>/dev/null)" ]] || return 0
+            rmdir "$lock" 2>/dev/null || return 0
+            mkdir "$lock" 2>/dev/null || return 0
+        fi
+        # Re-check under the lock: a stop that finished while we waited has stamped.
+        if _intercore_routing_prune_due "$stamp"; then
+            secs="${INTERCORE_ROUTING_PRUNE_TIMEOUT:-20}"
+            [[ "$secs" =~ ^[0-9]+$ ]] && (( secs > 0 )) || secs=20
+            tbin="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)" || tbin=""
+            if [[ -n "$tbin" ]]; then
+                "$tbin" "$secs" "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1 || rc=$?
+            else
+                "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1 &
+                local pid=$! wd
+                { sleep "$secs"; kill "$pid"; } >/dev/null 2>&1 &
+                wd=$!
+                { wait "$pid"; } 2>/dev/null || rc=$?
+                { kill "$wd"; wait "$wd"; } >/dev/null 2>&1 || true
+            fi
+            if [[ "$rc" == 0 ]]; then
+                : > "$stamp" 2>/dev/null || true
+                rm -f "$stamp.failed" 2>/dev/null || true
+            else
+                : > "$stamp.failed" 2>/dev/null || true
+            fi
+        fi
+        rmdir "$lock" 2>/dev/null || true
     fi
+    return 0
 }
 
 # --- Dispatch wrappers ---
