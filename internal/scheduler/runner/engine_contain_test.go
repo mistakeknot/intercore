@@ -522,7 +522,7 @@ func TestAttemptDirNamesAreInjective(t *testing.T) {
 	ids := []string{"a/b", "a_b", "a b", "a:b", "ab", "a-b", "a~b", strings.Repeat("x", 80), strings.Repeat("x", 81), "é", "_"}
 	// One runner uses one namespace; "" is a bare manager, and the two queue
 	// namespaces share a subtree, so no name may repeat across them.
-	for _, nss := range [][]string{{""}, {"q00000001", "q00000002"}} {
+	for _, nss := range [][]string{{""}, {"q" + strings.Repeat("0", 64), "q" + strings.Repeat("1", 64)}} {
 		seen := map[string]string{}
 		for _, ns := range nss {
 			for _, id := range ids {
@@ -655,5 +655,29 @@ func TestBusyAttemptCgroupIsKilledAndProvenBeforeFinalize(t *testing.T) {
 	}
 	if pop, err := populated(p); err != nil || pop {
 		t.Fatalf("the busy cgroup was not proven empty (populated=%v err=%v)", pop, err)
+	}
+}
+
+// Queue IDs that collide in a short hash still get distinct namespaces, and an
+// existing attempt cgroup whose emptiness cannot be read is treated as busy
+// with its path kept, so extinction is still required.
+func TestQueueNamespaceIsFullDigestAndUnreadableCgroupIsBusy(t *testing.T) {
+	a := &cgroupMgr{root: t.TempDir()}
+	b := &cgroupMgr{root: a.root}
+	a.setQueue("0000000000000000000000000000db65")
+	b.setQueue("0000000000000000000000000001a91e") // collides with the above in a 32-bit prefix
+	if a.ns == b.ns || len(a.ns) != 65 {
+		t.Fatalf("namespaces %q and %q are not distinct full digests", a.ns, b.ns)
+	}
+	p := filepath.Join(a.root, attemptDirName(a.ns, "j", 1))
+	if err := os.MkdirAll(filepath.Join(p, "cgroup.events"), 0o755); err != nil { // a read of it fails
+		t.Fatal(err)
+	}
+	got, f, err := a.create("j", 1)
+	if f != nil {
+		f.Close()
+	}
+	if !errors.Is(err, errCgroupBusy) || got != p {
+		t.Fatalf("create = (%q, %v): an unreadable existing cgroup must be busy with its path kept", got, err)
 	}
 }

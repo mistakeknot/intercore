@@ -47,7 +47,7 @@ type cgroupMgr struct {
 // create time is a leftover of this queue, not another runner's live attempt).
 func (m *cgroupMgr) setQueue(queueID string) {
 	sum := sha256.Sum256([]byte(queueID))
-	m.ns = "q" + hex.EncodeToString(sum[:4])
+	m.ns = "q" + hex.EncodeToString(sum[:]) // the full digest: a short one can collide
 }
 
 // ownCgroupDir returns the filesystem path of the cgroup this process is in.
@@ -133,7 +133,7 @@ func attemptDirName(ns, jobID string, attemptNo int) string {
 	return "attempt-" + id + "-" + strconv.Itoa(attemptNo)
 }
 
-var errCgroupBusy = errors.New("attempt cgroup already has live processes")
+var errCgroupBusy = errors.New("attempt cgroup already has, or may have, live processes")
 
 // create makes the attempt's cgroup and returns its path and an open directory
 // descriptor for CgroupFD. The caller closes the descriptor after Spawn. An
@@ -150,7 +150,9 @@ func (m *cgroupMgr) create(jobID string, attemptNo int) (string, *os.File, error
 		}
 		busy, perr := populated(p)
 		if perr != nil {
-			return "", nil, perr
+			// Not knowing whether it is empty is treated as busy: the path is
+			// kept so the completion step must kill and prove it.
+			return p, nil, fmt.Errorf("%s: %w (cgroup.events unreadable: %v)", p, errCgroupBusy, perr)
 		}
 		if busy {
 			return p, nil, fmt.Errorf("%s: %w", p, errCgroupBusy)
