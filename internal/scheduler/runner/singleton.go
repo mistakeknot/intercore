@@ -21,8 +21,8 @@ import (
 // opposed to a clean zero-row result) Run tolerates before it exits.
 const maxHeartbeatErrors = 6
 
-// Run is the runner skeleton of slice 3a: refusals, both lifetime locks, the
-// epoch bump (or rebind), and the heartbeat. It claims nothing. It returns nil
+// Run takes the refusals, both lifetime locks and the epoch (or rebind), then
+// hands over to the engine: heartbeat, claim, launch, complete. It returns nil
 // after a clean drain on ctx cancellation, or an *ExitError.
 func Run(ctx context.Context, o Options) error {
 	o.defaults()
@@ -129,7 +129,7 @@ func Run(ctx context.Context, o Options) error {
 	if o.OnReady != nil {
 		o.OnReady(epoch)
 	}
-	return heartbeatLoop(ctx, store, epoch, o)
+	return newEngine(o, store, d.SqlDB(), epoch).run(ctx)
 }
 
 // verifyBinding makes the preflight verdict, the lock and the recorded
@@ -255,52 +255,6 @@ func rebind(ctx context.Context, store *scheduler.Store, row *scheduler.RunnerRo
 	}
 	fmt.Fprintf(o.Stderr, "ic scheduler run: rebound to %s; scheduler paused; %d in-flight rows quarantined as rebind_unknown\n", id.DBPath, res.Quarantined)
 	return res.Epoch, nil
-}
-
-// drain marks the row draining and then stopped, on a fresh context because
-// the run context is already cancelled. A false result means another runner
-// already owns the row, so there is nothing to write. An error means the
-// singleton still says "running" although this runner is leaving, so it is
-// reported and the exit is not clean.
-func drain(store *scheduler.Store, epoch int64, o Options) error {
-	dctx, cancel := context.WithTimeout(context.Background(), o.BusyTimeout)
-	defer cancel()
-	for _, state := range []string{"draining", "stopped"} {
-		if _, err := store.SetRunnerState(dctx, epoch, state); err != nil {
-			return exitf(ExitRefused, "drain: could not mark the runner %s; the singleton row still says running: %w", state, err)
-		}
-	}
-	return nil
-}
-
-// heartbeatLoop refreshes heartbeat_at until ctx is cancelled (a clean drain)
-// or the epoch is no longer ours (exit 3).
-func heartbeatLoop(ctx context.Context, store *scheduler.Store, epoch int64, o Options) error {
-	t := time.NewTicker(o.HeartbeatEvery)
-	defer t.Stop()
-	errs := 0
-	for {
-		select {
-		case <-ctx.Done():
-			// A drain with nothing in flight: mark the row and stop. A false
-			// result means we were already superseded; nothing to write.
-			return drain(store, epoch, o)
-		case <-t.C:
-			ok, err := store.Heartbeat(ctx, epoch, o.Now())
-			switch {
-			case err != nil:
-				errs++
-				fmt.Fprintf(o.Stderr, "ic scheduler run: heartbeat error (%d): %v\n", errs, err)
-				if errs >= maxHeartbeatErrors {
-					return exitf(ExitRefused, "heartbeat failed %d times in a row: %w", errs, err)
-				}
-			case !ok:
-				return exitf(ExitSuperseded, "superseded: epoch %d is no longer current", epoch)
-			default:
-				errs = 0
-			}
-		}
-	}
 }
 
 type fdID struct {

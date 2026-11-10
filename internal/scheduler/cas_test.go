@@ -1425,3 +1425,80 @@ func TestNewStatusesAreNotTerminal(t *testing.T) {
 		t.Fatal("status spelling")
 	}
 }
+
+// A runner that inserts its in-flight entry before the claim transaction
+// supplies the token itself, so the entry key and the row's token agree.
+func TestClaimUsesSuppliedToken(t *testing.T) {
+	f := newFx(t)
+	f.job("t1", nil)
+	f.job("t2", nil)
+	c, err := f.s.Claim(f.ctx, ClaimParams{JobID: "t1", Epoch: 1, Now: f.now, Token: "runner-chosen-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Token != "runner-chosen-token" {
+		t.Fatalf("claim token = %q", c.Token)
+	}
+	if j := f.get("t1"); j.ClaimToken != "runner-chosen-token" {
+		t.Fatalf("row token = %q", j.ClaimToken)
+	}
+	if got := f.attemptStr("t1", 1, "claim_token"); got.String != "runner-chosen-token" {
+		t.Fatalf("attempt token = %q", got.String)
+	}
+	// Control: with no token supplied, one is generated and differs per claim.
+	c2 := f.claim("t2", 1)
+	if c2.Token == "" || c2.Token == c.Token {
+		t.Fatalf("generated token = %q", c2.Token)
+	}
+}
+
+// Unit 2: many claimers race for one pending row. Exactly one wins, the rest
+// get ErrLostClaim, and exactly one attempt row exists.
+func TestConcurrentClaimersOnOneRowHaveOneWinner(t *testing.T) {
+	f := newFx(t)
+	f.job("race", nil)
+	const claimers = 8
+	gun := make(chan struct{})
+	type result struct {
+		c   *Claim
+		err error
+	}
+	out := make(chan result, claimers)
+	for i := 0; i < claimers; i++ {
+		go func(i int) {
+			<-gun
+			c, err := f.s.Claim(f.ctx, ClaimParams{JobID: "race", Epoch: 1, Now: f.now, Token: "tok-" + string(rune('a'+i))})
+			out <- result{c, err}
+		}(i)
+	}
+	close(gun)
+	wins, lost := 0, 0
+	var winner string
+	for i := 0; i < claimers; i++ {
+		r := <-out
+		switch {
+		case r.err == nil:
+			wins++
+			winner = r.c.Token
+		case errors.Is(r.err, ErrLostClaim):
+			lost++
+		default:
+			t.Fatalf("unexpected claim error: %v", r.err)
+		}
+	}
+	if wins != 1 || lost != claimers-1 {
+		t.Fatalf("wins=%d lost=%d, want 1 and %d", wins, lost, claimers-1)
+	}
+	var n int
+	if err := f.db.QueryRow(`SELECT COUNT(*) FROM scheduler_job_attempts WHERE job_id = 'race'`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("attempt rows = %d, %v", n, err)
+	}
+	if got := f.attemptStr("race", 1, "claim_token"); got.String != winner {
+		t.Fatalf("attempt token %q is not the winner's %q", got.String, winner)
+	}
+	// Negative control: with a single claimer the same claim succeeds.
+	f.job("solo", nil)
+	if _, err := f.s.Claim(f.ctx, ClaimParams{JobID: "solo", Epoch: 1, Now: f.now}); err != nil {
+		t.Fatalf("control claim: %v", err)
+	}
+}

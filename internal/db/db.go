@@ -38,7 +38,7 @@ type DB struct {
 
 // Open opens or creates an intercore database at path.
 func Open(path string, busyTimeout time.Duration) (*DB, error) {
-	return open(path, busyTimeout, false)
+	return open(path, busyTimeout, false, false)
 }
 
 // OpenExisting is Open for a database that must already exist and that the
@@ -47,7 +47,17 @@ func Open(path string, busyTimeout time.Duration) (*DB, error) {
 // nothing is created in its place. Nothing here changes the persistent journal
 // mode: the caller runs EnableWAL once it has checked which file it holds.
 func OpenExisting(path string, busyTimeout time.Duration) (*DB, error) {
-	return open(path, busyTimeout, true)
+	return open(path, busyTimeout, true, false)
+}
+
+// OpenReadOnly opens a database that must already exist with SQLite's
+// read-only mode: the file is opened O_RDONLY, so nothing can create it, change
+// its journal mode, run a checkpoint or write to it. A hot rollback journal that
+// needs recovery makes the first read fail rather than being replayed. Like
+// OpenExisting it leaves the schema-version check to the caller
+// (CheckSchemaVersion).
+func OpenReadOnly(path string, busyTimeout time.Duration) (*DB, error) {
+	return open(path, busyTimeout, true, true)
 }
 
 // EnableWAL switches the database to write-ahead logging, which Open does on
@@ -57,7 +67,7 @@ func (d *DB) EnableWAL() error {
 	return err
 }
 
-func open(path string, busyTimeout time.Duration, existing bool) (*DB, error) {
+func open(path string, busyTimeout time.Duration, existing, readOnly bool) (*DB, error) {
 	// Symlink check on parent directory
 	dir := filepath.Dir(path)
 	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -100,6 +110,9 @@ func open(path string, busyTimeout time.Duration, existing bool) (*DB, error) {
 	query := "_pragma=journal_mode%3DWAL&_pragma=busy_timeout%3D" + strconv.FormatInt(busyTimeout.Milliseconds(), 10) + "&_pragma=foreign_keys%3D1"
 	if existing {
 		query = "mode=rw&_pragma=busy_timeout%3D" + strconv.FormatInt(busyTimeout.Milliseconds(), 10) + "&_pragma=foreign_keys%3D1"
+	}
+	if readOnly {
+		query = "mode=ro&_pragma=busy_timeout%3D" + strconv.FormatInt(busyTimeout.Milliseconds(), 10) + "&_pragma=foreign_keys%3D1"
 	}
 	dsn := "file:" + (&url.URL{Path: path}).EscapedPath() + "?" + query
 	sqlDB, err := sql.Open("sqlite", dsn)

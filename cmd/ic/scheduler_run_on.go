@@ -17,14 +17,16 @@ import (
 
 // cmdSchedulerRun is `ic scheduler run`, compiled only under the icsched_test
 // build tag (plan section 12, slice 3). In slice 3a it validates the database,
-// takes both lifetime locks, bumps the epoch (or rebinds) and heartbeats. It
-// claims nothing: claim and launch arrive in a later slice.
+// takes both lifetime locks, bumps the epoch (or rebinds), heartbeats, and
+// runs the claim and launch loop (slice 3b) until SIGTERM, which drains: it
+// claims nothing new and waits up to --drain-timeout for running jobs.
 //
 // Exit codes: 0 clean drain; 1 refusal; 3 a verified live runner exists or this
 // runner was superseded; 5 invariant violated.
 func cmdSchedulerRun(ctx context.Context, args []string) int {
 	f := cli.ParseFlags(args)
-	if bad := f.Unknown("rebind-db", "confirm-old-runner-dead", "lock-wait", "heartbeat-interval"); len(bad) > 0 {
+	if bad := f.Unknown("rebind-db", "confirm-old-runner-dead", "lock-wait", "heartbeat-interval",
+		"dispatch-sh", "max-concurrent", "drain-timeout", "tick"); len(bad) > 0 {
 		fmt.Fprintf(os.Stderr, "ic: scheduler run: unknown flag --%s\n", bad[0])
 		return runner.ExitRefused
 	}
@@ -38,6 +40,22 @@ func cmdSchedulerRun(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "ic: scheduler run: invalid --heartbeat-interval\n")
 		return runner.ExitRefused
 	}
+	drainTimeout, err := f.Duration("drain-timeout", 30*time.Second)
+	if err != nil || drainTimeout <= 0 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler run: invalid --drain-timeout\n")
+		return runner.ExitRefused
+	}
+	tick, err := f.Duration("tick", time.Second)
+	if err != nil || tick <= 0 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler run: invalid --tick\n")
+		return runner.ExitRefused
+	}
+	maxConc, err := f.Int("max-concurrent", 2)
+	if err != nil || maxConc < 1 {
+		fmt.Fprintf(os.Stderr, "ic: scheduler run: invalid --max-concurrent\n")
+		return runner.ExitRefused
+	}
+	dispatchSH := f.String("dispatch-sh", os.Getenv("CLAVAIN_DISPATCH_SH"))
 	path, err := resolveDBPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: scheduler run: %v\n", err)
@@ -54,6 +72,10 @@ func cmdSchedulerRun(ctx context.Context, args []string) int {
 		LockWait:             lockWait,
 		HeartbeatEvery:       heartbeat,
 		BusyTimeout:          flagTimeout,
+		DispatchSH:           dispatchSH,
+		MaxConcurrent:        maxConc,
+		DrainTimeout:         drainTimeout,
+		Tick:                 tick,
 		Stderr:               os.Stderr,
 	})
 	if err == nil {

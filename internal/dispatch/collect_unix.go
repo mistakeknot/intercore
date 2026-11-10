@@ -8,7 +8,17 @@ import (
 	"time"
 )
 
+// terminateRecordedProcess ends the recorded process group, escalating to SIGKILL
+// after about five seconds.
 func terminateRecordedProcess(identity processIdentity) error {
+	return terminateRecordedProcessUntil(identity, nil)
+}
+
+// terminateRecordedProcessUntil is terminateRecordedProcess that gives up
+// waiting when stop closes. SIGTERM has already been sent by then and no SIGKILL
+// follows, so the group is left as the caller found it after the polite signal.
+// A nil stop never fires.
+func terminateRecordedProcessUntil(identity processIdentity, stop <-chan struct{}) error {
 	if identity.PID <= 1 || identity.GroupID != identity.PID {
 		return fmt.Errorf("process identity no longer matches admitted attempt")
 	}
@@ -44,7 +54,17 @@ func terminateRecordedProcess(identity processIdentity) error {
 		if !owned() {
 			return fmt.Errorf("process group ownership lost during shutdown")
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-stop:
+			return ErrTerminationAbandoned
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	// stop and the timer can both be ready on the last pass; stop wins.
+	select {
+	case <-stop:
+		return ErrTerminationAbandoned
+	default:
 	}
 	if !owned() {
 		return fmt.Errorf("process group ownership lost before escalation")
