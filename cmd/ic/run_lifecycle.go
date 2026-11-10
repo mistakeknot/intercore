@@ -658,11 +658,20 @@ func cmdRunRollbackWorkflow(ctx context.Context, runID, toPhase, reason string, 
 		cleanupErr = true
 	}
 
+	// End the agents' processes first: marking a row cancelled does not stop the
+	// agent, which would keep running (and spending) with nothing tracking it.
+	stoppedDispatches, err := dispatch.StopByRun(ctx, dStore, runID)
+	if err != nil {
+		slog.Warn("run rollback: stopping dispatch processes failed", "error", err)
+		cleanupErr = true
+	}
+
 	cancelledDispatches, err := dStore.CancelByRun(ctx, runID)
 	if err != nil {
 		slog.Warn("run rollback: dispatch cancellation failed", "error", err)
 		cleanupErr = true
 	}
+	cancelledDispatches += stoppedDispatches
 
 	failedAgents, err := rtStore.FailAgentsByRun(ctx, runID)
 	if err != nil {

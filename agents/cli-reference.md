@@ -46,6 +46,7 @@ ic dispatch poll <id>                      Check liveness, update stats
 ic dispatch wait <id> [--timeout=<dur>]    Poll until terminal; at --timeout, kill the worker
 ic dispatch kill <id>                      SIGTERM then SIGKILL a dispatch
 ic dispatch reconcile <id>                 Append later Flere terminal proof; preserve the original attempt
+ic dispatch reconcile [--lease=<dur>]      Record dead agents and release abandoned reservations (signals nothing)
 ic dispatch tokens <id> --set --in=N --out=N [--cache=N]   Update token counts
 ic dispatch prune --older-than=<dur>       Remove old terminal dispatches
 ```
@@ -68,6 +69,29 @@ return exit 1 and a structured reason under `--json`; unexpected storage errors
 remain exit 2. Terminal Flere usage cannot be overwritten through `dispatch tokens`.
 Host timeout or cancellation records a failed indeterminate Flere attempt;
 later proof can be appended through reconciliation.
+
+`dispatch spawn --timeout` is not enforced by `ic`: it is stored on the dispatch
+and passed to `dispatch.sh --timeout`, and the wrapper enforces it. A wrapper
+that ignores it leaves the agent running until it exits or is killed. Only
+`dispatch wait --timeout` is a deadline `ic` enforces itself, by killing the
+worker at expiry.
+
+Dead agents and abandoned reservations do not stay active. `dispatch status <id>`,
+`dispatch list --active` and `dispatch reconcile` (no id) record the outcome of an
+unsupervised dispatch whose process has exited, as `poll` does, proved by its
+birth identity and never by the bare PID. They also cancel a `spawned` row that
+never started a process once it is older than the lease (default 10 minutes;
+`dispatch reconcile --lease=<dur>` overrides it), which frees the cap slot it held.
+`dispatch retry` creates exactly such a reservation row, and the caller must start
+the process inside the lease. Supervised dispatches are never touched: their
+supervisor is the only writer of their outcome.
+
+`run rollback` stops the agent processes of the run's unsupervised active
+dispatches, signalling the whole process group as `dispatch kill` does and only
+after the recorded birth identity proves the process is still the admitted one,
+before it records them cancelled. A process whose identity cannot be proved is
+not signalled; its row is recorded failed with an indeterminate outcome.
+Supervised dispatches get a `run_rollback` intent instead.
 
 Spawn requires host process inspection before starting a child. On macOS this
 includes `kern.proc.pid`, `kern.proc.all`, and `kern.bootsessionuuid`. A sandbox
