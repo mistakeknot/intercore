@@ -6,7 +6,7 @@ Complete `ic` command reference, flags, and exit codes.
 
 ```
 cmd/ic/          CLI entry point + 20 subcommand files (run, dispatch, gate, lock, events, coordination, scheduler, lane, discovery, portfolio, cost, interspect, agency, action, config, publish, route, landed, session, situation)
-internal/        30 packages — key ones: db/, state/, dispatch/, phase/, event/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, audit/, redaction/, publish/
+internal/        30 packages — key ones: db/, state/, dispatch/, phase/, event/, coordination/, scheduler/, lane/, discovery/, portfolio/, budget/, lock/, agency/, redaction/, publish/
 lib-intercore.sh Bash wrappers for hooks (45 functions)
 ```
 
