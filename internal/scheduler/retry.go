@@ -21,6 +21,7 @@ const (
 	ClassFailedUnclassified = "failed_unclassified"
 	ClassIndeterminate      = "indeterminate"
 	ClassConfigError        = "config_error"
+	ClassTimeout            = "timeout"
 	ClassCancelled          = "cancelled"
 	ClassUnknown            = "unknown"
 
@@ -97,6 +98,7 @@ var finishClasses = map[string]bool{
 	ClassFailedUnclassified: true,
 	ClassIndeterminate:      true,
 	ClassConfigError:        true,
+	ClassTimeout:            true,
 	ClassCancelled:          true,
 	ClassUnknown:            true,
 }

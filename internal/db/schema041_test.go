@@ -794,3 +794,36 @@ func TestMigration041FirstUpgradeRestore(t *testing.T) {
 		}, false)
 	})
 }
+
+// Backups taken in the same second never share a file: each migration owns the
+// target it reserved, so none can delete another's snapshot.
+func TestConcurrentBackupsGetDistinctFiles(t *testing.T) {
+	d, path := tempDB(t)
+	ctx := context.Background()
+	if err := d.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	old, _ := filepath.Glob(path + ".backup-*")
+	for _, o := range old {
+		os.Remove(o)
+	}
+	const n = 8
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() { errs <- d.backupBeforeMigrate(ctx, currentSchemaVersion) }()
+	}
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("backup: %v", err)
+		}
+	}
+	got := backupsOf(t, path)
+	if len(got) != n {
+		t.Fatalf("backups = %d, want %d distinct files", len(got), n)
+	}
+	for _, b := range got {
+		if fi, err := os.Stat(b); err != nil || fi.Size() == 0 {
+			t.Errorf("backup %s missing or empty: %v", b, err)
+		}
+	}
+}

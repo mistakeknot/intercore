@@ -879,6 +879,7 @@ func TestFinalizeTerminalMapping(t *testing.T) {
 		{ClassIndeterminate, StatusFailed},
 		{ClassConfigError, StatusFailed},
 		{ClassUnknown, StatusFailed},
+		{ClassTimeout, StatusFailed},
 		{ClassCancelled, StatusCancelled},
 	}
 	for _, tc := range cases {
@@ -911,12 +912,40 @@ func TestFinalizeTerminalMapping(t *testing.T) {
 	}
 }
 
-func TestFinalizeRetryBlockedIsTerminal(t *testing.T) {
+// A retry the policy allows but retry_blocked holds goes back to pending with
+// the marker set. Claim skips it until `unblock`, which then resumes the job.
+func TestFinalizeRetryBlockedHoldsJobUntilUnblock(t *testing.T) {
 	f := newFx(t)
 	f.job("b", func(j *SpawnJob) {
 		j.RetryPolicy = `{"max_attempts":5,"retry_on":["prestart","indeterminate"]}`
 		j.Idempotent = true
 	})
+	c := f.running("b", 1)
+	res, err := f.s.Finalize(f.ctx, c, FinalizeParams{Class: ClassIndeterminate, Now: f.now, RetryBlocked: "survivor_unknown:d-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := f.get("b")
+	if !res.Retry || j.Status != StatusPending || j.RetryBlocked != "survivor_unknown:d-b" || j.ClaimToken != "" {
+		t.Fatalf("res %+v job %+v", res, j)
+	}
+	f.now = f.now.Add(time.Hour) // past any backoff
+	if _, err := f.s.Claim(f.ctx, ClaimParams{JobID: "b", Epoch: 1, Now: f.now}); err == nil {
+		t.Fatal("a blocked job was claimed")
+	}
+	if err := f.s.Unblock(f.ctx, "b", true); err != nil {
+		t.Fatal(err)
+	}
+	if c2 := f.claim("b", 1); c2.AttemptNo != 2 {
+		t.Fatalf("attempt_no after unblock = %d, want 2", c2.AttemptNo)
+	}
+}
+
+// When the policy would not retry anyway, a blocked finalize is terminal and
+// keeps the marker as a record.
+func TestFinalizeRetryBlockedWithoutRetryIsTerminal(t *testing.T) {
+	f := newFx(t)
+	f.job("b", nil)
 	c := f.running("b", 1)
 	res, err := f.s.Finalize(f.ctx, c, FinalizeParams{Class: ClassIndeterminate, Now: f.now, RetryBlocked: "survivor_unknown:d-b"})
 	if err != nil {
@@ -1132,6 +1161,51 @@ func TestRecoverLegacyAttemptLimits(t *testing.T) {
 		if res.Status != tc.status || j.Status != tc.status || j.OutcomeClass != tc.out || res.Retry {
 			t.Errorf("%s: res %+v job %+v, want %s/%s", tc.class, res, j, tc.status, tc.out)
 		}
+	}
+}
+
+// A cancel that commits before recovery is never overwritten by a legacy
+// class, including the ones that would otherwise quarantine.
+func TestRecoverLegacyHonoursCancelOverEveryClass(t *testing.T) {
+	for _, class := range []string{ClassOK, ClassAgentFailed, ClassIndeterminate, ClassUnknown, ClassTimeout} {
+		f := newFx(t)
+		f.job("lc", nil)
+		c := f.claim("lc", 1)
+		f.exec(`UPDATE scheduler_job_attempts SET legacy=1 WHERE claim_token=?`, c.Token)
+		if _, err := f.s.CancelJob(f.ctx, "lc", f.now); err != nil {
+			t.Fatal(err)
+		}
+		f.setEpoch(2)
+		res, err := f.s.Recover(f.ctx, RecoverParams{JobID: "lc", Epoch: 2, Action: ActFinalize, Class: class, Now: f.now})
+		if err != nil {
+			t.Fatalf("%s: %v", class, err)
+		}
+		j := f.get("lc")
+		if res.Status != StatusCancelled || j.Status != StatusCancelled || j.OutcomeClass != ClassCancelled || j.ClaimToken != "" {
+			t.Errorf("%s: res %+v job %+v", class, res, j)
+		}
+		if v := f.attemptStr("lc", 1, "outcome_class"); v.String != ClassCancelled {
+			t.Errorf("%s: attempt outcome = %v, want cancelled", class, v)
+		}
+	}
+}
+
+// Recover accepts the timeout class a dispatch can end with.
+func TestRecoverFinalizeAcceptsTimeout(t *testing.T) {
+	f := newFx(t)
+	f.job("to", nil)
+	f.running("to", 1)
+	f.setEpoch(2)
+	res, err := f.s.Recover(f.ctx, RecoverParams{JobID: "to", Epoch: 2, Action: ActFinalize, Class: ClassTimeout, Now: f.now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	j := f.get("to")
+	if res.Status != StatusFailed || j.OutcomeClass != ClassTimeout || j.ClaimToken != "" {
+		t.Fatalf("res %+v job %+v", res, j)
+	}
+	if v := f.attemptStr("to", 1, "outcome_class"); v.String != ClassTimeout {
+		t.Fatalf("attempt outcome = %v", v)
 	}
 }
 

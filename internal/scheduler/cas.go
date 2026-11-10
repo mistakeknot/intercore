@@ -355,7 +355,10 @@ func finish(ctx context.Context, tx execer, id string, st *jobState, class, errM
 			// retry, so it behaves as the default.
 			pol = DefaultRetryPolicy()
 		}
-		retry = ShouldRetry(pol, class, st.seq, st.crashes, blocked != "")
+		// A retry held by retry_blocked still returns the job to pending, with
+		// the marker set: claim skips it until `unblock` clears the marker, so
+		// an operator's unblock resumes the job instead of finding it failed.
+		retry = ShouldRetry(pol, class, st.seq, st.crashes, false)
 	}
 	if err := endAttempt(ctx, tx, st.token, class, errMsg, true, now); err != nil {
 		return nil, err
@@ -370,10 +373,10 @@ func finish(ctx context.Context, tx execer, id string, st *jobState, class, errM
 		nb := now.Unix() + int64(math.Ceil(delay.Seconds()))
 		out = FinalizeResult{Status: StatusPending, Retry: true, NotBefore: time.Unix(nb, 0)}
 		r, err := tx.ExecContext(ctx, `UPDATE scheduler_jobs
-			SET status = 'pending', not_before = ?, error_msg = ?, claim_token = NULL, lease_epoch = NULL,
+			SET status = 'pending', not_before = ?, error_msg = ?, retry_blocked = ?, claim_token = NULL, lease_epoch = NULL,
 			    dispatch_id = NULL, updated_at = ?
 			WHERE id = ? AND claim_token = ? AND status = ? AND `+epochGuard,
-			nb, nullString(errMsg), now.Unix(), id, st.token, string(st.status), guardEpoch)
+			nb, nullString(errMsg), nullString(blocked), now.Unix(), id, st.token, string(st.status), guardEpoch)
 		if err != nil {
 			return nil, fmt.Errorf("finalize %s: %w", id, err)
 		}
@@ -529,14 +532,15 @@ func recoverFinalize(ctx context.Context, tx execer, p RecoverParams, st *jobSta
 	if !st.legacy {
 		return finish(ctx, tx, p.JobID, st, p.Class, "", p.RetryBlocked, p.Now, p.Rand, p.Epoch)
 	}
+	// A cancel that committed first wins over every legacy class.
+	if st.status == StatusCancelling {
+		return finish(ctx, tx, p.JobID, st, ClassCancelled, "", p.RetryBlocked, p.Now, p.Rand, p.Epoch)
+	}
 	// The legacy rule: a definite class is final with no retry; an
 	// indeterminate or unknown one needs an operator.
 	switch p.Class {
 	case ClassIndeterminate, ClassUnknown:
 		return quarantine(ctx, tx, p, st, ReasonLegacyUnknown)
-	}
-	if st.status == StatusCancelling {
-		return finish(ctx, tx, p.JobID, st, ClassCancelled, "", p.RetryBlocked, p.Now, p.Rand, p.Epoch)
 	}
 	if err := endAttempt(ctx, tx, st.token, p.Class, "", true, p.Now); err != nil {
 		return nil, err

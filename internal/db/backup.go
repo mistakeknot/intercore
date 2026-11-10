@@ -43,13 +43,24 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 		return fmt.Errorf("migrate: backup: not enough free space: %w", err)
 	}
 
+	// Reserve the target with an exclusive create, so two migrations that start
+	// in the same second can never share a file: each owns the file it made and
+	// removes only that one. VACUUM INTO accepts an existing empty file.
 	stamp := time.Now().Format("20060102-150405")
-	target := fmt.Sprintf("%s.backup-%d-%s.db", d.path, fromVersion, stamp)
-	for n := 1; ; n++ {
-		if _, err := os.Lstat(target); os.IsNotExist(err) {
+	var target string
+	for n := 0; ; n++ {
+		target = fmt.Sprintf("%s.backup-%d-%s.db", d.path, fromVersion, stamp)
+		if n > 0 {
+			target = fmt.Sprintf("%s.backup-%d-%s-%d.db", d.path, fromVersion, stamp, n)
+		}
+		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err == nil {
+			f.Close()
 			break
 		}
-		target = fmt.Sprintf("%s.backup-%d-%s-%d.db", d.path, fromVersion, stamp, n)
+		if !os.IsExist(err) {
+			return fmt.Errorf("migrate: backup failed: reserve %s: %w", target, err)
+		}
 	}
 
 	fail := func(err error) error {
