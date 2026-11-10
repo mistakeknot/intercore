@@ -235,6 +235,7 @@ Commands:
   dispatch kill <id>            Kill a dispatch
   dispatch prune --older-than=<dur>  Prune old dispatches
   dispatch retry <id> [--escalate] [--chain-key=K]  Retry (or escalate) a failed dispatch
+  dispatch reconcile [--lease=<dur>]  Record dead agents, release abandoned reservations
   run create --project=<dir> --goal=<text> [--metadata=JSON] [opts]  Create a run
   run create --projects=<p1>,<p2> --goal=<text>    Create portfolio run
   run status <id>               Show run details
