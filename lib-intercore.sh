@@ -192,7 +192,7 @@ intercore_cleanup_stale() {
     # INTERCORE_ROUTING_RETENTION=<N>d|<duration> sets the window (default 30d);
     # =off skips it. An `ic` without `route prune` fails harmlessly here.
     if [[ "${INTERCORE_ROUTING_RETENTION:-30d}" != "off" ]]; then
-        local db_path="${INTERCORE_DB:-}" d dd state_dir key stamp lock hour secs tbin pid wd rc=0
+        local db_path="${INTERCORE_DB:-}" d dd t n state_dir key stamp lock hour secs tbin pid wd rc=0
         if [[ -n "$db_path" ]]; then
             [[ "$db_path" == /* ]] || db_path="$PWD/$db_path"
         else
@@ -203,10 +203,20 @@ intercore_cleanup_stale() {
                 d="$(dirname "$d")"
             done
         fi
-        # Canonical directory (resolves ./, ../ and symlinked directories) so
-        # equivalent spellings of one database share one stamp.
+        # Canonical path (resolves ./, ../ and symlinked directories and database
+        # files) so equivalent spellings of one database share one stamp.
         if [[ -n "$db_path" ]]; then
             dd="$(cd "$(dirname "$db_path")" 2>/dev/null && pwd -P)" && db_path="$dd/$(basename "$db_path")"
+            # Follow a symlinked database file too (a few hops at most).
+            n=0
+            while [[ -L "$db_path" && "$n" -lt 10 ]]; do
+                t="$(readlink "$db_path" 2>/dev/null)" || break
+                [[ -n "$t" ]] || break
+                [[ "$t" == /* ]] || t="$(dirname "$db_path")/$t"
+                dd="$(cd "$(dirname "$t")" 2>/dev/null && pwd -P)" || break
+                db_path="$dd/$(basename "$t")"
+                n=$(( n + 1 ))
+            done
         fi
         state_dir="${INTERCORE_ROUTING_PRUNE_STAMP_DIR:-}"
         if [[ -z "$state_dir" ]]; then
@@ -234,7 +244,8 @@ intercore_cleanup_stale() {
             [[ "$secs" =~ ^[0-9]{1,6}$ ]] && secs=$(( 10#$secs )) && (( secs > 0 )) || secs=20
             tbin="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null)" || tbin=""
             if [[ -n "$tbin" ]]; then
-                "$tbin" -k 2 "$secs" "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1 || rc=$?
+                # The group's own stderr is discarded too: bash prints "Killed ..." for a child timeout -k had to SIGKILL.
+                { "$tbin" -k 2 "$secs" "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1 || rc=$?; } 2>/dev/null
             else
                 "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1 &
                 pid=$!

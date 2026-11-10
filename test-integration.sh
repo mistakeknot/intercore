@@ -1652,10 +1652,16 @@ run_ok "hook: intercore_remote_authority with HOME unset under set -u must repor
 pass "hook survives HOME unset under set -u and skips the prune"
 
 # 4. A failing or missing cksum must not abort an errexit caller, and must skip the prune.
-t_cksum() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-cksum"
-  HOOK_BIN="$HOOK_DIR/nohome-ic"; cksum() { return "$1"; }; hook_raw projA; }
+TOOLBIN_NOCKSUM="$HOOK_DIR/toolbin-nocksum"; mkdir -p "$TOOLBIN_NOCKSUM"
+for _t in cut dirname basename find mkdir rmdir touch sleep rm cat date; do ln -sf "$(command -v "$_t")" "$TOOLBIN_NOCKSUM/$_t"; done
+t_cksum() { # $1 = exit status of a cksum that is installed, or "missing" for none on PATH
+  unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-cksum"
+  HOOK_BIN="$HOOK_DIR/nohome-ic"
+  if [[ "$1" == missing ]]; then PATH="$TOOLBIN_NOCKSUM"; ! command -v cksum >/dev/null || return 9
+  else eval "cksum() { cat >/dev/null; return $1; }"; fi
+  hook_raw projA; }
 run_ok "hook: a failing cksum must not abort an errexit caller" t_cksum 1
-run_ok "hook: a missing cksum must not abort an errexit caller" t_cksum 127
+run_ok "hook: a missing cksum must not abort an errexit caller" t_cksum missing
 [[ ! -e "$HOOK_DIR/nohome-calls" ]] || fail "hook: without a stamp key the hook must skip the prune"
 pass "hook skips quietly when cksum fails"
 
@@ -1664,7 +1670,8 @@ fake_ic "$HOOK_DIR/stubborn-ic" "$HOOK_DIR/stubborn-calls" "trap '' TERM; sleep 
 t_slow() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_TIMEOUT=1 INTERCORE_ROUTING_PRUNE_STAMP_DIR="$1"
   HOOK_BIN="$HOOK_DIR/stubborn-ic"; hook_raw projA; }
 SECONDS=0
-run_ok "hook: a timed-out prune must not fail the caller" t_slow "$HOOK_DIR/stamps-slow"
+run_ok "hook: a timed-out prune must not fail the caller" t_slow "$HOOK_DIR/stamps-slow" 2> "$HOOK_DIR/slow.err"
+[[ ! -s "$HOOK_DIR/slow.err" ]] || fail "hook: a prune that had to be SIGKILLed must leave the caller's stderr empty: $(head -c 200 "$HOOK_DIR/slow.err")"
 (( SECONDS < 15 )) || fail "hook: a 30s prune that ignores SIGTERM must be killed by the timeout, took ${SECONDS}s"
 [[ "$(find "$HOOK_DIR/stamps-slow" -name 'routing-prune-*.stamp' | wc -l | tr -d ' ')" == 0 ]] || fail "hook: a timed-out prune must not leave a success stamp"
 run_ok "hook: second stop after a timeout" t_slow "$HOOK_DIR/stamps-slow"
@@ -1677,7 +1684,8 @@ for _t in cksum cut dirname basename find mkdir rmdir touch sleep rm cat date; d
 t_notimeout() { PATH="$TOOLBIN"; ! command -v timeout >/dev/null && ! command -v gtimeout >/dev/null && t_slow "$1"; }
 rm -f "$HOOK_DIR/stubborn-calls"
 SECONDS=0
-run_ok "hook: without timeout/gtimeout a slow prune must still return" t_notimeout "$HOOK_DIR/stamps-slow2"
+run_ok "hook: without timeout/gtimeout a slow prune must still return" t_notimeout "$HOOK_DIR/stamps-slow2" 2> "$HOOK_DIR/slow2.err"
+[[ ! -s "$HOOK_DIR/slow2.err" ]] || fail "hook: the watchdog fallback must leave the caller's stderr empty: $(head -c 200 "$HOOK_DIR/slow2.err")"
 (( SECONDS < 15 )) || fail "hook: the no-timeout-binary fallback must still cut off a SIGTERM-ignoring prune, took ${SECONDS}s"
 [[ "$(ncalls "$HOOK_DIR/stubborn-calls")" == 1 ]] || fail "hook: the fallback must have started the prune once"
 pass "hook bounds a slow prune even without a timeout binary"
@@ -1728,9 +1736,9 @@ run_ok "hook: a stamp that cannot be written must not fail the caller" t_nostamp
 pass "hook backs off and stays quiet when the stamp cannot be written"
 
 # Equivalent spellings of one database share one stamp, and an octal-looking timeout is fine.
-rm -f "$HOOK_DIR/count-calls"; rm -rf "$HOOK_DIR/stamps-alias"; ln -sfn "$HOOK_DIR/projA/.clavain" "$HOOK_DIR/linkA"
+rm -f "$HOOK_DIR/count-calls"; rm -rf "$HOOK_DIR/stamps-alias"; ln -sfn "$HOOK_DIR/projA/.clavain" "$HOOK_DIR/linkA"; ln -sfn "$HOOK_DIR/projA/.clavain/intercore.db" "$HOOK_DIR/dblink"; ln -sfn dblink "$HOOK_DIR/dblink2"
 t_alias() { unset INTERCORE_DB; export INTERCORE_ROUTING_PRUNE_STAMP_DIR="$HOOK_DIR/stamps-alias" HOOK_BIN="$HOOK_DIR/count-ic" INTERCORE_ROUTING_PRUNE_TIMEOUT=08
-  for _db in .clavain/intercore.db ./.clavain/intercore.db ../projA/.clavain/intercore.db "$HOOK_DIR/projA/.clavain/intercore.db" "$HOOK_DIR/linkA/intercore.db"; do
+  for _db in .clavain/intercore.db ./.clavain/intercore.db ../projA/.clavain/intercore.db "$HOOK_DIR/projA/.clavain/intercore.db" "$HOOK_DIR/linkA/intercore.db" "$HOOK_DIR/dblink" "$HOOK_DIR/dblink2"; do
     INTERCORE_DB="$_db" hook_raw projA
   done; }
 run_ok "hook: path aliases and an octal-looking timeout must not fail the caller" t_alias 2> "$HOOK_DIR/alias.err"
