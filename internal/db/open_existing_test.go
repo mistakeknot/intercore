@@ -74,3 +74,33 @@ func TestOpenExistingKeepsJournalModeUntilEnableWAL(t *testing.T) {
 	}
 	e.Close()
 }
+
+// OpenExisting reads nothing, so it does not check the schema version;
+// CheckSchemaVersion does, after the caller has verified the file. Open still
+// checks at once (the control).
+func TestOpenExistingDefersSchemaVersionCheck(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new.db")
+	d, err := Open(path, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SqlDB().Exec("PRAGMA user_version = 9999"); err != nil {
+		t.Fatal(err)
+	}
+	d.Close()
+
+	if d2, err := Open(path, time.Second); err != ErrSchemaVersionTooNew {
+		if d2 != nil {
+			d2.Close()
+		}
+		t.Fatalf("Open: got %v, want ErrSchemaVersionTooNew", err)
+	}
+	e, err := OpenExisting(path, time.Second)
+	if err != nil {
+		t.Fatalf("OpenExisting read the version before the caller verified the file: %v", err)
+	}
+	defer e.Close()
+	if err := e.CheckSchemaVersion(); err != ErrSchemaVersionTooNew {
+		t.Fatalf("CheckSchemaVersion: got %v", err)
+	}
+}

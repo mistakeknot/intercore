@@ -22,6 +22,21 @@ import (
 
 const waitFor = 10 * time.Second
 
+// Tests run several runners in one process, so an earlier connection's
+// descriptor can still be open on the file. The production refusal of that
+// state is exercised by the tests that call strictPreopen.
+func TestMain(m *testing.M) {
+	allowPreopenedFDs = true
+	os.Exit(m.Run())
+}
+
+// strictPreopen turns on the production rule for the rest of the test.
+func strictPreopen(t *testing.T) {
+	t.Helper()
+	allowPreopenedFDs = false
+	t.Cleanup(func() { allowPreopenedFDs = true })
+}
+
 // newQueue makes a migrated database file in a temp dir and a HOME elsewhere,
 // so nothing here can reach a live database.
 func newQueue(t *testing.T) (path string, store *scheduler.Store, raw *sql.DB) {
@@ -685,7 +700,9 @@ func setRollbackJournal(t *testing.T, path string) {
 
 // P1 (round 3): a descriptor on the locked inode that was already open before
 // SQLite opened must not count as SQLite's own. Same swap-and-restore as above,
-// with such a descriptor held for the whole run.
+// with such a descriptor held for the whole run. (Runs with the test seam on:
+// production refuses such a descriptor up front, see
+// TestRunRefusesADescriptorAlreadyOpenOnTheDatabase.)
 func TestInheritedDescriptorDoesNotStandInForSQLite(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	dir := t.TempDir()
@@ -742,6 +759,41 @@ func TestInheritedDescriptorControlStartsNormally(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer inherited.Close()
+	r := start(t, Options{DB: a, HeartbeatEvery: time.Hour})
+	if r.epoch < 2 {
+		t.Fatalf("epoch %d", r.epoch)
+	}
+}
+
+// P1 (round 4): in production a descriptor already open on the database file
+// cannot be told apart from SQLite's own, so the runner refuses to start.
+func TestRunRefusesADescriptorAlreadyOpenOnTheDatabase(t *testing.T) {
+	strictPreopen(t)
+	t.Setenv("HOME", t.TempDir())
+	a := newClosedQueue(t, t.TempDir(), "a.db")
+	epoch := epochAt(t, a)
+	inherited, err := os.Open(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inherited.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), waitFor)
+	defer cancel()
+	err = Run(ctx, Options{DB: a, LockWait: 20 * time.Millisecond, HeartbeatEvery: time.Hour})
+	if err == nil || exitCode(err) != ExitRefused || !strings.Contains(err.Error(), "already has") {
+		t.Fatalf("got %v", err)
+	}
+	if got := epochAt(t, a); got != epoch {
+		t.Fatalf("a refused start bumped the epoch to %d", got)
+	}
+}
+
+// Control: with no descriptor open on the file, the production rule lets a
+// runner start, so the refusal above is caused by the descriptor.
+func TestStrictPreopenRuleAllowsAFreshProcessState(t *testing.T) {
+	strictPreopen(t)
+	t.Setenv("HOME", t.TempDir())
+	a := newClosedQueue(t, t.TempDir(), "a.db")
 	r := start(t, Options{DB: a, HeartbeatEvery: time.Hour})
 	if r.epoch < 2 {
 		t.Fatalf("epoch %d", r.epoch)

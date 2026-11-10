@@ -47,6 +47,9 @@ func Run(ctx context.Context, o Options) error {
 	if err != nil {
 		return exitf(ExitRefused, "cannot inspect open descriptors to bind SQLite to the locked database: %w", err)
 	}
+	if err := refusePreopened(info, fdsBefore); err != nil {
+		return err
+	}
 	d, err := db.OpenExisting(info.Canonical, o.BusyTimeout)
 	if err != nil {
 		return exitf(ExitRefused, "open %s: %w", info.Canonical, err)
@@ -54,20 +57,20 @@ func Run(ctx context.Context, o Options) error {
 	defer d.Close()
 	store := scheduler.NewStore(d.SqlDB())
 
-	row, err := store.ReadRunner(ctx)
-	if err != nil {
-		return exitf(ExitRefused, "%w", err)
-	}
 	if o.hooks.afterOpen != nil {
 		o.hooks.afterOpen()
 	}
 
-	// Both locks are taken before anything is written, and never released.
-	dbLock, queueLock, err := acquireLocks(ctx, store, info.Canonical, row.QueueID, o)
+	// Lock 1 first, and nothing is read through the connection until the binding
+	// to the locked file is verified: the first read of a swapped-in file could
+	// run that file's hot-journal recovery. (A lock held by another process is
+	// the one exception: the holder check reads the runner row to decide between
+	// exit 3 and retrying, and then this runner exits or keeps waiting.)
+	deadline := o.Now().Add(o.LockWait)
+	dbLock, err := acquireDBLock(ctx, store, info.Canonical, deadline, o)
 	if err != nil {
 		return err
 	}
-	defer queueLock.Close()
 	defer dbLock.Close()
 	if o.hooks.afterLocks != nil {
 		o.hooks.afterLocks()
@@ -76,12 +79,24 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	// Only now is the connection known to be on the locked file, so only now
-	// may anything change the file's persistent state.
+	// may it read or change the file.
 	if err := d.EnableWAL(); err != nil {
 		return exitf(ExitRefused, "enable WAL on %s: %w", info.Canonical, err)
 	}
+	if err := d.CheckSchemaVersion(); err != nil {
+		return exitf(ExitRefused, "%s: %w", info.Canonical, err)
+	}
+	row, err := store.ReadRunner(ctx)
+	if err != nil {
+		return exitf(ExitRefused, "%w", err)
+	}
+	queueLock, err := acquireQueueLock(ctx, store, info.Canonical, row.QueueID, deadline, o)
+	if err != nil {
+		return err
+	}
+	defer queueLock.Close()
 
-	// Re-read after the locks: the row may have changed while we waited.
+	// Re-read after lock 2: the row may have changed while we waited.
 	row, err = store.ReadRunner(ctx)
 	if err != nil {
 		return exitf(ExitRefused, "%w", err)
@@ -157,54 +172,54 @@ func randomID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// acquireLocks takes lock 1 (flock on the DB inode) and then lock 2 (the
-// queue socket). When a lock is held and the recorded holder is verified
-// alive, it exits 3 at once. Otherwise the holder may be exiting, so it retries
-// until LockWait runs out and exits 1.
-func acquireLocks(ctx context.Context, store *scheduler.Store, canonical, queueID string, o Options) (dbLock *os.File, queueLock interface{ Close() error }, err error) {
-	deadline := o.Now().Add(o.LockWait)
+// acquireDBLock takes lock 1 (flock on the DB inode). When it is held and the
+// recorded holder is verified alive, it exits 3 at once. Otherwise the holder
+// may be exiting, so it retries until the deadline and exits 1.
+func acquireDBLock(ctx context.Context, store *scheduler.Store, canonical string, deadline time.Time, o Options) (*os.File, error) {
 	for {
-		if dbLock == nil {
-			f, lerr := LockDB(canonical)
-			switch {
-			case lerr == nil:
-				dbLock = f
-			case errors.Is(lerr, ErrHeld):
-				if err := holderCheck(ctx, store, canonical); err != nil {
-					return nil, nil, err
-				}
-			default:
-				return nil, nil, &ExitError{Code: ExitRefused, Err: lerr}
+		f, lerr := LockDB(canonical)
+		switch {
+		case lerr == nil:
+			return f, nil
+		case errors.Is(lerr, ErrHeld):
+			if err := holderCheck(ctx, store, canonical); err != nil {
+				return nil, err
 			}
-		}
-		if dbLock != nil {
-			ln, lerr := LockQueue(queueID)
-			switch {
-			case lerr == nil:
-				return dbLock, ln, nil
-			case errors.Is(lerr, ErrHeld):
-				if err := holderCheck(ctx, store, canonical); err != nil {
-					dbLock.Close()
-					return nil, nil, err
-				}
-			default:
-				dbLock.Close()
-				return nil, nil, &ExitError{Code: ExitRefused, Err: lerr}
-			}
+		default:
+			return nil, &ExitError{Code: ExitRefused, Err: lerr}
 		}
 		if !o.Now().Before(deadline) {
-			if dbLock != nil {
-				dbLock.Close()
-				return nil, nil, exitf(ExitRefused, "queue lock held by another process (no live runner is recorded; a squatter holds the abstract socket, see ss -xlp)")
-			}
-			return nil, nil, exitf(ExitRefused, "database lock on %s held by another process, and no live runner is recorded", canonical)
+			return nil, exitf(ExitRefused, "database lock on %s held by another process, and no live runner is recorded", canonical)
 		}
 		select {
 		case <-ctx.Done():
-			if dbLock != nil {
-				dbLock.Close()
+			return nil, &ExitError{Code: ExitRefused, Err: ctx.Err()}
+		case <-time.After(o.RetryEvery):
+		}
+	}
+}
+
+// acquireQueueLock takes lock 2 (the queue's abstract socket), with the same
+// holder check and retry as lock 1.
+func acquireQueueLock(ctx context.Context, store *scheduler.Store, canonical, queueID string, deadline time.Time, o Options) (interface{ Close() error }, error) {
+	for {
+		ln, lerr := LockQueue(queueID)
+		switch {
+		case lerr == nil:
+			return ln, nil
+		case errors.Is(lerr, ErrHeld):
+			if err := holderCheck(ctx, store, canonical); err != nil {
+				return nil, err
 			}
-			return nil, nil, &ExitError{Code: ExitRefused, Err: ctx.Err()}
+		default:
+			return nil, &ExitError{Code: ExitRefused, Err: lerr}
+		}
+		if !o.Now().Before(deadline) {
+			return nil, exitf(ExitRefused, "queue lock held by another process (no live runner is recorded; a squatter holds the abstract socket, see ss -xlp)")
+		}
+		select {
+		case <-ctx.Done():
+			return nil, &ExitError{Code: ExitRefused, Err: ctx.Err()}
 		case <-time.After(o.RetryEvery):
 		}
 	}
@@ -312,6 +327,30 @@ func snapshotFDs() (map[string]fdID, error) {
 	return m, nil
 }
 
+// allowPreopenedFDs is a seam for tests that start several runners in one
+// process, where an earlier connection's descriptor is still open on the
+// database. A real runner is a fresh process, so it is false there.
+var allowPreopenedFDs = false
+
+// refusePreopened refuses to start when this process already holds a
+// descriptor on the database file. Such a descriptor (inherited, or left
+// pending close by an earlier SQLite connection) cannot be told apart from the
+// one SQLite opens for this runner, so it could make the binding check pass
+// while SQLite acts on another file.
+func refusePreopened(info PathInfo, before map[string]fdID) error {
+	if allowPreopenedFDs {
+		return nil
+	}
+	want := fdID{dev: info.Dev, ino: info.Ino}
+	for name, id := range before {
+		if id.reg && id.sameFile(want) {
+			return exitf(ExitRefused, "refusing to start: this process already has %s open (descriptor %s, %s); a runner needs a fresh process",
+				info.Canonical, name, id.target)
+		}
+	}
+	return nil
+}
+
 func (a fdID) sameFile(b fdID) bool { return a.dev == b.dev && a.ino == b.ino }
 
 // sqliteOnLockedFile checks that the SQLite connection holds the locked inode.
@@ -324,14 +363,20 @@ func (a fdID) sameFile(b fdID) bool { return a.dev == b.dev && a.ino == b.ino }
 // in for a new one. The lock descriptor is excluded by number. The caller's
 // reads have forced the single connection open before this runs.
 //
-// One case has no new descriptor on the locked inode: SQLite reuses a
-// descriptor that an earlier connection to the same file left pending close in
-// this process. It does so only when stat() of the path matches that
-// descriptor's inode, and then it never resolves the path again, so the reuse
-// binds the connection to the locked inode. That case is accepted only when
-// SQLite opened nothing on any other regular file except the sidecar files of
-// the canonical path: a connection that landed on another database would show
-// up as a new descriptor on that file.
+// With allowPreopenedFDs (tests only) one case has no new descriptor on the
+// locked inode: SQLite reuses a descriptor that an earlier connection to the
+// same file left pending close in the process. It does so only when stat() of
+// the path matches that descriptor's inode, and then it never resolves the path
+// again. That case is accepted only when SQLite opened nothing on any other
+// regular file except the sidecar files of the canonical path. A real runner
+// never gets here with a descriptor already open on the file (refusePreopened),
+// so for it a new descriptor on the locked inode is required.
+//
+// The first read through the connection happens before the binding is verified
+// (the queue id needed for lock 2 lives in the file). On a swapped-in database
+// with a hot journal that read completes the crash recovery that the file's
+// next opener would perform; it adds no logical data and rewrites no committed
+// state. Nothing else is written before the check passes.
 //
 // A connection that the pool later reopens would resolve the path again. That
 // cannot let this runner act on another database: every write it makes is
@@ -360,7 +405,7 @@ func sqliteOnLockedFile(info PathInfo, lock *os.File, before map[string]fdID) er
 				id.target, info.Canonical, info.Identity())
 		}
 	}
-	if reusable {
+	if reusable && allowPreopenedFDs {
 		return nil
 	}
 	return exitf(ExitRefused, "database file changed during startup: SQLite did not open the locked file %s (%s)", info.Canonical, info.Identity())

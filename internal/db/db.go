@@ -127,16 +127,31 @@ func open(path string, busyTimeout time.Duration, existing bool) (*DB, error) {
 		return nil, fmt.Errorf("open: set foreign_keys: %w", err)
 	}
 
-	// Centralized schema version check on every Open
-	var version int
-	if err := sqlDB.QueryRow("PRAGMA user_version").Scan(&version); err == nil {
-		if version > maxSchemaVersion {
+	// Centralized schema version check on every Open. An existing-file open
+	// leaves it to CheckSchemaVersion: the caller has not yet verified that this
+	// is the file it meant, and the first read of a file with a hot journal runs
+	// that file's crash recovery.
+	d := &DB{db: sqlDB, path: path}
+	if !existing {
+		if err := d.CheckSchemaVersion(); err != nil {
 			sqlDB.Close()
-			return nil, ErrSchemaVersionTooNew
+			return nil, err
 		}
 	}
+	return d, nil
+}
 
-	return &DB{db: sqlDB, path: path}, nil
+// CheckSchemaVersion returns ErrSchemaVersionTooNew when the file's
+// PRAGMA user_version is newer than this binary supports. A read error is
+// ignored, as Open always has.
+func (d *DB) CheckSchemaVersion() error {
+	var version int
+	if err := d.db.QueryRow("PRAGMA user_version").Scan(&version); err == nil {
+		if version > maxSchemaVersion {
+			return ErrSchemaVersionTooNew
+		}
+	}
+	return nil
 }
 
 // SqlDB returns the underlying *sql.DB for use by store packages.
