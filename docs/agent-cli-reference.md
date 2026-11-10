@@ -22,8 +22,6 @@
 
 **action** -- Phase action registry. CRUD for per-phase commands with template variable resolution and batch operations.
 
-**lifecycle** -- Agent state machine: `waiting -> generating -> thinking -> idle -> stalled -> error -> completed`. Stall detection via configurable velocity thresholds (tokens-per-minute).
-
 ### Dispatch & Coordination
 
 **dispatch** -- Agent dispatch lifecycle tracking in SQLite. Lifecycle: `spawned -> running -> completed | failed | timeout | cancelled`. Spawn policy (budget, concurrency, agent cap, spawn depth), write-set conflict detection, merge intents (transactional outbox pattern).
@@ -38,8 +36,6 @@
 
 **event** -- Reactive event bus with 5 source types (`phase`, `dispatch`, `interspect`, `discovery`, `coordination`). In-process `Notifier` with callback-based wiring. Handlers: LogHandler (stderr), HookHandler (async shell hooks, 5s timeout), SpawnHandler (auto-spawn on executing phase). Dual cursors for independent phase/dispatch sequences. Additional tables: `dispatch_events`, `interspect_events`, `review_events`, `intent_events`.
 
-**audit** -- Tamper-evident audit trail with SHA-256 hash chain. Per-session sequence numbers detect deletion gaps. Auto-redacts sensitive values before persistence. Table: `audit_log` (v15).
-
 ### Budget & Cost
 
 **budget** -- Token budget enforcement. Warning thresholds, exceeded checks, composition/meet semantics, reconciliation against billing API data.
@@ -49,8 +45,6 @@
 ### Discovery & Scoring
 
 **discovery** -- Research discovery tracking. Lifecycle: `new -> scored -> promoted | proposed | dismissed`. Confidence tiers (high>=0.8, medium>=0.5, low>=0.3, discard<0.3). Source dedup, relevance decay, semantic search via embeddings (BLOB), feedback signals, interest profiles. Tables: `discoveries` (v9), `discovery_events`, `feedback_signals`, `interest_profile`.
-
-**scoring** -- Multi-factor assignment scoring for (agent, task) pairs. Factors: base priority, agent type bonus, profile tag affinity, file focus overlap, context exhaustion penalty, file reservation conflict penalty.
 
 ### Portfolio & Lanes
 
@@ -75,8 +69,6 @@
 ### Agency & Handoff
 
 **agency** -- YAML-based agency spec loading and validation. Validates stage names, phases, duplicate agents. Multi-stage loading for run initialization.
-
-**handoff** -- Structured session handoff format (~400 tokens). Required fields: `Goal` (what was accomplished), `Now` (what to do next). Statuses: complete, partial, blocked.
 
 ### Supporting
 

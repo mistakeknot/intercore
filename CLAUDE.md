@@ -14,18 +14,18 @@ bash test-integration.sh    # Run integration tests (builds ic, creates temp DB)
 
 ## CLI Reference
 
-Full `ic` command reference is in [AGENTS.md](./AGENTS.md). Key commands: `ic run`, `ic dispatch`, `ic gate`, `ic events`, `ic lock`, `ic coordination`, `ic cost`, `ic discovery`. Use `ic <command> --help` for usage.
+Full `ic` command reference is in [agents/cli-reference.md](agents/cli-reference.md); package notes are in [docs/agent-cli-reference.md](docs/agent-cli-reference.md). Key commands: `ic run`, `ic dispatch`, `ic gate`, `ic events`, `ic lock`, `ic coordination`, `ic cost`, `ic discovery`.
 
 ## Claude-Specific Settings
 
-- Project uses Go 1.22 with SQLite (`modernc.org/sqlite`, pure Go, no CGO)
+- Go version is whatever `go.mod` says; storage is SQLite (`modernc.org/sqlite`, pure Go, no CGO)
 - Always use `SetMaxOpenConns(1)` when opening the database
 - PRAGMAs must be set explicitly after `sql.Open` (DSN _pragma is unreliable)
 - CTE wrapping `UPDATE ... RETURNING` is **not supported** by modernc.org/sqlite — use direct `UPDATE ... RETURNING` with row counting instead
 
 ## Design Decisions (Do Not Re-Ask)
 
-- CLI only (no Go library API in v1) — bash hooks shell out to `ic`
+- The CLI is the primary contract: bash hooks shell out to `ic`. `pkg/` is also importable by other modules (Clavain and Autarch use it); `internal/` is not. See [COMPATIBILITY.md](COMPATIBILITY.md)
 - `PRAGMA user_version` only (no `schema_version` table)
 - `--db` flag validates path traversal: `.db` extension, no `..`, under CWD
 - Pre-migration backup created automatically (timestamped)

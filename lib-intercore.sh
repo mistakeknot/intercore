@@ -1,10 +1,10 @@
+#!/usr/bin/env bash
 # lib-intercore.sh — Bash wrappers for intercore CLI
-# Version: 0.1.0 (source: infra/intercore/lib-intercore.sh)
-# Re-copy to hub/clavain/hooks/ on major intercore updates; version is pinned to plugin release.
-# This file is SOURCED by hooks. Do NOT use set -e here — it would exit
-# the parent shell on any failure.
-# Source in hooks: source "$(dirname "$0")/lib-intercore.sh"
 # shellcheck shell=bash
+# shellcheck: sourced library — no set -euo pipefail (would alter caller's error policy)
+# Version: 0.1.0 (source: infra/intercore/lib-intercore.sh)
+# Re-copy to os/clavain/hooks/ on major intercore updates; version is pinned to plugin release.
+# Source in hooks: source "$(dirname "$0")/lib-intercore.sh"
 
 INTERCORE_WRAPPER_VERSION="1.1.0"
 
@@ -14,14 +14,37 @@ INTERCORE_WRAPPER_VERSION="1.1.0"
 INTERCORE_STOP_DEDUP_SENTINEL="stop"
 
 INTERCORE_BIN=""
+INTERCORE_WARNED=false
+
+# Host-local migration posture, outside the versioned plugin cache. Presence
+# means local automatic consumers must not open shared state, even when a
+# binary was cached earlier in the shell. Removing it is an explicit rebind.
+intercore_remote_authority() {
+    [[ -e "$HOME/.config/clavain/remote-shared-state" || -L "$HOME/.config/clavain/remote-shared-state" ]]
+}
+
+# Trace context: IC_TRACE_ID and IC_SPAN_ID are inherited from the environment.
+# They are set by session-start.sh and flow through to all ic CLI calls
+# via process environment inheritance. The ic binary reads them directly from env.
 
 intercore_available() {
+    if intercore_remote_authority; then
+        if [[ "$INTERCORE_WARNED" != true ]]; then
+            printf 'ic: shared-state authority is remote; local automatic actions are disabled\n' >&2
+            INTERCORE_WARNED=true
+        fi
+        return 1
+    fi
     # Returns 0 (available) or 1 (unavailable).
     # "binary not found" → return 1 (wrappers handle fail-safe individually)
     # "binary found but DB broken" → return 1, log error to stderr
     if [[ -n "$INTERCORE_BIN" ]]; then return 0; fi
     INTERCORE_BIN=$(command -v ic 2>/dev/null || command -v intercore 2>/dev/null)
     if [[ -z "$INTERCORE_BIN" ]]; then
+        if [[ "$INTERCORE_WARNED" != true ]]; then
+            printf 'ic: not found — run install.sh or /clavain:setup\n' >&2
+            INTERCORE_WARNED=true
+        fi
         return 1
     fi
     # Binary exists — check health
@@ -35,174 +58,136 @@ intercore_available() {
 
 intercore_state_set() {
     local key="$1" scope_id="$2" json="$3"
-    if ! intercore_available; then return 0; fi
-    printf '%s\n' "$json" | "$INTERCORE_BIN" state set "$key" "$scope_id" || return 0
+    if ! intercore_available; then return 1; fi
+    printf '%s\n' "$json" | "$INTERCORE_BIN" state set "$key" "$scope_id" || return 1
 }
 
 intercore_state_get() {
     local key="$1" scope_id="$2"
-    if ! intercore_available; then printf ''; return; fi
-    "$INTERCORE_BIN" state get "$key" "$scope_id" 2>/dev/null || printf ''
+    # Preserve ic's three states: 0=value, 1=absent, 2+=unavailable/error.
+    if ! intercore_available; then return 2; fi
+    "$INTERCORE_BIN" state get "$key" "$scope_id" 2>/dev/null
 }
 
 intercore_sentinel_check() {
     local name="$1" scope_id="$2" interval="$3"
-    if ! intercore_available; then return 0; fi
+    if ! intercore_available; then return 1; fi
     "$INTERCORE_BIN" sentinel check "$name" "$scope_id" --interval="$interval" >/dev/null
 }
 
-# intercore_sentinel_check_or_legacy — try ic sentinel, fall back to temp file.
-# Args: $1=name, $2=scope_id, $3=interval_sec, $4=legacy_file (temp file path)
+# intercore_sentinel_check_or_legacy — ic sentinel check (legacy temp file fallback removed).
+# Args: $1=name, $2=scope_id, $3=interval_sec, $4=legacy_file (IGNORED, kept for caller compat)
 # Returns: 0 if allowed (proceed), 1 if throttled (skip)
-# Side effect: touches legacy file as fallback when ic unavailable or erroring
+# A remote-authority marker always skips the action. Without a marker, legacy
+# local unavailable behavior remains fail-open for advisory callers.
 intercore_sentinel_check_or_legacy() {
-    local name="$1" scope_id="$2" interval="$3" legacy_file="$4"
-    if intercore_available; then
-        # Suppress stdout (allowed/throttled message), preserve stderr (errors)
-        # Exit 0 = allowed, 1 = throttled, 2+ = error → fall through to legacy
-        local rc=0
-        "$INTERCORE_BIN" sentinel check "$name" "$scope_id" --interval="$interval" >/dev/null || rc=$?
-        if [[ $rc -eq 0 ]]; then
-            return 0  # allowed
-        elif [[ $rc -eq 1 ]]; then
-            return 1  # throttled
-        fi
-        # Exit code 2+ = DB error — fall through to legacy path
-        # (error message already written to stderr by ic)
+    local name="$1" scope_id="$2" interval="$3"
+    if intercore_remote_authority; then return 1; fi
+    # $4 (legacy_file) is accepted but ignored — callers may still pass it during transition
+    if ! intercore_available; then
+        return 0  # fail-open: no ic = allow (hooks skip gracefully)
     fi
-    # Fallback: temp file check (known TOCTOU race — accepted for legacy compat)
-    if [[ -f "$legacy_file" ]]; then
-        if [[ "$interval" -eq 0 ]]; then
-            return 1  # once-per-session: file exists = throttled
-        fi
-        local file_mtime now
-        file_mtime=$(stat -c %Y "$legacy_file" 2>/dev/null || stat -f %m "$legacy_file" 2>/dev/null || echo 0)
-        now=$(date +%s)
-        if [[ $((now - file_mtime)) -lt "$interval" ]]; then
-            return 1  # within throttle window
-        fi
+    local rc=0
+    "$INTERCORE_BIN" sentinel check "$name" "$scope_id" --interval="$interval" >/dev/null || rc=$?
+    if [[ $rc -eq 0 ]]; then
+        return 0  # allowed
+    elif [[ $rc -eq 1 ]]; then
+        return 1  # throttled
     fi
-    touch "$legacy_file"
+    # Exit code 2+ = DB error — fail-open
     return 0
 }
 
 # intercore_check_or_die — Convenience wrapper: check sentinel, exit 0 if throttled.
-# Args: $1=name, $2=scope_id, $3=interval, $4=legacy_path
+# Args: $1=name, $2=scope_id, $3=interval, $4=legacy_path (IGNORED, kept for caller compat)
 # Returns: 0 if allowed. Exits the calling script (exit 0) if throttled.
-# This eliminates the per-hook boilerplate of type-check + inline fallback.
+# NOTE: ic is now required. If unavailable, returns 0 (fail-open: allow the action).
 intercore_check_or_die() {
-    local name="$1" scope_id="$2" interval="$3" legacy_path="$4"
+    local name="$1" scope_id="$2" interval="$3"
+    # $4 (legacy_path) is accepted but ignored — callers may still pass it during transition
     if type intercore_sentinel_check_or_legacy &>/dev/null; then
-        intercore_sentinel_check_or_legacy "$name" "$scope_id" "$interval" "$legacy_path" || exit 0
+        intercore_sentinel_check_or_legacy "$name" "$scope_id" "$interval" || exit 0
         return 0
     fi
-    # Inline fallback (wrapper unavailable — lib-intercore.sh failed to source)
-    if [[ -f "$legacy_path" ]]; then
-        if [[ "$interval" -eq 0 ]]; then
-            exit 0
-        fi
-        local file_mtime now
-        file_mtime=$(stat -c %Y "$legacy_path" 2>/dev/null || stat -f %m "$legacy_path" 2>/dev/null || echo 0)
-        now=$(date +%s)
-        if [[ $((now - file_mtime)) -lt "$interval" ]]; then
-            exit 0
-        fi
-    fi
-    touch "$legacy_path"
+    # lib-intercore.sh failed to source — fail-open (no sentinel = allow)
     return 0
 }
 
-# intercore_sentinel_reset_or_legacy — try ic sentinel reset, fall back to rm.
-# Args: $1=name, $2=scope_id, $3=legacy_glob (temp file glob pattern)
+# intercore_sentinel_reset_or_legacy — ic sentinel reset (legacy temp file fallback removed).
+# Args: $1=name, $2=scope_id, $3=legacy_glob (IGNORED, kept for caller compat)
 intercore_sentinel_reset_or_legacy() {
-    local name="$1" scope_id="$2" legacy_glob="$3"
-    if intercore_available; then
-        "$INTERCORE_BIN" sentinel reset "$name" "$scope_id" >/dev/null 2>&1 || true
-        return 0
-    fi
-    # Fallback: rm legacy files
-    # shellcheck disable=SC2086
-    rm -f $legacy_glob 2>/dev/null || true
+    local name="$1" scope_id="$2"
+    # $3 (legacy_glob) is accepted but ignored
+    if ! intercore_available; then return 0; fi
+    "$INTERCORE_BIN" sentinel reset "$name" "$scope_id" >/dev/null 2>&1 || true
 }
 
 # intercore_sentinel_reset_all — reset all scopes for a given sentinel name.
-# Args: $1=name, $2=legacy_glob (temp file glob pattern for fallback)
+# Args: $1=name, $2=legacy_glob (IGNORED, kept for caller compat)
 # NOTE: Has list-then-reset TOCTOU — acceptable for cache invalidation,
 # NOT for mutual-exclusion sentinels. Use ic sentinel reset-all when added.
 intercore_sentinel_reset_all() {
-    local name="$1" legacy_glob="$2"
-    if intercore_available; then
-        local _name scope _fired
-        while IFS=$'\t' read -r _name scope _fired; do
-            [[ "$_name" == "$name" ]] || continue
-            "$INTERCORE_BIN" sentinel reset "$name" "$scope" >/dev/null 2>&1 || true
-        done < <("$INTERCORE_BIN" sentinel list 2>/dev/null || true)
-        return 0
-    fi
-    # Fallback: rm legacy files
-    # shellcheck disable=SC2086
-    rm -f $legacy_glob 2>/dev/null || true
+    local name="$1"
+    # $2 (legacy_glob) is accepted but ignored
+    if ! intercore_available; then return 0; fi
+    local _name scope _fired
+    while IFS=$'\t' read -r _name scope _fired; do
+        [[ "$_name" == "$name" ]] || continue
+        "$INTERCORE_BIN" sentinel reset "$name" "$scope" >/dev/null 2>&1 || true
+    done < <("$INTERCORE_BIN" sentinel list 2>/dev/null || true)
 }
 
 # intercore_state_delete_all — delete all scopes for a given state key.
-# Args: $1=key, $2=legacy_glob (temp file glob pattern for fallback)
+# Args: $1=key, $2=legacy_glob (IGNORED, kept for caller compat)
 # Use for cache invalidation (not throttle sentinels).
 intercore_state_delete_all() {
-    local key="$1" legacy_glob="$2"
-    if intercore_available; then
-        local scope
-        while read -r scope; do
-            "$INTERCORE_BIN" state delete "$key" "$scope" 2>/dev/null || true
-        done < <("$INTERCORE_BIN" state list "$key" 2>/dev/null || true)
-        return 0
-    fi
-    # Fallback: rm legacy files
-    # shellcheck disable=SC2086
-    rm -f $legacy_glob 2>/dev/null || true
+    local key="$1"
+    # $2 (legacy_glob) is accepted but ignored
+    if ! intercore_available; then return 0; fi
+    local scope
+    while read -r scope; do
+        "$INTERCORE_BIN" state delete "$key" "$scope" 2>/dev/null || true
+    done < <("$INTERCORE_BIN" state list "$key" 2>/dev/null || true)
 }
 
-# intercore_cleanup_stale — prune old sentinels (replaces find -mmin -delete) and old routing decisions.
+# intercore_cleanup_stale — prune old sentinels and old routing decisions.
 # Called ONCE per stop cycle from session-handoff.sh only — not from every hook.
 intercore_cleanup_stale() {
-    if intercore_available; then
-        "$INTERCORE_BIN" sentinel prune --older-than=1h >/dev/null 2>&1 || true
-        # Routing-decision retention: archive then delete decisions older than the
-        # window, at most once a day per database (the pass reads the whole table,
-        # about a second on 100 MB). A stamp file does the throttling because the
-        # sentinel prune above would delete a day-long sentinel within the hour. The
-        # stamp is keyed by the absolute path of the database (INTERCORE_DB resolved
-        # against $PWD, else the nearest .clavain/intercore.db above $PWD, as ic
-        # finds it) so one project's run does not starve another's; ic itself is
-        # called as the other helpers here call it (--db only when INTERCORE_DB is
-        # set), so its own discovery rules apply. The stamp is touched only after a
-        # successful prune, so a failure is retried on the next stop.
-        # INTERCORE_ROUTING_RETENTION=<N>d|<duration> sets the window (default 30d);
-        # =off skips it. An `ic` without `route prune` fails harmlessly here.
-        if [[ "${INTERCORE_ROUTING_RETENTION:-30d}" != "off" ]]; then
-            local db_path="${INTERCORE_DB:-}" d
-            if [[ -n "$db_path" ]]; then
-                [[ "$db_path" == /* ]] || db_path="$PWD/$db_path"
-            else
-                d="$PWD"
-                while [[ -n "$d" ]]; do
-                    if [[ -e "$d/.clavain/intercore.db" ]]; then db_path="$d/.clavain/intercore.db"; break; fi
-                    [[ "$d" == "/" ]] && break
-                    d="$(dirname "$d")"
-                done
-            fi
-            local key stamp
-            key="$(printf '%s' "${db_path:-$PWD}" | cksum | cut -d' ' -f1)"
-            stamp="${INTERCORE_ROUTING_PRUNE_STAMP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/intercore}/routing-prune-$key.stamp"
-            if [[ ! -e "$stamp" ]] || [[ -n "$(find "$stamp" -mmin +1440 2>/dev/null)" ]]; then
-                if "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1; then
-                    { mkdir -p "$(dirname "$stamp")" && : > "$stamp"; } 2>/dev/null || true
-                fi
+    if ! intercore_available; then return 0; fi
+    "$INTERCORE_BIN" sentinel prune --older-than=1h >/dev/null 2>&1 || true
+    # Routing-decision retention: archive then delete decisions older than the
+    # window, at most once a day per database (the pass reads the whole table,
+    # about a second on 100 MB). A stamp file does the throttling because the
+    # sentinel prune above would delete a day-long sentinel within the hour. The
+    # stamp is keyed by the absolute path of the database (INTERCORE_DB resolved
+    # against $PWD, else the nearest .clavain/intercore.db above $PWD, as ic
+    # finds it) so one project's run does not starve another's; ic itself is
+    # called as the other helpers here call it (--db only when INTERCORE_DB is
+    # set), so its own discovery rules apply. The stamp is touched only after a
+    # successful prune, so a failure is retried on the next stop.
+    # INTERCORE_ROUTING_RETENTION=<N>d|<duration> sets the window (default 30d);
+    # =off skips it. An `ic` without `route prune` fails harmlessly here.
+    if [[ "${INTERCORE_ROUTING_RETENTION:-30d}" != "off" ]]; then
+        local db_path="${INTERCORE_DB:-}" d
+        if [[ -n "$db_path" ]]; then
+            [[ "$db_path" == /* ]] || db_path="$PWD/$db_path"
+        else
+            d="$PWD"
+            while [[ -n "$d" ]]; do
+                if [[ -e "$d/.clavain/intercore.db" ]]; then db_path="$d/.clavain/intercore.db"; break; fi
+                [[ "$d" == "/" ]] && break
+                d="$(dirname "$d")"
+            done
+        fi
+        local key stamp
+        key="$(printf '%s' "${db_path:-$PWD}" | cksum | cut -d' ' -f1)"
+        stamp="${INTERCORE_ROUTING_PRUNE_STAMP_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/intercore}/routing-prune-$key.stamp"
+        if [[ ! -e "$stamp" ]] || [[ -n "$(find "$stamp" -mmin +1440 2>/dev/null)" ]]; then
+            if "$INTERCORE_BIN" route prune --older-than="${INTERCORE_ROUTING_RETENTION:-30d}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null 2>&1; then
+                { mkdir -p "$(dirname "$stamp")" && : > "$stamp"; } 2>/dev/null || true
             fi
         fi
-        return 0
     fi
-    # Fallback: clean legacy temp files
-    find /tmp -maxdepth 1 \( -name 'clavain-stop-*' -o -name 'clavain-drift-last-*' -o -name 'clavain-compound-last-*' \) -mmin +60 -delete 2>/dev/null || true
 }
 
 # --- Dispatch wrappers ---
@@ -246,6 +231,7 @@ intercore_dispatch_wait() {
 # intercore_dispatch_list_active — List active dispatches.
 # Prints: tab-separated list (id, status, type, name) to stdout
 intercore_dispatch_list_active() {
+    if intercore_remote_authority; then return 2; fi
     if ! intercore_available; then return 0; fi
     "$INTERCORE_BIN" dispatch list --active
 }
@@ -307,6 +293,62 @@ intercore_run_artifact_add() {
     "$INTERCORE_BIN" run artifact add "$run_id" --phase="$artifact_phase" --path="$artifact_path" --type="$artifact_type" 2>/dev/null
 }
 
+# intercore_run_create — Create a new run.
+# Args: $1=project, $2=goal, $3=phases_json (optional), $4=scope_id (optional),
+#       $5=complexity (optional, default 3), $6=token_budget (optional), $7=actions_json (optional)
+# Prints: run ID to stdout
+# Returns: 0 on success, 1 on failure
+intercore_run_create() {
+    local project="$1" goal="$2" phases_json="${3:-}" scope_id="${4:-}"
+    local complexity="${5:-3}" token_budget="${6:-}" actions_json="${7:-}"
+    if ! intercore_available; then return 1; fi
+    local args=(run create --project="$project" --goal="$goal" --complexity="$complexity")
+    [[ -n "$phases_json" ]] && args+=(--phases="$phases_json")
+    [[ -n "$scope_id" ]] && args+=(--scope-id="$scope_id")
+    [[ -n "$token_budget" ]] && args+=(--token-budget="$token_budget")
+    [[ -n "$actions_json" ]] && args+=(--actions="$actions_json")
+    "$INTERCORE_BIN" "${args[@]}" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_list — List runs. Passes all args through to ic run list.
+# Always outputs JSON (for jq parsing by lib-sprint.sh).
+# Args: variadic (e.g. "--active", "--scope=<s>")
+# Prints: JSON array to stdout
+# Returns: 0 on success, 1 on failure
+intercore_run_list() {
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" --json run list "$@" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_status — Get full run details as JSON.
+# Args: $1=run_id
+# Prints: JSON object to stdout
+# Returns: 0 on success, 1 on failure
+intercore_run_status() {
+    local run_id="$1"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" --json run status "$run_id" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_agent_list — List agents for a run as JSON.
+# Args: $1=run_id
+# Prints: JSON array to stdout
+# Returns: 0 on success, 1 on failure
+intercore_run_agent_list() {
+    local run_id="$1"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" --json run agent list "$run_id" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
+# intercore_run_agent_update — Update an agent's status.
+# Args: $1=agent_id, $2=status (active|completed|failed)
+# Returns: 0 on success, 1 on failure
+intercore_run_agent_update() {
+    local agent_id="$1" status="$2"
+    if ! intercore_available; then return 1; fi
+    "$INTERCORE_BIN" run agent update "$agent_id" --status="$status" ${INTERCORE_DB:+--db="$INTERCORE_DB"} 2>/dev/null
+}
+
 # --- Gate wrappers ---
 
 # intercore_gate_check — Dry-run gate evaluation for the next transition.
@@ -314,6 +356,7 @@ intercore_run_artifact_add() {
 # Returns: 0=pass, 1=fail, 2+=error/fallthrough
 intercore_gate_check() {
     local run_id="$1"
+    if intercore_remote_authority; then return 2; fi
     if intercore_available; then
         local rc=0
         "$INTERCORE_BIN" gate check "$run_id" ${INTERCORE_DB:+--db="$INTERCORE_DB"} >/dev/null || rc=$?
@@ -327,6 +370,7 @@ intercore_gate_check() {
 # Returns: 0=success, 1=terminal, 2+=error
 intercore_gate_override() {
     local run_id="$1" reason="$2"
+    if intercore_remote_authority; then return 2; fi
     if intercore_available; then
         "$INTERCORE_BIN" gate override "$run_id" --reason="$reason" \
             ${INTERCORE_DB:+--db="$INTERCORE_DB"} || return $?
@@ -365,11 +409,6 @@ intercore_lock() {
         # Exit 2+ = binary error — fall through to legacy
     fi
     # Fallback: direct mkdir with minimal owner.json for ic lock clean visibility
-    # SEMANTICS NOTE: unlike the Go path (internal/lock), this fallback NEVER
-    # breaks stale locks in acquire — it retries ~1s then returns contention.
-    # Stale fallback locks are reclaimed only by intercore_lock_clean, which
-    # removes by mtime alone (no PID-liveness check — keep max_age generous).
-    # The Go acquire path breaks stale locks only when the owner PID is dead.
     local lock_dir="/tmp/intercore/locks/${name}/${scope}"
     mkdir -p "$(dirname "$lock_dir")" 2>/dev/null || true
     local retries=0 max_retries=10
@@ -424,6 +463,7 @@ intercore_lock_clean() {
 # intercore_events_tail <run_id> [--since-phase=N] [--since-dispatch=N]
 # One-shot event dump. Returns JSON lines to stdout.
 intercore_events_tail() {
+    if intercore_remote_authority; then return 2; fi
     intercore_available || return 0
     local run_id="$1"; shift
     $INTERCORE_BIN events tail "$run_id" "$@" 2>/dev/null
@@ -432,6 +472,7 @@ intercore_events_tail() {
 # intercore_events_tail_all [--since-phase=N] [--since-dispatch=N]
 # One-shot event dump across all runs.
 intercore_events_tail_all() {
+    if intercore_remote_authority; then return 2; fi
     intercore_available || return 0
     $INTERCORE_BIN events tail --all "$@" 2>/dev/null
 }
@@ -441,6 +482,7 @@ intercore_events_tail_all() {
 # Uses `ic events cursor list` rather than reading state directly,
 # so cursor format changes don't silently break the wrapper.
 intercore_events_cursor_get() {
+    if intercore_remote_authority; then return 2; fi
     intercore_available || { echo ""; return 0; }
     local consumer="$1"
     $INTERCORE_BIN events cursor list 2>/dev/null | grep -P "^${consumer}\t" | cut -f2 || echo ""

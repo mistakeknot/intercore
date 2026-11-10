@@ -204,7 +204,13 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(`ic — intercore state database CLI
+	fmt.Println(usageText())
+}
+
+// usageText is the text `ic` prints with no command. TestUsageListsEveryCommand
+// checks that every command dispatched in main() has a line here.
+func usageText() string {
+	return `ic — intercore state database CLI
 
 Usage: ic [flags] <command> [args]
 
@@ -282,6 +288,37 @@ Commands:
   discovery decay --rate=<0.0-1.0> [--min-age=<sec>]  Decay old scores
   discovery rollback --source=<s> --since=<ts>  Rollback source discoveries
   discovery search --embedding=@<file> [opts]  Semantic search
+  lane create --name=<n> [--type=standing|arc] [--description=<s>] [--intent=<s>]  Create a lane
+  lane list [--active] [--status=<s>]  List lanes
+  lane status <id-or-name>      Show lane details
+  lane update --name=<n> --intent=<s>  Set a lane's intent
+  lane sync <id-or-name> --bead-ids=<id1,id2,...>  Snapshot lane bead membership
+  lane members <id-or-name>     List beads in a lane
+  lane events <id>              Show lane events
+  lane velocity [--days=N]      Starvation and throughput per lane (default 7 days)
+  lane close <id>               Close a lane
+  agency load <stage|all> --run=<id> --spec-dir=<path>  Load agency specs for a run
+  agency validate <file>... | --all --spec-dir=<path>  Validate an agency spec
+  agency show <stage> --spec-dir=<path>  Show one stage spec
+  agency capabilities <run>     Show agent capabilities for a run
+  scheduler submit --prompt-file=<f> [--project=<dir>] [--type=<t>] [--session=<id>] [--name=<n>] [--run-id=<id>] [--model=<m>] [--priority=N]  Queue a job
+  scheduler status <job-id>     Show job status
+  scheduler stats               Show scheduler counters
+  scheduler list [--status=<s>] [--limit=N]  List jobs
+  scheduler pause               Pause the scheduler
+  scheduler resume              Resume the scheduler
+  scheduler cancel <job-id>     Cancel a job
+  scheduler prune [--older-than=<dur>]  Prune finished jobs (default 24h)
+  coordination reserve --owner=<o> --scope=<s> --pattern=<p> [--type=<t>] [--exclusive] [--ttl=<sec>] [--reason=<s>] [--dispatch=<id>] [--run=<id>]  Reserve files
+  coordination release <id>     Release a reservation (or --owner=<o> --scope=<s>)
+  coordination check --scope=<s> --pattern=<p> [--exclude-owner=<o>]  Check for conflicts
+  coordination list [--scope=<s>] [--owner=<o>] [--type=<t>] [--active]  List reservations
+  coordination sweep [--older-than=<dur>] [--dry-run]  Expire stale reservations
+  coordination transfer --from=<o> --to=<o> --scope=<s> [--force]  Hand reservations to another owner
+  landed record --commit=<sha> --project=<dir> [--branch=<b>] [--dispatch=<id>] [--run=<id>] [--bead=<id>] [--session=<id>] [--files=N] [--insertions=N] [--deletions=N]  Record a landed change
+  landed list [--project=<dir>] [--bead=<id>] [--run=<id>] [--session=<id>] [--since=<rfc3339>] [--limit=N] [--include-reverted]  List landed changes
+  landed revert --commit=<sha> --project=<dir> --reverted-by=<sha>  Mark a landed change reverted
+  landed summary [--project=<dir>] [--bead=<id>] [--since=<rfc3339>] [--days=N]  Summarize landed changes
   portfolio dep add <id> --upstream=<p> --downstream=<p>  Add dependency
   portfolio dep list <id>       List dependencies for portfolio
   portfolio dep remove <id> --upstream=<p> --downstream=<p>  Remove dependency
@@ -311,7 +348,7 @@ Commands:
   session end --session=<id>    End a session
   session current --session=<id> [--project=<dir>]  Show latest attribution
   session list [--project=<dir>] [--active-only]    List sessions
-  session tokens --session=<id> --input=N --output=N [opts]  Add token counts
+  session tokens --session=<id> [--input=N] [--output=N] [--cache-creation=N] [--cache-read=N] [--project=<dir>]  Add token counts
   situation snapshot [opts]      Unified observation layer, including agency status
   receipt emit --agent=<id> --model=<m> --content=<s>  Sign + store an action receipt (prints receipt_id)
   receipt find --agent=<id> --parent-run=<id> --content-hash=<hex>  Resolve an existing action receipt
@@ -327,7 +364,7 @@ Flags:
   --timeout=<dur>   Deadline for dispatch spawn, dispatch wait and lock acquire;
                     for other commands, the busy timeout (--busy-timeout wins)
   --verbose         Verbose output
-  --json            JSON output`)
+  --json            JSON output`
 }
 
 // resolveDBPath finds the database path.
