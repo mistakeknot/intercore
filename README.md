@@ -35,7 +35,7 @@ Or use the prebuilt binary if available on `PATH`.
 ## Architecture
 
 - **Database:** `.clavain/intercore.db` (SQLite WAL, pure Go driver, auto-discovered by walking up from CWD)
-- **CLI only:** No Go library API: all consumers shell out to `ic`
+- **CLI first:** bash hooks and scripts shell out to `ic`; the `pkg/` packages are also importable Go libraries (see COMPATIBILITY.md)
 - **Event-driven:** Phase transitions fire events; handlers auto-spawn agents and execute hooks
 - **Optimistic concurrency:** Phase advances use `WHERE phase = ?` to detect races
 - **Portfolio orchestration:** Parent runs coordinate child runs via event relay + dependency DAG

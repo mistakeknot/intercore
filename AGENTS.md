@@ -3,9 +3,9 @@
 Kernel layer (Layer 1) of the Demarch autonomous software agency platform. Host-agnostic Go CLI (`ic`) backed by a single SQLite WAL database providing the durable system of record for runs, phases, gates, dispatches, events, token budgets, coordination locks, discovery pipelines, work lanes, scheduling, sessions, routing decisions, landed changes, and replay inputs.
 
 ## Canonical References
-1. [`PHILOSOPHY.md`](../../PHILOSOPHY.md) -- direction for ideation and planning decisions.
-2. `CLAUDE.md` -- implementation details, architecture, testing, and release workflow.
-3. [Worktree-first coordination contract](../../docs/guide-worktree-first-coordination.md) -- canonical worktree rules. Relevant to `ic publish`: publish waves touch nested plugin repos absent from a root worktree, so they run against the main checkout (§5).
+1. [`PHILOSOPHY.md`](PHILOSOPHY.md) -- direction for ideation and planning decisions.
+2. `CLAUDE.md` -- Claude-specific build commands, SQLite gotchas and design decisions that are not to be re-asked. Architecture is in [agents/architecture.md](agents/architecture.md) and testing in [agents/testing.md](agents/testing.md).
+3. Worktrees: `ic publish` waves touch nested plugin repos that are absent from a root worktree, so they run against the main checkout.
 
 ## Quick Reference
 
@@ -19,22 +19,22 @@ ic version                                 # CLI + schema versions
 ```
 
 **Module:** `github.com/mistakeknot/intercore`
-**Location:** `core/intercore/`
+**Location:** repository root (`core/intercore/` in the monorepo)
 **Database:** `.clavain/intercore.db` (project-relative, auto-discovered by walking up from CWD)
-**Schema:** v30 (31 tables, `PRAGMA user_version` tracked)
-**CLI version:** 0.3.5
+**Schema:** tracked by `PRAGMA user_version`; the version this build expects is `currentSchemaVersion` in `internal/db/db.go`; `ic version` prints the schema version of the local database, which is `unknown` when there is none
+**CLI version:** `ic version` (the `version` constant in `cmd/ic/main.go`)
 
 ## Directory Layout
 
 ```
-cmd/ic/          CLI entry point + 21 subcommand files
-internal/        28 packages (see Modules section)
-pkg/             2 packages: contract/, redaction/
+cmd/ic/          CLI entry point and one file per command family
+internal/        Implementation packages (see Modules section); not importable outside this module
+pkg/             Importable library packages; Clavain and Autarch build against them (see COMPATIBILITY.md)
 contracts/       JSON Schema contract registry + codegen (cli/, events/, overrides/), golden/ CLI outputs
-config/          costs.yaml (model pricing)
+config/          costs.yaml (model pricing), metrics.yaml
 scripts/         validate-gitleaks-waivers.sh
 agents/          Topic guide markdown files
-lib-intercore.sh Bash wrappers for hooks (44 functions)
+lib-intercore.sh Bash wrappers for hooks (see agents/bash-wrappers.md)
 ```
 
 ## Topic Guides
@@ -44,7 +44,7 @@ lib-intercore.sh Bash wrappers for hooks (44 functions)
 | CLI Reference | [agents/cli-reference.md](agents/cli-reference.md) | All `ic` commands, flags, exit codes, publish pipeline |
 | Modules | [agents/modules.md](agents/modules.md) | Dispatch, Phase, Gate, Event, Coordination, Scheduler, Lane, Discovery, Cost, Portfolio, Lock, supporting libraries |
 | Architecture | [agents/architecture.md](agents/architecture.md) | Security model, SQLite patterns, schema upgrade |
-| Bash Wrappers | [agents/bash-wrappers.md](agents/bash-wrappers.md) | lib-intercore.sh (44 functions) |
+| Bash Wrappers | [agents/bash-wrappers.md](agents/bash-wrappers.md) | lib-intercore.sh wrappers for hooks |
 | Testing & Recovery | [agents/testing.md](agents/testing.md) | Test suites, DB corruption, stuck locks, schema mismatch |
 
 ## Package and CLI reference
@@ -55,9 +55,9 @@ particular package, command, exit code or global flag.
 ## Testing
 
 ```bash
-go test ./...                    # Unit tests (~687 test functions across 28 packages)
+go test ./...                    # Unit tests
 go test -race ./...              # Race detector
-bash test-integration.sh         # Full CLI integration test (1320-line bash suite)
+bash test-integration.sh         # Full CLI integration test
 ```
 
 `contracts/golden/` holds the real output of each `ic` command another repository

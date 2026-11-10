@@ -14,6 +14,33 @@ pass() { printf '  PASS: %s\n' "$1"; }
 fail() { printf '  FAIL: %s\n' "$1"; exit 1; }
 ic() { "$IC_BIN" "$@"; }
 
+# Checks that need a Clavain checkout (the agency specs and the canonical copy of
+# lib-intercore.sh) must never vanish silently: a missing checkout prints SKIP and
+# is counted. Set IC_REQUIRE_CLAVAIN=1 to make a missing checkout a failure.
+SKIPPED=0
+skip() {
+    SKIPPED=$((SKIPPED + 1))
+    printf '  SKIP: %s\n' "$1"
+    [[ "${IC_REQUIRE_CLAVAIN:-0}" != 1 ]] || fail "IC_REQUIRE_CLAVAIN=1 but a check was skipped: $1"
+}
+
+# Locate Clavain: $CLAVAIN_DIR, else the sibling checkouts of the monorepo layouts.
+CLAVAIN_DIR="${CLAVAIN_DIR:-}"
+if [[ -z "$CLAVAIN_DIR" ]]; then
+    for _cand in "$SCRIPT_DIR/../../os/Clavain" "$SCRIPT_DIR/../Clavain"; do
+        if [[ -f "$_cand/hooks/lib-intercore.sh" ]]; then
+            CLAVAIN_DIR="$(cd "$_cand" && pwd)"
+            break
+        fi
+    done
+fi
+if [[ -n "$CLAVAIN_DIR" && ! -f "$CLAVAIN_DIR/hooks/lib-intercore.sh" ]]; then
+    printf 'CLAVAIN_DIR=%s has no hooks/lib-intercore.sh\n' "$CLAVAIN_DIR" >&2
+    exit 1
+fi
+# Absolute from here on: the script changes directory before using it.
+[[ -z "$CLAVAIN_DIR" ]] || CLAVAIN_DIR="$(cd "$CLAVAIN_DIR" && pwd)"
+
 echo "Building ic..."
 cd "$SCRIPT_DIR"
 go build -o "$IC_BIN" ./cmd/ic
@@ -146,21 +173,35 @@ intercore_sentinel_check_or_legacy "wrapper_test" "test-session" 0 "/tmp/clavain
 intercore_cleanup_stale
 pass "wrapper: cleanup"
 
-echo "=== Legacy Fallback Path ==="
-# Test with ic unavailable (forces legacy temp-file path)
+echo "=== ic Unavailable and Remote Authority ==="
+# The canonical wrapper has no temp-file fallback: without ic the sentinel helpers
+# fail open and write nothing, and a remote-authority marker skips the action.
 # Must clear INTERCORE_BIN AND hide ic from PATH/functions so intercore_available returns 1
 INTERCORE_BIN_SAVED="$INTERCORE_BIN"
 PATH_SAVED="$PATH"
+HOME_SAVED="$HOME"
 INTERCORE_BIN=""
 PATH="/usr/bin:/bin"  # strip any dir containing ic
 unset -f ic 2>/dev/null || true  # remove test helper function so command -v ic fails
 rm -f /tmp/clavain-legacy-test
 
-intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "legacy: first check allowed" || fail "legacy: first check should be allowed"
-[[ -f "/tmp/clavain-legacy-test" ]] && pass "legacy: sentinel file created" || fail "legacy: sentinel file missing"
-intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && fail "legacy: second check should be throttled" || pass "legacy: second check throttled"
+# The fail-open checks only prove the no-ic branch if neither binary can be found.
+if command -v ic >/dev/null 2>&1 || command -v intercore >/dev/null 2>&1; then
+    skip "ic or intercore is installed in /usr/bin or /bin; no-ic fail-open checks would be vacuous"
+else
+    intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "no ic: first check allowed (fail-open)" || fail "no ic: first check should be allowed"
+    [[ ! -e "/tmp/clavain-legacy-test" ]] && pass "no ic: no legacy file written" || fail "no ic: legacy file was written"
+    intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && pass "no ic: second check allowed (nothing throttles without ic)" || fail "no ic: second check should be allowed"
+fi
+
+# Remote-authority marker: local automatic actions are skipped.
+HOME="$(mktemp -d "$TEST_DIR/home.XXXXXX")"
+mkdir -p "$HOME/.config/clavain"
+: > "$HOME/.config/clavain/remote-shared-state"
+intercore_sentinel_check_or_legacy "legacy_test" "test-session" 0 "/tmp/clavain-legacy-test" && fail "remote authority: check should skip the action" || pass "remote authority: check skips the action"
 
 rm -f /tmp/clavain-legacy-test
+HOME="$HOME_SAVED"
 INTERCORE_BIN="$INTERCORE_BIN_SAVED"
 PATH="$PATH_SAVED"
 ic() { "$IC_BIN" "$@"; }  # restore test helper
@@ -1294,12 +1335,11 @@ pass "batch action registration via --actions"
 
 echo "  Phase actions tests passed"
 
-# --- Version sync check ---
 # --- Agency Specs ---
 echo "## Agency Specs"
 
-AGENCY_SPEC_DIR="$SCRIPT_DIR/../../hub/clavain/config/agency"
-if [[ -d "$AGENCY_SPEC_DIR" ]]; then
+AGENCY_SPEC_DIR="${CLAVAIN_DIR:+$CLAVAIN_DIR/config/agency}"
+if [[ -n "$AGENCY_SPEC_DIR" && -d "$AGENCY_SPEC_DIR" ]]; then
 
 # Validate all spec files
 ic agency validate --all --spec-dir="$AGENCY_SPEC_DIR" >/dev/null 2>&1 && pass "agency validate --all" || fail "agency validate --all"
@@ -1349,7 +1389,7 @@ SHOW_STAGE=$(echo "$SHOW_JSON" | jq -r '.meta.stage' 2>/dev/null)
 [[ "$SHOW_STAGE" == "build" ]] && pass "agency show build" || fail "agency show (stage=$SHOW_STAGE)"
 
 else
-echo "  SKIP: agency spec dir not found"
+    skip "agency specs: no Clavain checkout found (set CLAVAIN_DIR)"
 fi
 
 echo "=== Scheduler ==="
@@ -1394,15 +1434,20 @@ sleep 1
 PRUNED=$(ic --json scheduler prune --older-than=0s --db="$TEST_DB" 2>/dev/null | jq '.pruned')
 [[ "$PRUNED" -ge 1 ]] && pass "scheduler prune" || fail "scheduler prune (pruned=$PRUNED)"
 
-CLAVAIN_LIB="$SCRIPT_DIR/../../hub/clavain/hooks/lib-intercore.sh"
-if [[ -f "$CLAVAIN_LIB" ]]; then
-    CLAVAIN_VER=$(grep '^INTERCORE_WRAPPER_VERSION=' "$CLAVAIN_LIB" | cut -d'"' -f2)
-    SOURCE_VER=$(grep '^INTERCORE_WRAPPER_VERSION=' "$SCRIPT_DIR/lib-intercore.sh" | cut -d'"' -f2)
-    if [[ "$CLAVAIN_VER" = "$SOURCE_VER" ]]; then
-        pass "version sync: source=$SOURCE_VER clavain=$CLAVAIN_VER"
+# --- lib-intercore.sh mirror sync ---
+# Clavain's hooks/lib-intercore.sh is canonical. The copy in this repo is a mirror
+# that the wrapper tests above source; it must be byte-identical. Refresh it with:
+#   cp "$CLAVAIN_DIR/hooks/lib-intercore.sh" lib-intercore.sh
+echo "=== lib-intercore.sh sync ==="
+if [[ -n "$CLAVAIN_DIR" ]]; then
+    if cmp -s "$CLAVAIN_DIR/hooks/lib-intercore.sh" "$SCRIPT_DIR/lib-intercore.sh"; then
+        pass "lib-intercore.sh matches Clavain's canonical copy"
     else
-        fail "version sync: source=$SOURCE_VER != clavain=$CLAVAIN_VER (re-copy lib-intercore.sh)"
+        diff -u "$CLAVAIN_DIR/hooks/lib-intercore.sh" "$SCRIPT_DIR/lib-intercore.sh" | head -20 >&2 || true
+        fail "lib-intercore.sh differs from $CLAVAIN_DIR/hooks/lib-intercore.sh (re-copy it)"
     fi
+else
+    skip "lib-intercore.sh sync: no Clavain checkout found (set CLAVAIN_DIR)"
 fi
 
 # --- Situation Snapshot ---
@@ -1503,4 +1548,8 @@ pass "events record rejects unsupported source"
 echo "  Events record tests passed"
 
 echo ""
-echo "All integration tests passed."
+if [[ "$SKIPPED" -gt 0 ]]; then
+    echo "All integration tests passed ($SKIPPED check(s) SKIPPED: set CLAVAIN_DIR to run them)."
+else
+    echo "All integration tests passed."
+fi
