@@ -26,6 +26,19 @@ const maxHeartbeatErrors = 6
 // after a clean drain on ctx cancellation, or an *ExitError.
 func Run(ctx context.Context, o Options) error {
 	o.defaults()
+	o.installEnvHooks()
+
+	// Containment is checked first, before any lock or epoch: a runner that
+	// cannot contain its jobs refuses without touching the database. The
+	// explicit fallback is --no-containment.
+	var cg *cgroupMgr
+	if !o.NoContainment {
+		var err error
+		if cg, err = newCgroupMgr(o); err != nil {
+			return exitf(ExitRefused, "containment is not available (%w); delegate a cgroup v2 subtree to this user, or pass --no-containment to run without it", err)
+		}
+		defer cg.release()
+	}
 
 	info, err := Preflight(o.DB, o.AllowLive)
 	if err != nil {
@@ -102,6 +115,10 @@ func Run(ctx context.Context, o Options) error {
 		return exitf(ExitRefused, "%w", err)
 	}
 
+	if cg != nil {
+		cg.setQueue(row.QueueID)
+	}
+
 	runnerID, err := randomID()
 	if err != nil {
 		return exitf(ExitRefused, "runner id: %w", err)
@@ -129,7 +146,7 @@ func Run(ctx context.Context, o Options) error {
 	if o.OnReady != nil {
 		o.OnReady(epoch)
 	}
-	return newEngine(o, store, d.SqlDB(), epoch).run(ctx)
+	return newEngine(o, store, d.SqlDB(), epoch, cg).run(ctx)
 }
 
 // verifyBinding makes the preflight verdict, the lock and the recorded

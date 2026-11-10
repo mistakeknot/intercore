@@ -52,6 +52,14 @@ type Options struct {
 	RetryBase     time.Duration // first backoff after a failed completion step; default 1s
 	RetryMax      time.Duration // backoff ceiling; default 30s
 
+	// Containment (slice 3c). The default is one cgroup v2 per attempt inside a
+	// delegated subtree; the runner refuses to start without one. NoContainment
+	// is the explicit fallback: attempts are recorded containment='none', and a
+	// post-start class never retries.
+	NoContainment   bool
+	CgroupDir       string        // delegated subtree; default: the runner's own cgroup at start
+	ExtinctionBound time.Duration // how long cgroup.events may take to report populated 0; default 10s
+
 	// OnReady runs once the epoch is bumped and the runner is live. Test seam.
 	OnReady func(epoch int64)
 
@@ -73,6 +81,13 @@ type Options struct {
 		afterEvidenceBeforeCollect func(token string)         // after the evidence write, before Collect
 		inject                     func(kind string) error    // kinds: marker, evidence, collect, finalize; a non-nil error fails that step
 		failStop                   func(token, stage string)  // replaces the exit-5 fail-stop
+
+		// Slice 3c seams.
+		barrier        func(point, token string) // the eleven barrier points (barrier.go); may block
+		populatedDelay func() time.Duration      // holds back the populated 0 observation, to race the extinction bound
+		startFault     func() error              // a non-nil error replaces cmd.Start for that Spawn
+		dropEntryAt    string                    // a barrier point at which the first arrival's map entry is dropped
+		repairPass     func()                    // after every repair pass, so a test counts passes instead of sleeping
 	}
 }
 
@@ -115,5 +130,8 @@ func (o *Options) defaults() {
 	}
 	if o.RetryMax == 0 {
 		o.RetryMax = 30 * time.Second
+	}
+	if o.ExtinctionBound == 0 {
+		o.ExtinctionBound = 10 * time.Second
 	}
 }

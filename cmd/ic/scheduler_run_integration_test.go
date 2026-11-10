@@ -167,7 +167,7 @@ func (e *env) newDB(rel string) string {
 }
 
 func (e *env) runnerCmd(rel string, extra ...string) *exec.Cmd {
-	args := append([]string{"--db=" + rel, "scheduler", "run", "--heartbeat-interval=50ms"}, extra...)
+	args := append([]string{"--db=" + rel, "scheduler", "run", "--heartbeat-interval=50ms", "--no-containment"}, extra...)
 	cmd := exec.Command(e.bin, args...)
 	cmd.Dir = e.cwd
 	cmd.Env = e.environ()
@@ -552,7 +552,7 @@ func TestCLIDifferentNetNSRefused(t *testing.T) {
 	epoch := e.epoch(path)
 
 	cmd := exec.Command("unshare", "-Un", "--map-user="+strconv.Itoa(os.Getuid()),
-		e.bin, "--db=q.db", "scheduler", "run", "--lock-wait=300ms")
+		e.bin, "--db=q.db", "scheduler", "run", "--lock-wait=300ms", "--no-containment")
 	cmd.Dir = e.cwd
 	cmd.Env = e.environ()
 	b := launch(t, cmd)

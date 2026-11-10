@@ -9,6 +9,10 @@
 #   hang               write <out>.started and wait until signalled
 #   stubborn           like hang, but ignores SIGTERM (only SIGKILL ends it)
 #   noverdict          exit 0 without a verdict (collect infers a failure)
+#   sleep <n>          write <out>.started, run for n seconds, then ok
+#   spawn-child        leave a live descendant (sleep 300, pid in <out>.child), then ok
+#   setsid-clear-env   like spawn-child, but the descendant has its own session and no environment
+#   fork-storm         write <out>.started, then fork descendants (up to 500) until signalled
 # Every invocation appends one line to $FAKE_LOG when it is set, so a test can
 # count how many times the executor ran.
 out=""; pf=""
@@ -45,5 +49,28 @@ case "$mode" in
     : > "$out.started"
     while :; do sleep 0.05; done ;;
   noverdict) echo "done" > "$out"; exit 0 ;;
+  sleep)
+    : > "$out.started"
+    end=$((SECONDS + arg))
+    while [ "$SECONDS" -lt "$end" ]; do sleep 0.1; done
+    echo "done" > "$out"; verdict pass ok; exit 0 ;;
+  spawn-child)
+    sleep 300 >/dev/null 2>&1 </dev/null &
+    echo $! > "$out.child"
+    : > "$out.started"
+    echo "done" > "$out"; verdict pass ok; exit 0 ;;
+  setsid-clear-env)
+    env -i setsid sleep 300 >/dev/null 2>&1 </dev/null &
+    echo $! > "$out.child"
+    : > "$out.started"
+    echo "done" > "$out"; verdict pass ok; exit 0 ;;
+  fork-storm)
+    n=0
+    while :; do
+      ( exec sleep 300 >/dev/null 2>&1 </dev/null ) &
+      n=$((n + 1))
+      [ "$n" -eq 20 ] && : > "$out.started"
+      [ "$n" -lt 500 ] || sleep 0.1
+    done ;;
   *) echo "fake-dispatch: unknown mode '$mode'" >&2; exit 64 ;;
 esac

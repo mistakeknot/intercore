@@ -92,6 +92,7 @@ func (r *rig) reap() {
 func (r *rig) opts() Options {
 	return Options{
 		DB:             r.path,
+		NoContainment:  true,
 		DispatchSH:     fakeDispatchSH(r.t),
 		Tick:           5 * time.Millisecond,
 		HeartbeatEvery: 20 * time.Millisecond,

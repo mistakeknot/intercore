@@ -438,6 +438,9 @@ func (s *Store) Finalize(ctx context.Context, c *Claim, p FinalizeParams) (*Fina
 			return ErrLostClaim
 		}
 		out, err = finish(ctx, tx, c.JobID, st, p.Class, p.Error, p.RetryBlocked, p.Now, p.Rand, c.Epoch)
+		if err == nil {
+			seam(ctx, "in_finalize_before_commit")
+		}
 		return err
 	})
 	if err != nil {
