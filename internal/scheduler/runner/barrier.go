@@ -32,6 +32,7 @@ import (
 //	eagain_start:<n>         the next n Spawn calls fail at Start with EAGAIN
 //	drop_entry:<point>       drop the in-flight map entry at the first arrival at the point
 //	clock_shift:<secs>       the runner's clock runs that many seconds ahead
+//	boot_id:<id>             the boot_id this runner records and compares (a "reboot" between two runs)
 const (
 	envBarrier = "IC_SCHED_BARRIER"
 	envFIFO    = "IC_SCHED_BARRIER_FIFO"
@@ -155,6 +156,12 @@ func (o *Options) installEnvHooks() {
 		case "drop_entry":
 			if len(parts) == 2 && validBarrier(parts[1]) {
 				o.hooks.dropEntryAt = parts[1]
+				continue
+			}
+		case "boot_id":
+			if len(parts) == 2 && parts[1] != "" && o.hooks.bootID == nil {
+				id := parts[1]
+				o.hooks.bootID = func() string { return id }
 				continue
 			}
 		case "clock_shift":

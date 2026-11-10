@@ -49,6 +49,7 @@ type Options struct {
 	Tick          time.Duration // claim and completion cadence; default 1s
 	DrainTimeout  time.Duration // how long a SIGTERM drain waits for running jobs; default 30s
 	RepairEvery   time.Duration // current-epoch repair pass cadence; default 30s
+	RecoverEvery  time.Duration // prior-epoch recovery pass cadence; default 30s
 	RetryBase     time.Duration // first backoff after a failed completion step; default 1s
 	RetryMax      time.Duration // backoff ceiling; default 30s
 
@@ -88,6 +89,11 @@ type Options struct {
 		startFault     func() error              // a non-nil error replaces cmd.Start for that Spawn
 		dropEntryAt    string                    // a barrier point at which the first arrival's map entry is dropped
 		repairPass     func()                    // after every repair pass, so a test counts passes instead of sleeping
+
+		// Slice 4b seams.
+		bootID       func() string            // replaces BootID() for the identity this runner records
+		recoveryPass func()                   // after every recovery pass (the startup pass included)
+		recoverRow   func(token, step string) // before each recovery step of a row; step names the decision
 	}
 }
 
@@ -125,6 +131,9 @@ func (o *Options) defaults() {
 	if o.RepairEvery == 0 {
 		o.RepairEvery = 30 * time.Second
 	}
+	if o.RecoverEvery == 0 {
+		o.RecoverEvery = 30 * time.Second
+	}
 	if o.RetryBase == 0 {
 		o.RetryBase = time.Second
 	}
@@ -134,4 +143,13 @@ func (o *Options) defaults() {
 	if o.ExtinctionBound == 0 {
 		o.ExtinctionBound = 10 * time.Second
 	}
+}
+
+// bootID is the boot this runner believes it runs on; a test replaces it to
+// exercise the boot-change shortcut without rebooting.
+func (o *Options) bootID() string {
+	if o.hooks.bootID != nil {
+		return o.hooks.bootID()
+	}
+	return BootID()
 }

@@ -126,8 +126,12 @@ func (e *env) fakeScript() string {
 // the throwaway environment.
 func (e *env) tracedRunner(strace, rel, tracelog string, extraEnv []string, extra ...string) *proc {
 	e.t.Helper()
+	contain := "--no-containment"
+	if e.cgroupDir != "" {
+		contain = "--cgroup-dir=" + e.cgroupDir
+	}
 	args := []string{"-f", "-qq", "-s", "4096", "-e", "trace=execve", "-o", tracelog, "--", e.bin,
-		"--db=" + rel, "scheduler", "run", "--heartbeat-interval=50ms", "--tick=20ms", "--no-containment"}
+		"--db=" + rel, "scheduler", "run", "--heartbeat-interval=50ms", "--tick=20ms", contain}
 	cmd := exec.Command(strace, append(args, extra...)...)
 	cmd.Dir = e.cwd
 	cmd.Env = append(e.environ(), extraEnv...)

@@ -21,6 +21,7 @@ func TestClassifyPrecedence(t *testing.T) {
 		{"2 completed", Evidence{DispatchPresent: true, Status: "completed"}, scheduler.ClassOK},
 		{"3 spawn_failed", Evidence{DispatchPresent: true, Status: "failed", FailureClass: "spawn_failed"}, scheduler.ClassPrestart},
 		{"3 spawn_failed beats missing verdict", Evidence{DispatchPresent: true, Status: "failed", FailureClass: "spawn_failed", EvidenceClass: "quota_exhausted"}, scheduler.ClassPrestart},
+		{"4b dispatch-written indeterminate failure class beats a valid verdict", Evidence{DispatchPresent: true, Status: "failed", FailureClass: "worker_outcome_indeterminate", Verdict: "pass", EvidenceClass: "none"}, scheduler.ClassIndeterminate},
 		{"4 indeterminate failure class", Evidence{DispatchPresent: true, Status: "failed", FailureClass: "indeterminate", Verdict: "fail", EvidenceClass: "none"}, scheduler.ClassIndeterminate},
 		{"5 timeout", Evidence{DispatchPresent: true, Status: "timeout"}, scheduler.ClassTimeout},
 		{"6 pruned", Evidence{DispatchPresent: false}, scheduler.ClassIndeterminate},

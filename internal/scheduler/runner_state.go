@@ -331,6 +331,7 @@ type AttemptRow struct {
 	EvidenceSrc   string
 	JobStatus     JobStatus
 	JobEpoch      int64 // the job row's lease_epoch
+	Legacy        bool  // a synthetic attempt made by the 040 migration for a pre-runner row
 }
 
 // AttemptByToken reads the attempt row and its job's status for a claim token.
@@ -340,14 +341,15 @@ func (s *Store) AttemptByToken(ctx context.Context, token string) (*AttemptRow, 
 		disp, outf, cg, lr, evc, evs, evsrc sql.NullString
 		linked, exited, ended, jobEpoch     sql.NullInt64
 		status                              string
+		legacy                              int
 	)
 	err := s.db.QueryRowContext(ctx, `SELECT a.job_id, a.attempt_no, a.claim_token, a.lease_epoch, a.dispatch_id,
 			a.linked_at, a.output_file, a.cgroup_path, a.containment, a.launch_result, a.exited_at, a.ended_at,
-			a.evidence_class, a.evidence_sha256, a.evidence_source, j.status, j.lease_epoch
+			a.evidence_class, a.evidence_sha256, a.evidence_source, j.status, j.lease_epoch, a.legacy
 		FROM scheduler_job_attempts a JOIN scheduler_jobs j ON j.id = a.job_id
 		WHERE a.claim_token = ?`, token).
 		Scan(&a.JobID, &a.AttemptNo, &a.Token, &a.LeaseEpoch, &disp, &linked, &outf, &cg, &a.Containment, &lr,
-			&exited, &ended, &evc, &evs, &evsrc, &status, &jobEpoch)
+			&exited, &ended, &evc, &evs, &evsrc, &status, &jobEpoch, &legacy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -358,6 +360,7 @@ func (s *Store) AttemptByToken(ctx context.Context, token string) (*AttemptRow, 
 	a.EvidenceClass, a.EvidenceSHA, a.EvidenceSrc = evc.String, evs.String, evsrc.String
 	a.LinkedAt, a.ExitedAt, a.EndedAt, a.JobEpoch = linked.Int64, exited.Int64, ended.Int64, jobEpoch.Int64
 	a.JobStatus = JobStatus(status)
+	a.Legacy = legacy != 0
 	return &a, nil
 }
 
@@ -414,4 +417,58 @@ func (s *Store) ClaimFor(ctx context.Context, token string, epoch int64) (*Claim
 		return nil, ErrLostClaim
 	}
 	return &Claim{JobID: a.JobID, Token: token, AttemptNo: a.AttemptNo, Epoch: epoch}, nil
+}
+
+// PriorClaim is an in-flight row held by an older runner epoch.
+type PriorClaim struct {
+	JobID      string
+	Token      string
+	Status     JobStatus
+	LeaseEpoch int64 // 0 for a row whose lease is NULL (migrated legacy rows)
+}
+
+// PriorEpochClaims lists the in-flight rows a runner at epoch mine recovers:
+// the lease is older than mine, and a NULL lease counts as epoch 0
+// (InRecoveryScope). Rows without a claim token have no attempt to recover and
+// are not listed. The order is by job id, so a pass is deterministic.
+func (s *Store) PriorEpochClaims(ctx context.Context, mine int64) ([]PriorClaim, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, claim_token, status, COALESCE(lease_epoch, 0) FROM scheduler_jobs
+		WHERE status IN `+inFlightSQL+` AND COALESCE(lease_epoch, 0) < ? AND claim_token IS NOT NULL
+		ORDER BY id`, mine)
+	if err != nil {
+		return nil, fmt.Errorf("prior-epoch claims: %w", err)
+	}
+	defer rows.Close()
+	var out []PriorClaim
+	for rows.Next() {
+		var c PriorClaim
+		var st string
+		if err := rows.Scan(&c.JobID, &c.Token, &st, &c.LeaseEpoch); err != nil {
+			return nil, err
+		}
+		c.Status = JobStatus(st)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// PriorClaimFor builds the Claim a runner at epoch mine uses to finalize a row
+// left by an older epoch. Every guarded write checks the singleton epoch
+// against Claim.Epoch, so the claim carries the recovering runner's epoch, not
+// the row's. It fails with ErrLostClaim unless the row is still in recovery
+// scope, which keeps a runner away from its own epoch's rows.
+func (s *Store) PriorClaimFor(ctx context.Context, token string, mine int64) (*Claim, error) {
+	a, err := s.AttemptByToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	var lease *int64
+	if a.JobEpoch != 0 {
+		v := a.JobEpoch
+		lease = &v
+	}
+	if !InRecoveryScope(a.JobStatus, lease, mine) {
+		return nil, ErrLostClaim
+	}
+	return &Claim{JobID: a.JobID, Token: token, AttemptNo: a.AttemptNo, Epoch: mine}, nil
 }

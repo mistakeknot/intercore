@@ -26,6 +26,11 @@ type Evidence struct {
 	EvidenceClass string
 }
 
+// workerOutcomeIndeterminate is the failure class dispatch writes when it
+// terminalizes an attempt whose outcome it cannot know (dispatch.WorkerOutcomeIndeterminate).
+// The always-built classifier keeps its own copy so it imports nothing of dispatch.
+const workerOutcomeIndeterminate = "worker_outcome_indeterminate"
+
 const (
 	statusCompleted = "completed"
 	statusFailed    = "failed"
@@ -61,7 +66,7 @@ func Classify(e Evidence) string {
 		return scheduler.ClassOK
 	case e.DispatchPresent && e.FailureClass == "spawn_failed":
 		return scheduler.ClassPrestart
-	case e.DispatchPresent && e.FailureClass == "indeterminate":
+	case e.DispatchPresent && (e.FailureClass == "indeterminate" || e.FailureClass == workerOutcomeIndeterminate):
 		return scheduler.ClassIndeterminate
 	case e.DispatchPresent && e.Status == statusTimeout:
 		return scheduler.ClassTimeout
