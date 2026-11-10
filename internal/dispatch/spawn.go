@@ -69,6 +69,16 @@ type SpawnResult struct {
 // Terminate uses the birth identity captured before this spawn was detached.
 func (r *SpawnResult) Terminate() error { return terminateRecordedProcess(r.process) }
 
+// ErrTerminationAbandoned is returned by TerminateUntil when stop closed while
+// the group was still shutting down after SIGTERM. No SIGKILL was sent.
+var ErrTerminationAbandoned = errors.New("termination abandoned before the process group exited")
+
+// TerminateUntil is Terminate that stops waiting for a graceful exit, and skips
+// the SIGKILL escalation, once stop closes. A nil stop behaves as Terminate.
+func (r *SpawnResult) TerminateUntil(stop <-chan struct{}) error {
+	return terminateRecordedProcessUntil(r.process, stop)
+}
+
 // Spawn creates a new dispatch record and starts the agent process.
 func Spawn(ctx context.Context, store *Store, opts SpawnOptions) (*SpawnResult, error) {
 	if opts.Decision != nil {

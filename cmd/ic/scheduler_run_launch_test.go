@@ -595,6 +595,59 @@ func TestCLIRunnerProbeIsReadOnly(t *testing.T) {
 	}
 }
 
+// A runner that crashed leaves committed frames in the WAL. Probing must not
+// fold them into the database file or remove the WAL: the file and its WAL are
+// byte-for-byte what the crash left.
+func TestCLIRunnerProbeLeavesACrashedWALAlone(t *testing.T) {
+	e := newEnv(t)
+	live := e.newDB("live.db")
+	raw, err := sql.Open("sqlite", "file:"+live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	raw.SetMaxOpenConns(1)
+	for _, q := range []string{"PRAGMA journal_mode = WAL", "PRAGMA wal_autocheckpoint = 0",
+		"CREATE TABLE crash_marker (x INTEGER)", "INSERT INTO crash_marker VALUES (1)"} {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	// The snapshot is the on-disk state at the moment of a crash: the main
+	// file and a WAL holding a committed transaction not yet checkpointed.
+	for _, suffix := range []string{"", "-wal"} {
+		b, err := os.ReadFile(live + suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(e.cwd, "crash.db"+suffix), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	snap := func(suffix string) []byte {
+		b, err := os.ReadFile(filepath.Join(e.cwd, "crash.db"+suffix))
+		if err != nil {
+			t.Fatalf("crash.db%s: %v", suffix, err)
+		}
+		return b
+	}
+	dbBefore, walBefore := snap(""), snap("-wal")
+	if len(walBefore) == 0 {
+		t.Fatal("the snapshot has no WAL frames, so the test proves nothing")
+	}
+
+	_, se, code := e.ic("--db=crash.db", "scheduler", "runner")
+	if code != 0 {
+		t.Fatalf("probe of a crashed database: exit %d: %s", code, se)
+	}
+	if !bytes.Equal(dbBefore, snap("")) {
+		t.Fatal("the probe changed the database file")
+	}
+	if !bytes.Equal(walBefore, snap("-wal")) {
+		t.Fatal("the probe changed or removed the WAL")
+	}
+}
+
 // TestExecLinesHandlesSplitCalls is the parser's own check, with no runner: a
 // call that strace split across two lines counts once when it succeeded and
 // never when it failed, and a failed or unrelated call never counts.

@@ -522,8 +522,20 @@ func (e *engine) reapTerminalDispatch(res *dispatch.SpawnResult, exited <-chan s
 		if err != nil || !d.IsTerminal() {
 			continue
 		}
-		if err := res.Terminate(); err != nil {
-			e.logf("dispatch %s is terminal but its process was not stopped: %v", res.ID, err)
+		// The wait for a graceful exit can take seconds, so it also ends with
+		// the runner: after abort the child has had its SIGTERM, gets no
+		// SIGKILL from us, and is left to the next runner's recovery. Nothing
+		// here touches the database, and nothing is logged once the runner is
+		// returning.
+		if err := res.TerminateUntil(e.abort); err != nil {
+			if errors.Is(err, dispatch.ErrTerminationAbandoned) {
+				return
+			}
+			select {
+			case <-e.abort:
+			default:
+				e.logf("dispatch %s is terminal but its process was not stopped: %v", res.ID, err)
+			}
 		}
 	}
 }

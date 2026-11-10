@@ -32,24 +32,20 @@ func cmdSchedulerRunner(ctx context.Context, args []string) int {
 		fmt.Fprintf(os.Stderr, "ic: scheduler runner: invalid --stale-after\n")
 		return 3
 	}
-	// Read-only probe: the database must already exist (a missing path is an
-	// error, never a new empty file), the persistent journal mode is left as
-	// it is, and the connection refuses writes.
+	// Read-only probe: the database is opened with SQLite's read-only mode, so
+	// a missing path is an error (never a new empty file), the journal mode is
+	// left alone, and no checkpoint or recovery can write to the file.
 	path, err := resolveDBPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
 		return 2
 	}
-	d, err := db.OpenExisting(path, flagTimeout)
+	d, err := db.OpenReadOnly(path, flagTimeout)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
 		return 2
 	}
 	defer d.Close()
-	if _, err := d.SqlDB().ExecContext(ctx, "PRAGMA query_only = ON"); err != nil {
-		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
-		return 2
-	}
 	if err := d.CheckSchemaVersion(); err != nil {
 		fmt.Fprintf(os.Stderr, "ic: scheduler runner: %v\n", err)
 		return 2

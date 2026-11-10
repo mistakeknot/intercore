@@ -10,6 +10,11 @@ import (
 )
 
 func terminateRecordedProcess(identity processIdentity) error {
+	return terminateRecordedProcessUntil(identity, nil)
+}
+
+// terminateRecordedProcessUntil ignores stop: Windows termination is immediate.
+func terminateRecordedProcessUntil(identity processIdentity, _ <-chan struct{}) error {
 	if identity.PID <= 1 || identity.Birth == "" || identity.Version != processIdentityVersion {
 		return fmt.Errorf("invalid process identity")
 	}

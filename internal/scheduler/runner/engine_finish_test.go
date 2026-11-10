@@ -643,6 +643,51 @@ func TestReaperEndsWithTheRunner(t *testing.T) {
 	})
 }
 
+// A reaper that is already waiting out a SIGTERM when the runner returns must
+// not outlive it. The dispatch is terminal and its child ignores SIGTERM, so the
+// reaper is mid-termination when the drain deadline passes. Run returns at the
+// deadline, the reaper goroutine ends, and no SIGKILL follows from the runner:
+// the child is left to the next runner's recovery.
+func TestReaperTerminationEndsWithTheRunner(t *testing.T) {
+	r := newRig(t)
+	r.job("s", "stubborn")
+	o := r.opts()
+	o.DrainTimeout = 100 * time.Millisecond
+	run := start(t, o)
+	r.waitStatus("s", scheduler.StatusRunning)
+	var id string
+	until(t, "the dispatch to be linked", func() bool { id = r.dispatchOf("s"); return id != "" })
+	var pid int
+	until(t, "the child pid to be recorded", func() bool {
+		return r.raw.QueryRow(`SELECT COALESCE(pid,0) FROM dispatches WHERE id = ?`, id).Scan(&pid) == nil && pid > 1
+	})
+	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
+	if err := dispatch.Collect(context.Background(), dispatch.New(r.raw, nil), id); err != nil {
+		t.Fatal(err)
+	}
+	until(t, "the reaper to be waiting out SIGTERM", func() bool { return goroutinesIn("terminateRecordedProcessUntil") > 0 })
+
+	started := time.Now()
+	run.cancel()
+	select {
+	case <-run.done:
+	case <-time.After(waitFor):
+		t.Fatal("the runner did not stop")
+	}
+	if took := time.Since(started); took > 2*time.Second {
+		t.Fatalf("drain took %s with a 100ms deadline", took)
+	}
+	until(t, "the reaper's termination to end with the runner", func() bool {
+		return goroutinesIn("reapTerminalDispatch") == 0 && goroutinesIn("terminateRecordedProcessUntil") == 0
+	})
+	// The old code kept waiting and SIGKILLed the child about five seconds after
+	// SIGTERM. Wait past that point: the runner must not have escalated.
+	time.Sleep(6 * time.Second)
+	if err := syscall.Kill(pid, 0); err != nil {
+		t.Fatalf("the child was killed after the runner returned: %v", err)
+	}
+}
+
 func goroutinesIn(name string) int {
 	buf := make([]byte, 1<<20)
 	buf = buf[:runtime.Stack(buf, true)]

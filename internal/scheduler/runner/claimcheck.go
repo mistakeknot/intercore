@@ -47,6 +47,7 @@ var sidecars = []string{"", ".verdict", ".summary", ".receipt.json"}
 // A non-empty reason means the job is a config error with that message.
 func (e *engine) checkJob(job *scheduler.SpawnJob) (*plannedLaunch, string) {
 	var opts dispatch.SpawnOptions
+	var decodeErr error
 	if s := strings.TrimSpace(job.SpawnOpts); s != "" {
 		// Governed rejection comes first and looks at key presence, so a
 		// governed job is never reported as a malformed one. A "role" key
@@ -54,6 +55,8 @@ func (e *engine) checkJob(job *scheduler.SpawnJob) (*plannedLaunch, string) {
 		// only a governed writer emits it). A "decision" key is governed
 		// unless it is null: older clients serialize `"Decision":null`
 		// for every plain job.
+		// A document that is not a JSON object cannot be searched for
+		// governed keys or checked further, so it is rejected at once.
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(s), &raw); err != nil {
 			return nil, fmt.Sprintf("%s: %v", reasonBadSpawnOpts, err)
@@ -70,8 +73,11 @@ func (e *engine) checkJob(job *scheduler.SpawnJob) (*plannedLaunch, string) {
 				return nil, fmt.Sprintf("%s: spawn_opts carries %q; governed dispatch is not supported by this runner", reasonGoverned, k)
 			}
 		}
+		// A field of the wrong type is a bad_spawn_opts error, but it ranks
+		// last: the executor and path checks come first. Fields that did
+		// decode are still filled in for those checks.
 		if err := json.Unmarshal([]byte(s), &opts); err != nil {
-			return nil, fmt.Sprintf("%s: %v", reasonBadSpawnOpts, err)
+			decodeErr = err
 		}
 	}
 	if opts.Decision != nil {
@@ -114,6 +120,9 @@ func (e *engine) checkJob(job *scheduler.SpawnJob) (*plannedLaunch, string) {
 	opts.ProjectDir = dir
 	opts.OutputFile = out
 	opts.DispatchSH = sh
+	if decodeErr != nil {
+		return nil, fmt.Sprintf("%s: %v", reasonBadSpawnOpts, decodeErr)
+	}
 	// Validate exactly what the launch will run, so a configuration Spawn
 	// would reject is a config error with no attempt, not a counted prestart
 	// failure.

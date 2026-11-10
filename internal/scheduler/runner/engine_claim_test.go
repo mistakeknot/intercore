@@ -291,6 +291,18 @@ func TestClaimTimeChecksFailAsConfigError(t *testing.T) {
 			so, _ := json.Marshal(map[string]any{"AgentType": "codex", "PromptFile": prompt(r, "bad"), "RunID": "a", "ScopeID": "b"})
 			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = string(so) })
 		}},
+		{"wrong field type, executor missing", reasonNoExecutor, func(r *rig, o *Options) {
+			o.DispatchSH = filepath.Join(r.dir, "no-such-dispatch.sh")
+			so := `{"TimeoutSec":"invalid","PromptFile":"` + prompt(r, "bad") + `"}`
+			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = so })
+		}},
+		{"wrong field type, prompt missing", reasonMissingPrmpt, func(r *rig, o *Options) {
+			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = `{"TimeoutSec":"invalid"}` })
+		}},
+		{"wrong field type alone", reasonBadSpawnOpts, func(r *rig, o *Options) {
+			so := `{"TimeoutSec":"invalid","PromptFile":"` + prompt(r, "bad") + `"}`
+			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = so })
+		}},
 		{"unparseable spawn opts", reasonBadSpawnOpts, func(r *rig, o *Options) {
 			r.job("bad", "ok", func(j *scheduler.SpawnJob) { j.SpawnOpts = "{not json" })
 		}},
