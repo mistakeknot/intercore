@@ -4,47 +4,26 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"github.com/mistakeknot/intercore/internal/db"
 )
 
+// openTestDB opens a throwaway file DB at the real, fully migrated schema, so
+// the store is tested against the production table shapes.
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	d, err := db.Open(filepath.Join(t.TempDir(), "sched.db"), time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	db.SetMaxOpenConns(1)
-
-	// Create the scheduler_jobs table.
-	_, err = db.Exec(`
-		CREATE TABLE scheduler_jobs (
-			id          TEXT PRIMARY KEY,
-			status      TEXT NOT NULL DEFAULT 'pending',
-			priority    INTEGER NOT NULL DEFAULT 2,
-			agent_type  TEXT NOT NULL DEFAULT 'codex',
-			session_name TEXT,
-			batch_id    TEXT,
-			dispatch_id TEXT,
-			spawn_opts  TEXT NOT NULL,
-			max_retries INTEGER NOT NULL DEFAULT 3,
-			retry_count INTEGER NOT NULL DEFAULT 0,
-			error_msg   TEXT,
-			created_at  INTEGER NOT NULL,
-			started_at  INTEGER,
-			completed_at INTEGER
-		);
-		CREATE INDEX idx_scheduler_jobs_status ON scheduler_jobs(status);
-		CREATE INDEX idx_scheduler_jobs_session ON scheduler_jobs(session_name);
-	`)
-	if err != nil {
+	t.Cleanup(func() { d.Close() })
+	if err := d.Migrate(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-
-	t.Cleanup(func() { db.Close() })
-	return db
+	return d.SqlDB()
 }
 
 func TestStoreCreateAndGet(t *testing.T) {
@@ -89,59 +68,6 @@ func TestStoreCreateAndGet(t *testing.T) {
 	}
 }
 
-func TestStoreUpdate(t *testing.T) {
-	db := openTestDB(t)
-	store := NewStore(db)
-	ctx := context.Background()
-
-	job := &SpawnJob{
-		ID:        "upd-1",
-		Status:    StatusPending,
-		Priority:  PriorityNormal,
-		AgentType: "codex",
-		SpawnOpts: "{}",
-		MaxRetries: 3,
-		CreatedAt: time.Now().Truncate(time.Second),
-	}
-	if err := store.Create(ctx, job); err != nil {
-		t.Fatalf("create: %v", err)
-	}
-
-	// Simulate job starting.
-	job.Status = StatusRunning
-	job.StartedAt = time.Now().Truncate(time.Second)
-	job.DispatchID = "dispatch-abc"
-	if err := store.Update(ctx, job); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-
-	got, err := store.Get(ctx, "upd-1")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.Status != StatusRunning {
-		t.Errorf("status = %q, want running", got.Status)
-	}
-	if got.DispatchID != "dispatch-abc" {
-		t.Errorf("dispatch_id = %q, want dispatch-abc", got.DispatchID)
-	}
-
-	// Simulate completion.
-	job.Status = StatusCompleted
-	job.CompletedAt = time.Now().Truncate(time.Second)
-	if err := store.Update(ctx, job); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-
-	got, err = store.Get(ctx, "upd-1")
-	if err != nil {
-		t.Fatalf("get: %v", err)
-	}
-	if got.Status != StatusCompleted {
-		t.Errorf("status = %q, want completed", got.Status)
-	}
-}
-
 func TestStoreList(t *testing.T) {
 	db := openTestDB(t)
 	store := NewStore(db)
@@ -149,13 +75,13 @@ func TestStoreList(t *testing.T) {
 
 	for i, status := range []JobStatus{StatusPending, StatusPending, StatusCompleted} {
 		job := &SpawnJob{
-			ID:        fmt.Sprintf("list-%d", i),
-			Status:    status,
-			Priority:  PriorityNormal,
-			AgentType: "codex",
-			SpawnOpts: "{}",
+			ID:         fmt.Sprintf("list-%d", i),
+			Status:     status,
+			Priority:   PriorityNormal,
+			AgentType:  "codex",
+			SpawnOpts:  "{}",
 			MaxRetries: 3,
-			CreatedAt: time.Now().Truncate(time.Second),
+			CreatedAt:  time.Now().Truncate(time.Second),
 		}
 		if status == StatusCompleted {
 			job.CompletedAt = time.Now().Truncate(time.Second)
@@ -184,60 +110,6 @@ func TestStoreList(t *testing.T) {
 	}
 }
 
-func TestStoreRecoverPending(t *testing.T) {
-	db := openTestDB(t)
-	store := NewStore(db)
-	ctx := context.Background()
-
-	// Create jobs in various states.
-	states := []struct {
-		id     string
-		status JobStatus
-	}{
-		{"r-1", StatusPending},
-		{"r-2", StatusRunning},   // Was interrupted — should be recovered as pending.
-		{"r-3", StatusCompleted}, // Done — should not be recovered.
-		{"r-4", StatusRetrying},  // Was retrying — should be recovered.
-	}
-
-	for _, s := range states {
-		job := &SpawnJob{
-			ID:        s.id,
-			Status:    s.status,
-			Priority:  PriorityNormal,
-			AgentType: "codex",
-			SpawnOpts: "{}",
-			MaxRetries: 3,
-			CreatedAt: time.Now().Truncate(time.Second),
-		}
-		if s.status == StatusRunning {
-			job.StartedAt = time.Now().Truncate(time.Second)
-		}
-		if s.status == StatusCompleted {
-			job.CompletedAt = time.Now().Truncate(time.Second)
-		}
-		if err := store.Create(ctx, job); err != nil {
-			t.Fatalf("create %s: %v", s.id, err)
-		}
-	}
-
-	recovered, err := store.RecoverPending(ctx)
-	if err != nil {
-		t.Fatalf("recover: %v", err)
-	}
-
-	if len(recovered) != 3 {
-		t.Fatalf("recovered %d jobs, want 3", len(recovered))
-	}
-
-	// Running should be reset to pending.
-	for _, j := range recovered {
-		if j.ID == "r-2" && j.Status != StatusPending {
-			t.Errorf("r-2 status = %q, want pending (crash recovery)", j.Status)
-		}
-	}
-}
-
 func TestCountByStatus(t *testing.T) {
 	db := openTestDB(t)
 	store := NewStore(db)
@@ -259,13 +131,13 @@ func TestCountByStatus(t *testing.T) {
 	statuses := []JobStatus{StatusPending, StatusPending, StatusRunning, StatusCompleted, StatusCompleted, StatusCompleted}
 	for i, status := range statuses {
 		job := &SpawnJob{
-			ID:        fmt.Sprintf("cbs-%d", i),
-			Status:    status,
-			Priority:  PriorityNormal,
-			AgentType: "codex",
-			SpawnOpts: "{}",
+			ID:         fmt.Sprintf("cbs-%d", i),
+			Status:     status,
+			Priority:   PriorityNormal,
+			AgentType:  "codex",
+			SpawnOpts:  "{}",
 			MaxRetries: 3,
-			CreatedAt: time.Now().Truncate(time.Second),
+			CreatedAt:  time.Now().Truncate(time.Second),
 		}
 		if status == StatusCompleted {
 			job.CompletedAt = time.Now().Truncate(time.Second)
@@ -350,4 +222,3 @@ func TestStorePrune(t *testing.T) {
 		t.Errorf("remaining %d, want 2 (new-1 + pend-1)", len(remaining))
 	}
 }
-

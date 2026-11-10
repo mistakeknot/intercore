@@ -65,6 +65,44 @@
     },
     "metadata": {
       "type": "object"
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "not_before": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "attempt_seq": {
+      "type": "integer"
+    },
+    "crash_requeues": {
+      "type": "integer"
+    },
+    "claim_token": {
+      "type": "string"
+    },
+    "lease_epoch": {
+      "type": "integer"
+    },
+    "retry_policy": {
+      "type": "string"
+    },
+    "idempotent": {
+      "type": "boolean"
+    },
+    "outcome_class": {
+      "type": "string"
+    },
+    "output_base": {
+      "type": "string"
+    },
+    "retry_blocked": {
+      "type": "string"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
     }
   },
   "additionalProperties": false,
@@ -77,6 +115,8 @@
     "status",
     "created_at",
     "retry_count",
-    "max_retries"
+    "max_retries",
+    "attempt_seq",
+    "crash_requeues"
   ]
 }
