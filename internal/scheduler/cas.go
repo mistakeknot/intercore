@@ -87,6 +87,10 @@ type RecoverParams struct {
 type CancelResult struct {
 	Status   JobStatus
 	InFlight bool // the job was in flight, so a runner must observe the cancel
+	// DispatchID is the dispatch linked to the job inside the cancel
+	// transaction ("" when none). The CLI's --force kills this one, not a
+	// dispatch read before the cancel committed.
+	DispatchID string
 }
 
 // execer is satisfied by *sql.Tx and *db.ImmediateTx.
@@ -277,6 +281,7 @@ type jobState struct {
 	policy      string
 	idempotent  bool
 	blocked     string
+	dispatchID  string
 	lease       *int64
 	runnerEpoch int64
 	legacy      bool
@@ -291,11 +296,11 @@ func loadState(ctx context.Context, tx execer, id string) (*jobState, error) {
 		legacyInt int
 	)
 	err := tx.QueryRowContext(ctx, `SELECT j.status, COALESCE(j.claim_token, ''), j.attempt_seq, j.crash_requeues,
-			COALESCE(j.retry_policy, ''), j.idempotent, COALESCE(j.retry_blocked, ''), j.lease_epoch,
+			COALESCE(j.retry_policy, ''), j.idempotent, COALESCE(j.retry_blocked, ''), COALESCE(j.dispatch_id, ''), j.lease_epoch,
 			COALESCE((SELECT epoch FROM scheduler_runner WHERE id = 1), 0),
 			COALESCE((SELECT a.legacy FROM scheduler_job_attempts a WHERE a.claim_token = j.claim_token), 0)
 		FROM scheduler_jobs j WHERE j.id = ?`, id).
-		Scan(&status, &st.token, &st.seq, &st.crashes, &st.policy, &idem, &st.blocked, &lease, &st.runnerEpoch, &legacyInt)
+		Scan(&status, &st.token, &st.seq, &st.crashes, &st.policy, &idem, &st.blocked, &st.dispatchID, &lease, &st.runnerEpoch, &legacyInt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -614,9 +619,9 @@ func (s *Store) CancelJob(ctx context.Context, id string, now time.Time) (*Cance
 			if n, _ := r.RowsAffected(); n != 1 {
 				return ErrLostClaim
 			}
-			out = &CancelResult{Status: StatusCancelling, InFlight: true}
+			out = &CancelResult{Status: StatusCancelling, InFlight: true, DispatchID: st.dispatchID}
 		case StatusCancelling:
-			out = &CancelResult{Status: StatusCancelling, InFlight: true}
+			out = &CancelResult{Status: StatusCancelling, InFlight: true, DispatchID: st.dispatchID}
 		case StatusQuarantined:
 			if st.token != "" {
 				if _, err := tx.ExecContext(ctx, `UPDATE scheduler_job_attempts
@@ -635,7 +640,7 @@ func (s *Store) CancelJob(ctx context.Context, id string, now time.Time) (*Cance
 			if n, _ := r.RowsAffected(); n != 1 {
 				return ErrLostClaim
 			}
-			out = &CancelResult{Status: StatusCancelled}
+			out = &CancelResult{Status: StatusCancelled, DispatchID: st.dispatchID}
 		default:
 			return ErrAlreadyTerminal
 		}

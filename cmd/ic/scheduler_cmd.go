@@ -290,7 +290,6 @@ func cmdSchedulerCancel(ctx context.Context, args []string) int {
 	defer d.Close()
 
 	store := scheduler.NewStore(d.SqlDB())
-	// The dispatch is read first: finalize clears it from the job row.
 	job, err := store.Get(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		slog.Error("scheduler cancel: no such job", "id", id)
@@ -314,22 +313,24 @@ func cmdSchedulerCancel(ctx context.Context, args []string) int {
 		return 2
 	}
 
-	if !res.InFlight {
+	if res.InFlight {
+		fmt.Printf("Cancelling: %s\n", id)
+		if !schedulerRunnerLive(ctx, d.SqlDB()) {
+			fmt.Fprintf(os.Stderr, "ic: scheduler cancel: warning: no live runner will finish this cancel; the job stays cancelling until one recovers it\n")
+		}
+	} else {
 		fmt.Printf("Cancelled: %s\n", id)
-		return 0
 	}
-
-	fmt.Printf("Cancelling: %s\n", id)
-	if !schedulerRunnerLive(ctx, d.SqlDB()) {
-		fmt.Fprintf(os.Stderr, "ic: scheduler cancel: warning: no live runner will finish this cancel; the job stays cancelling until one recovers it\n")
-	}
-	if force && job.DispatchID != "" {
+	// --force kills the dispatch the cancel transaction saw (a quarantined
+	// job's dispatch may still be live). A dispatch read before the cancel
+	// committed could be stale: the job may have been linked since.
+	if force && res.DispatchID != "" {
 		dStore := dispatch.New(d.SqlDB(), newDispatchRecorder(d.SqlDB()))
-		if err := dispatch.Kill(ctx, dStore, job.DispatchID); err != nil {
-			slog.Error("scheduler cancel: kill dispatch failed", "dispatch", job.DispatchID, "error", err)
+		if err := dispatch.Kill(ctx, dStore, res.DispatchID); err != nil {
+			slog.Error("scheduler cancel: kill dispatch failed", "dispatch", res.DispatchID, "error", err)
 			return 2
 		}
-		fmt.Printf("Killed dispatch: %s\n", job.DispatchID)
+		fmt.Printf("Killed dispatch: %s\n", res.DispatchID)
 	}
 	return 0
 }

@@ -569,6 +569,48 @@ func TestCancelDoesNotOverwriteAConcurrentClaim(t *testing.T) {
 	}
 }
 
+// The CLI's --force kills the dispatch the cancel transaction saw, not the one
+// it read earlier: a job that was pending (no dispatch) at the pre-read and was
+// linked before the cancel committed must still report its dispatch.
+func TestCancelReportsDispatchLinkedAfterPreRead(t *testing.T) {
+	f := newFx(t)
+	f.job("p", nil)
+	stale, _ := f.s.Get(f.ctx, "p")
+	f.running("p", 1)
+	res, err := f.s.CancelJob(f.ctx, "p", f.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale.DispatchID != "" {
+		t.Fatalf("stale pre-read dispatch = %q, want none", stale.DispatchID)
+	}
+	if res.DispatchID != "d-p" {
+		t.Fatalf("CancelResult.DispatchID = %q, want d-p", res.DispatchID)
+	}
+}
+
+func TestCancelPendingReportsNoDispatch(t *testing.T) {
+	f := newFx(t)
+	f.job("p", nil)
+	res, err := f.s.CancelJob(f.ctx, "p", f.now)
+	if err != nil || res.DispatchID != "" {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+}
+
+// A quarantined job's dispatch may still be live; the cancel clears the column
+// but reports what it cleared so --force can kill it.
+func TestCancelQuarantinedReportsClearedDispatch(t *testing.T) {
+	f := newFx(t)
+	f.job("q", nil)
+	f.running("q", 1)
+	f.exec(`UPDATE scheduler_jobs SET status='quarantined', outcome_class='survivor_unknown' WHERE id='q'`)
+	res, err := f.s.CancelJob(f.ctx, "q", f.now)
+	if err != nil || res.DispatchID != "d-q" {
+		t.Fatalf("res = %+v, err = %v", res, err)
+	}
+}
+
 func TestCancelQuarantinedClosesOpenAttempt(t *testing.T) {
 	f := newFx(t)
 	f.job("q", nil)
