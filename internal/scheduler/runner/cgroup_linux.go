@@ -21,6 +21,13 @@ import (
 // directory below a delegated subtree, started with CLONE_INTO_CGROUP so the
 // child is never outside it. cgroup.kill then ends the whole attempt, and a
 // "populated 0" in cgroup.events proves no process of it is left.
+//
+// Threat model: agents are buggy, not malicious (plan section 5.5(e) and
+// section 13). The containment ends descendants that daemonize, setsid, clear
+// their environment or fork in a storm. A process of the same uid can still
+// write its own pid to another cgroup.procs inside the delegated subtree and
+// leave the attempt cgroup; that is an escape by a malicious act, out of scope,
+// and the runner's own unit cgroup still holds such a process.
 
 const cgroup2Magic = 0x63677270 // CGROUP2_SUPER_MAGIC
 
