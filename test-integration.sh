@@ -1591,6 +1591,22 @@ touch -d '2 days ago' "$HOOK_DIR"/stamps/*.stamp
 [[ "$(find "$HOOK_DIR/stamps" -name '*.stamp' -mmin +1440 | wc -l | tr -d ' ')" == 0 ]] || fail "hook: a day-old stamp must allow a prune and be refreshed"
 pass "hook prunes again after a day"
 
+# Effect and throttle, not just a stamp: seed a real decision, let it age past a
+# one-second window, and count how many times the hook really invokes `route prune`.
+find "$HOOK_DIR/stamps" -name '*.stamp' -delete
+printf '#!/bin/bash\n[[ "$*" == *"route prune"* ]] && echo x >> "%s/prune-calls"\nexec "%s" "$@"\n' "$HOOK_DIR" "$IC_BIN" > "$HOOK_DIR/counting-ic"
+chmod +x "$HOOK_DIR/counting-ic"
+(cd "$HOOK_DIR/projA" && "$IC_BIN" --db=.clavain/intercore.db route record --agent=hook-test --model=hook-test-model --rule=hook-test >/dev/null) || fail "hook: seed a routing decision"
+sleep 2
+( unset INTERCORE_DB; export INTERCORE_ROUTING_RETENTION=1s HOOK_BIN="$HOOK_DIR/counting-ic"
+  hook_run projA; hook_run projA; hook_run projA )
+PRUNE_CALLS=$(wc -l < "$HOOK_DIR/prune-calls" 2>/dev/null | tr -d ' ')
+[[ "$PRUNE_CALLS" == 1 ]] || fail "hook: three runs inside a day must invoke route prune exactly once, got ${PRUNE_CALLS:-0}"
+[[ -z "$(cd "$HOOK_DIR/projA" && "$IC_BIN" --db=.clavain/intercore.db route list --json | grep hook-test-model)" ]] || fail "hook: the expired decision must be pruned from the database"
+ls "$HOOK_DIR"/projA/.clavain/routing-archive/*.jsonl.gz >/dev/null 2>&1 || fail "hook: the pruned decision must be archived"
+[[ "$(gzip -dc "$HOOK_DIR"/projA/.clavain/routing-archive/*.jsonl.gz | grep -c hook-test-model)" == 1 ]] || fail "hook: the archive must hold the pruned decision"
+pass "hook archives and deletes an expired decision, and prunes once per day"
+
 
 echo ""
 if [[ "$SKIPPED" -gt 0 ]]; then
