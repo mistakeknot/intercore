@@ -135,28 +135,30 @@ func (s *Store) reapOne(ctx context.Context, d *Dispatch, lease time.Duration, r
 			return nil
 		}
 		reason := "reservation never started a process"
+		// The status, pid and age checks run again inside the write transaction:
+		// a spawn that recorded its process after d was read must not be cancelled.
 		_, err := s.Terminalize(ctx, d.ID, Terminal{
-			Status:   StatusCancelled,
-			Source:   TerminalSourceKill,
-			Evidence: EvidenceNotApplicable,
-			Reason:   reason,
-			Fields:   UpdateFields{"completed_at": time.Now().Unix(), "error_message": reason},
+			Status:            StatusCancelled,
+			Source:            TerminalSourceKill,
+			Evidence:          EvidenceNotApplicable,
+			Reason:            reason,
+			Fields:            UpdateFields{"completed_at": time.Now().Unix(), "error_message": reason},
+			ReservationCutoff: time.Now().Add(-lease).Unix(),
 		})
+		if errors.Is(err, ErrPreconditionFailed) {
+			return nil
+		}
 		return reaped(&result.Released, d.ID, err)
 	}
 
-	alive := isProcessAlive(*d.PID)
-	if alive {
-		identity, err := s.processIdentity(ctx, d)
-		if err != nil {
-			return nil // no birth proof: not ours to call dead
-		}
-		alive, err = processIdentityAlive(identity)
-		if err != nil {
-			return nil
-		}
+	// Liveness is proved only by the recorded birth identity, never by the bare
+	// PID: a legacy row without one, or one that cannot be read, is left alone.
+	identity, err := s.processIdentity(ctx, d)
+	if err != nil {
+		return nil
 	}
-	if alive {
+	alive, err := processIdentityAlive(identity)
+	if err != nil || alive {
 		return nil
 	}
 	return reaped(&result.Collected, d.ID, Collect(ctx, s, d.ID))

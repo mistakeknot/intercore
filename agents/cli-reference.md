@@ -83,7 +83,9 @@ birth identity and never by the bare PID. `dispatch list --active` and
 `dispatch reconcile` also cancel a `spawned` row that never started a process once
 it is older than the lease (default 10 minutes; `dispatch reconcile --lease=<dur>`
 overrides it), which frees the cap slot it held. `dispatch status <id>` never
-rewrites a row that has no process.
+rewrites a row that has no process. A row with no recorded birth identity (a
+legacy row) is left alone. The reservation check repeats inside the write
+transaction, so a spawn that starts its process first is never cancelled.
 `dispatch retry` creates exactly such a reservation row, and the caller must start
 the process inside the lease. Supervised dispatches are never touched: their
 supervisor is the only writer of their outcome.
