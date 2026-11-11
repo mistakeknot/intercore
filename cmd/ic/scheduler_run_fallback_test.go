@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/mistakeknot/intercore/internal/scheduler"
 )
 
@@ -53,8 +55,18 @@ func carriers(did string) []int {
 // gone, like workers that died with the runner.
 func killCarriers(t *testing.T, did string) {
 	t.Helper()
+	want := []byte("IC_DISPATCH_ID=" + did)
 	for _, pid := range carriers(did) {
-		_ = syscall.Kill(pid, syscall.SIGKILL)
+		// Pin the process first and read its environment again, so a PID that
+		// was reused since the listing is never signalled.
+		fd, err := unix.PidfdOpen(pid, 0)
+		if err != nil {
+			continue
+		}
+		if b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ"); err == nil && bytesHasEntry(b, want) {
+			_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+		}
+		_ = unix.Close(fd)
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for len(carriers(did)) > 0 {
@@ -63,6 +75,16 @@ func killCarriers(t *testing.T, did string) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+// bytesHasEntry reports whether the NUL-separated environment holds exactly want.
+func bytesHasEntry(env, want []byte) bool {
+	for _, kv := range strings.Split(string(env), "\x00") {
+		if kv == string(want) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *rec) dispatchID() string { return r.str(`SELECT id FROM dispatches LIMIT 1`) }
@@ -165,7 +187,19 @@ func TestCLIFallbackKillMatrix(t *testing.T) {
 		// the sweep cannot see it. The job is still blocked; the descendant is
 		// not signalled by anything but the test cleanup.
 		{name: "b4_setsid_clear_env_P3b", point: "after_start_before_identity", mode: "setsid-clear-env", blocked: true, status: "failed", outcome: "indeterminate", execs: 1,
-			prepare: func(r *rec, did string) { waitChild(r) },
+			prepare: func(r *rec, did string) {
+				waitChild(r)
+				// Nothing else reaps this descendant: pin it now and kill it at
+				// cleanup, so a failed assertion below cannot leak it.
+				if child := r.liveChild(); child > 0 {
+					if fd, err := unix.PidfdOpen(child, 0); err == nil {
+						r.t.Cleanup(func() {
+							_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+							_ = unix.Close(fd)
+						})
+					}
+				}
+			},
 			check: func(r *rec, p *proc, did string) {
 				if m := sweepKilled.FindStringSubmatch(p.stderr()); m == nil || m[1] != "0" || m[2] != "0" {
 					r.t.Fatalf("the sweep must find nothing for a descendant with no environment:\n%s", p.stderr())
