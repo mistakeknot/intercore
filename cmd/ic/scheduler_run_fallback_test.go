@@ -17,7 +17,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -143,6 +142,7 @@ func TestCLIFallbackKillMatrix(t *testing.T) {
 			r.t.Fatalf("the executor never started a live descendant")
 		}
 	}
+	p3bFD := -1 // the pinned P3b descendant, set by its prepare step
 	cases := []tc{
 		{name: "b3_after_link_before_start", point: "after_link_before_start", mode: "ok", blocked: true, status: "failed", outcome: "indeterminate", execs: 0},
 		{name: "b4_alive_sleep", point: "after_start_before_identity", mode: "sleep 20", blocked: true, status: "failed", outcome: "indeterminate", execs: 1,
@@ -193,9 +193,11 @@ func TestCLIFallbackKillMatrix(t *testing.T) {
 				// cleanup, so a failed assertion below cannot leak it.
 				if child := r.liveChild(); child > 0 {
 					if fd, err := unix.PidfdOpen(child, 0); err == nil {
+						p3bFD = fd
 						r.t.Cleanup(func() {
 							_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
 							_ = unix.Close(fd)
+							p3bFD = -1
 						})
 					}
 				}
@@ -205,10 +207,11 @@ func TestCLIFallbackKillMatrix(t *testing.T) {
 					r.t.Fatalf("the sweep must find nothing for a descendant with no environment:\n%s", p.stderr())
 				}
 				child := r.liveChild()
-				if child == 0 {
+				if child == 0 || p3bFD < 0 {
 					r.t.Fatalf("the environment-clearing descendant was killed by the sweep")
 				}
-				_ = syscall.Kill(child, syscall.SIGKILL)
+				// Through the pinned pidfd, never the numeric PID.
+				_ = unix.PidfdSendSignal(p3bFD, unix.SIGKILL, nil, 0)
 				waitProcGone(r.t, child, "the environment-clearing descendant")
 			}},
 		// A barrier-6 runner dies after the launch result is stored. The wrapper
