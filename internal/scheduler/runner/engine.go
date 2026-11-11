@@ -970,6 +970,20 @@ func (e *engine) pipelineBlocking(ctx context.Context, c *scheduler.Claim, a *sc
 	// and it counts as started. A written rejected, hook_aborted or spawn_error
 	// result means nothing ran, even though the dispatch row was linked.
 	started := a.LaunchResult == scheduler.LaunchStarted || (a.LaunchResult == "" && a.DispatchID != "")
+	if !forceBlock && a.DispatchID != "" && !a.Legacy && a.Containment != "cgroup" {
+		// A fallback recovery that died after it terminalized the dispatch
+		// and before it finalized the job leaves a reconcile-written
+		// indeterminate "survivor" terminal behind: the next pass reads a
+		// terminal dispatch, so rebuild the unconditional block from it.
+		var n int
+		if err := e.sqlDB.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM dispatch_terminals t JOIN dispatches d ON d.id = t.dispatch_id
+			  WHERE t.dispatch_id = ? AND t.terminal_source = 'reconcile' AND t.failure_class = ?
+			    AND d.error_message = 'recovered by a new runner epoch: survivor'`, a.DispatchID, dispatch.WorkerOutcomeIndeterminate).Scan(&n); err != nil {
+			return err
+		}
+		forceBlock = n > 0
+	}
 	if forceBlock && a.DispatchID != "" {
 		fp.RetryBlocked = "survivor_unknown:" + a.DispatchID
 	} else if started && a.Containment != "cgroup" && !noSurvivors {

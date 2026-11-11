@@ -454,6 +454,32 @@ func TestRecoveryFallbackRow8AndLegacyRow1(t *testing.T) {
 	}
 }
 
+// A fallback recovery that died after it terminalized the dispatch and before
+// it finalized the job: the next pass sees a terminal dispatch (row 6) and must
+// still block the retry, whatever the job's retry policy would say.
+func TestRecoveryFallbackInterruptedAfterTerminalizeStillBlocks(t *testing.T) {
+	r := newRig(t)
+	o := r.opts()
+	ep := r.firstEpoch(o, "boot-A")
+	c := r.claim("x", ep)
+	r.launchAs(c, scheduler.LaunchStarted)
+	did := r.linked(c, "spawned", 0)
+	r.paths(c, "none", "")
+	e := testEngine(t.TempDir(), "boot-A")
+	e.ds = dispatch.New(r.raw, nil)
+	e.o.Now = time.Now
+	if err := e.terminalizeIndeterminate(context.Background(), &scheduler.AttemptRow{DispatchID: did}, "survivor", 0); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	o.hooks.procRoot = func() string { return root }
+	var got snap
+	lg := r.recovered(o, "boot-A", func() { got = r.snap("x") })
+	if got.Outcome != "indeterminate" || got.Blocked != "survivor_unknown:"+did {
+		t.Fatalf("job %+v, want indeterminate with retry_blocked survivor_unknown:%s\n%s", got, did, lg)
+	}
+}
+
 // Row 8 in cgroup mode (P3c): a dispatch with no recorded PID whose attempt
 // cgroup still holds a process. The cgroup is killed and proven empty, the
 // dispatch is terminalized indeterminate with orphans_killed, and the job

@@ -72,6 +72,9 @@ func TestLegacyRule(t *testing.T) {
 			cl := r.claim("x", ep)
 			r.launchAs(cl, scheduler.LaunchStarted)
 			did := r.linked(cl, c.dispatch, c.pid)
+			// The PIDs here are synthetic: forget them before the rig's reap
+			// signals the group of every running dispatch it still finds.
+			t.Cleanup(func() { _, _ = r.raw.Exec(`UPDATE dispatches SET pid = NULL`) })
 			if c.birth != "" {
 				r.identity(did, c.pid, c.birth, c.pid)
 			}
