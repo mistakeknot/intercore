@@ -856,6 +856,15 @@ var (
 // errPipelineDeferred when the entry is not ours any more. The error is
 // scheduler.ErrLostClaim when the finalize found another writer first.
 func (e *engine) pipeline(ctx context.Context, c *scheduler.Claim, a *scheduler.AttemptRow, owned func() bool, noSurvivors bool) error {
+	return e.pipelineBlocking(ctx, c, a, owned, noSurvivors, false)
+}
+
+// pipelineBlocking is pipeline with one more switch: forceBlock sets
+// retry_blocked=survivor_unknown on the finalized job whether or not a retry
+// would have followed. Fallback-mode recovery uses it for a dispatch whose
+// processes could not be proven gone, so that a later `indeterminate` opt-in
+// or an operator requeue cannot start a second copy before someone confirms.
+func (e *engine) pipelineBlocking(ctx context.Context, c *scheduler.Claim, a *scheduler.AttemptRow, owned func() bool, noSurvivors, forceBlock bool) error {
 	token := c.Token
 	if owned == nil {
 		owned = func() bool { return true }
@@ -961,7 +970,9 @@ func (e *engine) pipeline(ctx context.Context, c *scheduler.Claim, a *scheduler.
 	// and it counts as started. A written rejected, hook_aborted or spawn_error
 	// result means nothing ran, even though the dispatch row was linked.
 	started := a.LaunchResult == scheduler.LaunchStarted || (a.LaunchResult == "" && a.DispatchID != "")
-	if started && a.Containment != "cgroup" && !noSurvivors {
+	if forceBlock && a.DispatchID != "" {
+		fp.RetryBlocked = "survivor_unknown:" + a.DispatchID
+	} else if started && a.Containment != "cgroup" && !noSurvivors {
 		// Without containment a started job may have left descendants: a
 		// post-start retry is blocked until someone confirms none survive.
 		job, err := e.store.Get(ctx, a.JobID)
@@ -981,7 +992,16 @@ func (e *engine) pipeline(ctx context.Context, c *scheduler.Claim, a *scheduler.
 		return err
 	}
 	fctx := scheduler.WithSeam(ctx, func(point string) { e.barrier(point, token) })
-	if _, err := e.store.Finalize(fctx, c, fp); err != nil {
+	if a.Legacy {
+		// A synthetic attempt made by migration 041 is finalized under the
+		// capped legacy rule, never retried: ok completes, another definite
+		// class fails, indeterminate or unknown is quarantined legacy_unknown.
+		if _, err := e.store.Recover(ctx, scheduler.RecoverParams{
+			JobID: a.JobID, Epoch: e.epoch, Action: scheduler.ActFinalize, Class: class, Now: e.o.Now(),
+		}); err != nil {
+			return err
+		}
+	} else if _, err := e.store.Finalize(fctx, c, fp); err != nil {
 		return err
 	}
 	e.barrier("after_finalize_commit", token)

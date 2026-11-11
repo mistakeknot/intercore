@@ -47,10 +47,14 @@ func (e *engine) recoverRecordedPID(ctx context.Context, c *scheduler.Claim, a *
 		e.clearUnreadable(a.Token)
 		return e.adopt(ctx, c, a, v)
 	case pidZombie, pidDead:
-		// Gone. With no receipt the pipeline classifies indeterminate; in
-		// fallback mode a started job that would retry is blocked as
-		// survivor_unknown unless it is proven otherwise.
+		// Gone. In cgroup mode the cgroup proof lets the pipeline classify
+		// from whatever receipt exists. In fallback mode the wrapper's
+		// descendants cannot be enumerated, so the sweep runs and the job ends
+		// indeterminate with its retry blocked, whatever the sweep found.
 		e.clearUnreadable(a.Token)
+		if !containedAttempt(a) {
+			return e.recoverFallback(ctx, c, a, "recorded process "+v.State.String())
+		}
 		return e.recoveredPipeline(ctx, a, e.pipeline(ctx, c, a, nil, false))
 	}
 	return e.recoverUnreadable(ctx, c, a, v)

@@ -409,8 +409,13 @@ func TestRecoveryUnknownBootIDIsNotAReboot(t *testing.T) {
 }
 
 // Row 8 with no recorded PID and a fallback attempt (no cgroup), and the legacy
-// row, are left for slice 4d: logged, untouched.
-func TestRecoveryFallbackAndLegacyRowsAreSkipped(t *testing.T) {
+// row 1 with the same dispatch. The procfs root is an empty fixture, so the
+// sweep finds nothing and the outcome does not depend on the host's processes.
+// Fallback: the dispatch is terminalized indeterminate and the retry blocked
+// even though the sweep was clean (a clean sweep proves nothing). Legacy: the
+// attempt is never re-run; with no live process it goes through the pipeline
+// and, indeterminate, is quarantined legacy_unknown.
+func TestRecoveryFallbackRow8AndLegacyRow1(t *testing.T) {
 	for _, legacy := range []bool{false, true} {
 		name := "fallback row 8"
 		if legacy {
@@ -422,24 +427,28 @@ func TestRecoveryFallbackAndLegacyRowsAreSkipped(t *testing.T) {
 			ep := r.firstEpoch(o, "boot-A")
 			c := r.claim("x", ep)
 			r.launchAs(c, scheduler.LaunchStarted)
-			r.linked(c, "spawned", 0)
+			did := r.linked(c, "spawned", 0)
 			r.paths(c, "none", "")
 			if legacy {
 				if _, err := r.raw.Exec(`UPDATE scheduler_job_attempts SET legacy = 1 WHERE claim_token = ?`, c.Token); err != nil {
 					t.Fatal(err)
 				}
 			}
+			root := t.TempDir()
+			o.hooks.procRoot = func() string { return root }
 			var got snap
 			lg := r.recovered(o, "boot-A", func() { got = r.snap("x") })
-			if got.Status != "launching" || got.Token != c.Token {
-				t.Fatalf("the row left flight: %+v", got)
-			}
-			want := "fallback-mode survivor sweep is not part of this runner yet"
 			if legacy {
-				want = "legacy rule is not part of this runner yet"
+				if got.Status != "quarantined" || got.Outcome != scheduler.ReasonLegacyUnknown {
+					t.Fatalf("legacy job %+v, want quarantined %s\n%s", got, scheduler.ReasonLegacyUnknown, lg)
+				}
+				return
 			}
-			if !strings.Contains(lg, want) {
-				t.Fatalf("no skip line %q in the log:\n%s", want, lg)
+			if got.Outcome != "indeterminate" || got.Blocked != "survivor_unknown:"+did {
+				t.Fatalf("fallback job %+v, want indeterminate with retry_blocked survivor_unknown:%s\n%s", got, did, lg)
+			}
+			if st, _, _ := r.dispatchRow(did); st == "spawned" || st == "running" {
+				t.Fatalf("dispatch %q, want terminalized", st)
 			}
 		})
 	}
