@@ -220,23 +220,37 @@ func (e *engine) checkRecorded(id *recordedIdentity) pidVerdict {
 		closeFD()
 		return statFailure(v, err, "re-read stat")
 	}
-	state2, _, start2, err := ParseStatPgrp(second)
+	state2, pgrp2, start2, err := ParseStatPgrp(second)
 	if err != nil || start2 != start1 {
 		closeFD()
 		v.State, v.Detail = pidUnreadable, "the two stat reads disagree"
 		return v
 	}
-	switch {
-	case state1 == 'Z' || state1 == 'X' || state2 == 'Z' || state2 == 'X':
+	switch classifyReads(state1, state2, pgrp, pgrp2, id.GroupID) {
+	case pidZombie:
 		closeFD()
 		v.State, v.Detail = pidZombie, "process has exited and is not reaped"
-	case pgrp != id.GroupID:
+	case pidPgidChanged:
 		closeFD()
-		v.State, v.Detail = pidPgidChanged, fmt.Sprintf("process group is %d, recorded %d", pgrp, id.GroupID)
+		v.State, v.Detail = pidPgidChanged, fmt.Sprintf("process group is %d then %d, recorded %d", pgrp, pgrp2, id.GroupID)
 	default:
 		v.State, v.Detail, v.PidFD = pidAliveMatch, "same start time, boot and process group", pidfd
 	}
 	return v
+}
+
+// classifyReads decides between the two stat reads of one process. Either read
+// showing the process gone or in another group disqualifies it: a worker can
+// change group between the reads, and the later snapshot counts as much as the
+// first.
+func classifyReads(state1, state2 byte, pgrp1, pgrp2, recorded int) pidState {
+	switch {
+	case state1 == 'Z' || state1 == 'X' || state2 == 'Z' || state2 == 'X':
+		return pidZombie
+	case pgrp1 != recorded || pgrp2 != recorded:
+		return pidPgidChanged
+	}
+	return pidAliveMatch
 }
 
 func statFailure(v pidVerdict, err error, what string) pidVerdict {

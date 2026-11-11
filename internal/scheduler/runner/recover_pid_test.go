@@ -505,3 +505,25 @@ func TestAdoptedWorkerWithTerminalDispatchIsStopped(t *testing.T) {
 	until(t, "the adopted process to be stopped", func() bool { return gone(pid) })
 	until(t, "the job to leave flight", func() bool { return r.snap("x").Token == "" })
 }
+
+// A process that changes group between the two stat reads is not the recorded
+// worker, whichever read shows the change.
+func TestClassifyReadsEitherPgrp(t *testing.T) {
+	cases := []struct {
+		s1, s2       byte
+		g1, g2, want int
+		state        pidState
+	}{
+		{'S', 'S', 10, 10, 10, pidAliveMatch},
+		{'S', 'S', 11, 11, 10, pidPgidChanged},
+		{'S', 'S', 10, 11, 10, pidPgidChanged},
+		{'S', 'S', 11, 10, 10, pidPgidChanged},
+		{'S', 'Z', 10, 10, 10, pidZombie},
+		{'Z', 'Z', 11, 11, 10, pidZombie},
+	}
+	for _, c := range cases {
+		if got := classifyReads(c.s1, c.s2, c.g1, c.g2, c.want); got != c.state {
+			t.Errorf("%c%c %d,%d vs %d: %s, want %s", c.s1, c.s2, c.g1, c.g2, c.want, got, c.state)
+		}
+	}
+}
