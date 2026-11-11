@@ -217,6 +217,49 @@ func (r *rec) waitOutcome(id string) (status, outcome string) {
 	}
 }
 
+const (
+	settleWaiting = iota
+	settleDone
+	settleAdopted
+)
+
+// restartSettle classifies one read of a job row, "<outcome_class>|<claim_token>"
+// (both empty when NULL), taken while a restarted runner settles a linked
+// attempt whose previous claim token was old. An outcome means the row settled
+// without adoption. Otherwise a non-empty token other than old means the
+// restarted runner adopted it. An empty token is never an adoption: a finalize
+// clears it.
+func restartSettle(row, old string) int {
+	outcome, token, _ := strings.Cut(row, "|")
+	switch {
+	case outcome != "":
+		return settleDone
+	case token != "" && token != old:
+		return settleAdopted
+	}
+	return settleWaiting
+}
+
+// A settled row (outcome set, token cleared) is not an adoption, whatever order
+// the columns were read in; a row that carries a new token and no outcome is.
+func TestRestartSettle(t *testing.T) {
+	for _, c := range []struct {
+		row  string
+		want int
+	}{
+		{"|old", settleWaiting},
+		{"|", settleWaiting},
+		{"indeterminate|", settleDone},
+		{"ok|", settleDone},
+		{"ok|new", settleDone},
+		{"|new", settleAdopted},
+	} {
+		if got := restartSettle(c.row, "old"); got != c.want {
+			t.Errorf("restartSettle(%q) = %d, want %d", c.row, got, c.want)
+		}
+	}
+}
+
 func (r *rec) str(q string) string {
 	var s sql.NullString
 	r.e.query(r.path, q, &s)
@@ -367,10 +410,14 @@ func TestCLIRecoveryLostEntryWhileLinkedExits5(t *testing.T) {
 			adopted := false
 			deadline = time.Now().Add(2 * time.Minute)
 			for !adopted {
-				if _, o := r.e.jobOutcome(r.path, "j1"); o != "" {
+				// One row, one read: a finalize clears the claim token and sets the
+				// outcome in the same transaction, so two separate reads can see the
+				// cleared token of a settled row and mistake it for an adoption.
+				state := restartSettle(r.str(`SELECT COALESCE(outcome_class, '') || '|' || COALESCE(claim_token, '') FROM scheduler_jobs WHERE id = 'j1'`), old)
+				if state == settleDone {
 					break
 				}
-				if r.token("j1") != old {
+				if state == settleAdopted {
 					adopted = true
 					break
 				}
