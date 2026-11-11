@@ -52,6 +52,7 @@ type engine struct {
 	mu      sync.Mutex
 	backoff map[string]backoffState // completing entries that failed a step
 	killed  map[string]bool         // cancelling tokens whose dispatch was signalled
+	unread  map[string]time.Time    // recorded-PID check: first pass that could not read a prior row's process (the five minute rule)
 	killing map[string]bool         // cancelling tokens with a signal in progress
 	reapers sync.WaitGroup          // running reapTerminalDispatch goroutines
 	closing bool                    // run is returning: no new reapers (guarded by mu)
@@ -78,6 +79,7 @@ func newEngine(o Options, store *scheduler.Store, sqlDB *sql.DB, epoch int64, cg
 		fl:      NewInFlight(),
 		backoff: map[string]backoffState{},
 		killed:  map[string]bool{},
+		unread:  map[string]time.Time{},
 		killing: map[string]bool{},
 		abort:   make(chan struct{}),
 		fatal:   make(chan error, 1),
@@ -954,7 +956,12 @@ func (e *engine) pipeline(ctx context.Context, c *scheduler.Claim, a *scheduler.
 	if class != scheduler.ClassOK {
 		fp.Error = fmt.Sprintf("attempt ended %s (launch_result=%s)", class, a.LaunchResult)
 	}
-	if a.LaunchResult == scheduler.LaunchStarted && a.Containment != "cgroup" && !noSurvivors {
+	// A linked dispatch with no launch_result means the runner died after the
+	// spawn but before it wrote the result (barrier 5), so a process may exist
+	// and it counts as started. A written rejected, hook_aborted or spawn_error
+	// result means nothing ran, even though the dispatch row was linked.
+	started := a.LaunchResult == scheduler.LaunchStarted || (a.LaunchResult == "" && a.DispatchID != "")
+	if started && a.Containment != "cgroup" && !noSurvivors {
 		// Without containment a started job may have left descendants: a
 		// post-start retry is blocked until someone confirms none survive.
 		job, err := e.store.Get(ctx, a.JobID)

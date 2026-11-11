@@ -27,6 +27,22 @@ func ParseStat(stat string) (state byte, startTime uint64, err error) {
 	return fields[0][0], st, nil
 }
 
+// ParseStatPgrp is ParseStat plus the process group (field 5).
+func ParseStatPgrp(stat string) (state byte, pgrp int, startTime uint64, err error) {
+	state, startTime, err = ParseStat(stat)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	i := strings.LastIndexByte(stat, ')')
+	fields := strings.Fields(stat[i+1:])
+	// fields[2] is field 5 (pgrp); ParseStat checked there are at least 20.
+	g, perr := strconv.Atoi(fields[2])
+	if perr != nil {
+		return 0, 0, 0, fmt.Errorf("stat process group: %w", perr)
+	}
+	return state, g, startTime, nil
+}
+
 // Holder is what a singleton row says about the runner that last held the queue.
 type Holder struct {
 	PID       int

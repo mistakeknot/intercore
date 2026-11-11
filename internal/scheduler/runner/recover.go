@@ -17,9 +17,10 @@ import (
 // an older epoch; it touches only dispatches linked from
 // scheduler_job_attempts. Slice 4b implements the table rows that need no
 // process lookup: 2 to 6, the cgroup-mode half of 8, row 9, and the boot
-// change shortcut. Row 7 (a recorded PID), the legacy row and the fallback
-// mode survivor handling are skipped with a log line and left to slices 4c and
-// 4d; a skipped row stays in flight and is looked at again by the next pass.
+// change shortcut. Slice 4c adds row 7, the recorded-PID check and adoption
+// (pidcheck_linux.go, adopt_linux.go). The legacy row and the fallback mode
+// survivor sweep are skipped with a log line and left to slice 4d; a skipped
+// row stays in flight and is looked at again by the next pass.
 
 // recoveryPass applies the recovery table to every prior-epoch row.
 func (e *engine) recoveryPass() {
@@ -112,7 +113,7 @@ func (e *engine) recoverRow(ctx context.Context, pc scheduler.PriorClaim) error 
 		}
 		return err
 	}
-	state, _, err := e.recoveryFacts(ctx, a)
+	state, d, err := e.recoveryFacts(ctx, a)
 	if err != nil {
 		return err
 	}
@@ -134,8 +135,7 @@ func (e *engine) recoverRow(ctx context.Context, pc scheduler.PriorClaim) error 
 			return e.recoverRebooted(ctx, c, a)
 		}
 		if dec.Action == scheduler.ActCheckPID {
-			e.logf("recovery: job %s has a recorded PID (row %d); the recorded-PID check is not part of this runner yet, left as is", a.JobID, dec.Row)
-			return nil
+			return e.recoverRecordedPID(ctx, c, a, d)
 		}
 		if !containedAttempt(a) {
 			e.logf("recovery: job %s has no recorded PID and no attempt cgroup (row %d); the fallback-mode survivor sweep is not part of this runner yet, left as is", a.JobID, dec.Row)

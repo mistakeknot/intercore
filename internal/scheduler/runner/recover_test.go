@@ -306,9 +306,10 @@ func TestRecoveryTerminalAndPrunedDispatch(t *testing.T) {
 	}
 }
 
-// Row 7 is not part of this runner yet: it is logged, nothing is signalled and
-// the row stays in flight (and keeps its claim), pass after pass.
-func TestRecoveryRecordedPIDRowIsSkipped(t *testing.T) {
+// Row 7 with a recorded PID but no recorded identity has no proof the process
+// is the one the dead runner started: it is logged as proof_absent, nothing is
+// signalled and the row stays in flight (and keeps its claim), pass after pass.
+func TestRecoveryRecordedPIDWithoutIdentityIsReChecked(t *testing.T) {
 	r := newRig(t)
 	o := r.opts()
 	o.RecoverEvery = 20 * time.Millisecond
@@ -338,8 +339,8 @@ func TestRecoveryRecordedPIDRowIsSkipped(t *testing.T) {
 	if !alive(pid) {
 		t.Fatal("the recorded process was signalled")
 	}
-	if !strings.Contains(lg.String(), "recorded-PID check is not part of this runner yet") {
-		t.Fatalf("no skip line in the log:\n%s", lg.String())
+	if !strings.Contains(lg.String(), "recorded process: proof_absent") {
+		t.Fatalf("no proof_absent line in the log:\n%s", lg.String())
 	}
 }
 

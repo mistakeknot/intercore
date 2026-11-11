@@ -33,6 +33,8 @@ import (
 //	drop_entry:<point>       drop the in-flight map entry at the first arrival at the point
 //	clock_shift:<secs>       the runner's clock runs that many seconds ahead
 //	boot_id:<id>             the boot_id this runner records and compares (a "reboot" between two runs)
+//	procfs_root_file:<path>  the recorded-PID check reads the procfs root named in this file while it exists
+//	clock_offset_file:<path> the five minute rule's clock runs ahead by the seconds in this file
 const (
 	envBarrier = "IC_SCHED_BARRIER"
 	envFIFO    = "IC_SCHED_BARRIER_FIFO"
@@ -162,6 +164,36 @@ func (o *Options) installEnvHooks() {
 			if len(parts) == 2 && parts[1] != "" && o.hooks.bootID == nil {
 				id := parts[1]
 				o.hooks.bootID = func() string { return id }
+				continue
+			}
+		case "procfs_root_file":
+			// The procfs root the recorded-PID check reads is the content of
+			// this file while it exists and is not empty; otherwise /proc.
+			if len(parts) >= 2 && parts[1] != "" && o.hooks.procRoot == nil {
+				path := strings.Join(parts[1:], ":")
+				o.hooks.procRoot = func() string {
+					b, err := os.ReadFile(path)
+					if err != nil {
+						return ""
+					}
+					return strings.TrimSpace(string(b))
+				}
+				continue
+			}
+		case "clock_offset_file":
+			// The clock of the five minute rule runs ahead by the number of
+			// seconds in this file while it exists.
+			if len(parts) >= 2 && parts[1] != "" && o.hooks.clock == nil {
+				path := strings.Join(parts[1:], ":")
+				o.hooks.clock = func() time.Time {
+					now := time.Now()
+					if b, err := os.ReadFile(path); err == nil {
+						if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+							now = now.Add(time.Duration(n) * time.Second)
+						}
+					}
+					return now
+				}
 				continue
 			}
 		case "clock_shift":
