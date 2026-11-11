@@ -19,6 +19,10 @@ import (
 // waiting for it (plan section 5.3d).
 const unreadableBound = 5 * time.Minute
 
+// adoptedTermGrace is how long an adopted process whose dispatch went terminal
+// has to exit after SIGTERM before it gets SIGKILL.
+const adoptedTermGrace = 5 * time.Second
+
 func (e *engine) clockNow() time.Time {
 	if h := e.o.hooks.clock; h != nil {
 		return h()
@@ -160,11 +164,35 @@ func (e *engine) watchAdopted(c *scheduler.Claim, gen uint64, fd int) {
 	if fd >= 0 {
 		defer unix.Close(fd)
 	}
+	// A dispatch that goes terminal behind the runner's back (a manual collect
+	// or kill) says the work is over, but a collect never signals the process.
+	// The pidfd is the verified process, so it is signalled through the pidfd
+	// (never by PID): SIGTERM first, SIGKILL after the grace. A fixture procfs
+	// has no pidfd and nothing is signalled.
+	dispatchID := ""
+	if a, err := e.store.AttemptByToken(context.Background(), c.Token); err == nil {
+		dispatchID = a.DispatchID
+	}
+	var lastCheck, termAt time.Time
+	killed := false
 	for {
 		select {
 		case <-e.abort:
 			return
 		default:
+		}
+		if fd >= 0 && dispatchID != "" && !killed && time.Since(lastCheck) >= e.o.Tick {
+			lastCheck = time.Now()
+			if termAt.IsZero() {
+				if d, err := e.ds.Get(context.Background(), dispatchID); err == nil && d.IsTerminal() {
+					e.logf("job %s: dispatch %s is terminal but its adopted process still runs: SIGTERM", c.JobID, dispatchID)
+					_ = unix.PidfdSendSignal(fd, unix.SIGTERM, nil, 0)
+					termAt = time.Now()
+				}
+			} else if time.Since(termAt) >= adoptedTermGrace {
+				_ = unix.PidfdSendSignal(fd, unix.SIGKILL, nil, 0)
+				killed = true
+			}
 		}
 		if fd < 0 {
 			// A fixture procfs gives no pidfd: poll the stat instead.

@@ -956,7 +956,12 @@ func (e *engine) pipeline(ctx context.Context, c *scheduler.Claim, a *scheduler.
 	if class != scheduler.ClassOK {
 		fp.Error = fmt.Sprintf("attempt ended %s (launch_result=%s)", class, a.LaunchResult)
 	}
-	if a.LaunchResult == scheduler.LaunchStarted && a.Containment != "cgroup" && !noSurvivors {
+	// A linked dispatch with no launch_result means the runner died after the
+	// spawn but before it wrote the result (barrier 5), so a process may exist
+	// and it counts as started. A written rejected, hook_aborted or spawn_error
+	// result means nothing ran, even though the dispatch row was linked.
+	started := a.LaunchResult == scheduler.LaunchStarted || (a.LaunchResult == "" && a.DispatchID != "")
+	if started && a.Containment != "cgroup" && !noSurvivors {
 		// Without containment a started job may have left descendants: a
 		// post-start retry is blocked until someone confirms none survive.
 		job, err := e.store.Get(ctx, a.JobID)

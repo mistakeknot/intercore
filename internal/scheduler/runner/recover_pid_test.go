@@ -4,6 +4,7 @@ package runner
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -433,4 +434,73 @@ func TestAdoptStoreGuards(t *testing.T) {
 	if got := r.snap("x"); got.Token != c.Token {
 		t.Fatalf("a refused adoption changed the row: %+v", got)
 	}
+}
+
+// A runner that died at barrier 5 recorded the process identity but not
+// launch_result. The worker is gone and left no proof about its descendants, so
+// in fallback mode a retry its policy would allow must still be blocked as
+// survivor_unknown: a linked dispatch means a process was spawned.
+func TestRecoveryDeadWorkerWithoutLaunchResultBlocksRetry(t *testing.T) {
+	const pid, tk = 4300, 900
+	r := newRig(t)
+	o := r.opts()
+	ep := r.firstEpoch(o, "boot-A")
+	c := r.claim("x", ep)
+	did := r.linked(c, "running", pid) // no launchAs: launch_result stays NULL
+	r.identity(did, pid, fmt.Sprintf("linux:boot-A:%d", tk), pid)
+	r.paths(c, "none", "")
+	r.mustExec(`UPDATE scheduler_jobs SET idempotent = 1, retry_policy = ? WHERE id = 'x'`,
+		`{"max_attempts":5,"backoff":{"base_s":1,"factor":1,"max_s":1,"jitter":0},"retry_on":["indeterminate"]}`)
+	var lr sql.NullString
+	if err := r.raw.QueryRow(`SELECT launch_result FROM scheduler_job_attempts WHERE claim_token = ?`, c.Token).Scan(&lr); err != nil || lr.Valid {
+		t.Fatalf("setup: launch_result %v err %v, want NULL", lr, err)
+	}
+	root := t.TempDir() // the recorded PID is not in this procfs: dead
+	o.hooks.procRoot = func() string { return root }
+	o.hooks.bootID = func() string { return "boot-A" }
+	var passes atomic.Int32
+	o.hooks.recoveryPass = func() { passes.Add(1) }
+	run := start(t, o)
+	defer run.stop(t)
+	until(t, "the dead worker to be recovered", func() bool { return r.snap("x").Token != c.Token })
+	got := r.snap("x")
+	if want := "survivor_unknown:" + did; got.Blocked != want {
+		t.Fatalf("retry_blocked %q, want %q (job %+v)", got.Blocked, want, got)
+	}
+}
+
+// An adopted worker whose dispatch goes terminal behind the runner's back (a
+// manual collect or kill) is told to stop through the pidfd, and the job then
+// completes. Without the monitor the watcher waits for ever.
+func TestAdoptedWorkerWithTerminalDispatchIsStopped(t *testing.T) {
+	pid := sleeper(t)
+	text, err := ReadStat(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pgrp, tk, err := ParseStatPgrp(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := newRig(t)
+	o := r.opts()
+	ep := r.firstEpoch(o, "boot-A")
+	row := r.pidRow(ep, pid, fmt.Sprintf("linux:boot-A:%d", tk), pgrp, "none", "")
+	o.RecoverEvery = 20 * time.Millisecond
+	o.Tick = 20 * time.Millisecond
+	o.hooks.bootID = func() string { return "boot-A" }
+	lg := &logBuf{}
+	o.Stderr = lg
+	run := start(t, o)
+	defer run.stop(t)
+	until(t, "adoption", func() bool {
+		s := r.snap("x")
+		return s.Token != "" && s.Token != row.c.Token
+	})
+	if !alive(pid) {
+		t.Fatal("the adopted worker died before its dispatch was collected")
+	}
+	r.mustExec(`UPDATE dispatches SET status = 'failed' WHERE id = ?`, row.did)
+	until(t, "the adopted process to be stopped", func() bool { return gone(pid) })
+	until(t, "the job to leave flight", func() bool { return r.snap("x").Token == "" })
 }
