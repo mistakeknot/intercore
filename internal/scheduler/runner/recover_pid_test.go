@@ -83,6 +83,7 @@ func TestRecordedPIDStates(t *testing.T) {
 		{"zombie", func(t *testing.T) string { return fixtureProc(t, pid, 'Z', pid, tk) }, boot, pidZombie},
 		{"dead no such pid", func(t *testing.T) string { return t.TempDir() }, boot, pidDead},
 		{"dead other start time", func(t *testing.T) string { return fixtureProc(t, pid, 'S', pid, tk+1) }, boot, pidDead},
+		{"unreadable current boot id", func(t *testing.T) string { return fixtureProc(t, pid, 'S', pid, tk) }, "", pidUnreadable},
 		{"dead other boot", func(t *testing.T) string { return fixtureProc(t, pid, 'S', pid, tk) }, "boot-B", pidDead},
 		{"pgid_changed", func(t *testing.T) string { return fixtureProc(t, pid, 'S', pid+9, tk) }, boot, pidPgidChanged},
 		{"unreadable stat", func(t *testing.T) string {

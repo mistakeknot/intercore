@@ -158,7 +158,15 @@ func (r *fdReader) Read(p []byte) (int, error) {
 // process as both reads.
 func (e *engine) checkRecorded(id *recordedIdentity) pidVerdict {
 	v := pidVerdict{PidFD: -1}
-	if cur := e.o.bootID(); cur != "" && id.bootID != cur {
+	// Without this boot's id nothing ties a matching PID, group and start time to
+	// the previous runner: a rebooted host can reuse all three. It is unproven,
+	// so the five-minute rule applies and the process is never signalled.
+	cur := e.o.bootID()
+	if cur == "" {
+		v.State, v.Detail = pidUnreadable, "current boot id is unavailable"
+		return v
+	}
+	if id.bootID != cur {
 		v.State, v.Detail = pidDead, "recorded boot id differs from this boot"
 		return v
 	}
