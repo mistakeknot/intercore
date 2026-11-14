@@ -20,7 +20,7 @@ import (
 // setupApprovalSandbox builds a project root with:
 //   - a git repo inside a plugin subdirectory
 //   - a v34-schema .clavain/intercore.db at the project root (authorizations
-//     + authz_tokens + migration markers — needed for token path tests)
+//   - authz_tokens + migration markers — needed for token path tests)
 //   - (optionally) a signing keypair
 //
 // Returns (projectRoot, pluginRoot).
@@ -436,14 +436,22 @@ func TestRequiresApproval_TokenAlreadyConsumedFallbackAuthzRecord(t *testing.T) 
 	target, _ := filepath.Abs(pluginRoot)
 	opaque := issueTestToken(t, projectRoot, target, "publisher-agent", 60*time.Minute)
 
-	// Also have a fresh signed authz row so the fall-through lands on
-	// authz-record (not marker, not "none").
-	insertAndSignPublishRow(t, projectRoot, target, time.Now().Unix())
-
-	// First consume — consumed_at gets set.
+	// First consume — consumed_at gets set. It also writes an unsigned audit
+	// row (created_at = the call's Unix second) for the same op and target.
 	if _, via := callRequireApproval(t, projectRoot, pluginRoot, opaque, "publisher-agent"); via != ViaToken {
 		t.Fatalf("first consume via = %q, want %q", via, ViaToken)
 	}
+
+	// Also have a fresh signed authz row so the fall-through lands on
+	// authz-record (not marker, not "none"). checkAuthzApproval takes the
+	// newest row by created_at (second resolution), so this row must be
+	// strictly newer than the audit row above. Inserting it before the
+	// consume with time.Now() let the audit row land one second later (or tie
+	// with it) and be picked instead, which reported "authz row unsigned".
+	// The audit row's created_at is at most time.Now().Unix() here, so +1 is
+	// strictly newer; the freshness check has only a lower bound.
+	insertAndSignPublishRow(t, projectRoot, target, time.Now().Unix()+1)
+
 	// Second: token already-consumed (state-class 2) → falls through to
 	// authz-record.
 	needs, via := callRequireApproval(t, projectRoot, pluginRoot, opaque, "publisher-agent")
