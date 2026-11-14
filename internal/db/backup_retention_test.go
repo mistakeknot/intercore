@@ -252,3 +252,24 @@ func TestBackupSharedDirectoryIsolation(t *testing.T) {
 		t.Fatal("shared legacy snapshot removed")
 	}
 }
+
+func TestBackupWithoutHardLinks(t *testing.T) {
+	d, path := backupFixture(t)
+	prev := backupLink
+	backupLink = func(string, string) error { return os.ErrPermission }
+	t.Cleanup(func() { backupLink = prev })
+	for i := 0; i < 2; i++ {
+		if err := d.backupBeforeMigrate(context.Background(), currentSchemaVersion); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths := backupsOf(t, path)
+	if len(paths) != 2 {
+		t.Fatalf("backups=%d, want 2", len(paths))
+	}
+	for _, p := range paths {
+		if err := verifyBackup(context.Background(), p, currentSchemaVersion); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

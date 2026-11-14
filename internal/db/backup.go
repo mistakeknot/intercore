@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 var (
 	migrateBackupFn = vacuumInto
 	diskSpaceCheck  = checkDiskSpace
+	backupLink      = os.Link
 )
 
 // vacuumInto writes a consistent, WAL-inclusive snapshot of the database to
@@ -95,7 +97,7 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 		if n > 0 {
 			target = fmt.Sprintf("%s-%d-%s-%d.db", base, fromVersion, stamp, n)
 		}
-		err := os.Link(pending, target)
+		err := publishBackup(ctx, pending, target, fromVersion)
 		if err == nil {
 			break
 		}
@@ -105,6 +107,38 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 	}
 
 	return pruneBackups(dir, filepath.Base(d.path), identity, absDir == filepath.Dir(absPath), keep)
+}
+
+// publishBackup uses an atomic link when available. Exclusive creation keeps
+// the copy fallback from overwriting any existing snapshot.
+func publishBackup(ctx context.Context, pending, target string, version int) error {
+	if err := backupLink(pending, target); err == nil || os.IsExist(err) {
+		return err
+	}
+	source, err := os.Open(pending)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	dest, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(dest, source)
+	if copyErr == nil {
+		copyErr = dest.Sync()
+	}
+	closeErr := dest.Close()
+	if copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr == nil {
+		copyErr = verifyBackup(ctx, target, version)
+	}
+	if copyErr != nil {
+		os.Remove(target)
+	}
+	return copyErr
 }
 
 // Match this database identity; include historical formats only beside the database. Do not follow
