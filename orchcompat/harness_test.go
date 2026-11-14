@@ -25,6 +25,8 @@ var update = flag.Bool("update", false, "rewrite golden files from the current i
 var icBinary string
 
 func TestMain(m *testing.M) {
+	os.Unsetenv("IC_BACKUP_DIR")
+	os.Unsetenv("IC_BACKUP_KEEP")
 	flag.Parse()
 	os.Exit(runMain(m))
 }
@@ -319,7 +321,7 @@ type runcase struct {
 
 var (
 	timeField  = regexp.MustCompile(`"time":"[^"]*"`)
-	backupName = regexp.MustCompile(`\.backup-[0-9]+-[0-9]{8}-[0-9]{6}`)
+	backupName = regexp.MustCompile(`\.backup-(?:[0-9a-f]{32}-)?[0-9]+-[0-9]{8}-[0-9]{6}`)
 	jobID      = regexp.MustCompile(`"job_id":"[0-9a-f]{32}"`)
 	epochField = regexp.MustCompile(`"created_at":[0-9]+`)
 )

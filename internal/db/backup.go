@@ -2,11 +2,17 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"io"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -16,6 +22,8 @@ import (
 var (
 	migrateBackupFn = vacuumInto
 	diskSpaceCheck  = checkDiskSpace
+	backupLink      = os.Link
+	backupPrune     = pruneBackups
 )
 
 // vacuumInto writes a consistent, WAL-inclusive snapshot of the database to
@@ -27,35 +35,72 @@ func vacuumInto(ctx context.Context, d *DB, target string) error {
 
 // backupBeforeMigrate writes and verifies a VACUUM INTO backup of the database
 // at schema version fromVersion. It does nothing for an empty or missing file.
-// On any failure it removes the partial backup and returns an error; callers
-// must not migrate.
+// Snapshot failures remove the pending file and return an error; callers must
+// not migrate. Retention failures are logged after a verified snapshot exists.
 func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 	info, err := os.Stat(d.path)
 	if err != nil || info.Size() == 0 {
 		return nil
+	}
+	keep := 5
+	if value := os.Getenv("IC_BACKUP_KEEP"); value != "" {
+		keep, err = strconv.Atoi(value)
+		if err != nil || keep < 1 {
+			return fmt.Errorf("migrate: IC_BACKUP_KEEP must be a positive integer")
+		}
+	}
+	dir := os.Getenv("IC_BACKUP_DIR")
+	if dir == "" {
+		dir = filepath.Dir(d.path)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("migrate: backup directory: %w", err)
 	}
 	need := uint64(info.Size())
 	if wal, err := os.Stat(d.path + "-wal"); err == nil {
 		need += uint64(wal.Size())
 	}
 	// Room for the snapshot plus the 10 MiB Health floor.
-	if err := diskSpaceCheck(filepath.Dir(d.path), need+10*1024*1024); err != nil {
+	if err := diskSpaceCheck(dir, need+10*1024*1024); err != nil {
 		return fmt.Errorf("migrate: backup: not enough free space: %w", err)
 	}
 
-	// Reserve the target with an exclusive create, so two migrations that start
-	// in the same second can never share a file: each owns the file it made and
-	// removes only that one. VACUUM INTO accepts an existing empty file.
+	absPath, err := filepath.Abs(d.path)
+	if err != nil {
+		return fmt.Errorf("migrate: database identity: %w", err)
+	}
+	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(absPath)))[:32]
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("migrate: backup directory: %w", err)
+	}
+
+	// Publish only verified snapshots. Pending names do not match retention,
+	// so another process cannot prune a snapshot while it is being written.
+	f, err := os.CreateTemp(dir, ".intercore-backup-pending-*")
+	if err != nil {
+		return fmt.Errorf("migrate: backup failed: %w", err)
+	}
+	pending := f.Name()
+	f.Close()
+	defer os.Remove(pending)
+	if err := migrateBackupFn(ctx, d, pending); err != nil {
+		return fmt.Errorf("migrate: backup failed: %w", err)
+	}
+	if err := verifyBackup(ctx, pending, fromVersion); err != nil {
+		return fmt.Errorf("migrate: backup failed: %w", err)
+	}
+	// Prefer atomic linking; fall back to exclusive creation without overwriting.
 	stamp := time.Now().Format("20060102-150405")
+	base := filepath.Join(dir, filepath.Base(d.path)+".backup-"+identity)
 	var target string
 	for n := 0; ; n++ {
-		target = fmt.Sprintf("%s.backup-%d-%s.db", d.path, fromVersion, stamp)
+		target = fmt.Sprintf("%s-%d-%s.db", base, fromVersion, stamp)
 		if n > 0 {
-			target = fmt.Sprintf("%s.backup-%d-%s-%d.db", d.path, fromVersion, stamp, n)
+			target = fmt.Sprintf("%s-%d-%s-%d.db", base, fromVersion, stamp, n)
 		}
-		f, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		err := publishBackup(ctx, pending, target, fromVersion)
 		if err == nil {
-			f.Close()
 			break
 		}
 		if !os.IsExist(err) {
@@ -63,15 +108,87 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 		}
 	}
 
-	fail := func(err error) error {
+	if err := backupPrune(dir, filepath.Base(d.path), identity, absDir == filepath.Dir(absPath), keep); err != nil {
+		log.Printf("migrate: backup retention warning: %v", err)
+	}
+	return nil
+}
+
+// publishBackup uses an atomic link when available. Exclusive creation keeps
+// the copy fallback from overwriting any existing snapshot.
+func publishBackup(ctx context.Context, pending, target string, version int) error {
+	if err := backupLink(pending, target); err == nil || os.IsExist(err) {
+		return err
+	}
+	source, err := os.Open(pending)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	dest, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(dest, source)
+	if copyErr == nil {
+		copyErr = dest.Sync()
+	}
+	closeErr := dest.Close()
+	if copyErr == nil {
+		copyErr = closeErr
+	}
+	if copyErr == nil {
+		copyErr = verifyBackup(ctx, target, version)
+	}
+	if copyErr != nil {
 		os.Remove(target)
-		return fmt.Errorf("migrate: backup failed: %w", err)
 	}
-	if err := migrateBackupFn(ctx, d, target); err != nil {
-		return fail(err)
+	return copyErr
+}
+
+// Match this database identity; include historical formats only beside the database. Do not follow
+// symlinks or remove directories, pending files, or similarly named files.
+func pruneBackups(dir, base, identity string, legacy bool, keep int) error {
+	current := regexp.QuoteMeta(identity) + `-[0-9]+-[0-9]{8}-[0-9]{6}(?:-[0-9]+)?\.db`
+	if legacy {
+		current += `|[0-9]{8}-[0-9]{6}|[0-9]+-[0-9]{8}-[0-9]{6}(?:-[0-9]+)?\.db`
 	}
-	if err := verifyBackup(ctx, target, fromVersion); err != nil {
-		return fail(err)
+	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(base) + `\.backup-(?:` + current + `)$`)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("migrate: backup retention: %w", err)
+	}
+	type snapshot struct {
+		path     string
+		modified time.Time
+	}
+	var snapshots []snapshot
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		if !pattern.MatchString(entry.Name()) || !entry.Type().IsRegular() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return fmt.Errorf("migrate: backup retention: %w", err)
+		}
+		snapshots = append(snapshots, snapshot{path, info.ModTime()})
+	}
+	sort.Slice(snapshots, func(i, j int) bool {
+		if snapshots[i].modified.Equal(snapshots[j].modified) {
+			return snapshots[i].path > snapshots[j].path
+		}
+		return snapshots[i].modified.After(snapshots[j].modified)
+	})
+	// All writers use the same order, including their own snapshot. Reserving
+	// a slot for each writer could over-prune during overlapping migrations.
+	for i := keep; i < len(snapshots); i++ {
+		if err := os.Remove(snapshots[i].path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("migrate: backup retention: %w", err)
+		}
 	}
 	return nil
 }
