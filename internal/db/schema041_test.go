@@ -798,6 +798,7 @@ func TestMigration041FirstUpgradeRestore(t *testing.T) {
 // Backups taken in the same second never share a file: each migration owns the
 // target it reserved, so none can delete another's snapshot.
 func TestConcurrentBackupsGetDistinctFiles(t *testing.T) {
+	t.Setenv("IC_BACKUP_KEEP", "8")
 	d, path := tempDB(t)
 	ctx := context.Background()
 	if err := d.Migrate(ctx); err != nil {
