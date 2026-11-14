@@ -44,8 +44,8 @@ snapshot before changing the schema. Already-current databases are skipped.
 Set `IC_BACKUP_DIR` to place snapshots in another directory (created with mode
 0700 when absent); the default is beside the database. Use a separate directory
 for each database with the same filename. `IC_BACKUP_KEEP` is a positive integer,
-defaulting to 5. After a verified snapshot is published, retention keeps it and
-the newest other snapshots by modification time, removing only regular files
+defaulting to 5. After a verified snapshot is published, retention keeps the
+newest snapshots by modification time, removing only regular files
 matching that database's legacy `backup-YYYYMMDD-HHMMSS` or current
 `backup-<schema>-YYYYMMDD-HHMMSS[-<collision>].db` names. Symlinks, directories,
 pending snapshots and other filenames are excluded. Changing the directory

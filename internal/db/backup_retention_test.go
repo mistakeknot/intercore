@@ -112,6 +112,10 @@ func TestBackupRetention(t *testing.T) {
 
 func TestBackupDirectory(t *testing.T) {
 	d, path := backupFixture(t)
+	old := path + ".backup-20200101-000000"
+	if err := os.WriteFile(old, []byte("dummy"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	dir := filepath.Join(t.TempDir(), "backup directory")
 	testutil.FailOnAncestorDB(t, dir)
 	t.Setenv("IC_BACKUP_DIR", dir)
@@ -135,8 +139,8 @@ func TestBackupDirectory(t *testing.T) {
 	if err := verifyBackup(context.Background(), filepath.Join(dir, entries[0].Name()), currentSchemaVersion); err != nil {
 		t.Fatal(err)
 	}
-	if got := backupsOf(t, path); len(got) != 0 {
-		t.Fatalf("backup created beside source")
+	if got := backupsOf(t, path); len(got) != 1 || got[0] != old {
+		t.Fatalf("source directory backups changed")
 	}
 }
 

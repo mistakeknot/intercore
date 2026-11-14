@@ -93,12 +93,12 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 		}
 	}
 
-	return pruneBackups(dir, filepath.Base(d.path), target, keep)
+	return pruneBackups(dir, filepath.Base(d.path), keep)
 }
 
 // Match only this database's two historical snapshot formats. Do not follow
 // symlinks or remove directories, pending files, or similarly named files.
-func pruneBackups(dir, base, newest string, keep int) error {
+func pruneBackups(dir, base string, keep int) error {
 	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(base) + `\.backup-(?:[0-9]{8}-[0-9]{6}|[0-9]+-[0-9]{8}-[0-9]{6}(?:-[0-9]+)?\.db)$`)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -111,7 +111,7 @@ func pruneBackups(dir, base, newest string, keep int) error {
 	var snapshots []snapshot
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
-		if path == newest || !pattern.MatchString(entry.Name()) || !entry.Type().IsRegular() {
+		if !pattern.MatchString(entry.Name()) || !entry.Type().IsRegular() {
 			continue
 		}
 		info, err := entry.Info()
@@ -129,8 +129,9 @@ func pruneBackups(dir, base, newest string, keep int) error {
 		}
 		return snapshots[i].modified.After(snapshots[j].modified)
 	})
-	// The newly verified snapshot always occupies one retention slot.
-	for i := keep - 1; i < len(snapshots); i++ {
+	// All writers use the same order, including their own snapshot. Reserving
+	// a slot for each writer could over-prune during overlapping migrations.
+	for i := keep; i < len(snapshots); i++ {
 		if err := os.Remove(snapshots[i].path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("migrate: backup retention: %w", err)
 		}
