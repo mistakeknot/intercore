@@ -186,7 +186,7 @@ func (d *DB) SchemaVersion() (int, error) {
 
 // Migrate applies the schema DDL if needed. When a migration will run on a
 // non-empty database it first writes a verified VACUUM INTO backup
-// (<db>.backup-<from-version>-<timestamp>.db) and refuses to migrate if that
+// (beside the database or in IC_BACKUP_DIR) and refuses to migrate if that
 // backup or its verification fails.
 func (d *DB) Migrate(ctx context.Context) error {
 	// Cheap pre-check outside the lock: a current database needs no backup.

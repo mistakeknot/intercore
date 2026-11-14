@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ var (
 	migrateBackupFn = vacuumInto
 	diskSpaceCheck  = checkDiskSpace
 	backupLink      = os.Link
+	backupPrune     = pruneBackups
 )
 
 // vacuumInto writes a consistent, WAL-inclusive snapshot of the database to
@@ -33,8 +35,8 @@ func vacuumInto(ctx context.Context, d *DB, target string) error {
 
 // backupBeforeMigrate writes and verifies a VACUUM INTO backup of the database
 // at schema version fromVersion. It does nothing for an empty or missing file.
-// On any failure it removes the partial backup and returns an error; callers
-// must not migrate.
+// Snapshot failures remove the pending file and return an error; callers must
+// not migrate. Retention failures are logged after a verified snapshot exists.
 func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 	info, err := os.Stat(d.path)
 	if err != nil || info.Size() == 0 {
@@ -88,7 +90,7 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 	if err := verifyBackup(ctx, pending, fromVersion); err != nil {
 		return fmt.Errorf("migrate: backup failed: %w", err)
 	}
-	// Linking publishes atomically without replacing any same-second backup.
+	// Prefer atomic linking; fall back to exclusive creation without overwriting.
 	stamp := time.Now().Format("20060102-150405")
 	base := filepath.Join(dir, filepath.Base(d.path)+".backup-"+identity)
 	var target string
@@ -106,7 +108,10 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 		}
 	}
 
-	return pruneBackups(dir, filepath.Base(d.path), identity, absDir == filepath.Dir(absPath), keep)
+	if err := backupPrune(dir, filepath.Base(d.path), identity, absDir == filepath.Dir(absPath), keep); err != nil {
+		log.Printf("migrate: backup retention warning: %v", err)
+	}
+	return nil
 }
 
 // publishBackup uses an atomic link when available. Exclusive creation keeps

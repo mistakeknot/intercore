@@ -1,7 +1,9 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -271,5 +273,34 @@ func TestBackupWithoutHardLinks(t *testing.T) {
 		if err := verifyBackup(context.Background(), p, currentSchemaVersion); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestBackupRetentionFailureAllowsMigration(t *testing.T) {
+	var logs bytes.Buffer
+	prevLog := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(prevLog) })
+	d, path := backupFixture(t)
+	prev := backupPrune
+	backupPrune = func(string, string, string, bool, int) error { return os.ErrPermission }
+	t.Cleanup(func() { backupPrune = prev })
+	mustExec(t, d.db, "PRAGMA user_version = "+strconv.Itoa(currentSchemaVersion-1))
+	if err := d.Migrate(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(logs.String(), "backup retention warning") {
+		t.Fatal("retention failure was not logged")
+	}
+	version, err := d.SchemaVersion()
+	if err != nil || version != currentSchemaVersion {
+		t.Fatalf("version=%d, err=%v", version, err)
+	}
+	paths := backupsOf(t, path)
+	if len(paths) != 1 {
+		t.Fatalf("backups=%d, want 1", len(paths))
+	}
+	if err := verifyBackup(context.Background(), paths[0], currentSchemaVersion-1); err != nil {
+		t.Fatal(err)
 	}
 }
