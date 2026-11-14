@@ -15,6 +15,8 @@ import (
 
 func tempDB(t *testing.T) (*DB, string) {
 	t.Helper()
+	t.Setenv("IC_BACKUP_DIR", "")
+	t.Setenv("IC_BACKUP_KEEP", "")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.db")
 	d, err := Open(path, 100*time.Millisecond)

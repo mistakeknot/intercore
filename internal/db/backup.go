@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"fmt"
 	"net/url"
@@ -60,6 +61,16 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 		return fmt.Errorf("migrate: backup: not enough free space: %w", err)
 	}
 
+	absPath, err := filepath.Abs(d.path)
+	if err != nil {
+		return fmt.Errorf("migrate: database identity: %w", err)
+	}
+	identity := fmt.Sprintf("%x", sha256.Sum256([]byte(absPath)))[:32]
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return fmt.Errorf("migrate: backup directory: %w", err)
+	}
+
 	// Publish only verified snapshots. Pending names do not match retention,
 	// so another process cannot prune a snapshot while it is being written.
 	f, err := os.CreateTemp(dir, ".intercore-backup-pending-*")
@@ -77,12 +88,12 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 	}
 	// Linking publishes atomically without replacing any same-second backup.
 	stamp := time.Now().Format("20060102-150405")
-	base := filepath.Join(dir, filepath.Base(d.path))
+	base := filepath.Join(dir, filepath.Base(d.path)+".backup-"+identity)
 	var target string
 	for n := 0; ; n++ {
-		target = fmt.Sprintf("%s.backup-%d-%s.db", base, fromVersion, stamp)
+		target = fmt.Sprintf("%s-%d-%s.db", base, fromVersion, stamp)
 		if n > 0 {
-			target = fmt.Sprintf("%s.backup-%d-%s-%d.db", base, fromVersion, stamp, n)
+			target = fmt.Sprintf("%s-%d-%s-%d.db", base, fromVersion, stamp, n)
 		}
 		err := os.Link(pending, target)
 		if err == nil {
@@ -93,13 +104,17 @@ func (d *DB) backupBeforeMigrate(ctx context.Context, fromVersion int) error {
 		}
 	}
 
-	return pruneBackups(dir, filepath.Base(d.path), keep)
+	return pruneBackups(dir, filepath.Base(d.path), identity, absDir == filepath.Dir(absPath), keep)
 }
 
-// Match only this database's two historical snapshot formats. Do not follow
+// Match this database identity; include historical formats only beside the database. Do not follow
 // symlinks or remove directories, pending files, or similarly named files.
-func pruneBackups(dir, base string, keep int) error {
-	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(base) + `\.backup-(?:[0-9]{8}-[0-9]{6}|[0-9]+-[0-9]{8}-[0-9]{6}(?:-[0-9]+)?\.db)$`)
+func pruneBackups(dir, base, identity string, legacy bool, keep int) error {
+	current := regexp.QuoteMeta(identity) + `-[0-9]+-[0-9]{8}-[0-9]{6}(?:-[0-9]+)?\.db`
+	if legacy {
+		current += `|[0-9]{8}-[0-9]{6}|[0-9]+-[0-9]{8}-[0-9]{6}(?:-[0-9]+)?\.db`
+	}
+	pattern := regexp.MustCompile(`^` + regexp.QuoteMeta(base) + `\.backup-(?:` + current + `)$`)
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return fmt.Errorf("migrate: backup retention: %w", err)

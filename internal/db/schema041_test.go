@@ -584,7 +584,7 @@ func openRO(t *testing.T, path string) *sql.DB {
 	return db
 }
 
-var backupName = regexp.MustCompile(`\.backup-(\d+)-\d{8}-\d{6}(-\d+)?\.db$`)
+var backupName = regexp.MustCompile(`\.backup-(?:[0-9a-f]{32}-)?(\d+)-\d{8}-\d{6}(-\d+)?\.db$`)
 
 // Unit test 1b: the migrator's backup is a verified VACUUM INTO snapshot that
 // includes rows that exist only in the WAL.
@@ -798,8 +798,8 @@ func TestMigration041FirstUpgradeRestore(t *testing.T) {
 // Backups taken in the same second never share a file: each migration owns the
 // target it reserved, so none can delete another's snapshot.
 func TestConcurrentBackupsGetDistinctFiles(t *testing.T) {
-	t.Setenv("IC_BACKUP_KEEP", "8")
 	d, path := tempDB(t)
+	t.Setenv("IC_BACKUP_KEEP", "8")
 	ctx := context.Background()
 	if err := d.Migrate(ctx); err != nil {
 		t.Fatal(err)

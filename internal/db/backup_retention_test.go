@@ -180,3 +180,75 @@ func TestBackupConcurrentRetention(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupSharedDirectoryIsolation(t *testing.T) {
+	a, _ := backupFixture(t)
+	b, _ := backupFixture(t)
+	dir := t.TempDir()
+	t.Setenv("IC_BACKUP_DIR", dir)
+	t.Setenv("IC_BACKUP_KEEP", "2")
+	legacy := filepath.Join(dir, "test.db.backup-20200101-000000")
+	if err := os.WriteFile(legacy, []byte("dummy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var generations [2]int
+	for _, d := range []*DB{a, b} {
+		mustExec(t, d.db, "CREATE TABLE retention_probe (owner INTEGER, generation INTEGER)")
+	}
+	snapshot := func(index int, d *DB) {
+		t.Helper()
+		generations[index]++
+		mustExec(t, d.db, "DELETE FROM retention_probe")
+		mustExec(t, d.db, "INSERT INTO retention_probe VALUES (?,?)", index, generations[index])
+		mustExec(t, d.db, "PRAGMA user_version = "+strconv.Itoa(currentSchemaVersion-1))
+		if err := d.Migrate(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var counts [2]int
+		for _, e := range entries {
+			path := filepath.Join(dir, e.Name())
+			if path == legacy {
+				continue
+			}
+			if err := verifyBackup(context.Background(), path, currentSchemaVersion-1); err != nil {
+				t.Fatal(err)
+			}
+			ro := openRO(t, path)
+			var owner, generation int
+			if err := ro.QueryRow("SELECT owner,generation FROM retention_probe").Scan(&owner, &generation); err != nil {
+				t.Fatal(err)
+			}
+			ro.Close()
+			if owner < 0 || owner > 1 {
+				t.Fatalf("unknown owner %d", owner)
+			}
+			counts[owner]++
+			if generation < generations[owner]-1 {
+				t.Fatalf("database %d retained stale generation %d", owner, generation)
+			}
+		}
+		for owner, generation := range generations {
+			want := generation
+			if want > 2 {
+				want = 2
+			}
+			if counts[owner] != want {
+				t.Fatalf("database %d backups=%d, want %d", owner, counts[owner], want)
+			}
+		}
+	}
+	snapshot(0, a)
+	for i := 0; i < 4; i++ {
+		snapshot(1, b)
+	}
+	for i := 0; i < 4; i++ {
+		snapshot(0, a)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatal("shared legacy snapshot removed")
+	}
+}
