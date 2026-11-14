@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mistakeknot/intercore/internal/testutil"
 	"gopkg.in/yaml.v3"
 )
 
@@ -153,6 +154,7 @@ func newSandbox(t *testing.T) *sandbox {
 		t.Fatal(err)
 	}
 	failOnAncestorPolicy(t, base)
+	testutil.FailOnAncestorDB(t, base)
 	s := &sandbox{t: t, root: base}
 	s.home = filepath.Join(base, "home")
 	s.cwd = filepath.Join(base, "work")

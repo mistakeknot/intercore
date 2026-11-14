@@ -25,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/mistakeknot/intercore/internal/testutil"
 )
 
 var updateGoldens = flag.Bool("update-goldens", false, "regenerate contracts/golden from real ic output")
@@ -97,6 +99,7 @@ func newGoldenEnv(t *testing.T) *goldenEnv {
 	if err != nil {
 		t.Fatal(err)
 	}
+	testutil.FailOnAncestorDB(t, dir)
 	home := filepath.Join(dir, ".home")
 	if err := os.Mkdir(home, 0o755); err != nil {
 		t.Fatal(err)
