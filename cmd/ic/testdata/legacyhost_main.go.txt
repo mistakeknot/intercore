@@ -1,0 +1,100 @@
+// legacyhost is built inside an untouched checkout of the 040 source tree
+// (commit 1b445cf) and is never part of the intercore module. It is a library
+// host as 040 allowed one to be: it opens and migrates the database with 040
+// code, persists jobs through the real scheduler Store hooks, and runs the real
+// DispatchExecutor with a fake dispatch.sh. Like 040, it persists a job as
+// running when it starts and the dispatch link only when the executor returns.
+//
+//	legacyhost run <db> <dispatch.sh> <workdir>   start one job, print "started", block
+//	legacyhost recover <db>                       print the ids 040 RecoverPending would re-run
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/mistakeknot/intercore/internal/db"
+	"github.com/mistakeknot/intercore/internal/dispatch"
+	"github.com/mistakeknot/intercore/internal/scheduler"
+)
+
+func main() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "usage: legacyhost run|recover <db> ...")
+		os.Exit(2)
+	}
+	ctx := context.Background()
+	d, err := db.Open(os.Args[2], 5*time.Second)
+	if err != nil {
+		fatal(err)
+	}
+	if err := d.Migrate(ctx); err != nil {
+		fatal(err)
+	}
+	store := scheduler.NewStore(d.SqlDB())
+	switch os.Args[1] {
+	case "recover":
+		jobs, err := store.RecoverPending(ctx)
+		if err != nil {
+			fatal(err)
+		}
+		for _, j := range jobs {
+			fmt.Println(j.ID, j.Status)
+		}
+	case "run":
+		run(ctx, d, store, os.Args[3], os.Args[4])
+	default:
+		fatal(fmt.Errorf("unknown command %q", os.Args[1]))
+	}
+}
+
+func run(ctx context.Context, d *db.DB, store *scheduler.Store, dispatchSH, work string) {
+	prompt := filepath.Join(work, "legacy.prompt")
+	out := filepath.Join(work, "legacy.out")
+	if err := os.WriteFile(prompt, []byte("sleep 120\n"), 0o600); err != nil {
+		fatal(err)
+	}
+	opts, _ := json.Marshal(dispatch.SpawnOptions{
+		AgentType: "codex", ProjectDir: work, PromptFile: prompt, OutputFile: out, DispatchSH: dispatchSH,
+	})
+	s := scheduler.New(scheduler.DefaultConfig())
+	s.SetExecutor(scheduler.DispatchExecutor(dispatch.New(d.SqlDB(), nil)))
+	s.SetHooks(scheduler.Hooks{
+		OnJobEnqueued: func(j *scheduler.SpawnJob) {
+			if err := store.Create(ctx, j); err != nil {
+				fatal(err)
+			}
+		},
+		OnJobStarted: func(j *scheduler.SpawnJob) {
+			j.StartedAt = time.Now()
+			if err := store.Update(ctx, j); err != nil {
+				fatal(err)
+			}
+		},
+	})
+	if err := s.Start(); err != nil {
+		fatal(err)
+	}
+	job := scheduler.NewSpawnJob("legacy-job", scheduler.JobTypeDispatch, "legacy-session")
+	job.AgentType, job.ProjectDir, job.SpawnOpts = "codex", work, string(opts)
+	if err := s.Submit(job); err != nil {
+		fatal(err)
+	}
+	for i := 0; i < 600; i++ {
+		if _, err := os.Stat(out + ".started"); err == nil {
+			fmt.Println("started")
+			select {}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	fatal(fmt.Errorf("the legacy worker never started"))
+}
+
+func fatal(err error) {
+	fmt.Fprintln(os.Stderr, "legacyhost:", err)
+	os.Exit(1)
+}
