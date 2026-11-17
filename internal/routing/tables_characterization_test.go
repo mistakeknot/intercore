@@ -24,7 +24,7 @@ func renderEffortTable() string {
 		fmt.Fprintf(&b, "  %s => %s\n", k, strings.Join(backendEffortOrders[k], ","))
 	}
 	probes := []struct{ backend, identity string }{
-		{"codex", "gpt-6-astra"}, {"codex", "gpt-6-sol"}, {"codex", "gpt-6.1-sol"}, {"codex", "gpt-6.1-astra"},
+		{"codex", "gpt-6-astra"}, {"codex", "gpt-6-sol"}, {"codex", "gpt-6.1-sol"}, {"codex", "gpt-6.1-astra"}, {"codex", "gpt-6.2-sol"}, {"codex", "gpt-6.2-astra"},
 		{"codex", "gpt-6"}, {"codex", "gpt-6."}, {"codex", "gpt-5.6-sol"}, {"codex", "claude-opus-5-5"},
 		{"claude", "claude-opus-5-5"}, {"claude", "claude-sonnet-5-5"}, {"claude", "claude-haiku-5-5"},
 		{"claude", "claude-fable-5-1"}, {"claude", "gpt-6-astra"},

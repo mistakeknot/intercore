@@ -1,15 +1,18 @@
 effort levels: low,medium,high,xhigh
-backend effort orders (5):
+backend effort orders (6):
   claude/claude-opus-* => medium,high
   claude/claude-sonnet-* => medium,high
   codex/gpt-6-* => low,medium,high,xhigh
   codex/gpt-6.1-* => low,medium,high,xhigh
+  codex/gpt-6.2-* => low,medium,high,xhigh
   kimi/kimi-code/k3 => high
 effort order selection:
   backend="codex" identity="gpt-6-astra" => ok=true order=low,medium,high,xhigh
   backend="codex" identity="gpt-6-sol" => ok=true order=low,medium,high,xhigh
   backend="codex" identity="gpt-6.1-sol" => ok=true order=low,medium,high,xhigh
   backend="codex" identity="gpt-6.1-astra" => ok=true order=low,medium,high,xhigh
+  backend="codex" identity="gpt-6.2-sol" => ok=true order=low,medium,high,xhigh
+  backend="codex" identity="gpt-6.2-astra" => ok=true order=low,medium,high,xhigh
   backend="codex" identity="gpt-6" => ok=false order=
   backend="codex" identity="gpt-6." => ok=false order=
   backend="codex" identity="gpt-5.6-sol" => ok=false order=

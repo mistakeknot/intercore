@@ -222,7 +222,7 @@ func TestModelLabRecognizesEveryCanonicalIdentityPrefix(t *testing.T) {
 
 // Reviewer independence keys on the lab, so a gpt-6.1 seat must stay openai.
 func TestModelLabGPT61IsOpenAI(t *testing.T) {
-	for _, id := range []string{"gpt-6-sol", "gpt-6.1-sol"} {
+	for _, id := range []string{"gpt-6-sol", "gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.2-astra"} {
 		if got := modelLab(id); got != "openai" {
 			t.Fatalf("modelLab(%q) = %q, want openai", id, got)
 		}
