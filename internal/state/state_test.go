@@ -74,8 +74,11 @@ func TestTTLEnforcement(t *testing.T) {
 	store := New(db)
 	ctx := context.Background()
 
+	// expires_at is whole seconds (floor(now)+ttl) and Get compares it to
+	// unixepoch(), so a 1s TTL can lapse as soon as a second boundary falls
+	// between Set and Get. Use 2s so the immediate Get always sees the entry.
 	payload := json.RawMessage(`{"temp":true}`)
-	if err := store.Set(ctx, "ephemeral", "s1", payload, 1*time.Second); err != nil {
+	if err := store.Set(ctx, "ephemeral", "s1", payload, 2*time.Second); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,8 +91,8 @@ func TestTTLEnforcement(t *testing.T) {
 		t.Errorf("unexpected payload: %s", got)
 	}
 
-	// Wait for TTL
-	time.Sleep(2 * time.Second)
+	// Wait past the TTL: expires_at is at most 2s after Set.
+	time.Sleep(3 * time.Second)
 
 	// Should be invisible
 	_, err = store.Get(ctx, "ephemeral", "s1")
@@ -105,9 +108,11 @@ func TestTTL_Truncation(t *testing.T) {
 
 	// Set with 1500ms TTL — should truncate to 1 second
 	payload := json.RawMessage(`{"test":true}`)
+	before := time.Now().Unix()
 	if err := store.Set(ctx, "trunc", "s1", payload, 1500*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
+	after := time.Now().Unix()
 
 	// Check the expires_at value directly
 	var expiresAt int64
@@ -116,10 +121,9 @@ func TestTTL_Truncation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := time.Now().Unix()
-	expected := now + 1 // 1500ms truncated to 1 second
-	if expiresAt != expected && expiresAt != expected+1 {
-		t.Errorf("expires_at = %d, expected ~%d (now+1)", expiresAt, expected)
+	// 1500ms truncated to 1 second; Set read the clock somewhere in [before, after].
+	if expiresAt < before+1 || expiresAt > after+1 {
+		t.Errorf("expires_at = %d, expected within [%d, %d]", expiresAt, before+1, after+1)
 	}
 }
 
