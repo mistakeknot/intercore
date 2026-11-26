@@ -128,8 +128,7 @@ func (e *engine) recoverRow(ctx context.Context, pc scheduler.PriorClaim) error 
 
 	switch dec.Action {
 	case scheduler.ActLegacy:
-		e.logf("recovery: job %s is a legacy attempt (row %d); the legacy rule is not part of this runner yet, left as is", a.JobID, dec.Row)
-		return nil
+		return e.recoverLegacy(ctx, c, a, d, state)
 	case scheduler.ActCheckPID, scheduler.ActSurvivor:
 		if e.rebooted() {
 			return e.recoverRebooted(ctx, c, a)
@@ -138,8 +137,7 @@ func (e *engine) recoverRow(ctx context.Context, pc scheduler.PriorClaim) error 
 			return e.recoverRecordedPID(ctx, c, a, d)
 		}
 		if !containedAttempt(a) {
-			e.logf("recovery: job %s has no recorded PID and no attempt cgroup (row %d); the fallback-mode survivor sweep is not part of this runner yet, left as is", a.JobID, dec.Row)
-			return nil
+			return e.recoverFallback(ctx, c, a, "no recorded PID and no attempt cgroup")
 		}
 		return e.recoverSurvivor(ctx, c, a)
 	case scheduler.ActPipeline:
@@ -202,6 +200,24 @@ func (e *engine) recoverSurvivor(ctx context.Context, c *scheduler.Claim, a *sch
 	}
 	e.recoverStep(a.Token, "terminalized")
 	return e.recoveredPipeline(ctx, a, e.pipeline(ctx, c, a, nil, true))
+}
+
+// recoverFallback is row 8 without a cgroup, and the dead-wrapper case of row 7
+// in fallback mode. Nothing proves the dispatch's descendants are gone, so the
+// environment sweep kills the ones it can find and the outcome never depends
+// on what it found: the dispatch is terminalized indeterminate and the job is
+// blocked with retry_blocked=survivor_unknown until an operator confirms. The
+// sweep never adopts and a clean sweep is not proof of absence.
+func (e *engine) recoverFallback(ctx context.Context, c *scheduler.Claim, a *scheduler.AttemptRow, why string) error {
+	out := e.sweepEnvironment(a.DispatchID, true)
+	e.logf("recovery: job %s fallback sweep (%s): found %d, killed %d, unproven %d; not proof of absence, retry blocked",
+		a.JobID, why, out.Found, out.Killed, out.Unproven)
+	e.recoverStep(a.Token, "swept")
+	if err := e.terminalizeIndeterminate(ctx, a, "survivor", out.Killed); err != nil {
+		return err
+	}
+	e.recoverStep(a.Token, "terminalized")
+	return e.recoveredPipeline(ctx, a, e.pipelineBlocking(ctx, c, a, nil, false, true))
 }
 
 // terminalizeIndeterminate closes a non-terminal dispatch as an indeterminate
