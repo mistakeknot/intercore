@@ -113,8 +113,17 @@ func TestSentinelCheck_IntervalExpiry(t *testing.T) {
 	store := New(db, nil)
 	ctx := context.Background()
 
+	// Check compares whole Unix seconds (unixepoch() - last_fired >= interval),
+	// so the number of "elapsed" seconds is floor(t2) - floor(t1): an
+	// immediate second call that straddles a second boundary already sees 1.
+	// With a 1s interval that made the throttle assertion flaky. A 2s interval
+	// makes both sides deterministic: calls less than a second apart see at
+	// most 1 elapsed second (throttled), and a sleep longer than the interval
+	// always sees at least 2 (allowed).
+	const interval = 2
+
 	// First call: allowed
-	allowed, err := store.Check(ctx, "rate", "s1", 1)
+	allowed, err := store.Check(ctx, "rate", "s1", interval)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +132,7 @@ func TestSentinelCheck_IntervalExpiry(t *testing.T) {
 	}
 
 	// Immediate second call: throttled
-	allowed, err = store.Check(ctx, "rate", "s1", 1)
+	allowed, err = store.Check(ctx, "rate", "s1", interval)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,11 +140,11 @@ func TestSentinelCheck_IntervalExpiry(t *testing.T) {
 		t.Error("immediate second check should be throttled")
 	}
 
-	// Wait for interval to expire
-	time.Sleep(1100 * time.Millisecond)
+	// Wait for interval to expire (strictly longer than the interval)
+	time.Sleep(interval*time.Second + 100*time.Millisecond)
 
 	// Third call: allowed again
-	allowed, err = store.Check(ctx, "rate", "s1", 1)
+	allowed, err = store.Check(ctx, "rate", "s1", interval)
 	if err != nil {
 		t.Fatal(err)
 	}
